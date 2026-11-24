@@ -2944,20 +2944,27 @@ final class InboxTests: XCTestCase {
     // The translation replaced one word of the paragraph, so the page names the whole paragraph.
     let paragraph = webText("Synthetic translation of local mail.", in: app).label
     let link = app.webViews.links[paragraph]
+    let pageText = { app.webViews.staticTexts.allElementsBoundByIndex.map { $0.label } }
+    let unlinked = pageText()
     let copy = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Copy"))
       .firstMatch
-    for _ in 0..<3 where !copy.exists {
-      webText(paragraph, in: app).tap(withNumberOfTaps: 3, numberOfTouches: 1)
-      _ = copy.waitForExistence(timeout: 5)
-    }
-    XCTAssertTrue(copy.exists)
-    let addLink = formatControl("Add Link", in: app)
-    waitUntil { addLink.isEnabled }
-    addLink.tap()
     let destination = app.textFields["Link"]
-    XCTAssertTrue(destination.waitForExistence(timeout: 10))
+    let text = app.textFields["Text"]
+    let pad = UIDevice.current.userInterfaceIdiom == .pad
+    // A triple tap on a loaded host can select only a word; close the editor and select again.
+    for _ in 0..<3 where !(destination.exists && text.value as? String == paragraph) {
+      if destination.exists { dismissLinkEditor(app, field: destination, pad: pad) }
+      for attempt in 0..<3 where attempt == 0 || !copy.exists {
+        webText(paragraph, in: app).tap(withNumberOfTaps: 3, numberOfTouches: 1)
+        _ = copy.waitForExistence(timeout: 5)
+      }
+      let addLink = formatControl("Add Link", in: app)
+      waitUntil { addLink.isEnabled }
+      addLink.tap()
+      XCTAssertTrue(destination.waitForExistence(timeout: 10))
+    }
     waitForFocus(destination)
-    XCTAssertEqual(app.textFields["Text"].value as? String, paragraph)
+    XCTAssertEqual(text.value as? String, paragraph)
     let empty = destination.value as? String
     XCTAssertTrue(empty == nil || empty == "" || empty == destination.placeholderValue)
     XCTAssertFalse(app.buttons["Remove Link"].exists)
@@ -2975,14 +2982,12 @@ final class InboxTests: XCTestCase {
       linked.name = shot
       linked.lifetime = .keepAlways
       self.add(linked)
-      self.dismissLinkEditor(
-        app, field: destination, pad: UIDevice.current.userInterfaceIdiom == .pad)
+      self.dismissLinkEditor(app, field: destination, pad: pad)
     }
     editLink("Evaluation Edit Link")
 
     formatControl("Undo", in: app).tap()
-    waitUntil { !link.exists }
-    XCTAssertTrue(webText(paragraph, in: app).exists)
+    waitUntil { !link.exists && pageText() == unlinked }
     XCTAssertTrue(formatControl("Add Link", in: app).waitForExistence(timeout: 10))
     formatControl("Redo", in: app).tap()
     XCTAssertTrue(link.waitForExistence(timeout: 10))
