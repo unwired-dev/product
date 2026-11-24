@@ -561,7 +561,7 @@ mail content.
   message to the mailbox's own address left the Outbox, appeared in **Sent Items** and
   arrived in the Inbox within 3 minutes. The app's permissions were then removed from the
   Microsoft account's **Apps and services you've given access**. A relaunch right
-  afterwards still synchronized with the token the app held. A relaunch 54 minutes later
+  afterwards still synchronized. A relaunch 54 minutes later
   opened the account page with **Connect your mail** instead of the Inbox, listing the
   mailbox with **Microsoft needs your permission again**, **Allow Microsoft Access for**
   its address and **Remove**; it said **Microsoft
@@ -578,6 +578,5 @@ mail content.
   the repository's `artifacts` directory with this run's DerivedData, this run's scratch and
   temporary directories and its session transcripts found no password or Recovery Key.
   Limitations: the run did not record when Microsoft's access tokens expired or when the
-  app asked for a new one, so renewal after expiry is inferred from the elapsed time, not
-  observed. Microsoft's one-time sign-in codes were typed, as they expire within minutes.
+  app asked for a new one, so renewal after expiry remains unverified. Microsoft's one-time sign-in codes were typed, as they expire within minutes.
   Mac, iPad and uncertain outcomes were not run and stay on #637.
