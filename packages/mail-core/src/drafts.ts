@@ -2483,10 +2483,13 @@ export function createDrafts(
     );
   };
 
+  // When it resolves true, `settled` runs once every import it started has settled.
+  // oxlint-disable-next-line eslint/max-params -- A caller holding the imported files releases them once the imports settle.
   const fill = async (
     draft: string,
     edit: (draft: Draft) => Draft,
     imports: ReadonlyArray<Readonly<{ asset: Asset; source: AssetSource }>>,
+    settled?: () => void,
   ) => {
     const current = generation;
     if (
@@ -2512,8 +2515,14 @@ export function createDrafts(
     if (!kept || !live(current)) {
       return false;
     }
-    for (const { asset, source } of imports) {
-      void importThenPublish(asset, source);
+    const copies = imports.map(({ asset, source }) =>
+      importThenPublish(asset, source),
+    );
+    if (settled !== undefined) {
+      void (async () => {
+        await Promise.allSettled(copies);
+        settled();
+      })();
     }
     return true;
   };
@@ -2840,8 +2849,13 @@ export function createDrafts(
       return settled;
     },
     // Attaches files to a Draft that no editor shows yet, such as a received attachment. Resolves
-    // true once the Draft holds them, false when the Draft or its account is gone.
-    attach: (draft: string, files: readonly PickedFile[]) => {
+    // true once the Draft holds them, false when the Draft or its account is gone; `settled` runs
+    // as for `fill`.
+    attach: (
+      draft: string,
+      files: readonly PickedFile[],
+      settled?: () => void,
+    ) => {
       const added = files.map((file) => ({
         asset: prepare(file),
         source: file.source,
@@ -2856,6 +2870,7 @@ export function createDrafts(
           ],
         }),
         added,
+        settled,
       );
     },
     // Fills a Draft that no editor shows yet, such as a reply, then imports the prepared assets it

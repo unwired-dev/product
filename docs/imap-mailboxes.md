@@ -375,7 +375,8 @@ actions as [Gmail's received attachments](gmail-inbox.md#received-attachments):
   **Try Again**.
 - **Removal.** A saved file is deleted when the message's last reader closes, the
   Inbox closes, and with the connection, sign-out, account deletion, device removal
-  and relaunch. Like saved bodies, attachments follow the folder identity the
+  and relaunch. A file that **Forward** or **Attach to New Message** is copying into
+  a Draft is deleted only once that copy has finished or failed. Like saved bodies, attachments follow the folder identity the
   connection's encrypted cache commits: once a successful folder synchronization
   records a new UIDVALIDITY, the saved files of the folder's earlier messages are
   deleted and their downloads in flight are dropped, even while a reader still

@@ -357,42 +357,56 @@ export const typedReply = (
 
 // The files a forward attaches: each listed attachment of an opened message in `mailbox`,
 // downloaded first. One too large to download, or that cannot be downloaded, is attached as a
-// failed asset.
+// failed asset. The saved files stay on the device until `release`, after the Draft copied them.
 export async function forwardedAttachments(
   inbox: Pick<
     GmailInbox | ImapInbox,
-    'messageAttachments' | 'downloadAttachment' | 'attachmentFile'
+    'messageAttachments' | 'downloadAttachment' | 'holdAttachmentFile'
   >,
   { mailbox, id }: Readonly<{ mailbox: string; id: string }>,
-): Promise<readonly PickedFile[]> {
-  return Promise.all(
-    (inbox.messageAttachments(id) ?? []).map(
-      async ({ locator, name, mimeType, state }): Promise<PickedFile> => {
-        if (state.kind === 'oversized') {
-          return { name, type: mimeType, source: { kind: 'oversized' } };
-        }
-        // A download already running when Forward was chosen is awaited rather than started again.
-        await inbox.downloadAttachment(id, locator);
-        const saved = inbox.attachmentFile(id, locator);
-        return {
-          name,
-          type: mimeType,
-          source:
-            saved === undefined
-              ? { kind: 'unavailable' }
-              : {
-                  kind: 'received',
-                  mailbox: {
-                    connection: mailbox,
-                    address: saved.address,
-                    generation: saved.generation,
-                  },
-                  file: saved.file,
-                },
-        };
-      },
-    ),
+) {
+  const listed = inbox.messageAttachments(id) ?? [];
+  // A download already running when Forward was chosen is awaited rather than started again. Files
+  // are held only once every download finished, so a rejected one leaves nothing held.
+  await Promise.all(
+    listed
+      .filter(({ state }) => state.kind !== 'oversized')
+      .map(({ locator }) => inbox.downloadAttachment(id, locator)),
   );
+  const held: Array<() => void> = [];
+  const files = listed.map(({ locator, name, mimeType, state }): PickedFile => {
+    if (state.kind === 'oversized') {
+      return { name, type: mimeType, source: { kind: 'oversized' } };
+    }
+    const saved = inbox.holdAttachmentFile(id, locator);
+    if (saved !== undefined) {
+      held.push(saved.release);
+    }
+    return {
+      name,
+      type: mimeType,
+      source:
+        saved === undefined
+          ? { kind: 'unavailable' }
+          : {
+              kind: 'received',
+              mailbox: {
+                connection: mailbox,
+                address: saved.address,
+                generation: saved.generation,
+              },
+              file: saved.file,
+            },
+    };
+  });
+  return {
+    files,
+    release: () => {
+      for (const release of held) {
+        release();
+      }
+    },
+  };
 }
 
 // Starts a reply or forward to an opened message from the reader's own Mailbox Connection, never
@@ -415,7 +429,7 @@ export async function startResponse(
       | 'getSnapshot'
       | 'messageAttachments'
       | 'downloadAttachment'
-      | 'attachmentFile'
+      | 'holdAttachmentFile'
     >;
   }>,
   t: Translate,
@@ -446,52 +460,65 @@ export async function startResponse(
     return undefined;
   }
   let response: ReturnType<typeof respond> | undefined = undefined;
-  return navigation.create(drafts, mailbox, {
-    prepare: (id) => {
-      const draft = draftOf(drafts.getSnapshot(), id);
-      if (
-        !current() ||
-        inbox.responseSource(message.id) !== document ||
-        response === undefined ||
-        draft === undefined ||
-        !isEmptyDraft(draft)
-      ) {
-        return Promise.resolve(false);
-      }
-      const prepared = response;
-      // Another editor may complete the visible row during creation's first save. Preparation
-      // must not replace that editor's recipients or subject, including an edit queued meanwhile.
-      return drafts.fill(
-        id,
-        (each) => (isEmptyDraft(each) ? prepared.edit(each) : each),
-        prepared.imports,
-      );
-    },
-    before: async () => {
-      const attachments =
-        kind === 'forward'
-          ? await forwardedAttachments(inbox, {
-              mailbox: mailbox.id,
-              id: message.id,
-            })
-          : [];
-      if (!current() || inbox.responseSource(message.id) !== document) {
-        return false;
-      }
-      response = respond(t, kind, {
-        message,
-        document,
-        connection: mailbox.id,
-        from: mailbox.address,
-        // Only the sending Mail Profile's own addresses leave the recipients.
-        identities: mailboxes
-          .filter(({ profile }) => profile === mailbox.profile)
-          .map(({ address }) => address),
-        received,
-        attachments,
-        prepare: drafts.prepare,
-      });
-      return true;
-    },
-  });
+  // Forwarded files stay on the device until the Draft copied them, even if the reader closes.
+  const held: { release?: () => void } = {};
+  let filled = false;
+  try {
+    return await navigation.create(drafts, mailbox, {
+      prepare: async (id) => {
+        const draft = draftOf(drafts.getSnapshot(), id);
+        if (
+          !current() ||
+          inbox.responseSource(message.id) !== document ||
+          response === undefined ||
+          draft === undefined ||
+          !isEmptyDraft(draft)
+        ) {
+          return false;
+        }
+        const prepared = response;
+        // Another editor may complete the visible row during creation's first save. Preparation
+        // must not replace that editor's recipients or subject, including an edit queued meanwhile.
+        filled = await drafts.fill(
+          id,
+          (each) => (isEmptyDraft(each) ? prepared.edit(each) : each),
+          prepared.imports,
+          held.release,
+        );
+        return filled;
+      },
+      before: async () => {
+        let attachments: readonly PickedFile[] = [];
+        if (kind === 'forward') {
+          const forwarding = await forwardedAttachments(inbox, {
+            mailbox: mailbox.id,
+            id: message.id,
+          });
+          attachments = forwarding.files;
+          held.release = forwarding.release;
+        }
+        if (!current() || inbox.responseSource(message.id) !== document) {
+          return false;
+        }
+        response = respond(t, kind, {
+          message,
+          document,
+          connection: mailbox.id,
+          from: mailbox.address,
+          // Only the sending Mail Profile's own addresses leave the recipients.
+          identities: mailboxes
+            .filter(({ profile }) => profile === mailbox.profile)
+            .map(({ address }) => address),
+          received,
+          attachments,
+          prepare: drafts.prepare,
+        });
+        return true;
+      },
+    });
+  } finally {
+    if (!filled) {
+      held.release?.();
+    }
+  }
 }

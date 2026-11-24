@@ -174,10 +174,15 @@ export function createAttachmentDownloads<S extends Scope, E>(
   }>;
   const downloads = new Map<string, Download>();
   const views = new Map<string, readonly ReceivedAttachment[]>();
+  // Saved files a Draft is still copying, by file, and the discards that wait for those copies.
+  const holds = new Map<string, number>();
+  const waiting = new Map<string, Readonly<{ scope: S; file: string }>>();
   const discardSaved = (
     saved: Readonly<{ scope: S; file: string }> | undefined,
   ) => {
-    if (saved !== undefined) {
+    if (saved !== undefined && holds.has(saved.file)) {
+      waiting.set(saved.file, saved);
+    } else if (saved !== undefined) {
       void runLogged(
         Effect.tryPromise({
           try: () => native.discardAttachment(saved.scope, saved.file),
@@ -471,8 +476,9 @@ export function createAttachmentDownloads<S extends Scope, E>(
         ),
       ),
     // A Downloaded Attachment saved for the open mailbox generation, which a Draft can copy; native
-    // code reads it only while that generation is current.
-    attachmentFile: (id: string, locator: string) => {
+    // code reads it only while that generation is current. The file stays on the device, even
+    // after its message's last reader closes, until `release` is called once the copy settled.
+    holdAttachmentFile: (id: string, locator: string) => {
       const saved = downloads.get(attachmentKey(id, locator))?.saved;
       const attachment = descriptor(id, locator);
       const opened = scope();
@@ -485,12 +491,30 @@ export function createAttachmentDownloads<S extends Scope, E>(
       ) {
         return undefined;
       }
+      const { file } = saved;
+      holds.set(file, (holds.get(file) ?? 0) + 1);
+      let held = true;
       return {
         name: attachment.name,
         type: attachment.mimeType,
         address: opened.address,
         generation: opened.generation,
-        file: saved.file,
+        file,
+        release: () => {
+          if (!held) {
+            return;
+          }
+          held = false;
+          const count = (holds.get(file) ?? 1) - 1;
+          if (count > 0) {
+            holds.set(file, count);
+            return;
+          }
+          holds.delete(file);
+          const discarded = waiting.get(file);
+          waiting.delete(file);
+          discardSaved(discarded);
+        },
       };
     },
     // Drops the downloads of one message, or of every message, deleting their saved files. With

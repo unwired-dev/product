@@ -1644,6 +1644,11 @@ changes owner only once that preview closes, the share ends or the save finishes
 It also stays through eviction and counts toward the 250 MiB limit. A download
 that cannot fit without deleting a presented file fails and can be retried after
 the preview closes, the share ends or the save finishes.
+
+A file that **Forward** or **Attach to New Message** is copying into a Draft is
+deleted after its reader closes, or the Inbox closes or changes owner, only once
+that copy has finished or failed. On iPhone the composer replaces the reader, so
+the reader can close before the copy finishes.
 Removal, sign-out, deletion and relaunch delete it immediately.
 
 Attachment controls ignore input queued for a reader that has changed or closed,
