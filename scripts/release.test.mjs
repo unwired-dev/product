@@ -75,7 +75,11 @@ function fixture() {
     }),
   );
   hosts('0.1.0');
-  for (const script of ['release-version.sh', 'release-tag.sh']) {
+  for (const script of [
+    'release-version.sh',
+    'release-tag.sh',
+    'release-github.sh',
+  ]) {
     write(`scripts/${script}`, '');
     copyFileSync(
       path.join(root, 'scripts', script),
@@ -99,14 +103,17 @@ if (env.RELEASE_TEST_API_FAILURE === '1') process.exit(1);
 if (a.some(x => x.includes('/git/ref/heads/main'))) { console.log(env.RELEASE_TEST_MAIN_SHA || env.GITHUB_SHA); process.exit(0); }
 if (a.some(x => x.includes('/commits/'))) { if (env.RELEASE_TEST_UNMERGED !== '1') console.log(7); process.exit(0); }
 if (a.some(x => x.includes('/matching-refs/'))) { if (env.RELEASE_TEST_TAG) console.log(env.RELEASE_TEST_TAG); process.exit(0); }
+if (a[0] === 'release') { const fs = process.getBuiltinModule('node:fs'); fs.writeFileSync(env.RELEASE_TEST_RELEASE, JSON.stringify({ args: a, notes: fs.readFileSync(0, 'utf8') })); process.exit(0); }
 process.exit(2);
 `,
     { mode: 0o755 },
   );
-  const run = (script, env = {}) => {
+  const run = (script, env = {}, args = []) => {
     const output = path.join(directory, 'changesets-output.ndjson');
+    const release = path.join(directory, 'release.json');
     writeFileSync(output, '');
-    const result = spawnSync('bash', [`scripts/${script}`], {
+    rmSync(release, { force: true });
+    const result = spawnSync('bash', [`scripts/${script}`, ...args], {
       cwd,
       encoding: 'utf8',
       env: {
@@ -115,10 +122,17 @@ process.exit(2);
         GITHUB_SHA: 'merge',
         GITHUB_REPOSITORY: 'fixture/product',
         CHANGESETS_OUTPUT: output,
+        RELEASE_TEST_RELEASE: release,
         ...env,
       },
     });
-    return { ...result, output: readFileSync(output, 'utf8') };
+    return {
+      ...result,
+      output: readFileSync(output, 'utf8'),
+      release: existsSync(release)
+        ? parseJson(readFileSync(release, 'utf8'))
+        : undefined,
+    };
   };
   return {
     cwd,
@@ -204,6 +218,51 @@ test('only a merged version pull request with an untagged shared version reports
     result = f.run('release-tag.sh');
     assert.equal(result.status, 1);
     assert.equal(result.output, '');
+  } finally {
+    f.close();
+  }
+});
+
+// A changelog section of `length` characters: the blank line after its version
+// heading, the bump heading and filler.
+const section = (length) => `\n### Minor Changes\n\n${'x'.repeat(length - 20)}`;
+
+test('the GitHub Release copies the mobile changelog section up to the GitHub body limit and links the changelogs beyond it', () => {
+  const f = fixture();
+  const changelog = (length) =>
+    f.write(
+      'apps/mobile/CHANGELOG.md',
+      `# @private-email/mobile\n\n## 0.2.0\n${section(length)}\n\n## 0.1.0\n\n- Older\n`,
+    );
+  try {
+    changelog(125_000);
+    let result = f.run('release-github.sh', {}, ['v0.2.0']);
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(result.release, {
+      args: [
+        'release',
+        'create',
+        'v0.2.0',
+        '--verify-tag',
+        '--title',
+        'v0.2.0',
+        '--notes-file',
+        '-',
+      ],
+      notes: section(125_000),
+    });
+
+    changelog(125_001);
+    result = f.run('release-github.sh', {}, ['v0.2.0']);
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(
+      result.release.notes,
+      'The changelog for v0.2.0 is too long for a GitHub Release. Read it in [apps/mobile/CHANGELOG.md](https://github.com/fixture/product/blob/v0.2.0/apps/mobile/CHANGELOG.md) and [apps/macos/CHANGELOG.md](https://github.com/fixture/product/blob/v0.2.0/apps/macos/CHANGELOG.md).',
+    );
+
+    result = f.run('release-github.sh', {}, ['v0.3.0']);
+    assert.equal(result.status, 1);
+    assert.equal(result.release, undefined);
   } finally {
     f.close();
   }
