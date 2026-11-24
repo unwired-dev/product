@@ -486,7 +486,8 @@ const styles = StyleSheet.create({
   stackedNotice: { paddingLeft: 0 },
   stackedTrailing: { height: 'auto' },
   // The entry and its drawn placeholder; the minimum width wraps the entry below the recipients.
-  entry: { flex: 1, minWidth: 140 },
+  // A row, so the input's flex fills the width and its height stays one line (#2736).
+  entry: { flex: 1, flexDirection: 'row', minWidth: 140 },
   placeholder: {
     ...StyleSheet.absoluteFill,
     justifyContent: 'center',
