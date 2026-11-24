@@ -259,7 +259,7 @@ export function createSyntheticDrafts(
       const file = saved.get(source.file);
       return file === undefined
         ? files.get(source.file)
-        : String.fromCodePoint(...file.bytes);
+        : Array.from(file.bytes, (byte) => String.fromCodePoint(byte)).join('');
     }
     return files.get(source.uri);
   };

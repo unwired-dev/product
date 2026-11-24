@@ -365,38 +365,40 @@ export async function forwardedAttachments(
   >,
   { mailbox, id }: Readonly<{ mailbox: string; id: string }>,
 ) {
-  const held: Array<() => void> = [];
-  const files = await Promise.all(
-    (inbox.messageAttachments(id) ?? []).map(
-      async ({ locator, name, mimeType, state }): Promise<PickedFile> => {
-        if (state.kind === 'oversized') {
-          return { name, type: mimeType, source: { kind: 'oversized' } };
-        }
-        // A download already running when Forward was chosen is awaited rather than started again.
-        await inbox.downloadAttachment(id, locator);
-        const saved = inbox.holdAttachmentFile(id, locator);
-        if (saved !== undefined) {
-          held.push(saved.release);
-        }
-        return {
-          name,
-          type: mimeType,
-          source:
-            saved === undefined
-              ? { kind: 'unavailable' }
-              : {
-                  kind: 'received',
-                  mailbox: {
-                    connection: mailbox,
-                    address: saved.address,
-                    generation: saved.generation,
-                  },
-                  file: saved.file,
-                },
-        };
-      },
-    ),
+  const listed = inbox.messageAttachments(id) ?? [];
+  // A download already running when Forward was chosen is awaited rather than started again. Files
+  // are held only once every download finished, so a rejected one leaves nothing held.
+  await Promise.all(
+    listed
+      .filter(({ state }) => state.kind !== 'oversized')
+      .map(({ locator }) => inbox.downloadAttachment(id, locator)),
   );
+  const held: Array<() => void> = [];
+  const files = listed.map(({ locator, name, mimeType, state }): PickedFile => {
+    if (state.kind === 'oversized') {
+      return { name, type: mimeType, source: { kind: 'oversized' } };
+    }
+    const saved = inbox.holdAttachmentFile(id, locator);
+    if (saved !== undefined) {
+      held.push(saved.release);
+    }
+    return {
+      name,
+      type: mimeType,
+      source:
+        saved === undefined
+          ? { kind: 'unavailable' }
+          : {
+              kind: 'received',
+              mailbox: {
+                connection: mailbox,
+                address: saved.address,
+                generation: saved.generation,
+              },
+              file: saved.file,
+            },
+    };
+  });
   return {
     files,
     release: () => {
