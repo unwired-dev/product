@@ -14,7 +14,7 @@ import type {
 } from 'react-native';
 
 import { menuState } from '@private-email/mail-core/context-menu';
-import { radius, spacing } from '@private-email/mail-core/theme';
+import { radius, spacing, typography } from '@private-email/mail-core/theme';
 import {
   useEffect,
   useLayoutEffect,
@@ -186,25 +186,30 @@ const styles = StyleSheet.create({
   },
   noticeMessage: { flexDirection: 'row', gap: spacing.s },
   noticeMessageText: { flex: 1 },
+  // A 48pt glass capsule, its message on one line.
   toast: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.m,
-    paddingHorizontal: spacing.l,
-    paddingVertical: 10,
-    borderRadius: radius.card,
+    gap: 10,
+    height: 48,
+    paddingLeft: spacing.l,
+    paddingRight: 20,
+    borderRadius: 24,
     borderCurve: 'continuous',
   },
+  toastSymbol: { width: 22, alignItems: 'center' },
   toastMessage: { flexShrink: 1 },
-  // A 28pt target around the 16pt label, inside the toast's own height.
+  toastMessageText: { ...textStyles.title3Emphasized },
+  // 6pt more before the action; its 28pt target extends 3pt above and below the 22pt label.
   toastAction: {
     minHeight: 28,
-    marginVertical: -6,
+    marginLeft: 6,
+    marginVertical: -3,
     justifyContent: 'center',
     outlineWidth: 2,
     borderRadius: radius.control,
   },
-  toastActionLabel: { ...textStyles.bodyEmphasized },
+  toastActionLabel: { ...typography.ios.headline },
   noticeWithDetail: {
     marginHorizontal: -spacing.s,
     paddingLeft: 22,
@@ -701,12 +706,12 @@ export function MenuPresence({
   );
 }
 
-// The deep graphite toast above the search bar, with its symbol, message and one action. The Mac
-// draws it until its glass toast (#2104).
+// The glass toast above the search bar, with its symbol, message and one action.
 export function Toast({
   open,
   symbol,
   message,
+  messageLabel = message,
   action,
   actionLabel = action,
   onAction,
@@ -714,34 +719,44 @@ export function Toast({
   readonly open: boolean;
   readonly symbol: string;
   readonly message: string;
+  // What VoiceOver reads for the message, when the toast shows a shorter one.
+  readonly messageLabel?: string;
   readonly action: string;
   // What VoiceOver says for the action, when its title alone is not enough.
   readonly actionLabel?: string;
   readonly onAction: () => void;
 }) {
   const colors = usePalette();
+  const dark = useColorScheme() === 'dark';
   const [focused, setFocused] = useState(false);
+  const ink = { color: colors.textPrimary };
   return (
     <MenuPresence
       open={open}
       origin="bottom"
-      style={[
-        styles.toast,
-        { backgroundColor: colors.brandDeep, boxShadow: colors.toastShadow },
-      ]}>
+      style={[styles.toast, { boxShadow: colors.toastShadow }]}>
       {/* React Native's legacy view interop mounts a nested native view without its offset,
-          so the symbol sits in a plain view inside the toast's padding. */}
-      <View collapsable={false}>
+          so the glass and the symbol each sit in a plain view. */}
+      <View
+        collapsable={false}
+        style={StyleSheet.absoluteFill}>
+        <Glass cornerRadius={24} />
+      </View>
+      <View
+        collapsable={false}
+        style={styles.toastSymbol}>
         <SFSymbol
           name={symbol}
-          color={colors.brandOnDeep}
+          color={colors.textPrimary}
         />
       </View>
       <View
         accessible
-        accessibilityLabel={message}
+        accessibilityLabel={messageLabel}
         style={styles.toastMessage}>
-        <Text style={[textStyles.body, { color: colors.brandOnDeep }]}>
+        <Text
+          numberOfLines={1}
+          style={[styles.toastMessageText, ink]}>
           {message}
         </Text>
       </View>
@@ -759,9 +774,13 @@ export function Toast({
         onPress={onAction}
         style={[
           styles.toastAction,
-          { outlineColor: focused ? colors.brandOnDeep : 'transparent' },
+          { outlineColor: focused ? colors.accentInk : 'transparent' },
         ]}>
-        <Text style={[styles.toastActionLabel, { color: colors.brandOnDeep }]}>
+        <Text
+          style={[
+            styles.toastActionLabel,
+            { color: dark ? colors.textPrimary : colors.accentInk },
+          ]}>
           {action}
         </Text>
       </Pressable>

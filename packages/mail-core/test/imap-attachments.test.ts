@@ -159,13 +159,16 @@ describe('imap received attachments', () => {
       { name: 'report.pdf', action: 'share' },
     ]);
     // A Draft can copy the saved file through the connection's open generation.
-    expect(inbox.attachmentFile(id, '0.1')).toStrictEqual({
+    const held = inbox.holdAttachmentFile(id, '0.1');
+    expect(held).toStrictEqual({
       name: 'report.pdf',
       type: 'application/pdf',
       address: 'alex@example.invalid',
       generation: 'generation-1',
       file: [...imap.files.savedFiles.keys()][0],
+      release: expect.any(Function),
     });
+    held?.release();
 
     // A file the device no longer has offers Download again.
     imap.files.savedFiles.clear();
@@ -190,9 +193,9 @@ describe('imap received attachments', () => {
 
     // Forward downloads before it reads the saved file; a stale file is not current.
     await inbox.downloadAttachment(id, '0.1');
-    expect(inbox.attachmentFile(id, '0.1')).toMatchObject({
-      generation: 'generation-2',
-    });
+    const held = inbox.holdAttachmentFile(id, '0.1');
+    expect(held).toMatchObject({ generation: 'generation-2' });
+    held?.release();
     expect([...imap.files.savedFiles.keys()]).not.toContain(old);
     release();
   });
@@ -459,7 +462,7 @@ describe('imap received attachments', () => {
         kind: 'unavailable',
         reason: 'missing',
       });
-      expect(inbox.attachmentFile(id, '0.1')).toBeUndefined();
+      expect(inbox.holdAttachmentFile(id, '0.1')).toBeUndefined();
     }
   });
   /* oxlint-enable vitest/max-expects */

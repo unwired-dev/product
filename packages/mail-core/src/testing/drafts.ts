@@ -232,6 +232,8 @@ export function createSyntheticDrafts(
   >();
   // Files the person can pick or drop, and Downloaded Attachments, by URI or file name.
   const files = new Map<string, string>();
+  // Downloaded Attachments a synthetic mailbox saved, read as they are when an import runs.
+  let saved: ReadonlyMap<string, Readonly<{ bytes: Uint8Array }>> = new Map();
   const picks: Array<
     Readonly<{
       source: PickSource;
@@ -253,7 +255,13 @@ export function createSyntheticDrafts(
     if (source.kind === 'oversized' || source.kind === 'unavailable') {
       return undefined;
     }
-    return files.get(source.kind === 'received' ? source.file : source.uri);
+    if (source.kind === 'received') {
+      const file = saved.get(source.file);
+      return file === undefined
+        ? files.get(source.file)
+        : Array.from(file.bytes, (byte) => String.fromCodePoint(byte)).join('');
+    }
+    return files.get(source.uri);
   };
   // Once a document is stored, bytes it does not keep go, except uncommitted imports.
   const collect = (owner: string, keep: readonly string[]) => {
@@ -554,6 +562,12 @@ export function createSyntheticDrafts(
     // A file at `uri` (or a Downloaded Attachment named `uri`) with these bytes.
     addFile: (uri: string, bytes: string) => {
       files.set(uri, bytes);
+    },
+    // Imports of received attachments read these saved files, so one discarded first is missing.
+    readSavedAttachments: (
+      attachments: ReadonlyMap<string, Readonly<{ bytes: Uint8Array }>>,
+    ) => {
+      saved = attachments;
     },
     // What the next picker of this kind returns.
     pickNext: (

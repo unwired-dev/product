@@ -1,16 +1,12 @@
 import type { UnifiedRole } from '@private-email/mail-core/mailboxes';
 
+import { inboxFolder } from '@private-email/mail-core/imap-inbox';
 import {
-  imapFolderFailed,
-  inboxFolder,
-} from '@private-email/mail-core/imap-inbox';
-import {
-  createGmailViewEntries,
   createUnifiedMailboxRetention,
+  folderListing,
   gmailMailbox,
-  gmailViewRow,
   inboxUnlisted,
-  mailboxFolder,
+  listedFolder,
   notIncludedDetail,
   unifiedFolders,
   unifiedRow,
@@ -31,8 +27,7 @@ import { useLocalization } from './localization.ts';
 const noSubscription = () => () => undefined;
 
 // A mailbox shown on its own lists the IMAP folder or Gmail view its window chose; the Inbox is
-// listed otherwise. A folder or label the mailbox no longer offers falls back to the Inbox and
-// drops the choice, so a recreated one of that name is not reopened from a stale cache.
+// listed otherwise. A choice the mailbox no longer offers is dropped from the window's view.
 function useMailboxFolder<E>(
   shown: readonly InboxMailbox[],
   // The Inbox entries listed when no other folder is chosen.
@@ -46,61 +41,77 @@ function useMailboxFolder<E>(
   }>,
 ) {
   const { t } = useLocalization();
-  const [single] = shown;
-  const chosen =
-    shown.length === 1 && single !== undefined && view.mailbox === single.id
-      ? single
-      : undefined;
-  const requested = view.folder ?? inboxFolder;
-  const folder = mailboxFolder(chosen, requested);
-  const dropped = chosen !== undefined && folder !== requested;
+  const { chosen, folder, dropped } = listedFolder(shown, view);
   useEffect(() => {
     if (dropped) {
       onView({ mailbox: view.mailbox });
     }
   }, [dropped, onView, view.mailbox]);
-  const browsing = useFolderEntries(chosen, folder);
-  const gmail = useGmailView(chosen, folder);
-  if (gmail !== undefined) {
-    return { folder, ...gmail };
+  useFolderUpdates(chosen, folder);
+  useRetainedView(chosen, folder);
+  const listing = folderListing(t, chosen, folder);
+  const messages = listing?.messages;
+  const entries = useMemo(
+    () =>
+      chosen === undefined || messages === undefined
+        ? undefined
+        : messages.map((message) => ({ mailbox: chosen, message })),
+    [chosen, messages],
+  );
+  // Reaching the end reveals older Gmail mail its devices downloaded, in the chosen view or in
+  // each shown mailbox's Inbox.
+  const showOlder = () => {
+    if (folder !== inboxFolder) {
+      gmailMailbox(chosen)?.inbox.showOlder(folder);
+      return;
+    }
+    for (const mailbox of shown) {
+      gmailMailbox(mailbox)?.inbox.showOlder(inboxFolder);
+    }
+  };
+  if (listing === undefined || entries === undefined) {
+    return {
+      folder,
+      showOlder,
+      title: folder === inboxFolder ? undefined : folder,
+      listed: inbox,
+      // An Inbox not yet listed has not answered a search.
+      unlisted: shown.some(({ state }) => inboxUnlisted(state)),
+      failure: undefined,
+      limited: undefined,
+      downloading: undefined,
+    };
   }
+  const { title, unlisted, failure, limited, downloading } = listing;
   return {
     folder,
-    // Reaching the end of the Inbox reveals older Gmail mail its devices downloaded.
-    showOlder: () => {
-      if (folder !== inboxFolder) {
-        return;
-      }
-      for (const mailbox of shown) {
-        gmailMailbox(mailbox)?.inbox.showOlder(inboxFolder);
-      }
-    },
-    title: folder === inboxFolder ? undefined : folder,
-    listed: browsing?.entries ?? inbox,
-    // A folder whose first listing is still to arrive or failed, or an Inbox not yet listed, has
-    // not answered a search.
-    unlisted:
-      browsing === undefined
-        ? shown.some(({ state }) => inboxUnlisted(state))
-        : browsing.view.kind !== 'ready',
-    failure: imapFolderFailed(browsing?.view)
-      ? t('imap.foldersUnavailable')
-      : undefined,
-    limited: undefined,
-    downloading: undefined,
+    showOlder,
+    title,
+    listed: entries,
+    unlisted,
+    failure,
+    limited,
+    downloading,
   };
 }
 
-const noEntries: readonly [] = [];
-const viewEntries = createGmailViewEntries<InboxMailbox>();
+// Re-renders as the chosen IMAP folder changes; its listing reads the folder through the store.
+function useFolderUpdates(mailbox: InboxMailbox | undefined, folder: string) {
+  const inbox =
+    mailbox !== undefined && 'openFolder' in mailbox.inbox
+      ? mailbox.inbox
+      : undefined;
+  useSyncExternalStore(inbox?.subscribe ?? noSubscription, () =>
+    inbox === undefined || folder === inboxFolder
+      ? undefined
+      : inbox.folder(folder),
+  );
+}
 
-// The chosen Gmail view's messages as list entries, or undefined for the Inbox and other
-// providers. Its window retains the view before requesting it, so another cannot evict it.
-function useGmailView(mailbox: InboxMailbox | undefined, folder: string) {
-  const { t } = useLocalization();
-  const gmail = folder === inboxFolder ? undefined : gmailMailbox(mailbox);
-  const shown = gmail?.state.views?.find(({ label }) => label === folder);
-  const store = gmail?.inbox;
+// A window retains its chosen Gmail view before requesting it, so another cannot evict it.
+function useRetainedView(mailbox: InboxMailbox | undefined, folder: string) {
+  const store =
+    folder === inboxFolder ? undefined : gmailMailbox(mailbox)?.inbox;
   useLayoutEffect(() => {
     if (store === undefined) {
       return undefined;
@@ -109,62 +120,6 @@ function useGmailView(mailbox: InboxMailbox | undefined, folder: string) {
     void store.openView(folder);
     return release;
   }, [store, folder]);
-  const listed =
-    mailbox === undefined || shown === undefined
-      ? noEntries
-      : viewEntries(mailbox, shown.messages);
-  if (gmail === undefined) {
-    return undefined;
-  }
-  const { title, failure, limited, downloading } = gmailViewRow(
-    t,
-    gmail,
-    folder,
-  );
-  const { inbox } = gmail;
-  return {
-    title,
-    listed,
-    // The label's first page is still to arrive or failed, so its empty list says nothing yet.
-    unlisted:
-      shown === undefined ||
-      (shown.status !== 'current' && shown.messages.length === 0),
-    failure,
-    limited,
-    downloading,
-    showOlder: () => {
-      inbox.showOlder(folder);
-    },
-  };
-}
-
-// The chosen IMAP folder's messages as list entries, or undefined for the Inbox.
-function useFolderEntries(
-  mailbox: InboxMailbox | undefined,
-  folder: string | undefined,
-) {
-  const inbox =
-    mailbox !== undefined && 'openFolder' in mailbox.inbox
-      ? mailbox.inbox
-      : undefined;
-  const view = useSyncExternalStore(inbox?.subscribe ?? noSubscription, () =>
-    inbox === undefined || folder === undefined || folder === inboxFolder
-      ? undefined
-      : inbox.folder(folder),
-  );
-  return useMemo(
-    () =>
-      mailbox === undefined || view === undefined
-        ? undefined
-        : {
-            view,
-            entries:
-              view.kind === 'ready'
-                ? view.messages.map((message) => ({ mailbox, message }))
-                : [],
-          },
-    [mailbox, view],
-  );
 }
 
 // The list a window shows: the Unified Mailbox it chose, or else its chosen mailbox's folder.

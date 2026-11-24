@@ -257,14 +257,12 @@ it.
   the exact rendered message and verified asset references in one encrypted write.
   The Outbox remains local; its files remain available through Undo and delivery.
 - Undo succeeds only after cancellation is saved. If storage refuses Undo or
-  Edit, the row stays as it was and a toast above the search bar says
-  ““<subject>” wasn’t returned to Drafts. It’s still in the Outbox. Choose
-  Try Again to return it.” with **Try Again**, which repeats the request. On
-  iPhone and iPad the toast is glass and shows the frames' shorter “Couldn’t
-  return “<subject>” to Drafts.” (on iPhone, “Couldn’t return the message to
-  Drafts.”); VoiceOver hears the full sentence, which on iPhone begins “The
-  message” instead of the subject. The Mac's toast is deep graphite until the
-  rest of #2104. The refusal doesn’t tell a locked store from a
+  Edit, the row stays as it was and a glass toast above the search bar says
+  “Couldn’t return “<subject>” to Drafts.” (on iPhone, “Couldn’t return the
+  message to Drafts.”) with **Try Again**, which repeats the request.
+  VoiceOver hears the full sentence, ““<subject>” wasn’t returned to Drafts.
+  It’s still in the Outbox. Choose Try Again to return it.”, which on iPhone
+  begins “The message” instead of the subject. The refusal doesn’t tell a locked store from a
   failed write, so the toast names no cause. The toast
   fades in over 200 ms and out over 150 ms, fading only with Reduce Motion, and
   leaves on Try Again, the next Outbox action, or once the message is no longer

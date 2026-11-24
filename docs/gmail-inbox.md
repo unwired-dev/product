@@ -272,6 +272,8 @@ mailbox, or every mailbox under **All Inboxes**. The API search excludes spam an
   results stay: no connection, a refused grant, which also offers **Allow Gmail
   access** as a reader would, or another failure. **Try Again** asks every
   mailbox afresh; a failed next page keeps its place, so **More from Mail Servers** retries it.
+  A mailbox whose first page failed has no next page, so its failure stays through
+  **More from Mail Servers** until **Try Again** or a new search asks it again.
 - **Stale requests.** An answer belongs to the query and the mailboxes' Inboxes it
   was asked of. Changing the query or view, a removed or changed mailbox, or another
   Product Account leaves it unshown until Gmail is asked again, and a reply for an
@@ -279,6 +281,12 @@ mailbox, or every mailbox under **All Inboxes**. The API search excludes spam an
   the view's earlier online rows. A slower reply for an earlier request never
   replaces a later one. The request itself runs to completion; only its answer is
   discarded.
+- **Deleted mail.** Once Gmail confirms a result deleted, through the mailbox's
+  history or the check after its history expired, the open search stops listing it
+  without another search, as it does for an
+  [IMAP](imap-mailboxes.md#online-search) result a change made here finds gone; the other
+  results keep their order and **More from Mail Servers** its page
+  ([#2451](https://github.com/unwired-dev/product/issues/2451)).
 
 Native code passes the query as one percent-encoded `q` value, encoding `+` as well,
 so `from:a+b@example.com` keeps its plus sign.
@@ -1636,6 +1644,11 @@ changes owner only once that preview closes, the share ends or the save finishes
 It also stays through eviction and counts toward the 250 MiB limit. A download
 that cannot fit without deleting a presented file fails and can be retried after
 the preview closes, the share ends or the save finishes.
+
+A file that **Forward** or **Attach to New Message** is copying into a Draft is
+deleted after its reader closes, or the Inbox closes or changes owner, only once
+that copy has finished or failed. On iPhone the composer replaces the reader, so
+the reader can close before the copy finishes.
 Removal, sign-out, deletion and relaunch delete it immediately.
 
 Attachment controls ignore input queued for a reader that has changed or closed,

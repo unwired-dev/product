@@ -46,8 +46,16 @@ jobs:
           publish-script: bash scripts/release-tag.sh
           commit-message: Version packages
           pr-title: Version packages
+          # The next step creates the GitHub Release; the action pushes only the tag.
+          create-github-releases: false
           # A personal token, so CI runs on the version pull request and its merge.
           github-token: ${{ secrets.GH_TOKEN }}
+      - name: Create the GitHub Release
+        if: steps.changesets.outputs.published == 'true'
+        run: bash scripts/release-github.sh "$TAG"
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          TAG: v${{ fromJSON(steps.changesets.outputs.published-packages)[0].version }}
 
   testflight:
     name: TestFlight

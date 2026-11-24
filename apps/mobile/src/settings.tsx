@@ -36,7 +36,7 @@ import { AccountHeader } from './account-page.tsx';
 import { usePaletteHeader } from './command-palette.tsx';
 import { ipadFrameSymbolSize, MenuButton, SFSymbol } from './design.tsx';
 import { useLocalization } from './localization.ts';
-import { textStyles, usePalette } from './theme.ts';
+import { textStyles, useLargeText, usePalette } from './theme.ts';
 
 // Settings destinations this client supports; the others follow their owning issues.
 export type SettingsDestination =
@@ -232,6 +232,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: rowInset,
     paddingVertical: rowPadding,
   },
+  // At accessibility text sizes a row stacks its symbol, text, value and controls, as UIKit's list
+  // cells do, so the title keeps the row's width.
+  rowStacked: { flexDirection: 'column', alignItems: 'stretch' },
+  rowTextStacked: { flex: 0 },
+  // Stacked controls keep their own height beneath the text.
+  trailingStacked: { justifyContent: 'flex-start', marginVertical: 0 },
   // A 24pt symbol slot puts the destinations' titles on the frames' x68 axis.
   destinationIcon: { width: 24, alignItems: 'center' },
   // iPad's two-line rows are 61.3pt, as the frames draw them.
@@ -285,6 +291,8 @@ const styles = StyleSheet.create({
   },
   // On iPhone the pop-up's 44pt target reaches into the row's padding, keeping the row 52pt.
   popUpTarget: { marginVertical: settingsColumns ? 0 : -spacing.m },
+  popUpStacked: { marginVertical: 0, flexShrink: 1 },
+  popUpLabelWrap: { flexShrink: 1 },
   popUp: {
     minHeight: 44,
     flexDirection: 'row',
@@ -334,7 +342,9 @@ function AccountMonogram({
           backgroundColor: colors.brandMonogram,
         },
       ]}>
+      {/* The letter keeps the circle's size, which does not grow with the text. */}
       <Text
+        allowFontScaling={false}
         style={[
           size > 40 ? type.page : type.title,
           { fontWeight: '600', color: colors.brandOnDeep },
@@ -358,6 +368,7 @@ function SidebarItem({
   readonly onPress: () => void;
 }) {
   const colors = usePalette();
+  const large = useLargeText();
   return (
     <Pressable
       accessibilityLabel={label}
@@ -378,7 +389,7 @@ function SidebarItem({
         />
       </View>
       <Text
-        numberOfLines={1}
+        numberOfLines={large ? 0 : 1}
         style={[
           type.title,
           styles.grow,
@@ -450,6 +461,7 @@ function DestinationRow({
   readonly onPress: () => void;
 }) {
   const colors = usePalette();
+  const large = useLargeText();
   return (
     <Pressable
       accessibilityLabel={label}
@@ -468,7 +480,7 @@ function DestinationRow({
         />
       </View>
       <Text
-        numberOfLines={1}
+        numberOfLines={large ? 0 : 1}
         style={[type.title, styles.grow, { color: colors.textPrimary }]}>
         {label}
       </Text>
@@ -521,6 +533,8 @@ export function SettingsWorkspace({
     | undefined;
 }) {
   const colors = usePalette();
+  // Names wrap at accessibility text sizes rather than truncate.
+  const lines = useLargeText() ? 0 : 1;
   const { t } = useLocalization();
   const insets = useSafeAreaInsets();
   const header = usePaletteHeader();
@@ -578,7 +592,7 @@ export function SettingsWorkspace({
                   />
                   <View style={styles.grow}>
                     <Text
-                      numberOfLines={1}
+                      numberOfLines={lines}
                       style={[
                         type.title,
                         { fontWeight: '600', color: colors.textPrimary },
@@ -586,7 +600,7 @@ export function SettingsWorkspace({
                       {account}
                     </Text>
                     <Text
-                      numberOfLines={1}
+                      numberOfLines={lines}
                       style={[type.detail, { color: colors.textSecondary }]}>
                       {t('settings.destinations.account')}
                     </Text>
@@ -718,12 +732,12 @@ export function SettingsWorkspace({
           />
           <View style={styles.grow}>
             <Text
-              numberOfLines={1}
+              numberOfLines={lines}
               style={[type.account, { color: colors.textPrimary }]}>
               {account}
             </Text>
             <Text
-              numberOfLines={1}
+              numberOfLines={lines}
               style={[textStyles.footnote, { color: colors.textSecondary }]}>
               {privateSync
                 ? t('settings.accountPrivateSync')
@@ -770,6 +784,8 @@ export function SettingsWorkspace({
                 <Text
                   accessibilityRole="header"
                   numberOfLines={1}
+                  // As UIKit draws bar titles, the title keeps its size in the fixed bar.
+                  allowFontScaling={false}
                   style={[textStyles.headline, { color: colors.textPrimary }]}
                   {...header.action}>
                   {t('settings.title')}
@@ -993,8 +1009,14 @@ export function SettingsRow({
   readonly children?: ReactNode;
 }) {
   const colors = usePalette();
+  const large = useLargeText();
   return (
-    <View style={[styles.row, minHeight === undefined ? null : { minHeight }]}>
+    <View
+      style={[
+        styles.row,
+        large && styles.rowStacked,
+        minHeight === undefined ? null : { minHeight },
+      ]}>
       <Hairline />
       {typeof icon === 'string' ? (
         <View
@@ -1027,7 +1049,11 @@ export function SettingsRow({
             : [{ name: 'activate', label: accessibilityAction.label }]
         }
         onAccessibilityAction={accessibilityAction?.onActivate}
-        style={[styles.rowText, disabled && { opacity: 0.4 }]}>
+        style={[
+          styles.rowText,
+          large && styles.rowTextStacked,
+          disabled && { opacity: 0.4 },
+        ]}>
         <Text
           numberOfLines={titleNumberOfLines}
           style={[
@@ -1067,7 +1093,9 @@ export function SettingsRow({
         </Text>
       )}
       {children === undefined ? null : (
-        <View style={styles.trailing}>{children}</View>
+        <View style={[styles.trailing, large && styles.trailingStacked]}>
+          {children}
+        </View>
       )}
     </View>
   );
@@ -1122,6 +1150,7 @@ export function PopUpChoice<Choice extends string>({
   readonly onChoose: (choice: Choice) => void;
 }) {
   const colors = usePalette();
+  const large = useLargeText();
   // iPad's secondary value dims, like iPhone's, to the row title's gray.
   const color =
     settingsColumns && !disabled ? colors.textSecondary : colors.textPrimary;
@@ -1143,11 +1172,19 @@ export function PopUpChoice<Choice extends string>({
         },
       ]}
       // The content dims, as the row dims its title, once: not the native button too.
-      style={[styles.popUpTarget, disabled && styles.popUpOpaque]}>
+      style={[
+        styles.popUpTarget,
+        large && styles.popUpStacked,
+        disabled && styles.popUpOpaque,
+      ]}>
       <View style={[styles.popUp, disabled && styles.popUpDisabled]}>
         <Text
-          numberOfLines={1}
-          style={[styles.popUpLabel, { color }]}>
+          numberOfLines={large ? 0 : 1}
+          style={[
+            styles.popUpLabel,
+            large && styles.popUpLabelWrap,
+            { color },
+          ]}>
           {title(selected)}
         </Text>
         {settingsColumns ? (

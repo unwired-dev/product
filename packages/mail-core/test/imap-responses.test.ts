@@ -126,7 +126,15 @@ async function answering(smtp = true) {
     );
   };
   const message = listed();
-  const release = inbox.retainMessage(message.id, Symbol('reader'));
+  const retained = inbox.retainMessage(message.id, Symbol('reader'));
+  let reading = true;
+  // Closes the reader once.
+  const release = () => {
+    if (reading) {
+      reading = false;
+      retained();
+    }
+  };
   const connections = mailboxesOf(phone.registration.getSnapshot().snapshot);
   const navigation = createComposerNavigation();
   const outbox = createOutbox({
@@ -160,6 +168,7 @@ async function answering(smtp = true) {
       recipients,
     };
   };
+  phone.storage.readSavedAttachments(servers.work.files.savedFiles);
   return {
     ...phone,
     servers,
@@ -169,6 +178,7 @@ async function answering(smtp = true) {
     sender,
     start,
     send,
+    release,
     dispose: () => {
       release();
       outbox.dispose();
@@ -319,12 +329,7 @@ describe('answering IMAP mail', () => {
     const reading = await answering();
     try {
       await reading.inbox.readMessage(reading.message.id);
-      reading.storage.holdImports();
       const id = present(await reading.start('forward'), 'the forward');
-      for (const [file, { bytes }] of reading.servers.work.files.savedFiles) {
-        reading.storage.addFile(file, String.fromCodePoint(...bytes));
-      }
-      reading.storage.releaseImports();
       await vi.waitFor(() => {
         expect(assetsOf(reading.draft(id))).toMatchObject([
           { name: 'agenda.pdf', state: 'complete' },
@@ -357,6 +362,71 @@ describe('answering IMAP mail', () => {
       expect(parsed.attachments).toMatchObject([{ filename: 'agenda.pdf' }]);
       // The synthetic SMTP server names each asset in place of its bytes.
       expect(raw).toContain(`[asset ${present(attachment, 'the asset').id}]`);
+    } finally {
+      reading.dispose();
+    }
+  });
+
+  it('keeps the forwarded file until the Draft copied it, after the reader closed', async () => {
+    expect.hasAssertions();
+    const reading = await answering();
+    try {
+      const { savedFiles } = reading.servers.work.files;
+      await reading.inbox.readMessage(reading.message.id);
+      reading.storage.holdImports();
+      const id = present(await reading.start('forward'), 'the forward');
+      // On iPhone the composer replaces the reader, which closes before the copy runs.
+      reading.release();
+      expect(savedFiles.size).toBe(1);
+      reading.storage.releaseImports();
+      await vi.waitFor(() => {
+        expect(assetsOf(reading.draft(id))).toMatchObject([
+          { name: 'agenda.pdf', state: 'complete' },
+        ]);
+      });
+      // Copied, the file goes with its closed reader.
+      await vi.waitFor(() => {
+        expect(savedFiles.size).toBe(0);
+      });
+    } finally {
+      reading.dispose();
+    }
+  });
+
+  it('keeps a file attached to a new message until the Draft copied it, after the reader closed', async () => {
+    expect.hasAssertions();
+    const reading = await answering();
+    try {
+      const { savedFiles } = reading.servers.work.files;
+      const { id } = reading.message;
+      await reading.inbox.readMessage(id);
+      const { locator } = present(
+        reading.inbox.messageAttachments(id)?.[0],
+        'the attachment',
+      );
+      reading.storage.holdImports();
+      const draft = present(
+        await createComposerNavigation().attachReceived(reading.drafts, {
+          mailbox: work.id,
+          mailboxes: reading.connections,
+          saved: async () => {
+            await reading.inbox.downloadAttachment(id, locator);
+            return reading.inbox.holdAttachmentFile(id, locator);
+          },
+        }),
+        'the new message',
+      );
+      reading.release();
+      expect(savedFiles.size).toBe(1);
+      reading.storage.releaseImports();
+      await vi.waitFor(() => {
+        expect(assetsOf(reading.draft(draft))).toMatchObject([
+          { name: 'agenda.pdf', state: 'complete' },
+        ]);
+      });
+      await vi.waitFor(() => {
+        expect(savedFiles.size).toBe(0);
+      });
     } finally {
       reading.dispose();
     }

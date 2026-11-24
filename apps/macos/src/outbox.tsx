@@ -123,6 +123,7 @@ export function useOutboxActions(onOpen: (id: string) => Promise<void>) {
     readonly id: string;
     readonly state: OutboxSnapshotEntry['state'];
     readonly message: string;
+    readonly spoken: string;
     readonly open: boolean;
   }>();
   const current = entries.find(({ id }) => id === refused?.id);
@@ -149,11 +150,17 @@ export function useOutboxActions(onOpen: (id: string) => Promise<void>) {
       const now = outbox.getSnapshot().find((each) => each.id === entry.id);
       // Not when another press or action came since, or its sending began.
       if (started === action.current && now !== undefined && returnable(now)) {
-        const message = t('outbox.refused', {
-          subject: draftSummary(t, entry.draft).subject,
+        // The toast shows the frames' shorter line; VoiceOver also hears what happens next.
+        const { subject } = draftSummary(t, entry.draft);
+        const spoken = t('outbox.refused', { subject });
+        setRefused({
+          id: entry.id,
+          state: now.state,
+          message: t('outbox.notReturned', { subject }),
+          spoken,
+          open: true,
         });
-        setRefused({ id: entry.id, state: now.state, message, open: true });
-        AccessibilityInfo.announceForAccessibility(message);
+        AccessibilityInfo.announceForAccessibility(spoken);
       }
     })();
   };
@@ -179,6 +186,7 @@ export function useOutboxActions(onOpen: (id: string) => Promise<void>) {
       <Toast
         symbol="exclamationmark.triangle.fill"
         message={refused.message}
+        messageLabel={refused.spoken}
         open={refused.open}
         action={t('outbox.tryAgain')}
         onAction={() => {

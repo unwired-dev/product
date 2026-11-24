@@ -13,7 +13,6 @@ import type { ImapFolder } from './imap-model.ts';
 import type {
   GmailInbox,
   GmailInboxState,
-  GmailMessage,
   HistoryProgress,
 } from './inbox-store.ts';
 import type { InboxState, PersistentInbox } from './persistent-inbox.ts';
@@ -88,23 +87,6 @@ export const gmailViewName = (
   state.labels.some(({ id }) => id === requested)
     ? requested
     : inboxFolder;
-
-// Stable list entries for the same messages and mailbox snapshot, without retaining old messages.
-export const createGmailViewEntries = <M>() => {
-  const entries = new WeakMap<
-    readonly GmailMessage[],
-    ReadonlyArray<Readonly<{ mailbox: M; message: GmailMessage }>>
-  >();
-  return (mailbox: M, messages: readonly GmailMessage[]) => {
-    const cached = entries.get(messages);
-    if (cached !== undefined && (cached[0]?.mailbox ?? mailbox) === mailbox) {
-      return cached;
-    }
-    const listed = messages.map((message) => ({ mailbox, message }));
-    entries.set(messages, listed);
-    return listed;
-  };
-};
 
 type BrowsableMailbox = Readonly<{
   provider?: MailProvider;
@@ -195,6 +177,30 @@ export const mailboxFolder = (
     ? requested
     : gmailViewName(gmail.state, requested, gmail.provider);
 };
+
+// The folder or view a window lists. A mailbox shown on its own lists the IMAP folder or Gmail or
+// Microsoft view its window chose while it still offers it; any other window lists the Inbox. A
+// choice the mailbox no longer offers is `dropped`, so the window forgets it and a recreated folder
+// of that name is not reopened from a stale cache.
+export function listedFolder<
+  M extends BrowsableMailbox & Readonly<{ id: string }>,
+>(
+  shown: readonly M[],
+  view: Readonly<{ mailbox?: string | undefined; folder?: string | undefined }>,
+) {
+  const [single] = shown;
+  const chosen =
+    shown.length === 1 && single !== undefined && view.mailbox === single.id
+      ? single
+      : undefined;
+  const requested = view.folder ?? inboxFolder;
+  const folder = mailboxFolder(chosen, requested);
+  return {
+    chosen,
+    folder,
+    dropped: chosen !== undefined && folder !== requested,
+  };
+}
 
 // A window's chosen mailbox and the connections whose authorization notices its Inbox shows. A
 // chosen connection waiting for provider authorization has no Inbox store but stays chosen with
@@ -792,13 +798,16 @@ function openUnifiedFolder(
   return () => undefined;
 }
 
+// One empty list for every folder or view with nothing listed, so its list entries stay the same.
+const noMessages: readonly never[] = [];
+
 const viewMessages = (
   views: Extract<GmailInboxState, { kind: 'ready' }>['views'],
   label: string,
 ) => {
   const view = views?.find((shown) => shown.label === label);
   return {
-    messages: view?.messages ?? [],
+    messages: view?.messages ?? noMessages,
     failed: view?.status === 'failed',
     unlisted:
       view === undefined ||
@@ -807,7 +816,7 @@ const viewMessages = (
 };
 
 const imapFolderMessages = (view: ImapFolderView | undefined) => ({
-  messages: view?.kind === 'ready' ? view.messages : [],
+  messages: view?.kind === 'ready' ? view.messages : noMessages,
   failed: imapFolderFailed(view),
   unlisted: view?.kind !== 'ready',
 });
@@ -839,6 +848,36 @@ const folderMessages = (mailbox: BrowsableMailbox, name: string) => {
     'openFolder' in inbox ? inbox.folder(name) : undefined,
   );
 };
+
+// How a window lists its chosen mailbox's IMAP folder or Gmail or Microsoft view: its messages,
+// title, notice for a failed read and limits, and whether it has listed nothing yet because its
+// first listing is still to arrive or failed. Undefined for the Inbox, which lists every shown
+// mailbox, and for a Gmail or Microsoft mailbox not ready to offer its views.
+export function folderListing(
+  t: Translate,
+  mailbox: BrowsableMailbox | undefined,
+  folder: string,
+) {
+  if (mailbox === undefined || folder === inboxFolder) {
+    return undefined;
+  }
+  const gmail = gmailMailbox(mailbox);
+  if (gmail === undefined && !('openFolder' in mailbox.inbox)) {
+    return undefined;
+  }
+  const { messages, failed, unlisted } = folderMessages(mailbox, folder);
+  if (gmail !== undefined) {
+    return { messages, unlisted, ...gmailViewRow(t, gmail, folder) };
+  }
+  return {
+    messages,
+    unlisted,
+    title: folder,
+    failure: failed ? t('imap.foldersUnavailable') : undefined,
+    limited: undefined,
+    downloading: undefined,
+  };
+}
 
 // A Unified Mailbox of a Profile's ready mailboxes, newest first. Each entry names the folder or
 // view it is listed in, so its actions are those of that folder at its own connection. Mailboxes
