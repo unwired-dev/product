@@ -46,9 +46,10 @@ type Context = Readonly<{
   left?: boolean;
   linkColor?: string;
   format: Format;
-  // Inside a table, where text belongs in cells; inside a cell, the columns and rows it spans.
+  // Inside a table, where text belongs in cells; inside a cell, whether it is a header cell and
+  // the columns and rows it spans.
   table?: true;
-  cell?: Readonly<{ columns?: number; rows?: number }>;
+  cell?: Readonly<{ header?: true; columns?: number; rows?: number }>;
 }>;
 
 // A table holds rows of cells, and only where both standards and quirks mode show its cells with
@@ -156,7 +157,7 @@ const structureTags: ReadonlyMap<
       ...context,
       format: withMark(context.format, 'bold'),
       align: context.align ?? (context.left === true ? undefined : 'center'),
-      cell: {},
+      cell: { header: true },
     })),
   ],
 ]);
@@ -921,6 +922,7 @@ export function documentFromHtml(html: string): DraftHtml {
   type Part = Block | { kind: 'table'; rows: Cell[][] };
   interface Cell {
     blocks: Part[];
+    header?: true;
     columns?: number;
     rows?: number;
   }

@@ -27,6 +27,7 @@ import {
   imageCharacter,
   imagesOf,
   imageWidthOf,
+  textOf,
 } from '@private-email/mail-core/semantic-document';
 import {
   createSendReminders,
@@ -4808,6 +4809,11 @@ describe('composing Drafts', () => {
       );
       ok(draft);
       const lease = 'https://docs.example.invalid/lease';
+      // A table the composer does not show stays through every edit.
+      const table = {
+        kind: 'table',
+        rows: [[{ blocks: [{ kind: 'paragraph', spans: [] }], header: true }]],
+      } as const;
       await drafts.update(
         {
           ...draft,
@@ -4820,6 +4826,7 @@ describe('composing Drafts', () => {
                 { text: ' today' },
               ],
             },
+            table,
           ],
         },
         draft,
@@ -4911,12 +4918,17 @@ describe('composing Drafts', () => {
       const reopened = createDrafts(storage.native, registration);
       await reopened.load();
       expect(
-        draftsOf(reopened.getSnapshot()).find((each) => each.id === id)?.body[0]
-          ?.spans,
+        draftsOf(reopened.getSnapshot()).find((each) => each.id === id)?.body,
       ).toStrictEqual([
-        { text: 'Read ' },
-        { text: 'revised lease', marks: ['bold'] },
-        { text: ' today' },
+        {
+          kind: 'paragraph',
+          spans: [
+            { text: 'Read ' },
+            { text: 'revised lease', marks: ['bold'] },
+            { text: ' today' },
+          ],
+        },
+        table,
       ]);
     },
   );
@@ -5049,9 +5061,8 @@ describe('composing Drafts', () => {
       // Save Draft stores the link with its destination.
       await saveDraft();
       expect(
-        draftsOf(drafts.getSnapshot()).find((each) => each.id === id)?.body[0]
-          ?.spans,
-      ).toStrictEqual([
+        draftsOf(drafts.getSnapshot()).find((each) => each.id === id)?.body[0],
+      ).toHaveProperty('spans', [
         { text: 'Read ' },
         { text: 'the lease', marks: ['bold'], link: lease },
         { text: ' today' },
@@ -5237,7 +5248,7 @@ describe('composing Drafts', () => {
       { selected: true, disabled: false },
     );
     await saveDraft();
-    expect(draftsOf(drafts.getSnapshot())[0]?.body[0]?.spans).toStrictEqual([
+    expect(draftsOf(drafts.getSnapshot())[0]?.body[0]).toHaveProperty('spans', [
       { text: 'X' },
       { text: 'aa', marks: ['bold'] },
       { text: 'ac' },
@@ -5500,9 +5511,10 @@ describe('composing Drafts', () => {
       await fireEvent.changeText(body, 'a');
       expect(shownSpans()).toStrictEqual([{ text: 'a' }]);
       await saveDraft();
-      expect(draftsOf(drafts.getSnapshot())[0]?.body[0]?.spans).toStrictEqual([
-        { text: 'a' },
-      ]);
+      expect(draftsOf(drafts.getSnapshot())[0]?.body[0]).toHaveProperty(
+        'spans',
+        [{ text: 'a' }],
+      );
     },
   );
 
@@ -7283,7 +7295,7 @@ describe('adding files and images to a Draft', () => {
     await saveDraft();
     const [before] = draftsOf(drafts.getSnapshot());
     ok(before, 'Expected a Draft with an image');
-    const originalImages = imagesOf(before.body);
+    const originalImages = imagesOf(textOf(before.body));
     expect(originalImages[0]?.state).toBe('complete');
     await act(async () => {
       await fireEvent.press(screen.getByRole('button', { name: /^Draft\./u }));
@@ -7337,8 +7349,8 @@ describe('adding files and images to a Draft', () => {
     await reopened.load();
     const [saved] = draftsOf(reopened.getSnapshot());
     ok(saved, 'Expected the saved Draft');
-    expect(imagesOf(saved.body)).toStrictEqual(originalImages);
-    const [image] = imagesOf(saved.body);
+    expect(imagesOf(textOf(saved.body))).toStrictEqual(originalImages);
+    const [image] = imagesOf(textOf(saved.body));
     ok(image?.state === 'complete', 'Expected the complete saved inline image');
     await expect(reopened.readAsset(image)).resolves.toMatchObject({
       kind: 'ready',
@@ -7510,7 +7522,7 @@ describe('adding files and images to a Draft', () => {
       screen.findByLabelText('chart.png, 5 bytes'),
     ).resolves.toBeOnTheScreen();
     expect(screen.queryByLabelText('Inline image chart.png')).toBeNull();
-    expect(imagesOf(saved.body)[0]?.state).toBe('complete');
+    expect(imagesOf(textOf(saved.body))[0]?.state).toBe('complete');
     expect(screen.getByLabelText('Message body')).toHaveTextContent('￼');
     read.mockRestore();
   });
@@ -7543,7 +7555,7 @@ describe('adding files and images to a Draft', () => {
     await first.unmount();
     const [saved] = draftsOf(drafts.getSnapshot());
     ok(saved, 'Expected the saved Draft');
-    const [image] = imagesOf(saved.body);
+    const [image] = imagesOf(textOf(saved.body));
     ok(image, 'Expected an inline image');
     storage.damage(image.id);
     // An ordinary attachment is verified too, without its bytes being shown.
@@ -7659,9 +7671,9 @@ describe('adding files and images to a Draft', () => {
     await saveDraft();
     const [saved] = draftsOf(drafts.getSnapshot());
     ok(saved, 'Expected the saved Draft');
-    const [image] = imagesOf(saved.body);
+    const [image] = imagesOf(textOf(saved.body));
     ok(image, 'Expected an inline image');
-    expect(imageWidthOf(saved.body, image.id)).toBe(1024);
+    expect(imageWidthOf(textOf(saved.body), image.id)).toBe(1024);
   });
 
   it('names an inline image’s own dimensions under Original once its preview reads them (#2729)', async () => {
@@ -7741,7 +7753,7 @@ describe('adding files and images to a Draft', () => {
     expect(screen.queryByRole('button', { name: 'Save Draft' })).toBeNull();
     const saved = draftsOf(drafts.getSnapshot()).find((each) => each.id === id);
     ok(saved, 'Expected the saved Draft');
-    expect(saved.body[0]?.spans).toStrictEqual([
+    expect(textOf(saved.body)[0]?.spans).toStrictEqual([
       { ...photo, width: 320 },
       { text: ' and ' },
       photo,

@@ -13,6 +13,7 @@ import {
   clip,
   editableLinkAt,
   selectedText,
+  textOf,
 } from '@private-email/mail-core/semantic-document';
 import { spacing } from '@private-email/mail-core/theme';
 import {
@@ -127,7 +128,11 @@ function WritingTools({
         <MenuItem
           disabled={
             !hasTranslatableText(
-              selectedText(draft.body, selection, translationInputLimit + 1),
+              selectedText(
+                textOf(draft.body),
+                selection,
+                translationInputLimit + 1,
+              ),
             )
           }
           label={t('translation.translate')}
@@ -360,7 +365,7 @@ export function PadFormatBar({
             <LinkEditor
               state={linkEditor}
               disabled={false}
-              link={editableLinkAt(draft.body, page.selection)}
+              link={editableLinkAt(textOf(draft.body), page.selection)}
               popover
               {...(lists === undefined
                 ? {}

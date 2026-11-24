@@ -132,7 +132,8 @@ export const SemanticDocumentSchema = Schema.NonEmptyArray(BlockSchema);
 export type SemanticDocument = typeof SemanticDocumentSchema.Type;
 
 // A table between body blocks: rows of cells, each cell holding its own text blocks and
-// optionally spanning several columns or rows.
+// optionally spanning several columns or rows. A header cell names its column or row; its blocks
+// carry the formatting it shows. Cells hold no inline image.
 // Up to the 1000 columns browsers allow, and as many rows.
 const CellSpanSchema = Schema.Int.check(
   Schema.isGreaterThanOrEqualTo(2),
@@ -143,7 +144,14 @@ export const TableSchema = Schema.Struct({
   rows: Schema.NonEmptyArray(
     Schema.NonEmptyArray(
       Schema.Struct({
-        blocks: SemanticDocumentSchema,
+        blocks: SemanticDocumentSchema.check(
+          Schema.makeFilter((blocks) =>
+            blocks.every(({ spans }) =>
+              spans.every((span) => !('image' in span)),
+            ),
+          ),
+        ),
+        header: Schema.optionalKey(Schema.Literal(true)),
         columns: Schema.optionalKey(CellSpanSchema),
         rows: Schema.optionalKey(CellSpanSchema),
       }),
@@ -151,7 +159,7 @@ export const TableSchema = Schema.Struct({
   ),
 });
 export type Table = typeof TableSchema.Type;
-// A body read from mail written elsewhere, which may hold tables. Drafts do not store it yet.
+// A Draft body: blocks and the tables between them.
 export const TableDocumentSchema = Schema.NonEmptyArray(
   Schema.Union([BlockSchema, TableSchema]),
 );
@@ -160,6 +168,92 @@ export type TableDocument = typeof TableDocumentSchema.Type;
 export const emptyDocument: SemanticDocument = [
   { kind: 'paragraph', spans: [] },
 ];
+
+const isText = (body: TableDocument): body is SemanticDocument =>
+  body.every((part) => part.kind !== 'table');
+const texts = new WeakMap<TableDocument, SemanticDocument>();
+
+// The text a composer edits: the body without its tables, which no composer shows yet. The same
+// array for the same body.
+export const textOf = (body: TableDocument): SemanticDocument => {
+  if (isText(body)) {
+    return body;
+  }
+  const known = texts.get(body);
+  if (known !== undefined) {
+    return known;
+  }
+  const [first, ...rest] = body.filter(
+    (part): part is Block => part.kind !== 'table',
+  );
+  const text: SemanticDocument =
+    first === undefined ? emptyDocument : [first, ...rest];
+  texts.set(body, text);
+  return text;
+};
+
+// How many blocks at the start and at the end of `before` and `after` are the same, never
+// counting a block twice.
+const sameBlock = Schema.toEquivalence(BlockSchema);
+const sharedEnds = (before: SemanticDocument, after: SemanticDocument) => {
+  const shared = Math.min(before.length, after.length);
+  const same = (at: number) => {
+    const [one, other] = [before.at(at), after.at(at)];
+    return (
+      one === other ||
+      (one !== undefined && other !== undefined && sameBlock(one, other))
+    );
+  };
+  let prefix = 0;
+  while (prefix < shared && same(prefix)) {
+    prefix += 1;
+  }
+  let suffix = 0;
+  while (prefix + suffix < shared && same(-1 - suffix)) {
+    suffix += 1;
+  }
+  return { prefix, suffix };
+};
+
+// `body` with its text replaced by `text`, an edit of `textOf(body)`. Each table stays between the
+// unchanged blocks around it, or follows the edit that replaced them; no edit removes a table.
+export const withText = (
+  body: TableDocument,
+  text: SemanticDocument,
+): TableDocument => {
+  const before = textOf(body);
+  if (text === before) {
+    return body;
+  }
+  if (isText(body)) {
+    return text;
+  }
+  const { prefix, suffix } = sharedEnds(before, text);
+  // Where each table goes: before the text block at that index, or at the end.
+  const tables = new Map<number, Table[]>();
+  let blocks = 0;
+  for (const part of body) {
+    if (part.kind === 'table') {
+      // A table after the edit keeps its place from the end; one among the replaced blocks
+      // follows the edit.
+      const at =
+        blocks <= prefix
+          ? blocks
+          : Math.max(
+              blocks + text.length - before.length,
+              text.length - suffix,
+            );
+      tables.set(at, [...(tables.get(at) ?? []), part]);
+    } else {
+      blocks += 1;
+    }
+  }
+  const [first, ...rest] = [
+    ...text.flatMap((block, index) => [...(tables.get(index) ?? []), block]),
+    ...(tables.get(text.length) ?? []),
+  ];
+  return first === undefined ? body : [first, ...rest];
+};
 
 // The editor shows one text: blocks joined by line breaks, list items after a marker that is
 // displayed but never stored. Edits slice and join spans without expanding per-character objects;

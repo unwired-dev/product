@@ -21,6 +21,7 @@ import {
   imageCharacter,
   imagesOf,
   imageWidthOf,
+  textOf,
 } from '@private-email/mail-core/semantic-document';
 import {
   createSendReminders,
@@ -2727,6 +2728,11 @@ describe('composing Drafts', () => {
     const draft = draftsOf(drafts.getSnapshot()).find((each) => each.id === id);
     ok(draft);
     const lease = 'https://docs.example.invalid/lease';
+    // A table the composer does not show stays through every edit.
+    const table = {
+      kind: 'table',
+      rows: [[{ blocks: [{ kind: 'paragraph', spans: [] }], header: true }]],
+    } as const;
     await drafts.update(
       {
         ...draft,
@@ -2739,6 +2745,7 @@ describe('composing Drafts', () => {
               { text: ' today' },
             ],
           },
+          table,
         ],
       },
       draft,
@@ -2818,12 +2825,17 @@ describe('composing Drafts', () => {
     const reopened = createDrafts(storage.native, registration);
     await reopened.load();
     expect(
-      draftsOf(reopened.getSnapshot()).find((each) => each.id === id)?.body[0]
-        ?.spans,
+      draftsOf(reopened.getSnapshot()).find((each) => each.id === id)?.body,
     ).toStrictEqual([
-      { text: 'Read ' },
-      { text: 'revised lease', marks: ['bold'] },
-      { text: ' today' },
+      {
+        kind: 'paragraph',
+        spans: [
+          { text: 'Read ' },
+          { text: 'revised lease', marks: ['bold'] },
+          { text: ' today' },
+        ],
+      },
+      table,
     ]);
   });
 
@@ -3119,9 +3131,12 @@ describe('composing Drafts', () => {
     expect(bodyNow()?.[1]).toHaveProperty('marks', ['bold', 'underline']);
     await saveAndClose();
     expect(
-      draftsOf(drafts.getSnapshot()).find((each) => each.id === id)?.body[0]
-        ?.spans[1],
-    ).toStrictEqual({ text: 'the lease', marks: ['bold'], link: lease });
+      draftsOf(drafts.getSnapshot()).find((each) => each.id === id)?.body[0],
+    ).toHaveProperty(['spans', 1], {
+      text: 'the lease',
+      marks: ['bold'],
+      link: lease,
+    });
   });
 
   it('inserts a template of the Draft’s Profile at the caret as one Undo step', async () => {
@@ -6252,7 +6267,7 @@ describe('adding files and images to a Draft', () => {
     const [saved] = draftsOf(reopened.getSnapshot());
     ok(saved, 'Expected the saved Draft');
     expect(saved.body).toHaveLength(1);
-    const [image, ...others] = imagesOf(saved.body);
+    const [image, ...others] = imagesOf(textOf(saved.body));
     expect(others).toStrictEqual([]);
     ok(image?.state === 'complete', 'Expected the complete saved inline image');
     await expect(reopened.readAsset(image)).resolves.toMatchObject({
@@ -6324,7 +6339,7 @@ describe('adding files and images to a Draft', () => {
     await saveAndClose();
     const saved = draftsOf(drafts.getSnapshot()).find((each) => each.id === id);
     ok(saved, 'Expected the saved Draft');
-    expect(imageWidthOf(saved.body, photo.image.id)).toBe(1024);
+    expect(imageWidthOf(textOf(saved.body), photo.image.id)).toBe(1024);
   });
 
   it('names an inline image’s own width beside Original once its preview reads it (#2729)', async () => {
@@ -6580,11 +6595,11 @@ describe('adding files and images to a Draft', () => {
     await first.unmount();
     const [saved] = draftsOf(drafts.getSnapshot());
     ok(saved, 'Expected the saved Draft');
-    const image = imagesOf(saved.body).find(
+    const image = imagesOf(textOf(saved.body)).find(
       ({ name }) => name === 'Pasted image.png',
     );
     ok(image, 'Expected an inline image');
-    expect(imagesOf(saved.body)).toContainEqual(
+    expect(imagesOf(textOf(saved.body))).toContainEqual(
       expect.objectContaining({ name: 'Pasted image.jpg', type: 'image/jpeg' }),
     );
     storage.damage(image.id);
@@ -6677,7 +6692,7 @@ describe('adding files and images to a Draft', () => {
       screen.findByLabelText('chart.png, 5 bytes'),
     ).resolves.toBeOnTheScreen();
     expect(screen.queryByLabelText('Inline image chart.png')).toBeNull();
-    expect(imagesOf(saved.body)[0]?.state).toBe('complete');
+    expect(imagesOf(textOf(saved.body))[0]?.state).toBe('complete');
     expect(screen.getByLabelText('Message body')).toHaveTextContent('￼');
     read.mockRestore();
   });

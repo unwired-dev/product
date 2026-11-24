@@ -7,7 +7,7 @@ import {
   unsendableAssets,
 } from '../src/drafts.ts';
 import { createRegistration } from '../src/registration.ts';
-import { applyText, insertImage } from '../src/semantic-document.ts';
+import { applyText, insertImage, textOf } from '../src/semantic-document.ts';
 import {
   createSyntheticDrafts,
   createSyntheticProductSync,
@@ -25,7 +25,7 @@ import {
 
 const write = (draft: Draft, text: string): Draft => ({
   ...draft,
-  body: applyText(draft.body, text).document,
+  body: applyText(textOf(draft.body), text).document,
 });
 
 describe('synchronizing Drafts through Product Sync', () => {
@@ -118,8 +118,8 @@ describe('synchronizing Drafts through Product Sync', () => {
       from: alex.address,
       subject: 'Plan',
     });
-    expect(continued.body[0].align).toBe('center');
-    expect(continued.body[0].spans.at(-1)).toStrictEqual({
+    expect(textOf(continued.body)[0].align).toBe('center');
+    expect(textOf(continued.body)[0].spans.at(-1)).toStrictEqual({
       text: 'attached',
       link: 'https://example.invalid/numbers',
       color: '#d1242f',

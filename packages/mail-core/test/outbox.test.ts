@@ -14,6 +14,7 @@ import { createOutbox, undoSendWindow } from '../src/outbox.ts';
 import {
   insertImage,
   plainText,
+  textOf,
   toggleMark,
 } from '../src/semantic-document.ts';
 import { syntheticConnections } from '../src/testing/gmail-mailbox.ts';
@@ -110,7 +111,7 @@ describe('sending a Draft through the Outbox', () => {
     });
     const written = write(created, 'Numbers attached');
     const body = toggleMark(
-      insertImage(written.body, { start: 16, end: 16 }, chart).document,
+      insertImage(textOf(written.body), { start: 16, end: 16 }, chart).document,
       { start: 0, end: 7 },
       'bold',
     );
@@ -907,7 +908,9 @@ describe('sending a Draft through the Outbox', () => {
     // A refused message returns to the Drafts to correct, apart from its claimed identity.
     const restored = await sending.outbox.undo(refusedId);
     expect(restored).not.toBe(refusedId);
-    expect(plainText(sending.draft(String(restored)).body)).toBe('First');
+    expect(plainText(textOf(sending.draft(String(restored)).body))).toBe(
+      'First',
+    );
     sending.outbox.dispose();
   });
 

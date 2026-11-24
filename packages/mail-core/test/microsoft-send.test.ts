@@ -6,7 +6,7 @@ import { createDrafts, sendingMailboxes } from '../src/drafts.ts';
 import { createMailboxes } from '../src/mailboxes.ts';
 import { createOutbox, undoSendWindow } from '../src/outbox.ts';
 import { defaultProfile, mailboxesOf } from '../src/registration.ts';
-import { insertImage } from '../src/semantic-document.ts';
+import { insertImage, textOf } from '../src/semantic-document.ts';
 import { createSyntheticProductSync } from '../src/testing/drafts.ts';
 import { syntheticConnections } from '../src/testing/gmail-mailbox.ts';
 import { createSyntheticGraph } from '../src/testing/graph-mailbox.ts';
@@ -111,7 +111,8 @@ async function large(sending: Awaited<ReturnType<typeof microsoftSender>>) {
   await sending.drafts.update(
     {
       ...created,
-      body: insertImage(created.body, { start: 3, end: 3 }, chart).document,
+      body: insertImage(textOf(created.body), { start: 3, end: 3 }, chart)
+        .document,
       attachments: [plan],
       response: {
         kind: 'reply',
@@ -175,7 +176,8 @@ describe('sending Microsoft mail through Graph', () => {
         {
           ...created,
           subject: 'Re: Lunch',
-          body: insertImage(created.body, { start: 3, end: 3 }, chart).document,
+          body: insertImage(textOf(created.body), { start: 3, end: 3 }, chart)
+            .document,
           attachments: [plan],
           response: {
             kind: 'reply',

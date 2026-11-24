@@ -82,7 +82,9 @@ import {
   marksAt,
   replaceSelection,
   setBlockKind,
+  textOf,
   withImage,
+  withText,
 } from './semantic-document.ts';
 
 export type {
@@ -583,7 +585,7 @@ export function addBodyRecipient(
     greeting: string;
   }>,
 ): Readonly<{ draft: Draft; selection: Selection }> {
-  const edit = replaceSelection(draft.body, query, `${greeting}\n\n`);
+  const edit = replaceSelection(textOf(draft.body), query, `${greeting}\n\n`);
   const address = recipient.address.toLowerCase();
   const present = [...draft.to, ...draft.cc, ...draft.bcc].some(
     (each) => each.address.toLowerCase() === address,
@@ -591,7 +593,7 @@ export function addBodyRecipient(
   return {
     draft: {
       ...draft,
-      body: edit.document,
+      body: withText(draft.body, edit.document),
       to: present ? draft.to : [...draft.to, recipient],
     },
     selection: edit.selection ?? { start: query.start, end: query.start },
@@ -802,7 +804,7 @@ export const withAsset = (
 ): Draft => {
   const { attachments, quoted } = draft;
   const attached = attachments?.some((asset) => asset.id === id) === true;
-  const body = withImage(draft.body, id, next);
+  const body = withText(draft.body, withImage(textOf(draft.body), id, next));
   const quotedNext =
     quoted === undefined ? undefined : withImage(quoted, id, next);
   if (!attached && body === draft.body && quotedNext === quoted) {
@@ -895,7 +897,11 @@ export const isEmptyDraft = (draft: Draft) =>
   draft.entries === undefined &&
   !/\S/u.test(draft.subject) &&
   // Stops at the first non-whitespace character rather than joining the whole body.
-  draft.body.every(({ spans }) => spans.every(({ text }) => !/\S/u.test(text)));
+  draft.body.every(
+    (part) =>
+      part.kind !== 'table' &&
+      part.spans.every(({ text }) => !/\S/u.test(text)),
+  );
 
 // How an asset fails without native code reading anything, for a source it could not copy.
 const unreadable = (source: AssetSource) => {
@@ -944,7 +950,7 @@ export const prepareFiles = (
     ({ file }) => inline && file.type.startsWith('image/'),
   );
   const attached = imports.filter((each) => !inlined.includes(each));
-  let { body } = draft;
+  let body = textOf(draft.body);
   let at = selection;
   for (const { asset } of inlined) {
     const result = insertImage(body, at, asset);
@@ -954,7 +960,7 @@ export const prepareFiles = (
   return {
     draft: {
       ...draft,
-      body,
+      body: withText(draft.body, body),
       ...(attached.length === 0
         ? {}
         : {
