@@ -133,7 +133,7 @@ hint's false "Label duplicates role description" finding. The capture is
 kept as an `Add Link` attachment. Review it for the body's selection drawn as inactive
 ([#1796](https://github.com/unwired-dev/product/issues/1796)); no assertion checks the highlight. An invalid destination shows its reason after Return,
 Escape closes the popover keeping the text and selection, which reopening it
-prefills again, and a valid destination applied from it reads **Edit Link**, which one Undo reverts and Redo restores.
+prefills again, and a valid destination applied from it reads **Edit Link**, which one Undo reverts, leaving Edit Link unavailable at the caret, and Redo restores.
 Edit Link then offers Remove Link with the saved destination, and Escape closes
 it. With the reply docked, it clicks the
 reader toolbar above it ([#1211](https://github.com/unwired-dev/product/issues/1211)):
@@ -297,9 +297,10 @@ then lists the address as `0 since`; **Edit** switches to **Done** and back, and
 a swipe's **Delete** leaves **No Blocked Senders**. Closing Settings returns to
 the open message on iPad; iPhone reopens it from the Inbox. iPad opens Settings
 through the Command Palette, as it does again after the relaunch
-([#989](https://github.com/unwired-dev/product/issues/989)). The body tap that
-closes an open panel goes to the link in the rendered body, clear of iPhone's
-Labels panel ([#2169](https://github.com/unwired-dev/product/issues/2169)). The
+([#989](https://github.com/unwired-dev/product/issues/989)). The tap that
+closes an open menu goes to the link in the rendered body on iPad, and on iPhone
+to the dimmed top half above the Labels sheet
+([#2781](https://github.com/unwired-dev/product/issues/2781)). The
 alert, the list and its edit mode are kept as attachments.
 
 Back in that message, the journey chooses **Pin**

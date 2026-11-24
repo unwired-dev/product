@@ -11,15 +11,19 @@ import {
   Text as SwiftUIText,
 } from '@expo/ui/swift-ui';
 import {
+  background,
   buttonBorderShape,
   buttonStyle,
+  contentShape,
   controlSize,
   font,
   foregroundStyle,
   frame,
   disabled as inactive,
+  padding,
   presentationBackground,
   presentationDetents,
+  shapes,
   tint,
 } from '@expo/ui/swift-ui/modifiers';
 import { typedLabel } from '@private-email/mail-core/gmail-actions';
@@ -41,7 +45,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { SFSymbol } from './design.tsx';
 import { useLocalization } from './localization.ts';
 import { useMailbox, useProviderName } from './mailbox.tsx';
-import { textStyles, usePalette } from './theme.ts';
+import { textStyles, useAppearance, usePalette } from './theme.ts';
 
 const compact = Platform.OS === 'ios' && !Platform.isPad;
 
@@ -53,6 +57,8 @@ const styles = StyleSheet.create({
   panelList: { maxHeight: 300, flexGrow: 0 },
   list: { flexShrink: 1 },
   listContent: { gap: 10 },
+  // The frames leave 10pt between the title and the account.
+  heading: { gap: 10 },
   title: { ...textStyles.headline },
   account: { ...textStyles.subheadline },
   field: {
@@ -71,6 +77,18 @@ const styles = StyleSheet.create({
   rowTitle: { ...textStyles.body },
   rowDetail: { ...textStyles.footnote },
   separator: { height: StyleSheet.hairlineWidth, marginLeft: 16 },
+  // A label's row: its name and check, then on iPad the Move to that label.
+  choice: { flexDirection: 'row', alignItems: 'stretch' },
+  choiceName: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.s,
+    // Long nested names wrap, so labels sharing a prefix stay apart.
+    paddingVertical: 12,
+  },
+  choiceTitle: { flex: 1 },
+  move: { width: 52, alignItems: 'center', justifyContent: 'center' },
   header: {
     ...textStyles.footnote,
     fontWeight: '600',
@@ -81,7 +99,7 @@ const styles = StyleSheet.create({
   buttons: { gap: spacing.s },
 });
 
-// One of the form's full-width capsule buttons: the system's bordered button, prominent for Apply.
+// One of the form's full-width capsule buttons.
 function FormButton({
   label,
   prominent,
@@ -94,14 +112,21 @@ function FormButton({
   readonly onPress: () => void;
 }) {
   const colors = usePalette();
+  // The system's bordered styles mute Cancel's fill and override disabled Apply's tint.
+  const muted = prominent ? `${colors.accentFill}B3` : colors.fillQuiet;
+  const fill = !prominent || disabled ? muted : undefined;
   return (
     <Host matchContents={{ vertical: true }}>
       <SwiftUIButton
         modifiers={[
-          buttonStyle(prominent ? 'borderedProminent' : 'bordered'),
-          buttonBorderShape('capsule'),
-          controlSize('large'),
-          tint(prominent ? colors.accentFill : colors.fillQuiet),
+          ...(fill === undefined
+            ? [
+                buttonStyle(prominent ? 'borderedProminent' : 'bordered'),
+                buttonBorderShape('capsule'),
+                controlSize('large'),
+                tint(prominent ? colors.accentFill : colors.fillQuiet),
+              ]
+            : [buttonStyle('plain'), background(fill, shapes.capsule())]),
           inactive(disabled),
         ]}
         onPress={onPress}>
@@ -111,7 +136,13 @@ function FormButton({
             foregroundStyle(
               prominent ? colors.accentOnFill : colors.textPrimary,
             ),
-            frame({ maxWidth: Infinity }),
+            ...(fill === undefined
+              ? [frame({ maxWidth: Infinity })]
+              : [
+                  padding({ horizontal: 12, vertical: 10 }),
+                  frame({ maxWidth: Infinity, minHeight: 50 }),
+                  contentShape(shapes.capsule()),
+                ]),
           ]}>
           {label}
         </SwiftUIText>
@@ -159,6 +190,145 @@ function Row({
   );
 }
 
+// The Labels frames' title, over the Gmail account the labels belong to.
+function LabelsHeader() {
+  const colors = usePalette();
+  const { t } = useLocalization();
+  const mailbox = useMailbox();
+  const provider = useProviderName();
+  return (
+    <View style={styles.heading}>
+      <Text
+        accessibilityRole="header"
+        style={[styles.title, { color: colors.textPrimary }]}>
+        {t('gmailActions.labels')}
+      </Text>
+      <Text
+        numberOfLines={1}
+        style={[styles.account, { color: colors.textSecondary }]}>
+        {mailbox === undefined ? provider : `${provider} · ${mailbox.address}`}
+      </Text>
+    </View>
+  );
+}
+
+// Gmail's labels as the Labels frames draw them: the account, then the labels in one group,
+// checked when the Thread has them, and New Label… in its own. iPad's rows also move the Thread to
+// their label. iPhone shows them in a system sheet; iPad in the popover on the reader's toolbar.
+export function LabelChoices({
+  labels,
+  applied,
+  notes,
+  onToggle,
+  onMove,
+  onNewLabel,
+}: {
+  readonly labels: readonly GmailLabel[];
+  readonly applied: ReadonlySet<string>;
+  readonly notes: readonly string[];
+  readonly onToggle: (label: string, applied: boolean) => void;
+  readonly onMove?: ((label: string) => void) | undefined;
+  readonly onNewLabel: () => void;
+}) {
+  const colors = usePalette();
+  const { t } = useLocalization();
+  const primary = { color: colors.textPrimary };
+  const quiet = { backgroundColor: colors.fillQuiet };
+  const pressedRow = { backgroundColor: colors.accentSelectionSubtle };
+  return (
+    <View style={compact ? styles.form : styles.panel}>
+      <LabelsHeader />
+      <ScrollView
+        style={compact ? styles.list : styles.panelList}
+        contentContainerStyle={styles.listContent}>
+        {notes.map((note) => (
+          <Text
+            key={note}
+            style={[styles.footer, { color: colors.textSecondary }]}>
+            {note}
+          </Text>
+        ))}
+        {labels.length === 0 ? null : (
+          <View style={[styles.group, quiet]}>
+            {labels.map((label, index) => {
+              const checked = applied.has(label.id);
+              return (
+                <View key={label.id}>
+                  {index > 0 ? (
+                    <View
+                      style={[
+                        styles.separator,
+                        { backgroundColor: colors.separator },
+                      ]}
+                    />
+                  ) : null}
+                  <View style={styles.choice}>
+                    <Pressable
+                      accessibilityLabel={label.name}
+                      accessibilityRole="checkbox"
+                      accessibilityState={{ checked }}
+                      focusable
+                      onPress={() => {
+                        onToggle(label.id, checked);
+                      }}
+                      style={({ pressed }) => [
+                        styles.row,
+                        styles.choiceName,
+                        pressed && pressedRow,
+                      ]}>
+                      <Text
+                        style={[styles.rowTitle, styles.choiceTitle, primary]}>
+                        {label.name}
+                      </Text>
+                      {checked ? (
+                        <SFSymbol
+                          name="checkmark"
+                          color={colors.textPrimary}
+                          semibold
+                        />
+                      ) : null}
+                    </Pressable>
+                    {onMove === undefined ? null : (
+                      <Pressable
+                        accessibilityLabel={t('gmailActions.moveTo', {
+                          label: label.name,
+                        })}
+                        accessibilityRole="button"
+                        focusable
+                        onPress={() => {
+                          onMove(label.id);
+                        }}
+                        style={({ pressed }) => [
+                          styles.move,
+                          pressed && pressedRow,
+                        ]}>
+                        <SFSymbol
+                          name="folder"
+                          color={colors.textSecondary}
+                        />
+                      </Pressable>
+                    )}
+                  </View>
+                </View>
+              );
+            })}
+          </View>
+        )}
+        <View style={[styles.group, quiet]}>
+          <Row
+            label={t('gmailActions.newLabel')}
+            disabled={false}
+            onPress={onNewLabel}>
+            <Text style={[styles.rowTitle, primary]}>
+              {t('gmailActions.newLabel')}
+            </Text>
+          </Row>
+        </View>
+      </ScrollView>
+    </View>
+  );
+}
+
 // Labels, as New Label… opens it on iPhone and iPad: a name to type, a row creating it in Gmail,
 // then the account's labels. Apply creates the label and applies it, or applies the label Gmail
 // already has under that name; a name that differs from one only in case offers that label
@@ -179,8 +349,6 @@ function LabelForm({
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
-  const mailbox = useMailbox();
-  const provider = useProviderName();
   const field = useRef<TextInputInstance>(null);
   const [typed, setTyped] = useState('');
   const [creating, setCreating] = useState(false);
@@ -272,20 +440,7 @@ function LabelForm({
   const quiet = { backgroundColor: colors.fillQuiet };
   return (
     <>
-      <View>
-        <Text
-          accessibilityRole="header"
-          style={[styles.title, primary]}>
-          {t('gmailActions.labels')}
-        </Text>
-        <Text
-          numberOfLines={1}
-          style={[styles.account, secondary]}>
-          {mailbox === undefined
-            ? provider
-            : `${provider} · ${mailbox.address}`}
-        </Text>
-      </View>
+      <LabelsHeader />
       <View style={[styles.field, quiet]}>
         <SFSymbol
           name="tag"
@@ -378,9 +533,10 @@ function LabelForm({
   );
 }
 
-// iPhone shows Labels in a system sheet; iPad in the reader's panel beneath its toolbar.
+// iPhone shows Labels in a system sheet; iPad in the labels' popover on the reader's toolbar.
 export function NewLabel(props: Parameters<typeof LabelForm>[0]) {
   const colors = usePalette();
+  const appearance = useAppearance();
   const { height } = useWindowDimensions();
   const { bottom } = useSafeAreaInsets();
   if (!compact) {
@@ -407,7 +563,11 @@ export function NewLabel(props: Parameters<typeof LabelForm>[0]) {
             presentationDetents([
               { height: Math.min(626, height - 70) - bottom },
             ]),
-            presentationBackground(colors.surfacePanel),
+            // The Dark frames draw the sheet as the glass panel surface; Light keeps the system's
+            // sheet glass, as the Reply sheet does.
+            ...(appearance === 'dark'
+              ? [presentationBackground(colors.surfacePanel)]
+              : []),
           ]}>
           <RNHostView>
             <View

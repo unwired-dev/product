@@ -2217,6 +2217,49 @@ password manager by running
   app. Sync Status closes with
   the capsule, so completion comes from the capsule fading and the relaunch downloading
   nothing.
+- **2026-11-24, iPhone iCloud Mail folder recreated during a history download
+  ([#2852](https://github.com/unwired-dev/product/issues/2852)).** The Mac rerun above,
+  on iPhone. Target, toolchain and operator as in the first record, on an iPhone 18 Pro
+  Simulator on iOS 27.0 created for this run, with Simulator closed. Build: the app source of
+  `1852c56a18afbf77c85206f5e2d4df87654723be`. Every credential was entered with pasteboard
+  steps 1 to 3 above, and the Recovery Key also with step 4. Google Product Sign-In found
+  the certification Product Account, the Recovery Key unlocked the device, and only iCloud
+  Mail was connected. Before the app connected, the iCloud Mail certification mailbox held
+  1 message across its six selectable folders, and a run folder of 6,000 small synthetic
+  messages was added over IMAP as in the Mac rerun; the server counted 6,001. Sync Status
+  was opened from the capsule as soon as it appeared and read about twice a second; times
+  are from **Connect**. Result: pass. **iCloud Mail** connected over `imap.mail.me.com` 993
+  (TLS), and Sync Status read **Downloading history · 1 messages** 24 seconds after
+  **Connect**, then **501** and **1,001 messages** 32 seconds after it. With **1,001
+  messages** on screen the operator stopped the app's process (`SIGSTOP`), deleted the run
+  folder over IMAP 7 seconds later, created it again under the same name within the same
+  second and filled it with 1,500 new messages (10 appended, the rest copied within the
+  folder). The recreated folder reported a UIDVALIDITY other than the first one, and its
+  count read 1,500 over IMAP. 24 seconds later the server counted 1,501 messages across
+  its seven selectable folders. The operator continued the process 21
+  seconds after that count, 53 seconds after stopping it. **Restarted, not reused:** Sync Status read **1,001
+  messages** for a second, then **1 messages** 3 seconds after the process continued,
+  **501**, **1,001** and **1,501 messages** 11 seconds after it, the server's count after
+  the recreation, and the capsule faded 3 seconds later. No reading showed a total,
+  **Offline** or an account needing attention, and a check of the mail server about 3
+  minutes later downloaded no history. **Complete after relaunch:** the app was terminated and
+  launched again; Sync Status read **Checking the mail server…** 9 seconds after launch,
+  the capsule faded 2 seconds later, and no history download followed in the 69 seconds
+  sampled after that. Afterwards the run folder was deleted, an IMAP count found the
+  mailbox's original six folders and 1 message, **Sign Out of This Device** returned the
+  app to Welcome, and the Simulator was deleted. The scan of step 5 above covered the
+  43,543 files written since the run began under `~/.agent-device`, T3 Code's data
+  directory (its device sessions, state database and logs), `~/Library/Logs`, Xcode's
+  DerivedData, the shell history, the temporary directories, the repository's `artifacts`,
+  the operator's scratch files and this run's session transcript; no file held a password
+  or the Recovery Key. Limitations: two earlier attempts are not counted, one on another new
+  Simulator and one on this one: each downloaded the run folder in under a minute before
+  Sync Status was open, and each was signed out before the next. Unlike on the Mac, the restarted pass began as soon as the
+  process continued, with no attention notice. In step 4, the tap that empties the Recovery
+  Key field landed on the next screen once the device had unlocked, opening Google's
+  sign-in prompt for **Gmail**, which the operator cancelled. As on the other hosts, Sync
+  Status closes with the capsule, so completion comes from the capsule fading and the
+  relaunch downloading nothing.
 
 Real iCloud Mail and Seznam Email organizing, IDLE and Sent filing qualification, through
 the app on both hosts, remains required before release
