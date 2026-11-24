@@ -8,6 +8,7 @@ import type {
   NativeAssistance,
   TextTool,
 } from '@private-email/mail-core/assistance';
+import type { ReactNode } from 'react';
 
 import {
   Host,
@@ -88,6 +89,14 @@ const idle: DraftAssistanceState = { kind: 'idle' };
 
 const finished = (state: DraftAssistanceState) =>
   state.kind !== 'idle' && state.kind !== 'generating';
+
+// A clarification shows no result to keep; a prompted draft has no original text to keep.
+const closeVerb = (purpose: Purpose, state: DraftAssistanceState) => {
+  if (purpose === 'generate') {
+    return 'discard';
+  }
+  return state.kind === 'clarification' ? 'close' : 'keepOriginal';
+};
 
 // The panel's own request for its captured input. It starts once committed; unmounting, or a
 // replaced store, cancels the request and forgets its preview before passive effects. `act` runs
@@ -405,6 +414,28 @@ function Status({
       </View>
     );
   }
+  const marker = (
+    <OnDeviceMarker
+      header
+      label={t('common.onDeviceMarker', {
+        kind: t(`assistance.${purpose}Title`),
+      })}
+    />
+  );
+  // The model asked for clarification: the card says so on the result's surface, without text.
+  if (state.kind === 'clarification') {
+    return (
+      <>
+        {marker}
+        <Text
+          selectable
+          accessibilityRole="alert"
+          style={[styles.text, { color: colors.textPrimary }]}>
+          {failure}
+        </Text>
+      </>
+    );
+  }
   if (state.kind !== 'ready') {
     return (
       <Text
@@ -416,12 +447,7 @@ function Status({
   }
   return (
     <>
-      <OnDeviceMarker
-        header
-        label={t('common.onDeviceMarker', {
-          kind: t(`assistance.${purpose}Title`),
-        })}
-      />
+      {marker}
       <Text
         selectable
         style={[styles.text, { color: colors.textPrimary }]}>
@@ -441,6 +467,23 @@ function Status({
     </>
   );
 }
+
+// Try Again and Close share the card's width on iPhone, as the stale-result card's buttons do, and
+// take their own width on iPad.
+const pairedActions = (stacked: boolean, first: ReactNode, second: ReactNode) =>
+  stacked ? (
+    <Host matchContents={{ vertical: true }}>
+      <HStack spacing={spacing.s}>
+        {first}
+        {second}
+      </HStack>
+    </Host>
+  ) : (
+    <View style={styles.buttons}>
+      {first === null ? null : <Host matchContents>{first}</Host>}
+      <Host matchContents>{second}</Host>
+    </View>
+  );
 
 // Review of an explicitly requested rewrite, reply suggestion or generated draft for captured
 // Draft text. Opening it is the request. The Draft changes only when the person applies the
@@ -500,10 +543,12 @@ export function DraftAssistance({
   if (purpose === 'reply' || purpose === 'generate') {
     apply = verbs[purpose];
   }
-  const close = purpose === 'generate' ? 'discard' : 'keepOriginal';
-  // A checked result offers native push buttons, as its frames do: Keep Original carries the
-  // accent fill when details differ, and the rewrite when none do. On iPhone each button takes the
-  // width it is given.
+  const clarification = state.kind === 'clarification';
+  const close = closeVerb(purpose, state);
+  // A checked result and a clarification offer native push buttons, as their frames do: Keep
+  // Original carries the accent fill when details differ, and the rewrite when none do. On iPhone
+  // each button takes the width it is given.
+  const push = check !== undefined || clarification;
   const control = ({
     label,
     accessibilityLabel,
@@ -515,13 +560,7 @@ export function DraftAssistance({
     onPress: () => void;
     main?: boolean;
   }>) =>
-    check === undefined ? (
-      <Action
-        label={label}
-        accessibilityLabel={accessibilityLabel}
-        onPress={onPress}
-      />
-    ) : (
+    push ? (
       <SwiftUIButton
         onPress={onPress}
         modifiers={[
@@ -534,6 +573,12 @@ export function DraftAssistance({
           {label}
         </SwiftUIText>
       </SwiftUIButton>
+    ) : (
+      <Action
+        label={label}
+        accessibilityLabel={accessibilityLabel}
+        onPress={onPress}
+      />
     );
   const applyAction =
     state.kind === 'ready'
@@ -576,7 +621,9 @@ export function DraftAssistance({
       {closeAction}
     </View>
   );
-  if (check !== undefined) {
+  if (clarification) {
+    actions = pairedActions(stacked, retryAction, closeAction);
+  } else if (check !== undefined) {
     actions = stacked ? (
       <Host matchContents={{ vertical: true }}>
         <VStack spacing={spacing.s}>
@@ -603,7 +650,9 @@ export function DraftAssistance({
         {
           borderColor: colors.separator,
           backgroundColor:
-            state.kind === 'ready' ? colors.onDeviceSurface : colors.fillQuiet,
+            state.kind === 'ready' || clarification
+              ? colors.onDeviceSurface
+              : colors.fillQuiet,
         },
       ]}>
       {input === undefined ? (

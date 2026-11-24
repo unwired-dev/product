@@ -91,7 +91,7 @@ const decodeOutcome = Schema.decodeUnknownOption(
   Schema.Struct({
     code: Schema.Union([
       RequestUnavailable,
-      Schema.Literals(['refused', 'cancelled']),
+      Schema.Literals(['refused', 'cancelled', 'needs-clarification']),
     ]),
   }),
 );
@@ -234,7 +234,7 @@ class AssistanceFailure extends Schema.TaggedError<
 >()('AssistanceFailure', {
   outcome: Schema.Union([
     RequestUnavailable,
-    Schema.Literals(['refused', 'cancelled', 'failed']),
+    Schema.Literals(['refused', 'cancelled', 'failed', 'needs-clarification']),
   ]),
   cause: Schema.Defect(),
   // Logged instead of the cause; see rejectionDiagnostic.
@@ -276,10 +276,16 @@ const malformed = (error: Schema.SchemaError) =>
 
 const isUnavailable = Schema.is(RequestUnavailable);
 
-const failedState = (outcome: AssistanceFailure['outcome']) =>
-  isUnavailable(outcome)
+// Only an operation that can ask for clarification reads `needs-clarification` as such; anywhere
+// else it is a failure.
+const failedState = (outcome: AssistanceFailure['outcome']) => {
+  if (outcome === 'needs-clarification') {
+    return { kind: 'failed' } as const;
+  }
+  return isUnavailable(outcome)
     ? ({ kind: 'unavailable', reason: outcome } as const)
     : ({ kind: outcome } as const);
+};
 
 const availability = (native: NativeAssistance) =>
   call(() => native.availability()).pipe(
@@ -290,55 +296,61 @@ const availability = (native: NativeAssistance) =>
 
 const recoverAssistanceFailure = (
   error: Readonly<Pick<AssistanceFailure, 'outcome' | 'diagnostic'>>,
-) =>
-  (error.outcome === 'failed'
-    ? Effect.logError('On-device assistance failed:', error.diagnostic)
-    : Effect.void
-  ).pipe(Effect.as(failedState(error.outcome)));
+) => {
+  const state = failedState(error.outcome);
+  return (
+    state.kind === 'failed'
+      ? Effect.logError('On-device assistance failed:', error.diagnostic)
+      : Effect.void
+  ).pipe(Effect.as(state));
+};
 
-// One model operation on captured input, once the system model is available.
-const generateLocal = Effect.fnUntraced(
-  function* (
-    native: NativeAssistance,
-    {
-      request,
-      input,
-      generate,
-      decode,
-    }: Readonly<{
-      request: string;
-      input: SummaryInput;
-      generate: (request: string, input: string) => Promise<unknown>;
-      decode: typeof decodeSummary;
-    }>,
-    isCurrent: () => boolean,
-  ) {
-    const available = yield* availability(native);
-    if (available !== 'available') {
-      return { kind: 'unavailable', reason: available } as const;
-    }
-    // Cancellation may have happened while availability was pending. There is no asynchronous
-    // suspension between this ownership check and the native call.
-    if (!isCurrent()) {
-      return { kind: 'cancelled' } as const;
-    }
-    const text = yield* call(() => generate(request, input.text)).pipe(
-      Effect.flatMap((value) => decode(value).pipe(Effect.mapError(malformed))),
-    );
-    if (!hasVisibleText(text)) {
-      return { kind: 'failed' } as const;
-    }
-    return {
-      kind: 'ready',
-      text: text.trim(),
-      omitted: input.omitted,
-    } as const;
-  },
-  // oxlint-disable-next-line promise/prefer-await-to-callbacks -- Effect's typed error channel.
-  Effect.catchTag('AssistanceFailure', (error) =>
-    recoverAssistanceFailure(error),
-  ),
-);
+// One model operation on captured input, once the system model is available. Its caller recovers
+// a failure as the state it shows.
+const generateLocal = Effect.fnUntraced(function* (
+  native: NativeAssistance,
+  {
+    request,
+    input,
+    generate,
+    decode,
+  }: Readonly<{
+    request: string;
+    input: SummaryInput;
+    generate: (request: string, input: string) => Promise<unknown>;
+    decode: typeof decodeSummary;
+  }>,
+  isCurrent: () => boolean,
+) {
+  const available = yield* availability(native);
+  if (available !== 'available') {
+    return { kind: 'unavailable', reason: available } as const;
+  }
+  // Cancellation may have happened while availability was pending. There is no asynchronous
+  // suspension between this ownership check and the native call.
+  if (!isCurrent()) {
+    return { kind: 'cancelled' } as const;
+  }
+  const text = yield* call(() => generate(request, input.text)).pipe(
+    Effect.flatMap((value) => decode(value).pipe(Effect.mapError(malformed))),
+  );
+  if (!hasVisibleText(text)) {
+    return { kind: 'failed' } as const;
+  }
+  return {
+    kind: 'ready',
+    text: text.trim(),
+    omitted: input.omitted,
+  } as const;
+});
+
+const recoverLocal = <A, R>(effect: Effect.Effect<A, AssistanceFailure, R>) =>
+  effect.pipe(
+    // oxlint-disable-next-line promise/prefer-await-to-callbacks -- Effect's typed error channel.
+    Effect.catchTag('AssistanceFailure', (error) =>
+      recoverAssistanceFailure(error),
+    ),
+  );
 
 let requests = 0;
 
@@ -443,7 +455,7 @@ export function createMessageSummary(native: NativeAssistance) {
             decode: decodeSummary,
           },
           isCurrent,
-        ),
+        ).pipe(recoverLocal),
       ),
     cancel: (request) => native.cancel(request),
     same: (left, right) =>
@@ -556,7 +568,21 @@ export const draftTextIssue = (
 export type DraftAssistanceInput = Readonly<
   SummaryInput & { purpose: TextTool | 'reply' | 'generate' }
 >;
-export type DraftAssistanceState = AssistanceState<'generating'>;
+// The model could not edit the text without guessing a material fact or intent. It carries no
+// text: the person edits the original and tries again.
+export type DraftAssistanceState =
+  | AssistanceState<'generating'>
+  | { readonly kind: 'clarification' };
+
+// The Writing tools whose model may ask for clarification instead of answering. Proofread and
+// Break into Paragraphs are mechanical and always answer.
+const clarifyingTools: ReadonlySet<DraftAssistanceInput['purpose']> = new Set([
+  'rewrite',
+  'expand',
+  'shorten',
+  'friendly',
+  'neutral',
+]);
 
 // What a Writing tool reads from the Draft's authored text; Generate a Draft reads a prompt instead.
 export type DraftTextPurpose = 'translate' | TextTool | 'reply';
@@ -823,6 +849,14 @@ export const createDraftAssistance = (native: NativeAssistance) =>
             decode: decodeDraftText,
           },
           isCurrent,
+        ).pipe(
+          Effect.catchIf(
+            (error) =>
+              error.outcome === 'needs-clarification' &&
+              clarifyingTools.has(input.purpose),
+            () => Effect.succeed({ kind: 'clarification' } as const),
+          ),
+          recoverLocal,
         ),
       ),
     cancel: (request) => native.cancel(request),

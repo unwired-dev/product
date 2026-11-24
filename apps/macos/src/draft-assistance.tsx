@@ -74,6 +74,14 @@ const idle: DraftAssistanceState = { kind: 'idle' };
 const finished = (state: DraftAssistanceState) =>
   state.kind !== 'idle' && state.kind !== 'generating';
 
+// A clarification shows no result to keep; a prompted draft has no original text to keep.
+const closeVerb = (purpose: Purpose, state: DraftAssistanceState) => {
+  if (purpose === 'generate') {
+    return 'discard';
+  }
+  return state.kind === 'clarification' ? 'close' : 'keepOriginal';
+};
+
 // The panel's own request for its captured input. It starts once committed; unmounting, or a
 // replaced store, cancels the request and forgets its preview before passive effects. `act` runs
 // only for the state it was rendered with, so queued input cannot affect a replaced request.
@@ -342,6 +350,29 @@ function Status({
       </View>
     );
   }
+  const marker = (
+    <OnDeviceMarker
+      compact
+      header
+      label={t('common.onDeviceMarker', {
+        kind: t(`assistance.${purpose}Title`),
+      })}
+    />
+  );
+  // The model asked for clarification: the card says so on the result's surface, without text.
+  if (state.kind === 'clarification') {
+    return (
+      <>
+        {marker}
+        <Text
+          selectable
+          accessibilityRole="alert"
+          style={[styles.text, { color: colors.textPrimary }]}>
+          {failure}
+        </Text>
+      </>
+    );
+  }
   if (state.kind !== 'ready') {
     return (
       <Text
@@ -354,13 +385,7 @@ function Status({
   }
   return (
     <>
-      <OnDeviceMarker
-        compact
-        header
-        label={t('common.onDeviceMarker', {
-          kind: t(`assistance.${purpose}Title`),
-        })}
-      />
+      {marker}
       <Text
         selectable
         style={[styles.text, { color: colors.textPrimary }]}>
@@ -438,11 +463,12 @@ export function DraftAssistance({
   } else if (check !== undefined && check.changes.length > 0) {
     action = 'replaceWithChanges';
   }
-  // A prompted draft has no original text to keep.
-  const close = purpose === 'generate' ? 'discard' : 'keepOriginal';
-  // A checked result offers push buttons, as its frames do: the accent tint marks Keep Original
-  // when details differ and the rewrite when none do. Neither answers Return, which stays with the
-  // Draft body (#1900).
+  const clarification = state.kind === 'clarification';
+  const close = closeVerb(purpose, state);
+  // A checked result and a clarification offer push buttons, as their frames do: the accent tint
+  // marks Keep Original when details differ and the rewrite when none do. Neither answers Return,
+  // which stays with the Draft body (#1900).
+  const push = check !== undefined || clarification;
   const control = ({
     main = false,
     ...props
@@ -452,13 +478,13 @@ export function DraftAssistance({
     onPress: () => void;
     main?: boolean;
   }>) =>
-    check === undefined ? (
-      <Action {...props} />
-    ) : (
+    push ? (
       <Button
         fill={main ? 'accent' : 'quiet'}
         {...props}
       />
+    ) : (
+      <Action {...props} />
     );
   const differs = check !== undefined && check.changes.length > 0;
   const applyAction =
@@ -503,7 +529,9 @@ export function DraftAssistance({
         {
           borderColor: colors.separator,
           backgroundColor:
-            state.kind === 'ready' ? colors.onDeviceSurface : colors.fillQuiet,
+            state.kind === 'ready' || clarification
+              ? colors.onDeviceSurface
+              : colors.fillQuiet,
         },
       ]}>
       {input === undefined ? (
@@ -523,7 +551,7 @@ export function DraftAssistance({
           }}
         />
       )}
-      <View style={check === undefined ? styles.row : styles.buttons}>
+      <View style={push ? styles.buttons : styles.row}>
         {check === undefined ? (
           <>
             {applyAction}

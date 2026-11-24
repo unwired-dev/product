@@ -6230,6 +6230,90 @@ describe('composing Drafts', () => {
   });
 
   it.each([false, true])(
+    'asks for a clearer original when a rewrite needs clarification, leaving the Draft and Undo alone (isPad=%s)',
+    async (isPad) => {
+      expect.hasAssertions();
+      const platform = jest.replaceProperty(
+        jest.requireActual<{ ipad: boolean }>('../src/inbox-styles.ts'),
+        'ipad',
+        isPad,
+      );
+      try {
+        const registration = account(connected(['alex@example.invalid']));
+        const storage = createSyntheticDrafts(
+          () => 'synthetic-product-account',
+        );
+        const { native, asked } = scriptedDraftAssistance();
+        await render(
+          <AssistanceContext value={native}>
+            <App
+              drafts={createDrafts(storage.native, registration)}
+              registration={registration}
+            />
+          </AssistanceContext>,
+        );
+        await press('New Message');
+        const body = () => screen.getByLabelText('Message body');
+        await fireEvent.changeText(body(), 'see you then');
+        await fireEvent.changeText(body(), 'see you then. or the other one');
+        const clarification =
+          'Couldn’t rewrite this. Your Draft is unchanged — edit your original to make it clearer, then try again.';
+        const dropped =
+          'Your Draft changed while this rewrite was being made, so it wasn’t used. Your text is as you left it.';
+        const clarify = async (index: number) => {
+          await act(async () => {
+            asked[index]?.answer.reject(
+              Object.assign(new Error('needs-clarification'), {
+                code: 'needs-clarification',
+              }),
+            );
+            await asked[index]?.answer.promise.catch(() => undefined);
+          });
+        };
+        const announce = jest.mocked(
+          AccessibilityInfo.announceForAccessibility,
+        );
+        announce.mockClear();
+        await chooseWritingTool('Rewrite the message body');
+        await clarify(0);
+        await expect(
+          screen.findByText(clarification),
+        ).resolves.toBeOnTheScreen();
+        expect(announce.mock.calls).toStrictEqual([[clarification]]);
+        expect(screen.getByText('Rewrite · On device')).toBeOnTheScreen();
+        expect(screen.queryByLabelText(/^Replace your text/u)).toBeNull();
+        expect(
+          screen.queryByLabelText('Keep your text and close this suggestion'),
+        ).toBeNull();
+        expect(body()).toHaveTextContent('see you then. or the other one', {
+          exact: true,
+        });
+
+        // Try Again asks for the same text again; Close leaves the Draft and its Undo history as
+        // they were.
+        await press('Try Again to get writing help');
+        expect(asked).toHaveLength(2);
+        expect(asked[1]?.input).toBe(asked[0]?.input);
+        await clarify(1);
+        await press('Close this notice');
+        expect(screen.queryByText(clarification)).toBeNull();
+        await press('Undo');
+        expect(body()).toHaveTextContent('see you then', { exact: true });
+
+        // A Draft edit closes the card without the stale-result card.
+        await chooseWritingTool('Rewrite the message body');
+        await clarify(2);
+        await screen.findByText(clarification);
+        await fireEvent.changeText(body(), 'see you then, Saturday');
+        expect(screen.queryByText(clarification)).toBeNull();
+        expect(screen.queryByText(dropped)).toBeNull();
+      } finally {
+        platform.restore();
+      }
+    },
+  );
+
+  it.each([false, true])(
     'says when an edit drops a rewrite and rewrites the current text again (isPad=%s)',
     async (isPad) => {
       expect.hasAssertions();
