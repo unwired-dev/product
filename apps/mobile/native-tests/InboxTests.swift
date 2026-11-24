@@ -223,10 +223,9 @@ final class InboxTests: XCTestCase {
       destination: "https://seeds.example.invalid/order",
       buttons: ["Cancel", "Copy Link", "Proceed"])
     verifyRichBodyCanvas(app)
-    // #966: a tap on the body closes an open panel without following the link. iPhone has no
-    // More (#1404): its Reply sheet offers the actions and opens Gmail's labels in that panel.
-    // The tap goes to the link in the rendered body: the link control beneath it can lie under
-    // the open panel (#2169).
+    // #966: a tap on the body closes an open menu or sheet without following the link. iPhone has
+    // no More (#1404): its Reply sheet offers the actions and opens Gmail's labels in a system
+    // sheet (#2781), whose dimmed top half the tap lands on, as the link can lie under the sheet.
     let bodyText = app.webViews.links["garden plan"].firstMatch
     let phone = UIDevice.current.userInterfaceIdiom == .phone
     let labels = app.staticTexts["Labels"]
@@ -241,7 +240,8 @@ final class InboxTests: XCTestCase {
       app.buttons["More"].tap()
     }
     XCTAssertTrue(panelItem.waitForExistence(timeout: 5))
-    bodyText.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+    (phone ? app : bodyText as XCUIElement)
+      .coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: phone ? 0.2 : 0.5)).tap()
     XCTAssertTrue(panelItem.waitForNonExistence(timeout: 5))
     XCTAssertFalse(app.alerts["Open this link in your browser?"].waitForExistence(timeout: 5))
     // Organizing goes through the packaged native Gmail modify: a star from the Command Palette,
@@ -263,12 +263,17 @@ final class InboxTests: XCTestCase {
     // The row carries no star marker; opening it read it.
     let starred = app.buttons["Rowan Hale. Garden plans for spring"]
     if phone {
-      // #972: iPhone's Reply sheet replaces open labels, so closing it reveals no stale panel.
+      // #972: labels a downward swipe closed leave no stale panel behind the Reply sheet.
       let spam = app.buttons.matching(NSPredicate(format: "label == %@", "Move to Spam"))
       app.buttons["Reply"].tap()
       XCTAssertTrue(app.buttons["Reply All"].waitForExistence(timeout: 5))
       app.buttons["Labels"].tap()
       XCTAssertTrue(labels.waitForExistence(timeout: 5))
+      let header = labels.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+      header.press(
+        forDuration: 0.1, thenDragTo: header.withOffset(CGVector(dx: 0, dy: 400)),
+        withVelocity: .fast, thenHoldForDuration: 0)
+      XCTAssertTrue(labels.waitForNonExistence(timeout: 5))
       app.buttons["Reply"].tap()
       XCTAssertTrue(app.buttons["Reply All"].waitForExistence(timeout: 5))
       XCTAssertFalse(labels.exists)
@@ -4084,7 +4089,7 @@ final class InboxTests: XCTestCase {
   }
 
   // #2441: New Label… after a Gmail reader's labels opens Labels, the iPhone sheet or the iPad
-  // labels' panel, captured empty and with a nested name for comparison with the I1 and P1 frames.
+  // labels' popover, captured empty and with a nested name for comparison with the I1 and P1 frames.
   func testNewLabel() throws {
     continueAfterFailure = false
     let environment = ProcessInfo.processInfo.environment
