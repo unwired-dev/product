@@ -6261,6 +6261,41 @@ describe('adding files and images to a Draft', () => {
     expect(imageWidthOf(saved.body, photo.image.id)).toBe(1024);
   });
 
+  it('names an inline image’s own width beside Original once its preview reads it (#2729)', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    jest.spyOn(storage.native, 'readDraftAsset').mockResolvedValue({
+      uri: 'data:image/png;base64,AA==',
+      width: 4032,
+      height: 2688,
+    });
+    await render(
+      <App
+        drafts={createDrafts(storage.native, registration)}
+        registration={registration}
+      />,
+    );
+    await press('New Message');
+    storage.addFile('file:///chart.png', 'chart');
+    storage.pickNext('photos', [
+      { uri: 'file:///chart.png', name: 'chart.png', type: 'image/png' },
+    ]);
+    await press('Insert Image…');
+    await screen.findByLabelText('Inline image chart.png');
+    expect(checkedSizes(screen.getByLabelText(/^chart\.png, /u))).toStrictEqual(
+      ['Original · 4032 px'],
+    );
+    expect(screen.getByLabelText(/^chart\.png, /u)).toHaveProp(
+      'accessibilityActions',
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: 'Show chart.png at Original size, 4032 × 2688',
+        }),
+      ]),
+    );
+  });
+
   it('checks no size while an image’s uses differ, and resizes them together as one edit (#2696)', async () => {
     expect.hasAssertions();
     const photo = {

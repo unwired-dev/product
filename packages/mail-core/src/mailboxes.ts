@@ -846,13 +846,10 @@ export function createMailboxes(
       }
     }
   };
-  // A Gmail or Microsoft Inbox whose synchronization a foreground restore invalidated
-  // synchronizes again.
+  // An Inbox whose synchronization a foreground restore invalidated synchronizes again.
   const resumeInterrupted = () => {
-    for (const entry of inboxes.values()) {
-      if (entry.provider !== 'imap') {
-        entry.inbox.resume();
-      }
+    for (const { inbox } of inboxes.values()) {
+      inbox.resume();
     }
   };
   // A connection moved to another Profile keeps its Inbox and changes only its owner here.

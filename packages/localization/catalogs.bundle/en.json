@@ -1429,9 +1429,11 @@
         "large": "Large",
         "original": "Original",
         "width": "{{width}} px",
+        "dimensions": "{{width}} × {{height}}",
         "withWidth": "{{size}} · {{width}} px",
         "menu": "Image Size",
-        "label": "Show {{name}} at {{size}} size"
+        "label": "Show {{name}} at {{size}} size",
+        "originalLabel": "Show {{name}} at Original size, {{width}} × {{height}}"
       },
       "toAttachment": "Attach Instead",
       "toAttachmentLabel": "Attach {{name}} instead of showing it inline",

@@ -179,6 +179,18 @@ struct DraftTests {
         CGImageSourceCreateImageAtIndex($0, 0, nil)
       })
     #expect(max(decoded.width, decoded.height) <= RegistrationStore.draftPreviewSize)
+    // It also names the full image's dimensions, which a quarter-turn orientation swaps.
+    #expect(thumbnail["width"] as? Int == 1_600)
+    #expect(thumbnail["height"] as? Int == 900)
+    let rotated = try Self.png(width: 1_600, height: 900, type: .jpeg, orientation: 6)
+    let portrait = try await store.importDraftAsset(
+      owner: owner, id: "photo0002",
+      source: ["kind": "data", "uri": "data:image/jpeg;base64,\(rotated.base64EncodedString())"])
+    let turned = try await store.readDraftAsset(
+      owner: owner, id: "photo0002", digest: try #require(portrait["digest"] as? String),
+      type: "image/jpeg")
+    #expect(turned["width"] as? Int == 900)
+    #expect(turned["height"] as? Int == 1_600)
     #expect(
       try cache.readDraftAsset(
         owner: owner, id: "photo0001", digest: try #require(photo["digest"] as? String)) == image)
@@ -807,7 +819,10 @@ extension DraftTests {
   }
 
   // A solid-colour PNG of the given size, as a photo-sized image.
-  private static func png(width: Int, height: Int) throws -> Data {
+  // An image of `width` by `height` stored pixels, encoded as `type` with an EXIF `orientation`.
+  private static func png(
+    width: Int, height: Int, type: UTType = .png, orientation: Int? = nil
+  ) throws -> Data {
     let context = try #require(
       CGContext(
         data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
@@ -818,8 +833,10 @@ extension DraftTests {
     let image = try #require(context.makeImage())
     let output = NSMutableData()
     let destination = try #require(
-      CGImageDestinationCreateWithData(output, UTType.png.identifier as CFString, 1, nil))
-    CGImageDestinationAddImage(destination, image, nil)
+      CGImageDestinationCreateWithData(output, type.identifier as CFString, 1, nil))
+    CGImageDestinationAddImage(
+      destination, image,
+      orientation.map { [kCGImagePropertyOrientation: $0] as CFDictionary })
     #expect(CGImageDestinationFinalize(destination))
     return output as Data
   }

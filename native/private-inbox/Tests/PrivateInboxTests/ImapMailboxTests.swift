@@ -722,7 +722,7 @@ extension PrivateInboxTests {
     #expect(tilde.folders.map(\.name).last == "~")
     #expect(tilde.skippable == ["~", "~*"])
     // A re-login between LIST commands that changes the namespaces refuses the listing.
-    await #expect(throws: (any Error).self) { _ = try await refusing("namespace-shift") }
+    await #expect(throws: RegistrationError.unavailable) { _ = try await refusing("namespace-shift") }
     #expect(Set(sharedCapabilities.map { $0.uppercased() }).isDisjoint(with: ["MOVE", "UIDPLUS", "IDLE"]))
     // One session examines folders and reads their envelopes and flags, as a synchronization
     // does.
