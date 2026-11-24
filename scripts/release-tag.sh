@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # changesets/action runs this on every push to main without pending changesets.
-# Reporting a tag through CHANGESETS_OUTPUT makes the action push it, create its
-# GitHub Release from the mobile changelog and set `published`.
+# Reporting a tag through CHANGESETS_OUTPUT makes the action push it and set
+# `published`; the workflow's next step creates the GitHub Release.
 set -euo pipefail
 
 mobile=$(node -p "require('./apps/mobile/package.json').version")

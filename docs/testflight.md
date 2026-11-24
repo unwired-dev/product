@@ -419,7 +419,9 @@ If an upload fails after the tag exists, rerun the failed TestFlight job of that
 Release run, or dispatch the TestFlight workflow for the tag. Rerunning the plan
 job finds the tag at the merge commit and stops without uploading; it refuses a
 tag that points to another commit. If the tag exists but its GitHub Release does
-not, create it with `gh release create vX.Y.Z --verify-tag`.
+not, the plan job failed before either upload: create the Release with
+`gh release create vX.Y.Z --verify-tag`, then dispatch the TestFlight workflow
+for the tag with `platform=both`.
 
 ```sh
 gh workflow run testflight.yml -f platform=macos -f ref=vX.Y.Z

@@ -19,4 +19,4 @@ if (( $(printf '%s' "$notes" | wc -c) > 125000 )); then
   changelog="https://github.com/$GITHUB_REPOSITORY/blob/$tag/apps"
   notes="The changelog for $tag is too long for a GitHub Release. Read it in [apps/mobile/CHANGELOG.md]($changelog/mobile/CHANGELOG.md) and [apps/macos/CHANGELOG.md]($changelog/macos/CHANGELOG.md)."
 fi
-printf '%s\n' "$notes" | gh release create "$tag" --verify-tag --title "$tag" --notes-file -
+printf '%s' "$notes" | gh release create "$tag" --verify-tag --title "$tag" --notes-file -

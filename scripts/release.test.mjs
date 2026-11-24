@@ -249,7 +249,7 @@ test('the GitHub Release copies the mobile changelog section up to the GitHub bo
         '--notes-file',
         '-',
       ],
-      notes: `${section(125_000)}\n`,
+      notes: section(125_000),
     });
 
     changelog(125_001);
@@ -257,7 +257,7 @@ test('the GitHub Release copies the mobile changelog section up to the GitHub bo
     assert.equal(result.status, 0, result.stderr);
     assert.equal(
       result.release.notes,
-      'The changelog for v0.2.0 is too long for a GitHub Release. Read it in [apps/mobile/CHANGELOG.md](https://github.com/fixture/product/blob/v0.2.0/apps/mobile/CHANGELOG.md) and [apps/macos/CHANGELOG.md](https://github.com/fixture/product/blob/v0.2.0/apps/macos/CHANGELOG.md).\n',
+      'The changelog for v0.2.0 is too long for a GitHub Release. Read it in [apps/mobile/CHANGELOG.md](https://github.com/fixture/product/blob/v0.2.0/apps/mobile/CHANGELOG.md) and [apps/macos/CHANGELOG.md](https://github.com/fixture/product/blob/v0.2.0/apps/macos/CHANGELOG.md).',
     );
 
     result = f.run('release-github.sh', {}, ['v0.3.0']);
