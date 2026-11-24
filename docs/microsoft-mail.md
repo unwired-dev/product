@@ -327,6 +327,8 @@ and multiple matching copies retain the unknown outcome. They also map refused
 grants, refusals, size, throttling, unreachable Microsoft and server errors to the
 Outbox's outcomes without changing the connection; a refused grant asks for
 Microsoft again. Send refuses a message over Graph's limit that Gmail would accept.
+A failed cleanup of a known-unsent Outlook draft is retried by the Outbox's own
+wake after its retry delay, without another Send or activation.
 
 The hosted native suite stores a Microsoft connection beside Gmail, publishes its
 own Private Sync descriptor, exercises the real token exchange, refresh and Graph

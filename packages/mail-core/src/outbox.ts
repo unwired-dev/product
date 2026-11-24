@@ -1,6 +1,6 @@
+import * as Clock from 'effect/Clock';
 import * as Effect from 'effect/Effect';
 import * as Option from 'effect/Option';
-import * as Schedule from 'effect/Schedule';
 import * as Schema from 'effect/Schema';
 import * as Semaphore from 'effect/Semaphore';
 
@@ -845,14 +845,15 @@ export function createOutbox({
     }
   };
 
-  // Runs `due` when a message is next due: the end of an Undo Send Window or a retry.
+  // Runs `due` when a message is next due: the end of an Undo Send Window, a retry or a pending
+  // cleanup. The wait sleeps on Effect's Clock until that deadline; replanning, pausing and
+  // disposing abort it, so a wake planned before a pause never runs after the Outbox resumes.
   const plan = (due: () => void) => {
     timer?.abort();
     timer = undefined;
     if (!running()) {
       return;
     }
-    const now = Date.now();
     let next = Number.POSITIVE_INFINITY;
     for (const entry of drafts.getOutbox()) {
       next = Math.min(next, dueAt(entry));
@@ -866,10 +867,10 @@ export function createOutbox({
       const wait = async () => {
         try {
           await runLogged(
-            Effect.repeat(
-              Effect.void,
-              Schedule.duration(Math.max(0, next - now)),
-            ),
+            Effect.gen(function* () {
+              const now = yield* Clock.currentTimeMillis;
+              yield* Effect.sleep(Math.max(0, next - now));
+            }),
             { signal: pending.signal },
           );
           if (!pending.signal.aborted && running()) {

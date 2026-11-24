@@ -358,7 +358,9 @@ cover:
 - each refusal at Send.
 
 `outbox-lifecycle.test.ts` exercises pause/resume across Undo Send, claims,
-durable handoff writes, disposal and in-flight outcomes, and authority loss from
+durable handoff writes, disposal and in-flight outcomes, the Outbox's wake
+(cancelled on pause and disposal, planned again for the original Undo Send
+deadline on resume), and authority loss from
 sign-out, connection removal and device revocation before and after submission.
 The host `delivery.test.tsx` journeys run application entry wiring with real shared
 stores and synthetic native storage, Gmail and claims, without mounting an Inbox.
