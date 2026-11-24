@@ -2,4 +2,4 @@
 '@private-email/mobile': patch
 ---
 
-iPad Reader: the sender's touch-and-hold target for **Copy Address** and blocking reaches 44pt (#2484).
+Reader: VoiceOver reads the sender's name, address and recipients as one element with **Copy Address** and **Block Sender…**, large enough to press on iPad (#2484).

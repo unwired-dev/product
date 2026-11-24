@@ -623,7 +623,9 @@ and, outside Trash and Spam, **Delete** (to Trash), placed last on every platfor
 Move to Spam stays a row accessibility action and a reader action outside those views. The
 open message's header lists Reply, Reply All and Forward, its read state,
 **Pin** or **Unpin**, **Move to Inbox** in Trash and Spam, **Move to…** with the same destinations as
-the reader's Move to, and **Delete** outside Trash and Spam; its sender offers **Copy Address** and, for one plain address, **Block Sender…** ([#2166](https://github.com/unwired-dev/product/issues/2166)). A link in the reader's link list
+the reader's Move to, and **Delete** outside Trash and Spam; its sender offers **Copy Address** and, for one plain address, **Block Sender…** ([#2166](https://github.com/unwired-dev/product/issues/2166)). VoiceOver reads the sender's
+name, address and recipients as one element that offers the same actions
+([#2484](https://github.com/unwired-dev/product/issues/2484)). A link in the reader's link list
 offers **Open Link**, which asks for the same confirmation, and **Copy Link**. A
 downloaded attachment's menu is titled with its file name and offers **Quick Look**, then
 **Save to Files…** (iPhone and iPad) or **Save As…** (Mac) and **Share…**. Links inside a rich

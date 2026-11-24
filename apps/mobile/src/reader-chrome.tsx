@@ -245,27 +245,31 @@ export function MessageHeader({
           },
           { items: blockItems },
         ]}>
-        <View style={ipad ? styles.padFromTarget : styles.fromTarget}>
+        {/* VoiceOver reads the sender, address and recipients as one 44pt element with the
+            menu's actions; the sender's line alone is too small to press (#2484). */}
+        <View
+          accessible
+          accessibilityActions={[
+            { name: 'copy', label: t('contextMenu.copyAddress') },
+            ...blockItems.map(({ key, title }) => ({
+              name: key,
+              label: title,
+            })),
+          ]}
+          onAccessibilityAction={({ nativeEvent }) => {
+            if (nativeEvent.actionName === 'copy') {
+              copyAddress();
+            }
+            for (const item of blockItems) {
+              if (item.key === nativeEvent.actionName) {
+                item.run();
+              }
+            }
+          }}
+          accessibilityState={highlighted ? { selected: true } : undefined}
+          style={ipad ? styles.padFromTarget : styles.fromTarget}>
           <View style={ipad ? [styles.padIdentity, layout.stack] : null}>
             <Text
-              accessibilityActions={[
-                { name: 'copy', label: t('contextMenu.copyAddress') },
-                ...blockItems.map(({ key, title }) => ({
-                  name: key,
-                  label: title,
-                })),
-              ]}
-              onAccessibilityAction={({ nativeEvent }) => {
-                if (nativeEvent.actionName === 'copy') {
-                  copyAddress();
-                }
-                for (const item of blockItems) {
-                  if (item.key === nativeEvent.actionName) {
-                    item.run();
-                  }
-                }
-              }}
-              accessibilityState={highlighted ? { selected: true } : undefined}
               numberOfLines={layout.lines}
               style={[
                 ipad ? styles.padSender : styles.sender,
