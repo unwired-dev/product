@@ -34,7 +34,8 @@ import { textStyles, usePalette } from './theme.ts';
 // Mac "Sync Status Capsule" and "Popover · Sync Status" Figma frames.
 
 // The window height Sync Status leaves free: the capsule's top sits 105pt above the window's
-// bottom, AppKit's arrow takes 13pt and the popover stays 16pt inside the window's top.
+// bottom, AppKit places the popover 13pt above it, and the popover stays 16pt inside the window's
+// top.
 const popoverClearance = 105 + 13 + spacing.l;
 
 const styles = StyleSheet.create({
