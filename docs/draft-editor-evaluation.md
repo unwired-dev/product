@@ -325,7 +325,8 @@ one **Undo** and **Redo**, and relaunches to reopen both its undone and accepted
 states. After the translation, the iPhone and iPad journey selects the paragraph and
 links it with **Add Link** (from the Format panel on iPhone), checks that **Edit Link**
 offers **Remove Link** and the destination, steps one **Undo**, which removes the
-link and keeps the text, and **Redo**, then relaunches and reopens the linked Draft
+link and keeps the text so the control reads **Add Link** again, and **Redo**, then
+relaunches and reopens the linked Draft, whose **Edit Link** shows the destination
 ([#2866](https://github.com/unwired-dev/product/issues/2866)). The Mac journey also
 uses Command-B, Command-Z and Shift-Command-Z. The
 iPhone and iPad journey then starts another **New Message**, types, places a photo
@@ -418,13 +419,14 @@ returned to its portrait width. With **Collapse** added to the journey, the iPad
 Rerun on 2026-11-24 for [#2866](https://github.com/unwired-dev/product/issues/2866),
 same host, macOS 27.2.1, Xcode 27.2 (27B52), iOS 27.0 Simulator runtime, Release
 `registration-draft-editor` build of `8dbd55782` with the journey's new link step,
-Dark appearance. The iPhone 18 Pro (`artifacts/expo-bootstrap/native-P8OJAN/`) and
-iPad Pro 11-inch (M5) (`artifacts/expo-bootstrap/native-69OUPs/`) journeys passed
-with zero failures: **Add Link** linked the paragraph, **Edit Link** offered
-**Remove Link** and the destination, one **Undo** removed the link and kept the
-text, **Redo** restored it, and the relaunched Draft reopened with the link. An
-earlier iPad attempt stalled waiting for the app to idle at a host load of about
-437 and was stopped; it is not evidence.
+Dark appearance. The iPhone 18 Pro (`artifacts/expo-bootstrap/native-06uxf8/`) and
+iPad Pro 11-inch (M5) (`artifacts/expo-bootstrap/native-rdraMI/`) journeys passed
+with zero failures: **Add Link** opened with the paragraph as Text and Link empty
+and linked the paragraph, **Edit Link** offered **Remove Link** and the destination,
+one **Undo** removed the link and kept the text with **Add Link** back, **Redo**
+restored it, and the relaunched Draft reopened with the link and its destination.
+Other attempts at loads of about 150–440 stalled waiting for the app to idle or
+lost a tap on the Format panel before the link step; they are not evidence.
 
 ### Formatting fidelity (#819)
 

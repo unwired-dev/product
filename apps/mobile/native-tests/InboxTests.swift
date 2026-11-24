@@ -2958,28 +2958,39 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(destination.waitForExistence(timeout: 10))
     waitForFocus(destination)
     XCTAssertEqual(app.textFields["Text"].value as? String, paragraph)
+    let empty = destination.value as? String
+    XCTAssertTrue(empty == nil || empty == "" || empty == destination.placeholderValue)
     XCTAssertFalse(app.buttons["Remove Link"].exists)
     submit("https://example.com", into: destination, in: app)
     XCTAssertTrue(destination.waitForNonExistence(timeout: 10))
     XCTAssertTrue(link.waitForExistence(timeout: 10))
-    let edit = formatControl("Edit Link", in: app)
-    waitUntil { edit.isEnabled }
-    edit.tap()
-    XCTAssertTrue(app.buttons["Remove Link"].waitForExistence(timeout: 10))
-    XCTAssertEqual(destination.value as? String, "https://example.com")
-    let linked = XCTAttachment(screenshot: app.screenshot())
-    linked.name = "Evaluation Edit Link"
-    linked.lifetime = .keepAlways
-    add(linked)
-    dismissLinkEditor(app, field: destination, pad: UIDevice.current.userInterfaceIdiom == .pad)
+    // Edit Link offers Remove Link and the saved destination; closing it changes nothing.
+    let editLink = { (shot: String) in
+      let edit = self.formatControl("Edit Link", in: app)
+      self.waitUntil { edit.isEnabled }
+      edit.tap()
+      XCTAssertTrue(app.buttons["Remove Link"].waitForExistence(timeout: 10))
+      XCTAssertEqual(destination.value as? String, "https://example.com")
+      let linked = XCTAttachment(screenshot: app.screenshot())
+      linked.name = shot
+      linked.lifetime = .keepAlways
+      self.add(linked)
+      self.dismissLinkEditor(
+        app, field: destination, pad: UIDevice.current.userInterfaceIdiom == .pad)
+    }
+    editLink("Evaluation Edit Link")
 
     formatControl("Undo", in: app).tap()
     waitUntil { !link.exists }
     XCTAssertTrue(webText(paragraph, in: app).exists)
+    XCTAssertTrue(formatControl("Add Link", in: app).waitForExistence(timeout: 10))
     formatControl("Redo", in: app).tap()
     XCTAssertTrue(link.waitForExistence(timeout: 10))
     reopenDraft(app)
     XCTAssertTrue(link.waitForExistence(timeout: 15))
+    // A tap puts the caret in the reopened link, which the page never opens.
+    link.tap()
+    editLink("Evaluation Edit Link after relaunch")
   }
 
   // Close, relaunch and reopen through the native encrypted Draft store, not mounted history.
