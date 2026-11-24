@@ -11,6 +11,64 @@ The [mobile bootstrap](../expo-client.md) now uses Expo 57.0.25, React Native
 are available on the development host. The maintainer's earlier native-validation
 deferral still applies to unavailable release checks. Mac host evidence follows.
 
+## iPhone and iPad system sheets and popovers, 2026-11-24
+
+[#2798](https://github.com/unwired-dev/product/issues/2798), the last
+criterion of [#1056](https://github.com/unwired-dev/product/issues/1056),
+checks every presenter #1056 moved to the system on device. It ran on
+`8dbd55782`, on a `registration-declined` Release Simulator build with Xcode
+27.2 (`27B52`), the iOS 27.0 runtime and macOS 27.2.1. It used iPhone 18 Pro
+and iPad Pro 11-inch (M5) in portrait, signed in to the synthetic Gmail
+mailbox. Each check ran in Light and in Dark through `agent-device`, with a
+screenshot of each presenter, unless it names a journey. Host load from other
+work was 45–147.
+
+- Move picker (`move-sheet.tsx`): on iPhone the Reply sheet's Folders opens the
+  large-detent sheet. Its search stays above the software keyboard, and Close
+  and a downward swipe close it. On iPad the toolbar's folder button (Labels
+  for Gmail) and More › Move to… open the popover, and a tap outside closes it.
+- Reply sheet (`reply-sheet.tsx`, iPhone): Close and a downward swipe close it.
+- Filters (`inbox-filters.tsx`): on iPhone "Filtered by" opens the sheet, and a
+  downward swipe closes it without applying a change. On iPad it opens the
+  popover above the bar, and a tap outside closes it.
+- Link confirmation (`message-body.tsx`): a link opens the system alert on
+  iPhone and iPad, and Cancel closes it.
+- Reader More: on iPad More opens the system menu (Mark as Unread, Move to
+  Spam, Move to…). iPhone shows More only for mail without Reply, which the
+  synthetic mailbox lacks.
+- Gmail labels and New Label (`organize.tsx`): on iPhone Reply › Labels opens
+  the system sheet, and a tap on the dimmed area above closes it. On iPad the
+  toolbar's Labels opens the popover. The `registration-declined` journey on
+  iPhone stopped where Labels reopens after a Command Palette star, its app
+  not idle for 60 seconds at each step; the same steps by hand opened the
+  sheet. `testNewLabel` passed in Dark on both devices: New Label… opens its
+  sheet on iPhone and takes the checkboxes' place in the popover on iPad, and
+  Cancel closes it.
+- Composer: on iPhone New Message opens the system sheet. Its controls stay
+  above the software keyboard. Close closes an empty Draft. A slow downward
+  swipe on a changed Draft keeps the sheet and asks Delete Draft or Save
+  Draft. `testComposerSheet` passed in Dark on iPhone: the sheet turns with
+  the device while presented, and the swipe asks the same question. On
+  regular-width iPad a new message opens as the card centred on the window,
+  and a reply docks in the reading column.
+- CI's `open-read-relaunch` journey passed on iPhone and iPad in Dark at
+  `8dbd55782` ([run 45461747661](https://github.com/unwired-dev/product/actions/runs/45461747661)).
+  It covers the Filters sheet's swipe, the popover's tap outside, Escape
+  (Command-period, as UIKit delivers it) and rotation while the popover is
+  open.
+- On iPad, a tap outside a popover sometimes closed it only at the second tap,
+  in Light and in Dark. CI's journeys close the same popovers with one tap,
+  and the journeys already retry a tap lost under load, so this pass does not
+  count it as a failure.
+- **Deferred** to [#2873](https://github.com/unwired-dev/product/issues/2873):
+  VoiceOver focus when a presenter opens and its return when it closes, Reduce
+  Motion, a compact iPad window, a hardware keyboard's Escape on the Move and
+  Labels popovers, rotation while the Move picker, Reply sheet, labels or link
+  alert is presented, and iPhone's More. `agent-device` cannot turn VoiceOver
+  on, rotate the device or resize an iPad window. The `registration-declined`
+  and `registration-apple` journeys that cover the Move picker's keyboard and
+  rotation steps and iPhone's More stopped under host load before those steps.
+
 ## iPhone and iPad Settings at the largest text size, 2026-11-23
 
 [#2730](https://github.com/unwired-dev/product/issues/2730), part of
