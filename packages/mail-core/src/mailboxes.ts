@@ -57,12 +57,13 @@ export {
   restingRowMotion,
 } from './mailbox-motion.ts';
 export {
-  createGmailViewEntries,
   failedFolders,
+  folderListing,
   gmailMailbox,
   gmailViewRow,
   gmailViewName,
   mailboxFolder,
+  listedFolder,
   inboxChoice,
   inboxUnlisted,
   mailboxSidebar,
