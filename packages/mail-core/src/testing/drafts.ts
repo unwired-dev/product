@@ -565,9 +565,9 @@ export function createSyntheticDrafts(
     },
     // Imports of received attachments read these saved files, so one discarded first is missing.
     readSavedAttachments: (
-      files: ReadonlyMap<string, Readonly<{ bytes: Uint8Array }>>,
+      attachments: ReadonlyMap<string, Readonly<{ bytes: Uint8Array }>>,
     ) => {
-      saved = files;
+      saved = attachments;
     },
     // What the next picker of this kind returns.
     pickNext: (

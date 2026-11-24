@@ -131,13 +131,13 @@ export function createComposerNavigation(): ComposerNavigation {
         return undefined;
       }
       let file: Awaited<ReturnType<typeof saved>> = undefined;
-      let release = () => {};
+      const held: { release?: (() => void) | undefined } = {};
       let attached = false;
       try {
         return await create(drafts, sender, {
           before: async () => {
             file = await saved();
-            release = file?.release ?? release;
+            held.release = file?.release;
             return file !== undefined;
           },
           prepare: async (id) => {
@@ -169,7 +169,7 @@ export function createComposerNavigation(): ComposerNavigation {
         });
       } finally {
         if (!attached) {
-          release();
+          held.release?.();
         }
       }
     },

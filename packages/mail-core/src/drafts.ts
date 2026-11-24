@@ -2484,6 +2484,7 @@ export function createDrafts(
   };
 
   // When it resolves true, `settled` runs once every import it started has settled.
+  // oxlint-disable-next-line eslint/max-params -- A caller holding the imported files releases them once the imports settle.
   const fill = async (
     draft: string,
     edit: (draft: Draft) => Draft,
@@ -2514,12 +2515,12 @@ export function createDrafts(
     if (!kept || !live(current)) {
       return false;
     }
-    const started = imports.map(({ asset, source }) =>
+    const copies = imports.map(({ asset, source }) =>
       importThenPublish(asset, source),
     );
     if (settled !== undefined) {
       void (async () => {
-        await Promise.allSettled(started);
+        await Promise.allSettled(copies);
         settled();
       })();
     }

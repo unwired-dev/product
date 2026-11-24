@@ -459,7 +459,7 @@ export async function startResponse(
   }
   let response: ReturnType<typeof respond> | undefined = undefined;
   // Forwarded files stay on the device until the Draft copied them, even if the reader closes.
-  let release = () => {};
+  const held: { release?: () => void } = {};
   let filled = false;
   try {
     return await navigation.create(drafts, mailbox, {
@@ -481,19 +481,19 @@ export async function startResponse(
           id,
           (each) => (isEmptyDraft(each) ? prepared.edit(each) : each),
           prepared.imports,
-          release,
+          held.release,
         );
         return filled;
       },
       before: async () => {
         let attachments: readonly PickedFile[] = [];
         if (kind === 'forward') {
-          const forwarded = await forwardedAttachments(inbox, {
+          const forwarding = await forwardedAttachments(inbox, {
             mailbox: mailbox.id,
             id: message.id,
           });
-          attachments = forwarded.files;
-          release = forwarded.release;
+          attachments = forwarding.files;
+          held.release = forwarding.release;
         }
         if (!current() || inbox.responseSource(message.id) !== document) {
           return false;
@@ -516,7 +516,7 @@ export async function startResponse(
     });
   } finally {
     if (!filled) {
-      release();
+      held.release?.();
     }
   }
 }
