@@ -944,8 +944,6 @@ app follows under the issue named:
   Translate to…, which reads only a selection, and the Mac menu wait for #2117,
   and Show Formatting Toolbar for #2118. The touch menus draw Heading 1 to 3 with the
   format bar's H1–H3 glyphs and Quote with the `text.quote` symbol.
-- **Toasts:** the frames draw glass toasts. iPhone and iPad do (#2591); the Mac
-  draws a deep graphite toast until the rest of #2104.
 - **Trusted Devices:** iPhone and iPad rows show the device symbol, Current
   Device and last activity (#2607), with the exact time where the iPhone frame
   draws "3 days ago". The Mac rows and the disclosure chevron wait for the rest
