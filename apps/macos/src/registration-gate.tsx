@@ -84,7 +84,12 @@ export const AccountContext = createContext<
       // Settings opens on the given destination, such as Email Accounts for a password.
       openAccount: (destination?: SettingsDestination) => void;
       authorizeMailbox: (connection: string) => Promise<void>;
-      refreshInbox: (load: () => Promise<void>) => Promise<void>;
+      // With 'explicit' and a connection, verifies only that connection with its provider.
+      refreshInbox: (
+        load: () => Promise<void>,
+        mailboxLoading?: 'automatic' | 'explicit',
+        routed?: string,
+      ) => Promise<void>;
       // The signed-in Product Account, whose Mail Profiles a window's choices belong to.
       account: string;
       // The Mail Profiles besides the Default Profile.

@@ -101,6 +101,7 @@ export const palette = {
     fillTrack: 'rgba(0, 0, 0, 0.09)',
     separator: 'rgba(0, 0, 0, 0.1)',
     statusWarning: '#9A5B00',
+    statusSuccess: '#1A8C40',
     statusDestructive: '#D70015',
     // Glass controls of 48pt or less.
     smallGlassShadow: '0px 2px 8px rgba(0, 0, 0, 0.08)',
@@ -162,6 +163,7 @@ export const palette = {
     fillTrack: 'rgba(255, 255, 255, 0.16)',
     separator: 'rgba(255, 255, 255, 0.1)',
     statusWarning: '#FFB340',
+    statusSuccess: '#40CC66',
     statusDestructive: '#FF6961',
     smallGlassShadow: '0px 2px 8px rgba(0, 0, 0, 0.3)',
     largeGlassShadow: '0px 4px 16px rgba(0, 0, 0, 0.3)',

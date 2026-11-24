@@ -627,7 +627,8 @@
     "pausedUntil": "until {{time}}",
     "availableAt": "Available at {{time}}",
     "pausedFooter_iphone": "Mail already on this iPhone stays readable. Sending has its own status in Outbox.",
-    "pausedFooter_ipad": "Mail already on this iPad stays readable. Sending has its own status in Outbox."
+    "pausedFooter_ipad": "Mail already on this iPad stays readable. Sending has its own status in Outbox.",
+    "pausedFooter_mac": "Mail already on this Mac stays readable. Sending has its own status in Outbox."
   },
   "messageBody": {
     "download": "This message is not saved on this device, and {{provider}} could not be reached to download it.",

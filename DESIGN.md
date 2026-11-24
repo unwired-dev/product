@@ -74,6 +74,8 @@ colors:
   scrim-mac-dark: 'rgba(0, 0, 0, 0.4)'
   status-warning: '#9A5B00'
   status-warning-dark: '#FFB340'
+  status-success: '#1A8C40'
+  status-success-dark: '#40CC66'
   status-destructive: '#D70015'
   status-destructive-dark: '#FF6961'
 typography:
@@ -376,6 +378,7 @@ Graphite neutrals with a single warm seal.
 | Mac scrim         | `scrim/mac`                | black 18%     | black 40%     | The Mac frames' backdrop behind alerts and sheets              |
 | Warning           | `status/warning`           | `#9A5B00`     | `#FFB340`     | Authorization needed, Pin indicator                            |
 | Destructive       | `status/destructive`       | `#D70015`     | `#FF6961`     | Delete Unwired Account, Delete                                 |
+| Success           | `status/success`           | `#1A8C40`     | `#40CC66`     | Mac Sync Status: a connection that is up to date               |
 
 Contrast (WCAG 2.x, AA is 4.5:1 for text and 3:1 for non-text):
 
@@ -391,6 +394,7 @@ Contrast (WCAG 2.x, AA is 4.5:1 for text and 3:1 for non-text):
 | On device ink on on device surface | 6.11  | 7.22  |
 | Warning on content                 | 5.43  | 9.35  |
 | Destructive on content             | 5.38  | 5.91  |
+| Success on content                 | 4.31  | 7.98  |
 | White on brand deep                | 17.94 | 17.94 |
 | White on brand well                | 14.46 | 14.46 |
 | White on brand seal                | 5.14  | 5.14  |

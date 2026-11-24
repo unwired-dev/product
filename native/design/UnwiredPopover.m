@@ -6,13 +6,14 @@
 #import <React/RCTSurfaceTouchHandler.h>
 
 // An AppKit popover showing this view's React children, without an arrow, above this view's top
-// edge, or below its bottom edge when `below`.
+// edge, below its bottom edge when `below`, or beside its trailing edge when `beside`.
 // AppKit presents and animates it, closes it when the person clicks elsewhere or presses Escape,
 // and the view then reports `onClose`. VoiceOver names the popover by `title`.
 // React Native macOS 0.83.0 has no popover; remove this view when it offers one.
 @interface UnwiredPopoverView : RCTView <NSPopoverDelegate>
 @property (nonatomic) BOOL shown;
 @property (nonatomic) BOOL below;
+@property (nonatomic) BOOL beside;
 @property (nonatomic) CGFloat contentWidth;
 @property (nonatomic) CGFloat contentHeight;
 @property (nonatomic, copy) NSString *title;
@@ -21,9 +22,9 @@
 
 @implementation UnwiredPopoverView {
   NSPopover *_popover;
-  // The edge the popover opens from, a point tall: AppKit does not show a popover from an empty
-  // rect, and this view is zero-height (#1792). It clips to its bounds, or the popover keeps its
-  // arrow.
+  // The edge the popover opens from, a point tall, or a point wide when `beside`: AppKit does not
+  // show a popover from an empty rect, and this view is zero-height, or zero-width when `beside`
+  // (#1792). It clips to its bounds, or the popover keeps its arrow.
   NSView *_edge;
   // The popover is outside the React root view, so it delivers its own clicks to React.
   RCTSurfaceTouchHandler *_touchHandler;
@@ -80,7 +81,9 @@
     [self anchor:YES];
     [_popover showRelativeToRect:_edge.bounds
                           ofView:_edge
-                   preferredEdge:self.below ? NSRectEdgeMinY : NSRectEdgeMaxY];
+                   preferredEdge:self.beside  ? NSRectEdgeMaxX
+                                 : self.below ? NSRectEdgeMinY
+                                              : NSRectEdgeMaxY];
     [self anchor:NO];
   }
 }
@@ -89,8 +92,11 @@
 // resize places it again, so it is placed against the unshifted bounds.
 - (void)anchor:(BOOL)anchored
 {
-  _edge.frame = NSInsetRect(self.bounds, 0, -0.5);
-  _edge.bounds = (NSRect){NSMakePoint(0, anchored ? 0 : 1), _edge.frame.size};
+  CGFloat shift = anchored ? 0 : 1;
+  _edge.frame =
+      self.beside ? NSInsetRect(self.bounds, -0.5, 0) : NSInsetRect(self.bounds, 0, -0.5);
+  _edge.bounds = (NSRect){self.beside ? NSMakePoint(shift, 0) : NSMakePoint(0, shift),
+                          _edge.frame.size};
 }
 - (void)popoverWillShow:(NSNotification *)notification
 {
@@ -125,6 +131,7 @@
 RCT_EXPORT_MODULE(UnwiredPopover)
 RCT_EXPORT_VIEW_PROPERTY(shown, BOOL)
 RCT_EXPORT_VIEW_PROPERTY(below, BOOL)
+RCT_EXPORT_VIEW_PROPERTY(beside, BOOL)
 RCT_EXPORT_VIEW_PROPERTY(contentWidth, CGFloat)
 RCT_EXPORT_VIEW_PROPERTY(contentHeight, CGFloat)
 RCT_EXPORT_VIEW_PROPERTY(title, NSString)
