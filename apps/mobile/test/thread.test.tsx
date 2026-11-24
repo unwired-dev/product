@@ -132,6 +132,18 @@ const messageBy = (sender: string) => {
   return section;
 };
 
+// A Thread message's sender header: the one accessibility element its sender details make up.
+const headerBy = (sender: string) => {
+  let header = screen.getByText(sender).parent;
+  while (header !== null && header.props.accessible !== true) {
+    header = header.parent;
+  }
+  if (header === null) {
+    throw new Error(`Expected the header of ${sender}`);
+  }
+  return header;
+};
+
 // The reader's scroll view, found from the opened message.
 const reader = (sender = 'Alex Rivera') => {
   let scroll = messageBy(sender).parent;
@@ -253,10 +265,10 @@ describe('thread view', () => {
     expect(
       screen.queryByTestId('scroll-edge', { includeHiddenElements: true }),
     ).toBeNull();
-    expect(screen.getByText('Alex Rivera')).toHaveProp('accessibilityState', {
+    expect(headerBy('Alex Rivera')).toHaveProp('accessibilityState', {
       selected: true,
     });
-    expect(screen.getByText('Sam Lee')).not.toHaveProp('accessibilityState', {
+    expect(headerBy('Sam Lee')).not.toHaveProp('accessibilityState', {
       selected: true,
     });
     // iPhone's flat Thread draws it as every other message, without a card or bar.
