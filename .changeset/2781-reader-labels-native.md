@@ -8,4 +8,4 @@ that one closes; on iPad, the toolbar's Labels opens a system popover, where New
 labels' place. A tap outside closes either one, as the system does (#2781, part of #1056).
 The labels follow the #1683 frames: a Labels title over the Gmail account, grouped rows with a
 checkmark on applied labels and, on iPad, a folder button to move; New Label's Cancel and disabled
-Apply draw a visible capsule on iPhone too.
+Apply draw a visible capsule on iPhone too. In Light, the labels and New Label keep the system's glass.
