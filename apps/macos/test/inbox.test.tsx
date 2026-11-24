@@ -150,6 +150,39 @@ describe('message list', () => {
     }
   });
 
+  it('keeps a search when the list switches to unified Sent', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail();
+    const message = gmail.deliver({ subject: 'Flight to Zagreb' });
+    gmail.setLabel(message, 'SENT', true);
+    const inbox = createInboxStore(gmail.native);
+    const mailboxes = singleMailbox(inbox, 'work-mailbox');
+    const show = (view: MailboxView) => (
+      <InboxProvider mailboxes={mailboxes}>
+        <Inbox
+          onSelect={() => undefined}
+          selected={undefined}
+          view={view}
+        />
+      </InboxProvider>
+    );
+    try {
+      const app = await render(show({}));
+      await screen.findByRole('button', { name: /Flight to Zagreb/u });
+      await fireEvent.changeText(
+        screen.getByLabelText('Search senders and subjects'),
+        'zagreb',
+      );
+      await app.rerender(show({ unified: 'SENT' }));
+      await expect(
+        screen.findByRole('button', { name: /Flight to Zagreb/u }),
+      ).resolves.toBeVisible();
+    } finally {
+      await cleanup();
+      inbox.forget();
+    }
+  });
+
   it('names a connection that needs sign-in after the count, in place of the scope and update time', async () => {
     expect.hasAssertions();
     const { gmail, inbox } = await renderGmailInbox();

@@ -1404,6 +1404,36 @@ describe('connected Gmail Inbox', () => {
     }
   });
 
+  it('searches the iPad unified Sent list', async () => {
+    expect.hasAssertions();
+    const platform = jest.replaceProperty(
+      jest.requireActual<{ ipad: typeof ipad }>('../src/inbox-styles.ts'),
+      'ipad',
+      true,
+    );
+    try {
+      const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
+      const message = gmail.deliver({ subject: 'Flight to Zagreb' });
+      gmail.setLabel(message, 'SENT', true);
+      await renderConnected(gmail.native);
+      await act(async () => {
+        await fireEvent.press(
+          await screen.findByRole('button', { name: 'Sent. In All Mailboxes' }),
+        );
+      });
+      await screen.findByText(/^All Mailboxes · 1 unread$/u);
+      await fireEvent.changeText(
+        screen.getByLabelText('Search senders and subjects'),
+        'zagreb',
+      );
+      await expect(
+        screen.findByRole('button', { name: /Flight to Zagreb/u }),
+      ).resolves.toBeVisible();
+    } finally {
+      platform.restore();
+    }
+  });
+
   it.each([false, true])(
     'shows one Top Results header for provider-only matches (isPad=%s)',
     async (isPad) => {
