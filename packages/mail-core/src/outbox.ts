@@ -52,6 +52,12 @@ const decodeClaimed = Schema.decodeUnknownOption(
   Schema.Struct({ owner: Schema.NonEmptyString, claimed: Schema.Boolean }),
 );
 
+// A delivery claim that did not settle; whether it was taken is unknown.
+class ClaimFailure extends Schema.TaggedError<
+  ClaimFailure,
+  { readonly brand: unique symbol }
+>()('ClaimFailure', { cause: Schema.Defect() }) {}
+
 // Only an explicit native release permits another hold; denied, expired or malformed replies stop it.
 export const deliveryTimeReleased = Schema.is(Schema.Literal(true));
 
@@ -299,23 +305,30 @@ export function createOutbox({
       ? (retryAt.get(entry.id) ?? 0)
       : Number.POSITIVE_INFINITY;
   };
-  const claim = async (account: string, id: string) => {
-    try {
+  const claim = Effect.fnUntraced(
+    function* (account: string, id: string) {
       const claimed = decodeClaimed(
-        await claims?.claimDraftDelivery(account, id),
+        yield* Effect.tryPromise({
+          try: async () => claims?.claimDraftDelivery(account, id),
+          catch: (cause) => new ClaimFailure({ cause }),
+        }),
       );
       return Option.isSome(claimed) && claimed.value.owner === account
         ? claimed.value.claimed
         : undefined;
-    } catch (error) {
-      if (rejectionCode(error) !== 'unavailable') {
-        await runLogged(
-          Effect.logError('Delivery claim failed:', rejectionDiagnostic(error)),
-        );
-      }
-      return undefined;
-    }
-  };
+    },
+    Effect.catchTag('ClaimFailure', ({ cause }) =>
+      (rejectionCode(cause) === 'unavailable'
+        ? Effect.void
+        : Effect.logError('Delivery claim failed:', rejectionDiagnostic(cause))
+      ).pipe(Effect.as(undefined)),
+    ),
+  );
+  // An Outbox step, applied and held by the Drafts store that owns the durable Outbox.
+  const write = (
+    id: string,
+    change: Parameters<typeof drafts.deliver>[1],
+  ): Effect.Effect<boolean> => Effect.promise(() => drafts.deliver(id, change));
 
   // The sending mailbox's problem on this device, if it can no longer send.
   const senderProblem = (draft: Draft): DeliveryProblem | undefined => {
@@ -345,11 +358,11 @@ export function createOutbox({
   // Records the Invitation Response a message carries as sent in its IMAP mailbox. Resolves
   // 'offline' when it could not; nothing for any other message
   // or a mailbox that is gone, including one added again since Send.
-  const answer = async ({
+  const answer = Effect.fnUntraced(function* ({
     draft,
     invitation,
     epoch,
-  }: OutboxEntry): Promise<DeliveryProblem | undefined> => {
+  }: OutboxEntry) {
     const mailbox = connectionOf(draft.connection);
     if (
       invitation === undefined ||
@@ -359,40 +372,42 @@ export function createOutbox({
       return undefined;
     }
     const { summary: _title, ...revision } = invitation;
-    return (await mailbox.inbox.recordResponse(revision, {
-      kind: 'sent',
-      ...revision,
-      at: Date.now(),
-    }))
-      ? undefined
-      : 'offline';
-  };
+    const at = yield* Clock.currentTimeMillis;
+    const recorded = yield* Effect.promise(() =>
+      mailbox.inbox.recordResponse(revision, { kind: 'sent', ...revision, at }),
+    );
+    return recorded ? undefined : ('offline' as const);
+  });
 
-  const record = async (id: string, outcome: SendOutcome) => {
+  const record = Effect.fnUntraced(function* (
+    id: string,
+    outcome: SendOutcome,
+  ) {
     if (outcome.kind === 'accepted') {
-      return drafts.deliver(id, (entry) =>
+      return yield* write(id, (entry) =>
         awaitingOutcome(entry.state) ? withState(entry, 'filing') : undefined,
       );
     }
     if (outcome.kind === 'sent') {
       // The response stays awaiting its outcome until its mailbox holds it.
       const awaiting = entryOf(id);
-      if (awaiting !== undefined && (await answer(awaiting)) !== undefined) {
+      if (awaiting !== undefined && (yield* answer(awaiting)) !== undefined) {
         return false;
       }
-      return drafts.deliver(id, (entry) =>
+      const sentAt = yield* Clock.currentTimeMillis;
+      return yield* write(id, (entry) =>
         awaitingOutcome(entry.state)
           ? {
               id,
               ...(outcome.message === undefined
                 ? {}
                 : { message: outcome.message }),
-              sentAt: Date.now(),
+              sentAt,
             }
           : undefined,
       );
     }
-    return drafts.deliver(id, (entry) => {
+    return yield* write(id, (entry) => {
       if (!awaitingOutcome(entry.state)) {
         return undefined;
       }
@@ -400,14 +415,14 @@ export function createOutbox({
         ? withState(entry, 'unknown')
         : withState(entry, outcome.kind, outcome.problem);
     });
-  };
+  });
 
   // Resolves true only once storage holds this device's confirmed claim on a queued message.
-  const holdClaim = async (
+  const holdClaim = Effect.fnUntraced(function* (
     account: string,
     entry: OutboxEntry,
     current: () => boolean,
-  ) => {
+  ) {
     const { id } = entry;
     if (entry.claim === 'held') {
       return true;
@@ -415,7 +430,7 @@ export function createOutbox({
     // Recorded first: a Draft whose claim may exist never returns under the same identifier.
     if (
       entry.claim === undefined &&
-      !(await drafts.deliver(
+      !(yield* write(
         id,
         step('queued', (each) => ({ ...each, claim: 'requested' })),
       ))
@@ -425,31 +440,31 @@ export function createOutbox({
     if (!current()) {
       return false;
     }
-    const claimed = await claim(account, id);
+    const claimed = yield* claim(account, id);
     if (claimed === undefined) {
-      await drafts.deliver(
+      yield* write(
         id,
         step('queued', (each) => withState(each, 'queued', 'offline')),
       );
       return false;
     }
     if (!claimed) {
-      await drafts.deliver(
+      yield* write(
         id,
         step('queued', (each) => withState(each, 'failed', 'claimed')),
       );
       return false;
     }
-    return drafts.deliver(
+    return yield* write(
       id,
       step('queued', (each) => ({ ...each, claim: 'held' })),
     );
-  };
+  });
 
   // Records an outcome, keeping it to save again when storage refuses, so a message Gmail never
   // received does not stay 'sending' and read as unknown after a relaunch.
-  const keep = async (id: string, outcome: SendOutcome) => {
-    if (await record(id, outcome)) {
+  const keep = Effect.fnUntraced(function* (id: string, outcome: SendOutcome) {
+    if (yield* record(id, outcome)) {
       unrecorded.delete(id);
       const request = asked.get(id);
       if (outcome.kind === 'sent' && request !== undefined) {
@@ -458,7 +473,7 @@ export function createOutbox({
     } else if (!disposed && awaitingOutcome(entryOf(id)?.state)) {
       unrecorded.set(id, outcome);
     }
-  };
+  });
 
   // Ends a Check Again once its lookup finishes, unless another ask replaced it meanwhile.
   const settle = (id: string, request: CheckRequest) => {
@@ -482,17 +497,17 @@ export function createOutbox({
     entryOf(id) === undefined;
 
   // Saves an outcome storage refused earlier. Resolves whether one was waiting.
-  const resave = async (entry: OutboxEntry) => {
+  const resave = Effect.fnUntraced(function* (entry: OutboxEntry) {
     const outcome = unrecorded.get(entry.id);
     if (outcome === undefined) {
       return false;
     }
     unrecorded.delete(entry.id);
     if (awaitingOutcome(entry.state)) {
-      await keep(entry.id, outcome);
+      yield* keep(entry.id, outcome);
     }
     return true;
-  };
+  });
 
   // Invokes the current provider with the frozen message and its original envelope, or sends the
   // Outlook draft it was kept as.
@@ -519,7 +534,10 @@ export function createOutbox({
   // files, before its durable handoff. Nothing is delivered yet, so a refusal or an interruption
   // only leaves the message queued, and the next attempt replaces the draft it left. Resolves the
   // draft's ID, undefined for any other message, or false when the message waits or failed.
-  const prepare = async (id: string, current: () => boolean) => {
+  const prepare = Effect.fnUntraced(function* (
+    id: string,
+    current: () => boolean,
+  ) {
     const entry = entryOf(id);
     const mailbox = entry && connectionOf(entry.draft.connection);
     if (
@@ -529,32 +547,31 @@ export function createOutbox({
     ) {
       return undefined;
     }
-    const prepared = await mailbox.inbox.prepare(
-      entry.message,
-      draftFiles(entry.draft),
+    const prepared = yield* Effect.promise(() =>
+      mailbox.inbox.prepare(entry.message, draftFiles(entry.draft)),
     );
     if (prepared.kind === 'prepared') {
       return current() && prepared.draft;
     }
-    await drafts.deliver(
+    yield* write(
       id,
       step('queued', (each) =>
         withState(each, prepared.kind, prepared.problem),
       ),
     );
     return false;
-  };
+  });
 
   // Hands a claimed message to Gmail once, after its durable handoff, or the Outlook draft it was
   // kept as.
-  const handOff = async (
+  const handOff = Effect.fnUntraced(function* (
     id: string,
     current: () => boolean,
     draft: string | undefined,
-  ) => {
+  ) {
     const account = ownerOf(registration);
     // Storage holds 'sending' before Gmail sees the message, so an interruption reads as unknown.
-    const handed = await drafts.deliver(id, (each) =>
+    const handed = yield* write(id, (each) =>
       current() && each.state === 'queued' && each.claim === 'held'
         ? withState(each, 'sending')
         : undefined,
@@ -565,32 +582,35 @@ export function createOutbox({
     // No provider request started. Keep the held claim retryable when execution ended mid-write.
     if (!current()) {
       if (account === ownerOf(registration)) {
-        await keep(id, { kind: 'queued', problem: 'offline' });
+        yield* keep(id, { kind: 'queued', problem: 'offline' });
       }
       return;
     }
     const sending = entryOf(id);
     if (sending === undefined) {
-      await keep(id, { kind: 'queued', problem: 'offline' });
+      yield* keep(id, { kind: 'queued', problem: 'offline' });
       return;
     }
     // Claim and storage awaited meanwhile; recheck before invoking the current Inbox.
     const problem = handoffCheck(sending);
     if (problem !== undefined) {
-      await keep(id, {
+      yield* keep(id, {
         kind: problem === 'wait' ? 'queued' : 'failed',
         problem: problem === 'wait' ? 'offline' : problem,
       });
       return;
     }
-    const outcome = await submit(sending, draft);
+    const outcome = yield* Effect.promise(() => submit(sending, draft));
     if (account === ownerOf(registration)) {
-      await keep(id, outcome);
+      yield* keep(id, outcome);
     }
-  };
+  });
 
   // Keeps a large Microsoft message as an Outlook draft first; only a prepared one is handed off.
-  const deliver = async (id: string, current: () => boolean) => {
+  const deliver = Effect.fnUntraced(function* (
+    id: string,
+    current: () => boolean,
+  ) {
     const entry = entryOf(id);
     const messageId = entry && messageIdOf(entry.message.segments);
     if (
@@ -598,27 +618,27 @@ export function createOutbox({
       providerOf(entry.draft) === 'microsoft-graph' &&
       entry.message.size > graphMessageLimit
     ) {
-      await runLogged(
-        Effect.promise(async () => {
-          // This CAS also refreshes a stale local store before any provider preparation.
-          if (
-            messageId === undefined ||
-            !(await drafts.prepareDelivery(id, messageId)) ||
-            !current() ||
-            entryOf(id)?.state !== 'queued'
-          ) {
-            return;
-          }
-          const draft = await prepare(id, current);
-          if (draft !== false) {
-            await handOff(id, current, draft);
-          }
-        }).pipe(microsoftDelivery.withPermit),
-      );
+      yield* Effect.gen(function* () {
+        // This CAS also refreshes a stale local store before any provider preparation.
+        if (
+          messageId === undefined ||
+          !(yield* Effect.promise(() =>
+            drafts.prepareDelivery(id, messageId),
+          )) ||
+          !current() ||
+          entryOf(id)?.state !== 'queued'
+        ) {
+          return;
+        }
+        const draft = yield* prepare(id, current);
+        if (draft !== false) {
+          yield* handOff(id, current, draft);
+        }
+      }).pipe(microsoftDelivery.withPermit);
       return;
     }
-    await handOff(id, current, undefined);
-  };
+    yield* handOff(id, current, undefined);
+  });
 
   // Delivery owns opening its sender even when no Inbox view has loaded it.
   const openSender = async (draft: Pick<Draft, 'connection'>) => {
@@ -657,8 +677,11 @@ export function createOutbox({
   // Files an accepted message's Sent copy, and records it as sent once the copy is there. A
   // connection removed meanwhile has nowhere to keep it, so the message is recorded as sent; one
   // waiting for its password keeps the copy waiting.
-  const file = async (entry: OutboxEntry, current: () => boolean) => {
-    if (!(await openSender(entry.draft)) || !current()) {
+  const file = Effect.fnUntraced(function* (
+    entry: OutboxEntry,
+    current: () => boolean,
+  ) {
+    if (!(yield* Effect.promise(() => openSender(entry.draft))) || !current()) {
       return;
     }
     const mailbox = connectionOf(entry.draft.connection);
@@ -675,21 +698,23 @@ export function createOutbox({
     } else if (mailbox?.provider === 'imap' && messageId !== undefined) {
       // An accepted response leaves the Outbox only once its mailbox records it.
       problem =
-        (await mailbox.inbox.fileSent(entry.message, messageId)) ??
-        (await answer(entry));
+        (yield* Effect.promise(() =>
+          mailbox.inbox.fileSent(entry.message, messageId),
+        )) ?? (yield* answer(entry));
     }
-    await drafts.deliver(
+    const sentAt = yield* Clock.currentTimeMillis;
+    yield* write(
       entry.id,
       step('filing', (each) => {
         if (problem === undefined) {
-          return { id: each.id, sentAt: Date.now() };
+          return { id: each.id, sentAt };
         }
         return problem === each.problem
           ? undefined
           : withState(each, 'filing', problem);
       }),
     );
-  };
+  });
 
   // Records an unknown message as sent only when its Sent mailbox holds exactly one copy.
   const reconcile = async (id: string) => {
@@ -711,18 +736,21 @@ export function createOutbox({
       // The mailbox closed or changed meanwhile; it is checked again once it is ready.
       queuedChecks.delete(id);
     } else if (outcome.kind === 'sent') {
-      await keep(id, outcome);
+      await runLogged(keep(id, outcome));
     }
   };
 
   // Ends a message's Undo Send Window once it has passed. Resolves false when storage refused that.
-  const release = async (entry: OutboxEntry) =>
-    entry.state !== 'waiting' ||
-    Date.now() < entry.sendAt ||
-    drafts.deliver(
-      entry.id,
-      step('waiting', (each) => withState(each, 'queued')),
+  const release = Effect.fnUntraced(function* (entry: OutboxEntry) {
+    return (
+      entry.state !== 'waiting' ||
+      (yield* Clock.currentTimeMillis) < entry.sendAt ||
+      (yield* write(
+        entry.id,
+        step('waiting', (each) => withState(each, 'queued')),
+      ))
     );
+  });
 
   // Why the Draft cannot be sent as it is, checked before reading its files.
   const refusalOf = (draft: Draft): SendRefusal | undefined => {
@@ -775,17 +803,17 @@ export function createOutbox({
   };
 
   // Claims a queued message and hands it off; a message SMTP accepted files its Sent copy at once.
-  const sendQueued = async (
+  const sendQueued = Effect.fnUntraced(function* (
     account: string,
     entry: OutboxEntry,
     current: () => boolean,
-  ) => {
-    const opened = await openSender(entry.draft);
+  ) {
+    const opened = yield* Effect.promise(() => openSender(entry.draft));
     if (!current()) {
       return;
     }
     if (!opened) {
-      await drafts.deliver(
+      yield* write(
         entry.id,
         step('queued', (each) =>
           current() ? withState(each, 'queued', 'offline') : undefined,
@@ -798,23 +826,24 @@ export function createOutbox({
       return;
     }
     if (check !== undefined) {
-      await drafts.deliver(
+      yield* write(
         entry.id,
         step('queued', (each) => withState(each, 'failed', check)),
       );
       return;
     }
-    if (await holdClaim(account, entry, current)) {
-      await deliver(entry.id, current);
+    if (yield* holdClaim(account, entry, current)) {
+      yield* deliver(entry.id, current);
       const accepted = entryOf(entry.id);
       if (current() && accepted?.state === 'filing') {
-        await file(accepted, current);
+        yield* file(accepted, current);
       }
     }
-  };
+  });
 
-  // Advances one message as far as it can go now; the persisted state decides what remains due.
-  const advance = async (id: string) => {
+  // Advances one message as far as it can go now, as one Effect program over the Drafts store and
+  // the providers; the persisted state decides what remains due.
+  const advance = Effect.fn('Outbox.advance')(function* (id: string) {
     const account = ownerOf(registration);
     const waiting = entryOf(id);
     const started = execution;
@@ -822,28 +851,28 @@ export function createOutbox({
     if (account === undefined || waiting === undefined) {
       return;
     }
-    if (await resave(waiting)) {
+    if (yield* resave(waiting)) {
       return;
     }
-    if (!(await release(waiting)) || !current()) {
+    if (!(yield* release(waiting)) || !current()) {
       return;
     }
     const entry = entryOf(id);
     // oxlint-disable-next-line typescript/switch-exhaustiveness-check -- Other durable states never permit automatic delivery.
     switch (entry?.state) {
       case 'filing': {
-        await file(entry, current);
+        yield* file(entry, current);
         break;
       }
       case 'queued': {
-        await sendQueued(account, entry, current);
+        yield* sendQueued(account, entry, current);
         break;
       }
       default: {
         break;
       }
     }
-  };
+  });
 
   // Runs `due` when a message is next due: the end of an Undo Send Window, a retry or a pending
   // cleanup. The wait sleeps on Effect's Clock until that deadline; replanning, pausing and
@@ -1014,7 +1043,7 @@ export function createOutbox({
       if (running() && dueAt(entry) <= now) {
         const started = execution;
         retryAt.delete(id);
-        await advance(id);
+        await runLogged(advance(id));
         retry(id, started);
       }
     }
