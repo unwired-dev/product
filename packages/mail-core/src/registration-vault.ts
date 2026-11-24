@@ -538,7 +538,10 @@ export interface NativeRegistrationVault {
   ) => Promise<unknown>;
   // Saves the Profile state in the account's device-only vault.
   readonly recordProfiles: (state: ProfileState) => Promise<unknown>;
-  readonly forgetMailboxAccess: () => Promise<unknown>;
+  // Forgets which connections verified, except for those `keeping` names.
+  readonly forgetMailboxAccess: (
+    keeping?: readonly string[],
+  ) => Promise<unknown>;
   readonly retryMailboxCleanup: () => Promise<unknown>;
   readonly refreshMailbox: (connection: string) => Promise<unknown>;
   // An interactive authorization with the provider, for a connection or a new mailbox; `suggest`

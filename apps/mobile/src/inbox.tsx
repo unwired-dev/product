@@ -46,7 +46,7 @@ import {
   useRef,
   useState,
 } from 'react';
-import { SectionList, Text, View } from 'react-native';
+import { Keyboard, SectionList, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { SafeAreaView } from 'react-native-screens/experimental';
 
@@ -995,6 +995,8 @@ export function Inbox({
     }
     if (await leave()) {
       reporting.breadcrumb({ operation: 'reader', stage: 'open' });
+      // Opening a message ends search editing, so the keyboard never covers the reader (#2549).
+      Keyboard.dismiss();
       onSelect(selection);
     }
   };
@@ -1423,6 +1425,8 @@ export function Inbox({
             ref={list}
             accessibilityLabel={t('inbox.messages')}
             automaticallyAdjustKeyboardInsets
+            // One tap on a result or Search Mail Servers acts while the search field has focus (#2549).
+            keyboardShouldPersistTaps="handled"
             maintainVisibleContentPosition={keepPosition}
             onScrollBeginDrag={() => {
               motion.interrupt();

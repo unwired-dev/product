@@ -594,10 +594,15 @@ export function createSyntheticVault(
         return null;
       }),
     ...syncAdapter.operations,
-    forgetMailboxAccess: () =>
+    forgetMailboxAccess: (keeping = []) =>
       attempt(() => {
-        verified.clear();
-        cached.clear();
+        for (const access of [verified, cached]) {
+          for (const id of access) {
+            if (!keeping.includes(id)) {
+              access.delete(id);
+            }
+          }
+        }
         return null;
       }),
     retryMailboxCleanup: () =>
