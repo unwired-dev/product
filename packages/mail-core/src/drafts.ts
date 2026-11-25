@@ -1295,6 +1295,10 @@ const restorable = (
 } =>
   entry !== undefined && entry.state !== 'sending' && entry.state !== 'filing';
 
+// An Invitation Response or an unsubscribe request, admitted without ever being a Draft.
+const neverDrafted = (entry: OutboxEntry) =>
+  entry.invitation !== undefined || entry.unsubscribe !== undefined;
+
 // The confirmed sends kept to tell a repeated outcome from a new one.
 const sentLimit = 20;
 const equivalentEntry = Schema.toEquivalence(OutboxEntrySchema);
@@ -2193,10 +2197,7 @@ export function createDrafts(
             ) {
               return undefined;
             }
-            if (
-              entry.invitation !== undefined ||
-              entry.unsubscribe !== undefined
-            ) {
+            if (neverDrafted(entry)) {
               return {
                 drafts: state.drafts,
                 delivery: {

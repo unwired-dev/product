@@ -1,5 +1,6 @@
 import PostalMime from 'postal-mime';
 
+import type { MailtoUnsubscribe } from '../src/outbox.ts';
 import type { RegistrationSnapshot } from '../src/registration.ts';
 
 import { createMailboxes } from '../src/mailboxes.ts';
@@ -9,7 +10,7 @@ import { syntheticConnections } from '../src/testing/gmail-mailbox.ts';
 import { createSyntheticGmail } from '../src/testing/gmail-mailbox.ts';
 import { createSyntheticGraph } from '../src/testing/graph-mailbox.ts';
 import { createSyntheticImap } from '../src/testing/imap-mailbox.ts';
-import { device } from './draft-sync-fixture.ts';
+import { device, present } from './draft-sync-fixture.ts';
 import { account } from './outbox-fixture.ts';
 
 // The receiving Mailbox Connection of each provider.
@@ -55,7 +56,8 @@ const listed = (provider: Provider, state: string, smtp: boolean) => ({
 
 // A device whose only mailbox is `provider`'s receiving connection.
 async function receiver(provider: Provider, state = 'connected', smtp = true) {
-  const phone = await device(createSyntheticProductSync(), account, 'phone');
+  const server = createSyntheticProductSync();
+  const phone = await device(server, account, 'phone');
   const snapshot = (now: string): RegistrationSnapshot => ({
     kind: 'connected',
     productAccountId: account,
@@ -99,8 +101,16 @@ async function receiver(provider: Provider, state = 'connected', smtp = true) {
   const become = (now: string) => {
     phone.change(snapshot(now));
   };
-  return { ...phone, outbox, sent, filed, become };
+  return { ...phone, server, outbox, sent, filed, become };
 }
+
+// The Outbox identifier of a request waiting out the Undo Send Window.
+const waitingId = (result: MailtoUnsubscribe) => {
+  if (result.kind !== 'waiting') {
+    throw new Error(`The request was not admitted: ${result.kind}`);
+  }
+  return result.id;
+};
 
 const clock = { now: 0 };
 const later = (milliseconds: number) => {
@@ -154,7 +164,11 @@ describe('a mailto unsubscribe request', () => {
         await phone.outbox.process();
 
         const [raw, ...others] = phone.sent();
-        const message = await PostalMime.parse(raw ?? '');
+        const message = await PostalMime.parse(present(raw, 'a sent message'));
+        const output = [...logged.mock.calls, ...errors.mock.calls]
+          .flat()
+          .map(String)
+          .join('\n');
         expect({
           others,
           from: message.from?.address,
@@ -166,6 +180,9 @@ describe('a mailto unsubscribe request', () => {
           filed: phone.filed(),
           outbox: phone.drafts.getOutbox(),
           drafts: phone.list(),
+          // Nothing logs the request; Convex hears only the claim's identifier.
+          logged: /leave@|unsubscribe 42|remove me/u.test(output),
+          claims: [...phone.server.claimsOf(account)],
         }).toStrictEqual({
           others: [],
           from: receiving[provider].address,
@@ -177,13 +194,9 @@ describe('a mailto unsubscribe request', () => {
           filed: 1,
           outbox: [],
           drafts: [],
+          logged: false,
+          claims: [[`draft-delivery.${waitingId(admitted)}`, 'phone']],
         });
-        // Nothing logs the request; Convex hears only the claim's identifier.
-        const output = [...logged.mock.calls, ...errors.mock.calls]
-          .flat()
-          .map(String)
-          .join('\n');
-        expect(output).not.toMatch(/leave@|unsubscribe 42|remove me/u);
       } finally {
         phone.outbox.dispose();
       }
@@ -198,7 +211,7 @@ describe('a mailto unsubscribe request', () => {
         receiving.gmail.id,
         offer,
       );
-      const id = admitted.kind === 'waiting' ? admitted.id : '';
+      const id = waitingId(admitted);
       await expect(phone.outbox.undo(id, 'waiting')).resolves.toBe(id);
       later(undoSendWindow);
       await phone.outbox.process();
@@ -220,7 +233,7 @@ describe('a mailto unsubscribe request', () => {
         receiving.gmail.id,
         offer,
       );
-      const id = admitted.kind === 'waiting' ? admitted.id : '';
+      const id = waitingId(admitted);
       phone.become('authorization');
       later(undoSendWindow);
       await phone.outbox.process();

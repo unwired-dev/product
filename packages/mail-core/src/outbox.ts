@@ -10,7 +10,10 @@ import type { SendOutcome } from './inbox-store.ts';
 import type { InvitationAnswer } from './invitation-record.ts';
 import type { ImapMailbox, Mailbox, Mailboxes } from './mailboxes.ts';
 import type { OutboxCheck, OutboxSnapshotEntry } from './outbox-copy.ts';
-import type { MailProvider } from './registration-snapshot.ts';
+import type {
+  MailboxConnection,
+  MailProvider,
+} from './registration-snapshot.ts';
 import type { Registration } from './registration.ts';
 import type { Block, SemanticDocument } from './semantic-document.ts';
 import type { UnsubscribeOffer } from './unsubscribe.ts';
@@ -97,6 +100,15 @@ export type SendCheck = ReadonlyMap<string, AssetPreview['kind'] | undefined>;
 export type MailtoUnsubscribe =
   | Readonly<{ kind: 'waiting'; id: string }>
   | Readonly<{ kind: 'receive-only' | 'authorization' | 'failed' }>;
+
+// Why `mailbox`, the connection that received a `mailto:` offer, cannot send its request: it
+// receives only or needs authorization again.
+const unsendable = (mailbox: MailboxConnection) => {
+  if (mailbox.provider === 'imap' && mailbox.smtp === undefined) {
+    return 'receive-only';
+  }
+  return mailbox.state === 'authorization' ? 'authorization' : undefined;
+};
 
 // One paragraph per line of a `mailto:` body; a span never holds a line break or an image's
 // character.
@@ -1260,14 +1272,12 @@ export function createOutbox({
       const mailbox = mailboxesOf(registration.getSnapshot().snapshot).find(
         ({ id }) => id === connection,
       );
-      if (mailbox?.provider === 'imap' && mailbox.smtp === undefined) {
-        return { kind: 'receive-only' };
-      }
-      if (mailbox?.state === 'authorization') {
-        return { kind: 'authorization' };
-      }
       if (mailbox === undefined) {
         return { kind: 'failed' };
+      }
+      const refused = unsendable(mailbox);
+      if (refused !== undefined) {
+        return { kind: refused };
       }
       const at = Date.now();
       const draft: Draft = {
