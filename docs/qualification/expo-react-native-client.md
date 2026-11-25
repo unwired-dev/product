@@ -44,8 +44,10 @@ comparison. The 1-minute host load from other work was about 50.
   in both settings; the recordings show no difference between them. The
   composer card and the docked reply appear and leave between two frames in
   both: none of these presenters adds motion of its own. New Label replaces the
-  Labels list in the popover between two frames, then the popover rises with
-  the keyboard over about 0.4 seconds, in both settings.
+  Labels list in the popover between two frames, then the popover moves to its
+  place above the keyboard over about 0.4 seconds. In Dark it settled downward
+  with Reduce Motion on and rose with it off; the two recordings started from
+  different messages, so the difference is not put down to Reduce Motion.
 - Found in both settings: on iPhone the reader's body text turns into a spinner
   while the composer sheet opens and for about 2 seconds after it closes, and
   on iPad while the docked reply opens
