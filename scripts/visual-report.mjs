@@ -137,7 +137,7 @@ function readReference(label, expected) {
 }
 
 // Writes the diff and a half-and-half overlay of two aligned images and counts differing pixels.
-function difference(reference, actual, threshold, directory) {
+function difference({ reference, actual, threshold, directory }) {
   const { width, height } = reference;
   const diff = new PNG({ width, height });
   const pixels = pixelmatch(
@@ -182,7 +182,12 @@ function compare({ id, kind, expected, actual, directory }) {
     return { status: 'failed' };
   }
   const tolerance = manifest.tolerances[kind];
-  const pixels = difference(reference, actual, tolerance.threshold, directory);
+  const pixels = difference({
+    reference,
+    actual,
+    threshold: tolerance.threshold,
+    directory,
+  });
   const ratio = pixels / (width * height);
   const measured = { differingPixels: pixels, ratio, tolerance };
   const changed = kind === 'baseline' ? drift(expected.environment) : [];
