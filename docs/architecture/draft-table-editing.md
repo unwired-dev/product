@@ -157,7 +157,8 @@ Replacing the production body was the owner's decision, which this plan filed ah
   same conversion, with each cell numbering its lists from 1; a kept table keeps
   its cells' formatting unchanged and shows their text only. Inside cells,
   Backspace and Delete never join text across a cell's edge or a table, which
-  they select first; a deletion across lines removes whole tables inside it; and
+  they select first; a deletion across lines removes whole tables inside it and empties the cells
+  of a table it only enters; and
   selected cells or a selected table are cleared, cut, typed and pasted over by
   the table editing.
 - **Table shapes.** `prosemirror-tables` normalizes tables as soon as they are

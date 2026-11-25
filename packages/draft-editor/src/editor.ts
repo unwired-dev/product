@@ -644,44 +644,47 @@ const normalized = (state: EditorState) => {
   return tr.docChanged ? tr : null;
 };
 
-// Deletes `from` to `to` as the current composer deletes across lines: the textblock holding
-// `from` keeps its kind, alignment and list level and takes the rest of the last one, and every
-// other textblock and table in the range goes, with any quote or list item left empty. After
-// Select All the first textblock stays, emptied; Tiptap would reset a document emptied this way.
-// A range with only one end in a table, or with no textblock outside a table, is ProseMirror's.
+// Deletes `from` to `to` as the current composer deletes across lines: the first textblock keeps
+// its kind, alignment and list level and takes the rest of the last one, and every other textblock
+// in the range goes, with any quote or list item left empty, as does every table wholly inside it.
+// A table the range only enters keeps its cells, emptied of the selected text. After Select All the
+// first textblock stays, emptied; Tiptap would reset a document emptied this way.
 // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ProseMirror's transaction is a class; this edits it.
 const flatDelete = (tr: Transaction, from: number, to: number) => {
   const blocks: Array<Readonly<{ node: ProseMirrorNode; position: number }>> =
     [];
-  let split = false;
   tr.doc.nodesBetween(from, to, (node, position) => {
-    const table = ['table', 'keptTable'].includes(node.type.name);
-    if (table) {
-      split ||= position < from || position + node.nodeSize > to;
-    }
-    if (node.isTextblock || table) {
+    const whole =
+      ['table', 'keptTable'].includes(node.type.name) &&
+      position >= from &&
+      position + node.nodeSize <= to;
+    if (node.isTextblock || whole) {
       blocks.push({ node, position });
     }
-    return !node.isTextblock && !table;
+    return !node.isTextblock && !whole;
   });
-  const [first, ...rest] = blocks;
+  const textblocks = blocks.filter(({ node }) => node.isTextblock);
+  const [first] = textblocks;
   if (from === to || first === undefined) {
     return;
   }
-  if (split || !first.node.isTextblock) {
-    tr.deleteRange(from, to);
-    return;
-  }
-  const last = rest.findLast(({ node }) => node.isTextblock) ?? first;
-  const start = Math.max(from, first.position + 1);
+  const last = textblocks.at(-1) ?? first;
   const tail = last.node.content.cut(
     Math.min(Math.max(0, to - last.position - 1), last.node.content.size),
   );
-  for (const { node, position } of rest.toReversed()) {
+  const before = blocks.filter(({ position }) => position < first.position);
+  for (const { node, position } of blocks.toReversed()) {
+    if (position > first.position) {
+      tr.deleteRange(position, position + node.nodeSize);
+    }
+  }
+  const start = Math.max(from, first.position + 1);
+  tr.replaceWith(start, first.position + first.node.nodeSize - 1, tail);
+  for (const { node, position } of before.toReversed()) {
     tr.deleteRange(position, position + node.nodeSize);
   }
-  tr.replaceWith(start, first.position + first.node.nodeSize - 1, tail);
-  tr.setSelection(TextSelection.create(tr.doc, start));
+  const shift = before.reduce((size, { node }) => size + node.nodeSize, 0);
+  tr.setSelection(TextSelection.create(tr.doc, start - shift));
   tr.setMeta('preventClearDocument', true);
 };
 
@@ -901,9 +904,36 @@ const tableBetween = (doc: ProseMirrorNode, a: number, b: number) => {
 // before or after it, as the current composer does: the first keeps its kind, alignment and list
 // level, even across a quote or list. Backspace at the start of a list item keeps turning it into
 // a paragraph, and at the start of the document keeps Tiptap's behavior.
+// The textblock Backspace (or, `forward`, Delete) at the caret `$from` joins, 'table' when a table
+// is in the way or ends the body, or null when the caret is not at the block's edge or the
+// textblock is in another table cell: no join moves text into or out of a cell.
+// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ProseMirror's ResolvedPos is a class; this only reads it.
+const joinedWith = ($from: ResolvedPos, forward: boolean) => {
+  const atEdge = forward
+    ? $from.parentOffset === $from.parent.content.size
+    : $from.parentOffset === 0 && $from.node(-1).type.name !== 'listItem';
+  if (!atEdge) {
+    return null;
+  }
+  const { doc } = $from;
+  const $other = Selection.findFrom(
+    doc.resolve(forward ? $from.after() : $from.before()),
+    forward ? 1 : -1,
+    true,
+  )?.$from;
+  const end = forward ? doc.content.size : 0;
+  if (tableBetween(doc, $from.pos, $other?.pos ?? end)) {
+    return 'table';
+  }
+  return $other === undefined ||
+    cellAround($from)?.pos !== cellAround($other)?.pos
+    ? null
+    : $other;
+};
+
 // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Tiptap's editor is a class; this runs commands on it.
 const deleteKey = (editor: TiptapEditor, forward: boolean) => {
-  const { selection, doc } = editor.state;
+  const { selection } = editor.state;
   const { $from, empty } = selection;
   // A selected table or cells are the table editing's and Tiptap's to delete.
   if (!editsAsText(selection)) {
@@ -912,18 +942,12 @@ const deleteKey = (editor: TiptapEditor, forward: boolean) => {
   if (!empty) {
     return editor.commands.command(({ tr }) => deleteSelected(tr));
   }
-  const $other = forward
-    ? $from.parentOffset === $from.parent.content.size &&
-      Selection.findFrom(doc.resolve($from.after()), 1, true)?.$from
-    : $from.parentOffset === 0 &&
-      $from.node(-1).type.name !== 'listItem' &&
-      Selection.findFrom(doc.resolve($from.before()), -1, true)?.$from;
-  // No join moves text into or out of a table cell. A table in the way is selected first, so a
-  // second key press deletes it.
-  if (!$other || cellAround($from)?.pos !== cellAround($other)?.pos) {
+  const $other = joinedWith($from, forward);
+  if ($other === null) {
     return false;
   }
-  if (tableBetween(doc, $from.pos, $other.pos)) {
+  // A table in the way, or ending the body, is selected first, so a second key press deletes it.
+  if ($other === 'table') {
     return forward
       ? editor.commands.selectNodeForward()
       : editor.commands.selectNodeBackward();
