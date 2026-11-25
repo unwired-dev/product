@@ -493,7 +493,7 @@ read the pasteboard; the file became an Attachment, and the image went inline wi
 its verified thumbnail and a **Pasted image** row. After **Save**, a relaunch and
 reopening, both were in place. Before that step the
 journey's numbered-list checks needed repair: since #2884 the page draws the marker
-as the texts `1` and `.` ([#2932](https://github.com/unwired-dev/product/issues/2932)).
+as the texts `1` and `.` ([#2926](https://github.com/unwired-dev/product/issues/2926)).
 Earlier attempts of the same build failed at those checks and are not evidence.
 
 ### Formatting fidelity (#819)
