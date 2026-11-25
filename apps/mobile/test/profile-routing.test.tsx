@@ -1171,13 +1171,11 @@ describe('profile-scoped mobile routes', () => {
         // iPhone's reader has its own New Message, after the Inbox bar's.
         for (const name of start) {
           const starter = () => screen.getAllByRole('button', { name }).at(-1);
-          // oxlint-disable-next-line no-await-in-loop -- Each press opens the next choice.
           await waitFor(() => {
             expect(starter()).toBeEnabled();
           });
           const action = starter();
           ok(action !== undefined);
-          // oxlint-disable-next-line no-await-in-loop -- Each press opens the next choice.
           await fireEvent.press(action);
         }
         await screen.findByLabelText('Message body', {}, { timeout: 8000 });
