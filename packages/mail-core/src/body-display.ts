@@ -1,21 +1,30 @@
-import type { Block, BlockKind } from './semantic-document.ts';
-
 import { channelsOf, luminanceOf, palette } from './theme.ts';
 
 // How a Semantic Message Document body shows: list markers and the stored fonts and colors. It
 // imports no schema library, so the Draft editor page can bundle it.
 
-type Line = Pick<Block, 'kind' | 'indent'>;
-type Span = Block['spans'][number];
+// A body line's block kind and list level, and a span's stored format; the Semantic Message
+// Document's blocks and spans fit them.
+type Line = Readonly<{ kind: string; indent?: number }>;
+type Span = Readonly<
+  | {
+      text: string;
+      color?: string;
+      background?: string;
+      font?: string;
+      size?: number;
+    }
+  | { text: string; image: unknown }
+>;
 
-export const isListKind = (kind: BlockKind) =>
+export const isListKind = (kind: string) =>
   kind === 'bulleted' || kind === 'numbered';
 
 // Each numbered item's number, zero for any other block. Consecutive numbered items of one level
 // count from one, across items nested between them; any block that is not a list item restarts
 // every count, and a bulleted item restarts its level's.
 export const listNumbersOf = (lines: readonly Line[]) => {
-  const levels: Array<Readonly<{ kind: BlockKind; count: number }>> = [];
+  const levels: Array<Readonly<{ kind: string; count: number }>> = [];
   return lines.map(({ kind, indent = 0 }) => {
     if (!isListKind(kind)) {
       levels.length = 0;
