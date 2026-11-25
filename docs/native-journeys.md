@@ -515,6 +515,15 @@ On iPhone, the new connection's Enter the Password… and Remove… are full-wid
 below its address, and Email Accounts passes an accessibility audit
 ([#1929](https://github.com/unwired-dev/product/issues/1929)).
 
+Once the connection joins All Mail, its message's **Folders** lists the connection's folders
+([#2902](https://github.com/unwired-dev/product/issues/2902)), with its own Inbox selected and
+unavailable: in the system popover on iPad, which one tap outside and Command-period, UIKit's
+Escape, each close, and in the system Move sheet on iPhone, which **Close** and a downward swipe
+each close. **Move to Bulk Mail** then requests the move: the reader closes and the list reports
+**Moved: “Welcome to IMAP”.** at once, before the server answers. The synthetic server discards
+moves, so what the server keeps is left to the mail-core IMAP organize tests. The captures
+"Folders popover" or "Move sheet" and "Moved to Spam" are named with the appearance.
+
 Settings › Signatures then lists the IMAP Sending Identity with None
 ([#2059](https://github.com/unwired-dev/product/issues/2059)). Its signature is typed,
 made bold and stored when the editor is left; the row shows its first line, Delete
@@ -554,6 +563,22 @@ Command-period, which UIKit delivers as Escape; the Inbox journey checks Filters
 system menu closed at Command-period in only three of five runs, so its Escape waits for a
 hardware keyboard ([#2873](https://github.com/unwired-dev/product/issues/2873)). The message stays open
 and read. A capture of each, named with the appearance, is kept.
+
+## iPhone and iPad presenter rotation journey
+
+`testPresenterRotation` runs on a `registration-declined` Release build with
+`UNWIRED_JOURNEY=testPresenterRotation` ([#2907](https://github.com/unwired-dev/product/issues/2907)).
+It connects the synthetic Gmail mailbox and opens each presenter in Portrait, turns the device to
+Landscape and back, and after each turn waits until the presenter's controls are in reach and its
+frame has settled, then closes it with its own control. On iPhone: the Filters sheet, the link
+confirmation alert, the Reply sheet, the Labels sheet and the New Label sheet. On iPad: the New
+Message card, the link confirmation alert, the toolbar's Labels popover, New Label in its place and
+the docked reply. iPad's **More** system menu closes at each turn, as the system closes a menu, and
+opens again from **More** in Landscape. The link confirmation turns only to Landscape: the turn
+back to Portrait can close it ([#2909](https://github.com/unwired-dev/product/issues/2909)). The
+iPad Filters popover (the `open-read-relaunch` journey) and the iPhone composer
+(`testComposerSheet`) are covered elsewhere; the Move picker needs IMAP mail. A capture of each
+presenter in Portrait and in Landscape, named with the appearance, is kept.
 
 ## iPhone and iPad Send Now journey
 

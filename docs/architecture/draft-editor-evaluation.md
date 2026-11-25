@@ -18,7 +18,9 @@ accounts needs its own later decision.
 
 The editor is one HTML page built from `packages/draft-editor` and bundled into the
 JavaScript as a string. Its script and styles are inline, and its Content Security
-Policy refuses every other source (`default-src 'none'`). The WebKit view is
+Policy refuses every other source (`default-src 'none'`). The build lists the files it
+bundled in `dist/page.sources.json`, where the licence inventory and the archive's
+notices find the page's packages ([TestFlight](../testflight.md)). The WebKit view is
 non-persistent (`incognito`), cache-free, cannot open windows, and cancels every
 navigation except its own page. No cloud collaboration, vendor AI, remote asset
 service, browser persistence or paid editor service is used.

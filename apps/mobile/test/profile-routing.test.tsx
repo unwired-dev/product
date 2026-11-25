@@ -3,10 +3,12 @@ import { ok } from 'node:assert/strict';
 import type { CommandRegistry } from '@private-email/mail-core/commands';
 import type { router as ExpoRouter } from 'expo-router';
 import type {
+  createContext as ReactCreateContext,
   createElement as ReactCreateElement,
   ReactNode,
   Ref,
   useImperativeHandle as ReactUseImperativeHandle,
+  use as ReactUse,
   useLayoutEffect as ReactUseLayoutEffect,
   useSyncExternalStore as ReactUseSyncExternalStore,
 } from 'react';
@@ -54,8 +56,7 @@ import {
 import { withTiming } from 'react-native-reanimated';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
-import type ComposeRoute from '../app/compose/[draft].tsx';
-import type MessageRoute from '../app/message/[id].tsx';
+import type ReaderLayout from '../app/(reader)/_layout.tsx';
 import type ThreadRoute from '../app/thread/[id].tsx';
 import type { useCommandRegistry as UseCommandRegistry } from '../src/command-palette.tsx';
 import type { MailboxList } from '../src/private-storage.ts';
@@ -146,10 +147,13 @@ jest.mock('react-native-screens/experimental', () => {
 });
 // oxlint-disable-next-line vitest/prefer-import-in-mock -- Router state stands in for native URL delivery; views and stores are real.
 jest.mock('expo-router', () => {
-  const { createElement, useSyncExternalStore } = jest.requireActual<{
-    createElement: typeof ReactCreateElement;
-    useSyncExternalStore: typeof ReactUseSyncExternalStore;
-  }>('react');
+  const { createContext, createElement, use, useSyncExternalStore } =
+    jest.requireActual<{
+      createContext: typeof ReactCreateContext;
+      createElement: typeof ReactCreateElement;
+      use: typeof ReactUse;
+      useSyncExternalStore: typeof ReactUseSyncExternalStore;
+    }>('react');
   let params: Readonly<Record<string, unknown>> = {};
   let pathname = '/';
   const listeners = new Set<() => void>();
@@ -167,24 +171,27 @@ jest.mock('expo-router', () => {
   };
   const getSnapshot = () => params;
   const useParams = () => useSyncExternalStore(subscribe, getSnapshot);
-  // The secondary column's route. Routes load on first render, once this mock exists for them.
+  // The secondary column's route: a Thread, or the (reader) layout of a message or a Draft, whose
+  // own Slot holds a route that draws nothing. Routes load on first render, once this mock exists.
+  const Nested = createContext(false);
   function Slot() {
+    const nested = use(Nested);
     const { draft } = useParams();
-    if (draft !== undefined) {
-      return createElement(
-        jest.requireActual<{ default: typeof ComposeRoute }>(
-          '../app/compose/[draft].tsx',
-        ).default,
-      );
+    if (nested) {
+      return null;
     }
     return createElement(
-      pathname === '/thread/[id]'
-        ? jest.requireActual<{ default: typeof ThreadRoute }>(
-            '../app/thread/[id].tsx',
-          ).default
-        : jest.requireActual<{ default: typeof MessageRoute }>(
-            '../app/message/[id].tsx',
-          ).default,
+      Nested,
+      { value: true },
+      createElement(
+        draft === undefined && pathname === '/thread/[id]'
+          ? jest.requireActual<{ default: typeof ThreadRoute }>(
+              '../app/thread/[id].tsx',
+            ).default
+          : jest.requireActual<{ default: typeof ReaderLayout }>(
+              '../app/(reader)/_layout.tsx',
+            ).default,
+      ),
     );
   }
   return {
@@ -1039,6 +1046,153 @@ describe('profile-scoped mobile routes', () => {
         await screen.findByText('This Draft is not available.');
         await swipeDown();
         expect(sheet()).toBeNull();
+      } finally {
+        await app.unmount();
+        dimensions.mockRestore();
+        platform.restore();
+        jest.replaceProperty(
+          jest.requireMock<{ drafts: typeof drafts }>('../src/registration.ts'),
+          'drafts',
+          jest.requireActual<{ drafts: typeof drafts }>(
+            '../src/registration.ts',
+          ).drafts,
+        );
+      }
+    },
+  );
+
+  it.each([
+    { window: 'iPhone', ipad: false, width: 393, start: ['New Message'] },
+    // Reply offers its choices first, then docks the reply below the reader.
+    { window: 'iPad', ipad: true, width: 1180, start: ['Reply', 'Reply'] },
+  ])(
+    'keeps the $window reader’s laid-out body while a composer opens over it and closes',
+    async ({ ipad, width, start }) => {
+      expect.hasAssertions();
+      const dimensions = jest
+        .spyOn(
+          jest.requireActual<{
+            useWindowDimensions: typeof useWindowDimensions;
+          }>('react-native'),
+          'useWindowDimensions',
+        )
+        .mockReturnValue({ width, height: 852, scale: 3, fontScale: 1 });
+      const platform = jest.replaceProperty(
+        jest.requireActual<{ ipad: boolean }>('../src/inbox-styles.ts'),
+        'ipad',
+        ipad,
+      );
+      const connection = {
+        id: syntheticMailboxes['alex@example.invalid'],
+        address: 'alex@example.invalid',
+        state: 'connected',
+        profile: defaultProfile,
+        provider: 'gmail',
+      } as const;
+      const drafts = createDrafts(
+        createSyntheticDrafts(() => 'synthetic-product-account').native,
+        {
+          subscribe: () => () => undefined,
+          getSnapshot: () =>
+            ({
+              snapshot: {
+                kind: 'connected',
+                productAccountId: 'synthetic-product-account',
+                signInProvider: 'google',
+                mailboxes: JSON.stringify([connection]),
+              },
+              busy: false,
+              failed: false,
+            }) as const,
+        },
+      );
+      jest.replaceProperty(
+        jest.requireMock<{ drafts: typeof drafts }>('../src/registration.ts'),
+        'drafts',
+        drafts,
+      );
+      const gmail = createSyntheticGmail();
+      gmail.deliver({
+        subject: 'Garden plan',
+        content: { html: '<p>Synthetic garden body.</p>' },
+      });
+      jest.replaceProperty(
+        jest.requireMock<{ mailboxes: MailboxList }>(
+          '../src/private-storage.ts',
+        ),
+        'mailboxes',
+        singleMailbox(createInboxStore(gmail.native), connection.id),
+      );
+      route.setParams({});
+      const app = await render(
+        <AccountContext
+          value={{
+            mailboxes: [connection],
+            openAccount: () => undefined,
+            authorizeMailbox: () => Promise.resolve(),
+            refreshInbox: (load) => load(),
+            account: 'synthetic-product-account',
+            profiles: [],
+            createProfile: () => Promise.resolve(undefined),
+            chooseFolders: () => Promise.resolve(true),
+          }}>
+          <RootLayout />
+        </AccountContext>,
+      );
+      const page = () =>
+        screen.getByTestId('message-webview', { includeHiddenElements: true });
+      let shown: ReturnType<typeof page> | undefined = undefined;
+      // The reader keeps its measured document, with no spinner, rather than opening it again.
+      const reader = () => ({
+        beneathComposer:
+          screen.queryByTestId('compose-reader-pane', {
+            includeHiddenElements: true,
+          }) !== null,
+        same: page() === shown,
+        opening: screen.queryByLabelText('Opening message', {
+          includeHiddenElements: true,
+        }),
+      });
+      try {
+        await fireEvent.press(
+          await screen.findByRole('button', { name: /Garden plan/u }),
+        );
+        shown = await screen.findByTestId('message-webview');
+        await act(() => {
+          fireEvent(page(), 'contentSizeChange', {
+            nativeEvent: { contentSize: { width: 320, height: 400 } },
+          });
+        });
+        expect(reader()).toStrictEqual({
+          beneathComposer: false,
+          same: true,
+          opening: null,
+        });
+        // iPhone's reader has its own New Message, after the Inbox bar's.
+        for (const name of start) {
+          const starter = () => screen.getAllByRole('button', { name }).at(-1);
+          await waitFor(() => {
+            expect(starter()).toBeEnabled();
+          });
+          const action = starter();
+          ok(action !== undefined);
+          await fireEvent.press(action);
+        }
+        await screen.findByLabelText('Message body', {}, { timeout: 8000 });
+        expect(reader()).toStrictEqual({
+          beneathComposer: true,
+          same: true,
+          opening: null,
+        });
+        await fireEvent.press(screen.getByRole('button', { name: 'Close' }));
+        await waitFor(() => {
+          expect(screen.queryByLabelText('Message body')).toBeNull();
+        });
+        expect(reader()).toStrictEqual({
+          beneathComposer: false,
+          same: true,
+          opening: null,
+        });
       } finally {
         await app.unmount();
         dimensions.mockRestore();

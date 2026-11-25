@@ -37,19 +37,32 @@ if (!argv.at(2)) {
 }
 const map = path.resolve(argv.at(2));
 const includeText = argv.includes('--include-text');
+// Expo lists sources from the Metro server root, run from the checkout.
+const located = (file) => (existsSync(file) ? file : path.join(cwd(), file));
+const sources = read(SourceMap, map).sources.map((source) =>
+  path.resolve(path.dirname(map), source),
+);
+// The Draft editor page embeds a bundle of its own, whose sources its build
+// (`packages/draft-editor/build.cjs`) lists beside it.
+const embedded = sources
+  .filter((source) => source.endsWith('/draft-editor/dist/page.js'))
+  .map((source) => located(source.replace(/\.js$/u, '.sources.json')))
+  .flatMap((record) =>
+    read(SourceMap, record).sources.map((source) =>
+      path.resolve(path.dirname(record), source),
+    ),
+  );
 // A package is the innermost node_modules folder holding a source, so
 // workspace sources, which Metro lists by their real paths, are not packages.
 const roots = new Set(
-  read(SourceMap, map)
-    .sources.map(
+  [...sources, ...embedded]
+    .map(
       (source) =>
-        /^(?<root>.*\/node_modules\/(?:@[^/]+\/)?[^/]+)\//u.exec(
-          path.resolve(path.dirname(map), source),
-        )?.groups.root,
+        /^(?<root>.*\/node_modules\/(?:@[^/]+\/)?[^/]+)\//u.exec(source)?.groups
+          .root,
     )
     .filter((root) => root !== undefined)
-    // Expo lists sources from the Metro server root, run from the checkout.
-    .map((root) => (existsSync(root) ? root : path.join(cwd(), root))),
+    .map(located),
 );
 const packages = new Map();
 for (const root of roots) {

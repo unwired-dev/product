@@ -64,25 +64,42 @@ body { font: -apple-system-body; -webkit-text-size-adjust: 100%; }
 @media (prefers-color-scheme: dark) { .ProseMirror .draft-focused-cell { outline-color: ${palette.dark.accentFill}; } .ProseMirror .selectedCell { background: ${palette.dark.accentSelectionSubtle}; } }
 `;
 
-function pageHtml() {
-  const [script] = buildSync({
+// Bundles the page from `directory`, which the files esbuild bundled into it are relative to.
+function page(directory) {
+  const {
+    outputFiles: [script],
+    metafile,
+  } = buildSync({
+    absWorkingDir: directory,
     entryPoints: [path.join(__dirname, 'src/editor.ts')],
     bundle: true,
     format: 'iife',
+    metafile: true,
     minify: true,
     target: 'safari18',
     write: false,
-  }).outputFiles;
-  return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${policy}"><meta name="viewport" content="width=device-width, initial-scale=1"><style>${style}</style></head><body><div id="editor"></div><script>${script.text.replaceAll('</script', String.raw`<\/script`)}</script></body></html>`;
+  });
+  return {
+    html: `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${policy}"><meta name="viewport" content="width=device-width, initial-scale=1"><style>${style}</style></head><body><div id="editor"></div><script>${script.text.replaceAll('</script', String.raw`<\/script`)}</script></body></html>`,
+    sources: Object.keys(metafile.inputs),
+  };
 }
 
-// Writes the page as the module Metro substitutes for `src/page.ts`, and returns its path.
+function pageHtml() {
+  return page(__dirname).html;
+}
+
+// Writes the page as the module Metro substitutes for `src/page.ts`, and returns its path. The
+// host bundle's source map lists only that module, so the files bundled into the page go beside
+// it, where `scripts/licence-inventory.mjs` reads them.
 function buildPage() {
   const output = path.join(__dirname, 'dist/page.js');
   mkdirSync(path.dirname(output), { recursive: true });
+  const { html, sources } = page(path.dirname(output));
+  writeFileSync(output, `export const editorPage = ${JSON.stringify(html)};\n`);
   writeFileSync(
-    output,
-    `export const editorPage = ${JSON.stringify(pageHtml())};\n`,
+    path.join(path.dirname(output), 'page.sources.json'),
+    `${JSON.stringify({ sources })}\n`,
   );
   return output;
 }
