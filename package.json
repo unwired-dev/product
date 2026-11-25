@@ -30,11 +30,12 @@
     "test:native-runner": "node --test scripts/native-runner.test.mjs scripts/mock-mail-runner.test.mjs scripts/testflight.test.mjs scripts/archive-inventory.test.mjs scripts/archive-findings.test.mjs scripts/licence-inventory.test.mjs scripts/native-licence-inventory.test.mjs scripts/third-party-notices.test.mjs scripts/build-native.test.mjs",
     "test:native:ios": "turbo run test:native --filter=@private-email/mobile --",
     "test:native:macos": "turbo run test:native --filter=@private-email/macos --",
-    "test:tooling": "node --test scripts/oxlint-effect-imports.test.mjs scripts/oxlint-effect-boundaries.test.mjs scripts/owned-process.test.mjs scripts/native-autolinking.test.mjs scripts/dependency-boundaries.test.mjs scripts/reporting-artifacts.test.mjs scripts/upload-release-symbols.test.mjs scripts/expo-ui-discovery.test.mjs scripts/ci-skip-builds.test.mjs scripts/issue-claim.test.mjs scripts/next-issue.test.mjs scripts/stale-claims.test.mjs apps/macos/scripts/compile-hermes-bundle.test.mjs",
+    "test:tooling": "node --test scripts/oxlint-effect-imports.test.mjs scripts/oxlint-effect-boundaries.test.mjs scripts/owned-process.test.mjs scripts/native-autolinking.test.mjs scripts/dependency-boundaries.test.mjs scripts/reporting-artifacts.test.mjs scripts/upload-release-symbols.test.mjs scripts/expo-ui-discovery.test.mjs scripts/ci-skip-builds.test.mjs scripts/issue-claim.test.mjs scripts/next-issue.test.mjs scripts/stale-claims.test.mjs scripts/visual-report.test.mjs apps/macos/scripts/compile-hermes-bundle.test.mjs",
     "testflight": "node scripts/testflight-env.mjs",
     "third-party-notices": "node scripts/third-party-notices.mjs",
     "verify:bundle": "turbo run verify:bundle",
-    "version-packages": "changeset version"
+    "version-packages": "changeset version",
+    "visual-report": "node scripts/visual-report.mjs"
   },
   "devDependencies": {
     "@changesets/cli": "catalog:",
@@ -48,6 +49,8 @@
     "oxfmt": "catalog:",
     "oxlint": "catalog:",
     "oxlint-tsgolint": "catalog:",
+    "pixelmatch": "catalog:",
+    "pngjs": "catalog:",
     "turbo": "catalog:",
     "typescript": "catalog:"
   },

@@ -17,6 +17,7 @@ completion status. Publication of a plan does not prove implementation or releas
 
 - [Deterministic Mock Mail Sessions and external runners](mock-mail-sessions.md)
 - [Native journeys](native-journeys.md)
+- [Visual report: Figma conformance and native baselines](visual-report.md)
 - [Private preview Inbox storage and credentials](private-inbox-storage.md)
 - [Google registration, Gmail consent, production authorization and protected OAuth qualification](google-registration.md)
 - [Apple registration, mailbox choice and current Gmail authorization](apple-registration.md)
