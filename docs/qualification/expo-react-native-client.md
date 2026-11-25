@@ -17,8 +17,9 @@ deferral still applies to unavailable release checks. Mac host evidence follows.
 `registration-performance` journey, which stopped after the Inbox audit, now
 runs to the end. It passed whole on iPad Pro 11-inch (M5) on a
 `registration-performance` Release Simulator build with Xcode 27.2 (`27B52`),
-the iOS 27.0 runtime and macOS 27.2.1, in Dark, in 20 minutes. Host load was
-4–50.
+the iOS 27.0 runtime and macOS 27.2.1, in Dark, in 18 minutes on the final
+code at host load 7–16, and in 20 minutes on the code before review fixes,
+where iPhone 18 Pro passed the whole journey too.
 
 - After a keyboard or text-selection change, XCTest's count of running
   animations stayed above zero, so each later action waited a minute for the
@@ -27,21 +28,21 @@ the iOS 27.0 runtime and macOS 27.2.1, in Dark, in 20 minutes. Host load was
   timeout about once per launch.
 - The composer's title, which offers **Open Command Palette** to VoiceOver,
   failed the hit-area audit at 18.5 points tall. It is now a 44-point element.
-  The Command Palette's Cancel passed the audit, and the journey closes the
-  palette with it.
+  The Command Palette's Cancel passed the audit.
 - The Mailboxes audit permits an unlabeled view the size of a list row, which
   some runs report ([#2843](https://github.com/unwired-dev/product/issues/2843)).
   The Composer audit permits the Mailboxes Edit button's contrast measured
   under the modal expanded composer. The Link Editor audit passed with the
   "system popover" gap.
 - On a loaded host a tap or a key can be lost. The journey retries the palette
-  tap, the Link Editor's Return (with Apply) and its dismissal, and retypes a
+  tap, the Link Editor's Return and its dismissal, and retypes a
   palette query that lost a key.
-- A tap beside the Link Editor popover that lands in the body raises the
-  software keyboard. Its show and hide transitions then collapsed the expanded
-  composer, which lost its body
+- When the Link Editor closes, the body takes focus back and the simulator
+  raises the software keyboard. The next typed keys hide it again. In some runs
+  those transitions collapsed the expanded composer, and it lost its body
   ([#2885](https://github.com/unwired-dev/product/issues/2885)). The journey
-  now taps the title row instead.
+  closes the popover from the title row so that the tap cannot land in the
+  body, but the collapse still stops some runs until #2885 is fixed.
 - At Accessibility XXXL, the reopened Draft's docked reply has a From picker
   706 points tall that covers its fields
   ([#2882](https://github.com/unwired-dev/product/issues/2882)). The journey

@@ -3452,7 +3452,7 @@ final class InboxTests: XCTestCase {
     try audit(app, "Inbox")
     if phone {
       app.buttons["Back to Mailboxes"].tap()
-    } else if app.buttons["Show Sidebar"].exists {
+    } else if app.buttons["Show Sidebar"].exists || app.buttons["Hide Sidebar"].exists {
       showSidebar(app)
     } else {
       app.navigationBars.buttons.firstMatch.tap()
@@ -3725,8 +3725,8 @@ final class InboxTests: XCTestCase {
     XCTAssertEqual(text.value as? String, "reply")
     XCTAssertEqual(destination.value as? String, initialDestination)
     submit("https://example.com", into: destination, in: app)
-    // A loaded host can drop the Return (#1510); Apply does the same.
-    if !destination.waitForNonExistence(timeout: 10) { apply.tap() }
+    // A loaded host can drop the Return (#1510).
+    if !destination.waitForNonExistence(timeout: 10), hasFocus(destination) { press("\n", in: app) }
     XCTAssertTrue(destination.waitForNonExistence(timeout: 10))
     XCTAssertEqual(body.value as? String, "Keyboard reply")
     let edit = formatControl("Edit Link", in: app)
@@ -3753,9 +3753,8 @@ final class InboxTests: XCTestCase {
   }
 
   // Leaves the Link Editor without applying: iPad taps the expanded composer's title row beside
-  // Collapse, outside the popover and away from the body, where a tap would raise the software
-  // keyboard (#2885), again when a loaded host drops the tap (#1510). iPhone closes the sheet,
-  // whose Close sits below the composer's own.
+  // Collapse, outside the popover and away from the body, again when a loaded host drops the tap
+  // (#1510). iPhone closes the sheet, whose Close sits below the composer's own.
   private func dismissLinkEditor(_ app: XCUIApplication, field: XCUIElement, pad: Bool) {
     if pad {
       let title = app.buttons["Collapse"].coordinate(withNormalizedOffset: CGVector(dx: -2, dy: 0.5))
@@ -3917,11 +3916,12 @@ final class InboxTests: XCTestCase {
     where UIDevice.current.userInterfaceIdiom == .pad
       && issue.element?.identifier == "mailboxes-edit":
       return "Mailboxes Edit button (#2769)"
-    // Some iPad runs report an unlabeled view the size of a message list row beside the Mailboxes
-    // sidebar (#2843).
+    // Some iPad runs report an unlabeled view the size of a message list row, 77.5pt tall, beside
+    // the Mailboxes sidebar (#2843).
     case .sufficientElementDescription
     where UIDevice.current.userInterfaceIdiom == .pad && screen == "Mailboxes"
-      && issue.element?.elementType == .other && label.isEmpty:
+      && issue.element?.elementType == .other && label.isEmpty
+      && abs((issue.element?.frame.height ?? 0) - 77.5) < 1:
       return "unlabeled list row view (#2843)"
     // WCAG sets no contrast for an inactive control, such as the Link Editor's Apply before a link.
     case .contrast where issue.element?.elementType == .button && issue.element?.isEnabled == false:
