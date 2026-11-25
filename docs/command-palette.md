@@ -159,9 +159,10 @@ results never appear in the palette. The vocabulary lives in the
   `registration-draft-editor` Mock Mail Session builds, adds no entry of its
   own; entries outside it, such as the Mac window's command bar, still open
   the palette. Production and TestFlight builds open Drafts in the current
-  composer, with the entries above; if the adoption decision
-  ([#823](https://github.com/unwired-dev/product/issues/823)) replaces that
-  composer, that work carries them over.
+  composer, with the entries above. The adoption decision
+  ([ADR 0080](adr/0080-edit-the-draft-body-in-the-tiptap-page.md)) replaces that
+  composer through [#2865](https://github.com/unwired-dev/product/issues/2865),
+  which carries them over.
 
 ## Validate
 

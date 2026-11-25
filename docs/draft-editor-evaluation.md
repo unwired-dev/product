@@ -12,7 +12,7 @@ Inline Images ([#820](https://github.com/unwired-dev/product/issues/820)), save
 ordering across the bridge ([#821](https://github.com/unwired-dev/product/issues/821)),
 usability and performance ([#822](https://github.com/unwired-dev/product/issues/822))
 and the adoption decision ([#823](https://github.com/unwired-dev/product/issues/823))
-are separate evaluations.
+are separate evaluations. [ADR 0080](adr/0080-edit-the-draft-body-in-the-tiptap-page.md) records the adoption and its rollout gates.
 
 The [confirmed launch requirements](product/power-user-launch.md#confirmed-scope-additions-from-2026-10-24)
 require lossless editing of provider-hosted Drafts. This evaluation's bounded
@@ -658,7 +658,7 @@ No fundamental host failure was found there.
 On the Mac, the signed journey passed on 2026-11-25
 ([#2876](https://github.com/unwired-dev/product/issues/2876)), with the same open,
 type, save and reopen path, formatting, assistance and link editing. This finding is not an adoption
-recommendation; that is #823.
+recommendation; that is #823, recorded in [ADR 0080](adr/0080-edit-the-draft-body-in-the-tiptap-page.md).
 
 **#819 finding.** The current block kinds and marks pass the page and host checks
 above. iPhone/iPad simulator and Mac text, history, the exercised post-assistance
