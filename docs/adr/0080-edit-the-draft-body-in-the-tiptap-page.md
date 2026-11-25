@@ -118,16 +118,19 @@ first, then the composers, then table editing per host
 remains until #2865 replaces it. The owner also accepted WebKit's own VoiceOver
 table phrasing (#2856).
 
-The missing evidence makes these rollout gates, to be met, or except for 6
-recorded as a release limit, before the page ships outside evaluation builds:
+The missing evidence makes these rollout gates, to be met before the page ships
+outside evaluation builds; only gates 1, 3 and 5 may instead be recorded as a
+release limit:
 
 1. Physical iPhone and iPad runs, with hardware keyboards, IME composition,
    dictation, autocorrection and VoiceOver, including inside table cells.
 2. Native exits as [#778](https://github.com/unwired-dev/product/issues/778)
    guards them for the current composer (iPhone **Back** and edge swipes, Mac
    window close, Command-W and **Quit**), and the Mac two-window journey on one
-   Draft, run natively. Separately, a forced app termination before **Save
-   Draft** loses the open edits; record that as the page's behaviour.
+   Draft, run natively. The evaluation loses open edits when the app ends before
+   **Save Draft**; production must journal them to the encrypted recovery record
+   of [ADR 0077](0077-remove-friction-that-privacy-does-not-require.md) and prove
+   that they restore after a forced termination.
 3. The Mac Inline Image journey, image paste on Mac, file drops on every host,
    and **Paste Image** and in-page paste on a device.
 4. WebKit website data after account removal and a network capture of a journey.
