@@ -3857,10 +3857,15 @@ final class InboxTests: XCTestCase {
 
   // Leaves the Link Editor without applying: iPad taps the expanded composer's title row beside
   // Collapse, outside the popover and away from the body, again when a loaded host drops the tap
-  // (#1510). iPhone closes the sheet, whose Close sits below the composer's own.
+  // (#1510); beside the evaluation composer's card, which is not expanded, it taps the window's
+  // top-left corner (#2923). iPhone closes the sheet, whose Close sits below the composer's own.
   private func dismissLinkEditor(_ app: XCUIApplication, field: XCUIElement, pad: Bool) {
     if pad {
-      let title = app.buttons["Collapse"].coordinate(withNormalizedOffset: CGVector(dx: -2, dy: 0.5))
+      let collapse = app.buttons["Collapse"]
+      let title =
+        collapse.exists
+        ? collapse.coordinate(withNormalizedOffset: CGVector(dx: -2, dy: 0.5))
+        : app.coordinate(withNormalizedOffset: CGVector(dx: 0.05, dy: 0.15))
       for _ in 0..<3 where field.exists {
         title.tap()
         _ = field.waitForNonExistence(timeout: 5)
@@ -4266,6 +4271,71 @@ final class InboxTests: XCTestCase {
 
   // #2441: New Label… after a Gmail reader's labels opens Labels, the iPhone sheet or the iPad
   // labels' popover, captured empty and with a nested name for comparison with the I1 and P1 frames.
+  // #1061: the populated preview Inbox in Light and Dark for the visual report
+  // (docs/visual-report.md), with content, clock, locale, text size and time zone fixed. The
+  // runner fixes the status bar. Each capture waits until two screenshots a second apart match.
+  func testInboxVisual() throws {
+    continueAfterFailure = false
+    let environment = ProcessInfo.processInfo.environment
+    XCTAssertEqual(environment["UNWIRED_TEST_SCENARIO"], "open-read-relaunch")
+    let app = XCUIApplication(bundleIdentifier: try XCTUnwrap(environment["UNWIRED_BUNDLE_ID"]))
+    addTeardownBlock { if app.state != .notRunning { app.terminate() } }
+    app.launchArguments = [
+      "-AppleLanguages", "(en)", "-AppleLocale", "en_US",
+      "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryL",
+      "-UnwiredNow", "2026-09-28T10:30:00Z",
+    ]
+    app.launchEnvironment["TZ"] = "UTC"
+    // #1062: iPad captures the landscape window the frames draw.
+    let pad = UIDevice.current.userInterfaceIdiom == .pad
+    XCUIDevice.shared.orientation = pad ? .landscapeLeft : .portrait
+    var shot = XCUIScreen.main.screenshot()
+    for (appearance, name) in [(XCUIDevice.Appearance.light, "light"), (.dark, "dark")] {
+      XCUIDevice.shared.appearance = appearance
+      app.launch()
+      let row = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Maya Chen"))
+      XCTAssertTrue(row.firstMatch.waitForExistence(timeout: 30))
+      var previous = Data()
+      let deadline = Date().addingTimeInterval(20)
+      repeat {
+        previous = shot.pngRepresentation
+        Thread.sleep(forTimeInterval: 1)
+        shot = XCUIScreen.main.screenshot()
+      } while shot.pngRepresentation != previous && Date() < deadline
+      XCTAssertEqual(shot.pngRepresentation, previous, "The \(name) Inbox kept changing")
+      // A landscape screenshot keeps portrait pixels with an orientation flag; draw it upright.
+      let image = shot.image
+      let format = UIGraphicsImageRendererFormat()
+      format.scale = image.scale
+      format.preferredRange = .standard
+      let capture = image.imageOrientation == .up
+        ? XCTAttachment(screenshot: shot)
+        : XCTAttachment(
+          data: UIGraphicsImageRenderer(size: image.size, format: format).pngData { _ in
+            image.draw(at: .zero)
+          }, uniformTypeIdentifier: "public.png")
+      capture.name = "Visual Inbox (\(name))"
+      capture.lifetime = .keepAlways
+      add(capture)
+    }
+    let record: [String: Any] = [
+      "device": environment["SIMULATOR_MODEL_IDENTIFIER", default: ""],
+      "os": UIDevice.current.systemVersion,
+      "osBuild": environment["SIMULATOR_RUNTIME_BUILD_VERSION", default: ""],
+      "points": [shot.image.size.width, shot.image.size.height],
+      "scale": shot.image.scale,
+      "launchArguments": app.launchArguments,
+      "timeZone": "UTC",
+      "orientation": pad ? "landscapeLeft" : "portrait",
+    ]
+    let json = XCTAttachment(
+      data: try JSONSerialization.data(withJSONObject: record, options: [.sortedKeys]),
+      uniformTypeIdentifier: "public.json")
+    json.name = "Visual environment"
+    json.lifetime = .keepAlways
+    add(json)
+  }
+
   func testNewLabel() throws {
     continueAfterFailure = false
     let environment = ProcessInfo.processInfo.environment
@@ -4313,6 +4383,97 @@ final class InboxTests: XCTestCase {
     attachScreen("Labels with a nested name", of: app, to: self)
     app.buttons["Cancel"].tap()
     XCTAssertTrue(name.waitForNonExistence(timeout: 10))
+  }
+
+  // #2898: on iPhone a Gmail reader's Reply, Labels and New Label sheets each stay in place at a
+  // downward swipe released early, and close at a completed one, after which they open again.
+  func testSheetSwipes() throws {
+    try XCTSkipIf(UIDevice.current.userInterfaceIdiom != .phone, "The sheets are iPhone's")
+    continueAfterFailure = false
+    let environment = ProcessInfo.processInfo.environment
+    XCTAssertEqual(environment["UNWIRED_TEST_SCENARIO"], "registration-declined")
+    let app = XCUIApplication(bundleIdentifier: try XCTUnwrap(environment["UNWIRED_BUNDLE_ID"]))
+    addTeardownBlock { if app.state != .notRunning { app.terminate() } }
+    app.launch()
+    XCTAssertTrue(app.staticTexts["Your mail,\non your devices."].waitForExistence(timeout: 60))
+    connectGmail(app)
+    let rowan = app.buttons["Unread. Rowan Hale. Garden plans for spring"]
+    XCTAssertTrue(rowan.waitForExistence(timeout: 30))
+    rowan.tap()
+    XCTAssertTrue(header("rowan@example.invalid", in: app).waitForExistence(timeout: 10))
+    let replyAll = app.buttons["Reply All"]
+    // The Labels and New Label sheets share the Labels heading.
+    let heading = app.staticTexts["Labels"].firstMatch
+    let newLabel = app.buttons["New Label…"]
+    let name = app.textFields["Label name"]
+    func openReply() {
+      // A closing sheet can still cover Reply.
+      let reply = app.buttons["Reply"]
+      waitUntil { reply.isHittable }
+      reply.tap()
+      XCTAssertTrue(replyAll.waitForExistence(timeout: 10))
+    }
+    func openLabels() {
+      if !replyAll.exists { openReply() }
+      app.buttons["Labels"].tap()
+      XCTAssertTrue(newLabel.waitForExistence(timeout: 10))
+    }
+    let keyboard = app.keyboards.firstMatch
+    func swipes(
+      _ sheet: String, from grab: XCUIElement, shown: XCUIElement, typing: Bool = false,
+      open: () -> Void
+    ) {
+      open()
+      XCTAssertTrue(shown.waitForExistence(timeout: 10))
+      if typing {
+        XCTAssertTrue(keyboard.waitForExistence(timeout: 10), "\(sheet) has no keyboard")
+      }
+      let rest = settledFrame(of: grab)
+      swipeReleasedEarly(from: grab.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)))
+      XCTAssertEqual(settledFrame(of: grab), rest, "\(sheet) moved after a swipe released early")
+      XCTAssertTrue(shown.exists, "\(sheet) closed at a swipe released early")
+      XCTAssertEqual(
+        keyboard.exists, typing, "\(sheet) changed the keyboard at a swipe released early")
+      attachScreen("\(sheet) after a swipe released early", of: app, to: self)
+      // An element swipe is too short to dismiss; drag most of the way down the screen.
+      let complete = {
+        let start = grab.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        start.press(
+          forDuration: 0.1, thenDragTo: start.withOffset(CGVector(dx: 0, dy: 400)),
+          withVelocity: .fast, thenHoldForDuration: 0)
+      }
+      // With the software keyboard up, as New Label's focused name brings it, the system sheet
+      // lowers the keyboard at the first swipe and closes at the next.
+      if typing {
+        complete()
+        XCTAssertTrue(keyboard.waitForNonExistence(timeout: 5), "\(sheet) kept the keyboard")
+        XCTAssertTrue(shown.exists, "\(sheet) closed with the keyboard up")
+        _ = settledFrame(of: grab)
+        attachScreen("\(sheet) after a swipe lowered the keyboard", of: app, to: self)
+      }
+      complete()
+      XCTAssertTrue(shown.waitForNonExistence(timeout: 5), "\(sheet) stayed after a completed swipe")
+      open()
+      XCTAssertTrue(shown.waitForExistence(timeout: 10), "\(sheet) did not open again")
+    }
+    swipes("Reply sheet", from: replyAll, shown: replyAll, open: openReply)
+    swipes("Labels sheet", from: heading, shown: newLabel, open: openLabels)
+    swipes("New Label sheet", from: heading, shown: name, typing: true) {
+      if !newLabel.exists { openLabels() }
+      newLabel.tap()
+    }
+    // The reopened sheet may still be rising.
+    let cancel = app.buttons["Cancel"]
+    _ = settledFrame(of: cancel)
+    cancel.tap()
+    XCTAssertTrue(name.waitForNonExistence(timeout: 10))
+  }
+
+  // A downward swipe on a sheet, held short and released at rest, which leaves the sheet in place.
+  private func swipeReleasedEarly(from start: XCUICoordinate) {
+    start.press(
+      forDuration: 0.1, thenDragTo: start.withOffset(CGVector(dx: 0, dy: 100)),
+      withVelocity: .slow, thenHoldForDuration: 0.5)
   }
 
   // #2879: on iPad one tap outside closes the Inbox's Filters popover, the reader toolbar's
@@ -4724,6 +4885,15 @@ final class InboxTests: XCTestCase {
       keyboard.keys.matching(NSPredicate(format: "label ==[c] %@", key)).firstMatch.tap()
     }
     waitUntil { subject.value as? String == "Venue for the offsite" }
+    // #2898: a swipe released early keeps the sheet and its Draft, and asks nothing.
+    let rest = settledFrame(of: composer)
+    swipeReleasedEarly(
+      from: composer.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0))
+        .withOffset(CGVector(dx: 0, dy: 30)))
+    XCTAssertEqual(settledFrame(of: composer), rest)
+    XCTAssertFalse(app.buttons["Save Draft"].exists)
+    XCTAssertEqual(subject.value as? String, "Venue for the offsite")
+    attachScreen("Composer sheet after a swipe released early", of: app, to: self)
     // Read before the question opens: it is modal to accessibility, which hides the composer.
     let closeFrame = app.buttons["Close"].frame
     swipeDown()

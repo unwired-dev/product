@@ -1214,17 +1214,14 @@ final class WindowTests: XCTestCase {
     window.typeKey("b", modifierFlags: .command)
     let numbered = window.buttons["Numbered List"]
     numbered.click()
-    // The paragraph's text stays in the list item, beside the item's number marker, which the
-    // page draws as generated text since #2884 (#2932).
-    let marker = window.webViews.staticTexts.matching(NSPredicate(format: "value == %@", "1"))
-      .firstMatch
-    XCTAssertTrue(marker.waitForExistence(timeout: 10))
+    // The page draws the number with CSS (#2884), so the bar's selected list shows the list item.
+    waitUntil { numbered.isSelected }
     window.typeKey("z", modifierFlags: .command)
     window.typeKey("z", modifierFlags: .command)
-    XCTAssertTrue(marker.waitForNonExistence(timeout: 10))
+    waitUntil { !numbered.isSelected }
     window.typeKey("z", modifierFlags: [.command, .shift])
     window.typeKey("z", modifierFlags: [.command, .shift])
-    XCTAssertTrue(marker.waitForExistence(timeout: 10))
+    waitUntil { numbered.isSelected }
     reopenDraft(app)
     webText("Evaluation paragraph", in: window).doubleClick()
     waitUntil { window.buttons["Bold"].isSelected && window.buttons["Numbered List"].isSelected }
@@ -1286,19 +1283,16 @@ final class WindowTests: XCTestCase {
   private func evaluationLinkJourney(_ app: XCUIApplication) {
     let window = app.windows["Inbox 1"]
     let body = window.webViews.textViews["Message body"]
-    // The numbered item's marker comes first, as the texts "1" and "." (#2932).
-    let pageText = {
-      Array(
-        body.staticTexts.allElementsBoundByIndex.map { $0.value as? String ?? "" }
-          .drop { $0 == "1" || $0 == "." })
-    }
+    let pageText = { body.staticTexts.allElementsBoundByIndex.map { $0.value as? String ?? "" } }
+    // WebKit reads the list item's CSS number (#2884) as texts before the paragraph's, "1" and ".".
+    let paragraph = { (texts: [String]) in String(texts.joined().trimmingPrefix("1.")) }
     let unlinked = pageText()
     let link = body.links.firstMatch
     // The one link in the page holds the whole paragraph, not part of it.
     let linked = {
       body.links.count == 1
         && link.staticTexts.allElementsBoundByIndex.map { $0.value as? String ?? "" }.joined()
-          == unlinked.joined()
+          == paragraph(unlinked)
     }
     let addLink = window.buttons["Add Link"]
     let edit = window.buttons["Edit Link"]
@@ -1312,7 +1306,7 @@ final class WindowTests: XCTestCase {
     XCTAssertTrue(destination.waitForExistence(timeout: 10))
     waitForFocus(destination)
     XCTAssertEqual(destination.value as? String, "")
-    XCTAssertEqual(app.textFields["Text"].value as? String, unlinked.joined())
+    XCTAssertEqual(app.textFields["Text"].value as? String, paragraph(unlinked))
     XCTAssertFalse(app.buttons["Remove Link"].exists)
     app.typeText("https://example.com/evaluation")
     let apply = app.buttons["Apply"]

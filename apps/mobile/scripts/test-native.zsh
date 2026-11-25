@@ -60,6 +60,14 @@ for device_type in "${device_types[@]}"; do
     xcrun simctl boot "$device_id"
     xcrun simctl bootstatus "$device_id" -b
     xcrun simctl ui "$device_id" appearance "$UNWIRED_APPEARANCE"
+    # The visual journey's status bar is the one the frames draw, so screenshots compare (#1061).
+    # An ISO time also fixes the date iPad shows, in the host's time zone (#1062).
+    if [[ $journey == testInboxVisual ]]; then
+      status_time=$(date -j -f '%Y-%m-%d %H:%M:%S' '2026-09-28 09:41:00' +%s)
+      xcrun simctl status_bar "$device_id" override \
+        --time "$(date -j -u -r "$status_time" +%Y-%m-%dT%H:%M:%S.000Z)" --dataNetwork wifi --wifiMode active \
+        --wifiBars 3 --cellularMode active --cellularBars 4 --batteryState discharging --batteryLevel 100
+    fi
     # A library photo for journeys that insert an image through the system Photos picker.
     xcrun simctl addmedia "$device_id" "$mobile_root/native-tests/photo.png"
     xcrun simctl install "$device_id" "$app_bundle"
