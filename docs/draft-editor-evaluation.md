@@ -436,7 +436,8 @@ First Mac run on 2026-11-25 for [#2876](https://github.com/unwired-dev/product/i
 same Mac mini, macOS 27.2.1 (26B131), Xcode 27.2 (27B52), signed `Testing`
 `registration-draft-editor` build of `d72ed590e` with the journey's new link step,
 Light appearance. `testIndependentWindowsCloseReopenAndQuit` passed with zero
-failures (`artifacts/macos-inbox/journey.vZfqPf/`), from sign-in through the
+failures in 479 s (`artifacts/macos-inbox/journey.vZfqPf/`), and again in 592 s with the
+link matched by the whole paragraph (`artifacts/macos-inbox/journey.zzMdGX/`), from sign-in through the
 formatting, assistance and reply round trips, the link step and the native close
 journey: **Add Link** opened with the paragraph as Text and Link empty and focused,
 without **Remove Link**, and linked the paragraph; **Edit Link** offered **Remove
