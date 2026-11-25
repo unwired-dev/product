@@ -428,8 +428,8 @@ export function createSendReminders(
 
   // Resolves whether storage holds `reminder`, or its removal when null, as `profile`'s reminder for
   // Draft `draft`, then publishes it. A reminder for a Draft another Profile's reminder names is
-  // refused. Removing a reminder this device does not hold writes nothing, except with Private
-  // Sync, where it is kept as a removal to publish.
+  // refused. With Private Sync, removing one whose record this device has not read or written yet
+  // is kept as a removal to publish, so a reminder another device set is removed when it arrives.
   const changing = async (
     profile: string,
     draft: string,
@@ -454,12 +454,19 @@ export function createSendReminders(
                 ),
               };
         }
-        if (current !== undefined) {
-          return { ...document, reminders: others };
-        }
-        return sync === undefined || document.cancelled?.includes(id)
+        const cancels =
+          sync !== undefined &&
+          !document.synced?.some((each) => each.id === id) &&
+          !document.cancelled?.includes(id);
+        return current === undefined && !cancels
           ? document
-          : { ...document, cancelled: [...(document.cancelled ?? []), id] };
+          : {
+              ...document,
+              reminders: others,
+              ...(cancels
+                ? { cancelled: [...(document.cancelled ?? []), id] }
+                : {}),
+            };
       }).pipe(
         Effect.map((next) => next !== undefined),
         Effect.catchTag('DraftStorageFailure', (error) =>

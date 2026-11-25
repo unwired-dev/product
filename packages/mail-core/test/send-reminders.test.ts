@@ -420,6 +420,21 @@ describe('synchronized Send Reminders', () => {
     await phone.synchronize();
     await expect(phone.reminders('work')).resolves.toStrictEqual([]);
     await expect(mac.reminders('work')).resolves.toStrictEqual([]);
+
+    // Also when this device set a reminder of its own that it never published.
+    const receipt = { ...keys, draft: 'receipt' };
+    server.setReachable(false);
+    await mac.remind('work', receipt);
+    await mac.synchronize();
+    await phone.remind('work', { ...receipt, dueAt: evening.dueAt });
+    await phone.cancel('work', receipt.draft);
+    await phone.synchronize();
+    server.setReachable(true);
+    await mac.synchronize();
+    await phone.synchronize();
+    await mac.synchronize();
+    await expect(phone.reminders('work')).resolves.toStrictEqual([]);
+    await expect(mac.reminders('work')).resolves.toStrictEqual([]);
   });
 
   it('lets a Draft reminded again after a cancellation take the first write', async () => {
