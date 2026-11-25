@@ -2463,7 +2463,7 @@ function DraftTemplates({
 // returns to the foreground. The first returned function closes the journal on Draft `id` the
 // editor closes on and resolves once its records are gone, so Quit waits for them. The
 // second journals at once, as after a save that keeps the editor open.
-function useRecoveryJournal(
+export function useRecoveryJournal(
   edited: unknown,
   unsaved: () => Recovery | undefined,
   editor: (id: string) => void,

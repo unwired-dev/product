@@ -37,7 +37,7 @@ import {
   textOf,
   withText,
 } from '@private-email/mail-core/semantic-document';
-import { spacing } from '@private-email/mail-core/theme';
+import { palette, spacing } from '@private-email/mail-core/theme';
 import {
   use,
   useCallback,
@@ -46,7 +46,7 @@ import {
   useRef,
   useState,
 } from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-screens/experimental';
 import { WebView } from 'react-native-webview';
@@ -98,9 +98,17 @@ const styles = StyleSheet.create({
   body: { flex: 1, minHeight: 160, backgroundColor: 'transparent' },
   notice: { ...textStyles.subheadline, paddingHorizontal: spacing.l },
   // Menus float over the content below or above their control.
-  controls: { zIndex: 4 },
+  // Over the body, and under the Close question, whose outside tap must reach it first.
+  controls: { zIndex: 3 },
   padControls: { zIndex: 1 },
 });
+
+// On iPhone the body text starts 20pt in and just below From, with body's 22pt lines at 17pt
+// in the primary text colour, as the sheet's frames draw it.
+const phoneInsets =
+  Platform.OS !== 'ios' || Platform.isPad
+    ? ''
+    : `document.documentElement.style.cssText = '--draft-inset-top: 4px; --draft-inset-x: 20px; --draft-line-height: calc(22 / 17); --draft-text: light-dark(${palette.light.textPrimary}, ${palette.dark.textPrimary})';`;
 
 // The Tiptap evaluation editor for one Draft, in the current composer's layout: the packaged page
 // edits the body, and native controls format it, add files and offer writing tools. Nothing is
@@ -428,7 +436,7 @@ function EvaluationEditor({
   // oxlint-disable-next-line react/hook-use-state -- Injected once, before the page's script.
   const [injected] = useState(
     () =>
-      `window.draftEditor = ${JSON.stringify({ document: textOf(initial.body), attachments: initial.attachments ?? [], label: t('drafts.body') })}; true;`,
+      `window.draftEditor = ${JSON.stringify({ document: textOf(initial.body), attachments: initial.attachments ?? [], label: t('drafts.body') })}; ${phoneInsets} true;`,
   );
   // Entries still being typed become recipients; an invalid one keeps the Draft here.
   const finishEntries = () => {
