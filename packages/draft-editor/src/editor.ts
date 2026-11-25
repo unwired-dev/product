@@ -333,12 +333,14 @@ const Tables = Extension.create({
       filterTransaction: (tr) => !tr.docChanged || !imageInCell(tr.doc),
       props: {
         // A paste over selected cells goes into them, as typing does, and never replaces them
-        // with cells of another kind or span.
+        // with cells of another kind or span; a paste with nothing the page keeps leaves them.
         handlePaste: ({ state, dispatch }, _event, slice) => {
           if (!(state.selection instanceof CellSelection)) {
             return false;
           }
-          dispatch(state.tr.replaceSelection(slice).scrollIntoView());
+          if (slice.size > 0) {
+            dispatch(state.tr.replaceSelection(slice).scrollIntoView());
+          }
           return true;
         },
         decorations: ({ doc, selection }) => {

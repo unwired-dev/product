@@ -1456,7 +1456,11 @@ describe('tables in the Tiptap page', () => {
     view.dispatch(
       state.tr.setSelection(CellSelection.create(state.doc, header)),
     );
+    // An image-only paste keeps nothing, so the cells stay as they are.
+    view.pasteHTML('<img src="photo.png">');
+    const kept = bodyOf(page);
     view.pasteText('new');
+    expect(kept).toBeUndefined();
     expect(bodyOf(page)).toStrictEqual([
       {
         kind: 'table',
