@@ -197,6 +197,29 @@ struct DraftSyncTests {
     #expect(preferencesRecords.count == 1)
     #expect(preferencesRecords.first?["preferences"] as? String == preferences)
 
+    // A Send Reminder record is ciphertext under its own opaque identifier; another Draft's record
+    // moved there does not open.
+    let reminder =
+      #"{"reminder":{"draft":"draft-1","profile":"work","dueAt":1,"timeZone":"Europe/Prague"},"write":"w"}"#
+    let reminded = try await phone.push(
+      SendReminderRecord(id: "draft-1", version: 1, content: reminder), expected: nil)
+    #expect(reminded["committed"] as? Bool == true)
+    let reminderIdentifier = try phone.identifier(SendReminderRecord.self, "draft-1")
+    #expect(reminderIdentifier.hasPrefix("send-reminder.") && !reminderIdentifier.contains("draft-1"))
+    let sealedReminder = try #require(backend.records[owner]?[reminderIdentifier])
+    let reminderCiphertext = try #require(
+      Data(base64Encoded: sealedReminder.encryptedPayload.ciphertextBase64))
+    #expect(reminderCiphertext.range(of: Data("Europe/Prague".utf8)) == nil)
+    let movedReminder = try phone.identifier(SendReminderRecord.self, "draft-2")
+    backend.records[owner]?[movedReminder] = StoredPayload(
+      payloadIdentifier: movedReminder, encryptedPayload: sealedReminder.encryptedPayload,
+      updatedAt: updatedAt)
+    let pulledReminders = try await mac.pull(SendReminderRecord.self, known: ["draft-2"])
+    #expect(pulledReminders["unreadable"] as? [String] == ["draft-2"])
+    let reminderRecords = try #require(pulledReminders["records"] as? [[String: Any]])
+    #expect(reminderRecords.count == 1)
+    #expect(reminderRecords.first?["reminder"] as? String == reminder)
+
     // A file spanning several chunks downloads only as the exact verified bytes.
     let bytes = Data((0..<(DraftSync.chunkSize * 2 + 100)).map { UInt8(truncatingIfNeeded: $0 &* 31) })
     let imported = try await store.importDraftAsset(

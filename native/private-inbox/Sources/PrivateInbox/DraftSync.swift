@@ -84,8 +84,25 @@ struct InboxPreferencesRecord: SyncedRecord, Equatable {
   }
 }
 
-// The signed-in Trusted Device's Product Sync of its Drafts, Mail Templates, Blocked Senders and
-// Inbox preferences: everything it needs, read once under the registration gate, so network work
+// One Draft's Send Reminder record: the reminder, naming the Draft and its Mail Profile, or its
+// removal, as JSON. It holds none of the Draft's content.
+struct SendReminderRecord: SyncedRecord, Equatable {
+  static let kind = "send-reminder"
+  static let field = "reminder"
+  static let schemaVersion = 1
+  let id: String
+  let version: Int
+  let reminder: String?
+  var content: String? { reminder }
+  init(id: String, version: Int, content: String?) {
+    self.id = id
+    self.version = version
+    reminder = content
+  }
+}
+
+// The signed-in Trusted Device's Product Sync of its Drafts, Mail Templates, Send Reminders,
+// Blocked Senders and Inbox preferences: everything it needs, read once under the registration gate, so network work
 // runs without holding Draft storage or Gmail. TypeScript merges them; this only seals, opens and
 // moves records and asset chunks.
 @MainActor struct DraftSync {

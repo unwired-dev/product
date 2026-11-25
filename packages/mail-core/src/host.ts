@@ -29,7 +29,10 @@ import type { NativeDeliveryClaim } from './outbox.ts';
 import type { NativePins } from './pins.ts';
 import type { NativeRegistrationVault } from './registration-vault.ts';
 import type { NativeRemoteContent } from './remote-content.ts';
-import type { NativeSendReminders } from './send-reminders.ts';
+import type {
+  NativeSendReminderSync,
+  NativeSendReminders,
+} from './send-reminders.ts';
 import type {
   NativeUnsubscribe,
   NativeUnsubscribeRequests,
@@ -89,6 +92,7 @@ export interface NativeHostModule
     NativeMailTemplates,
     NativeMailTemplateSync,
     NativeSendReminders,
+    NativeSendReminderSync,
     NativeBlockedSenders,
     NativeBlockedSenderSync,
     NativeInboxPreferences,
@@ -569,7 +573,8 @@ export function createHost(
     },
   );
 
-  // Each Draft's Send Reminder, stored encrypted on this device.
+  // Each Draft's Send Reminder, stored encrypted on this device and synchronized through Product
+  // Sync with its other Trusted Devices.
   const sendReminders = createSendReminders(
     {
       openSendReminders: () => native().openSendReminders(),
@@ -577,6 +582,16 @@ export function createHost(
         native().commitSendReminders(owner, expectedRevision, document),
     },
     registration,
+    {
+      removed,
+      adoptKeyRotation: () => registration.adoptKeyRotation(),
+      native: {
+        pullSendReminders: (owner, known) =>
+          native().pullSendReminders(owner, known),
+        pushSendReminder: (owner, record) =>
+          native().pushSendReminder(owner, record),
+      },
+    },
   );
 
   // One-click unsubscribe requests, each recorded encrypted on this device once sent.

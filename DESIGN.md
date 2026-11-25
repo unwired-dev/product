@@ -1,289 +1,6 @@
 ---
 name: Unwired Mail
 description: A calm, private, precise mail client for macOS 27 and iOS 27.
-colors:
-  accent-fill: '#3A3D44'
-  accent-fill-dark: '#6A6E78'
-  accent-on-fill: '#FFFFFF'
-  accent-ink: '#3A3D44'
-  accent-ink-dark: '#C8CBD2'
-  accent-unread: '#3A3D44'
-  accent-unread-dark: '#7A7E88'
-  accent-selection-subtle: 'rgba(58, 61, 68, 0.12)'
-  accent-selection-subtle-dark: 'rgba(200, 203, 210, 0.16)'
-  accent-focus-ring: 'rgba(58, 61, 68, 0.32)'
-  accent-focus-ring-dark: 'rgba(106, 110, 120, 0.28)'
-  on-device-ink: '#A3321F'
-  on-device-ink-dark: '#FF9E88'
-  on-device-surface: '#FBEEEA'
-  on-device-surface-dark: '#3A2420'
-  brand-deep: '#15171B'
-  brand-on-deep: '#FFFFFF'
-  brand-seal: '#C2412A'
-  brand-on-seal: '#FFFFFF'
-  brand-monogram: '#15171B'
-  brand-monogram-dark: '#6A6E78'
-  brand-well: 'rgba(255, 255, 255, 0.08)'
-  brand-well-border: 'rgba(255, 255, 255, 0.16)'
-  brand-action: 'rgba(255, 255, 255, 0.12)'
-  profile-blue: '#0A58CA'
-  profile-blue-dark: '#3B6FD6'
-  profile-indigo: '#3634A3'
-  profile-indigo-dark: '#5E5CE6'
-  profile-purple: '#8944AB'
-  profile-purple-dark: '#9558BB'
-  profile-pink: '#C2185B'
-  profile-pink-dark: '#D6336C'
-  profile-teal: '#0E7490'
-  profile-teal-dark: '#117C97'
-  profile-green: '#237A3A'
-  profile-green-dark: '#2A8443'
-  profile-brown: '#7A5C3E'
-  profile-brown-dark: '#8C6A4A'
-  apple-button: '#000000'
-  apple-button-dark: '#FFFFFF'
-  apple-on-button: '#FFFFFF'
-  apple-on-button-dark: '#000000'
-  text-primary: 'rgba(0, 0, 0, 0.85)'
-  text-primary-dark: 'rgba(255, 255, 255, 0.85)'
-  text-secondary: '#4F4F54'
-  text-secondary-dark: '#B0B0B5'
-  surface-content: '#FFFFFF'
-  surface-content-dark: '#1E1E1E'
-  surface-sidebar: '#F3F2F5'
-  surface-sidebar-dark: '#2A2A2C'
-  surface-panel: '#F8F8F8'
-  surface-panel-dark: '#1A1A1A'
-  material-sidebar-backing: 'transparent'
-  material-sidebar-backing-dark: 'rgba(42, 42, 44, 0.92)'
-  material-glass-tint: '#C6C6C6'
-  material-glass-tint-dark: '#3B3B3B'
-  surface-bubble: '#F1F1F4'
-  surface-bubble-dark: '#2C2C2E'
-  fill-quiet: 'rgba(0, 0, 0, 0.05)'
-  fill-quiet-dark: 'rgba(255, 255, 255, 0.06)'
-  fill-control: 'rgba(0, 0, 0, 0.08)'
-  fill-control-dark: 'rgba(255, 255, 255, 0.07)'
-  fill-track: 'rgba(0, 0, 0, 0.09)'
-  fill-track-dark: 'rgba(255, 255, 255, 0.16)'
-  separator: 'rgba(0, 0, 0, 0.1)'
-  separator-dark: 'rgba(255, 255, 255, 0.1)'
-  scrim-touch: 'rgba(0, 0, 0, 0.22)'
-  scrim-touch-dark: 'rgba(0, 0, 0, 0.4)'
-  scrim-mac: 'rgba(0, 0, 0, 0.18)'
-  scrim-mac-dark: 'rgba(0, 0, 0, 0.4)'
-  status-warning: '#9A5B00'
-  status-warning-dark: '#FFB340'
-  status-success: '#1A8C40'
-  status-success-dark: '#40CC66'
-  status-destructive: '#D70015'
-  status-destructive-dark: '#FF6961'
-typography:
-  macos-large-title:
-    fontFamily: 'SF Pro'
-    fontSize: '26px'
-    fontWeight: 400
-    lineHeight: '32px'
-  macos-title-3-emphasized:
-    fontFamily: 'SF Pro'
-    fontSize: '15px'
-    fontWeight: 600
-    lineHeight: '20px'
-  macos-body:
-    fontFamily: 'SF Pro'
-    fontSize: '13px'
-    fontWeight: 400
-    lineHeight: '16px'
-  macos-body-emphasized:
-    fontFamily: 'SF Pro'
-    fontSize: '13px'
-    fontWeight: 600
-    lineHeight: '16px'
-  macos-subheadline:
-    fontFamily: 'SF Pro'
-    fontSize: '11px'
-    fontWeight: 400
-    lineHeight: '14px'
-  macos-subheadline-emphasized:
-    fontFamily: 'SF Pro'
-    fontSize: '11px'
-    fontWeight: 600
-    lineHeight: '14px'
-  macos-caption-1-emphasized:
-    fontFamily: 'SF Pro'
-    fontSize: '10px'
-    fontWeight: 500
-    lineHeight: '13px'
-  ipad-list-title-3-emphasized:
-    fontFamily: 'SF Pro'
-    fontSize: '17px'
-    fontWeight: 600
-    lineHeight: '23px'
-  ipad-list-body:
-    fontFamily: 'SF Pro'
-    fontSize: '15px'
-    fontWeight: 400
-    lineHeight: '18px'
-  ipad-list-subheadline:
-    fontFamily: 'SF Pro'
-    fontSize: '13px'
-    fontWeight: 400
-    lineHeight: '16px'
-  ipad-title-1:
-    fontFamily: 'SF Pro'
-    fontSize: '25px'
-    fontWeight: 400
-    lineHeight: '30px'
-  reading-subject:
-    fontFamily: 'SF Pro'
-    fontSize: '20px'
-    fontWeight: 700
-    lineHeight: '25px'
-  reading-body:
-    fontFamily: 'SF Pro'
-    fontSize: '15px'
-    fontWeight: 400
-    lineHeight: '22px'
-  ios-large-title:
-    fontFamily: 'SF Pro'
-    fontSize: '34px'
-    fontWeight: 700
-    lineHeight: '41px'
-  ios-headline:
-    fontFamily: 'SF Pro'
-    fontSize: '17px'
-    fontWeight: 600
-    lineHeight: '22px'
-  ios-body:
-    fontFamily: 'SF Pro'
-    fontSize: '17px'
-    fontWeight: 400
-    lineHeight: '22px'
-  ios-subheadline:
-    fontFamily: 'SF Pro'
-    fontSize: '15px'
-    fontWeight: 400
-    lineHeight: '20px'
-  ios-footnote:
-    fontFamily: 'SF Pro'
-    fontSize: '13px'
-    fontWeight: 400
-    lineHeight: '18px'
-  ios-caption-1:
-    fontFamily: 'SF Pro'
-    fontSize: '12px'
-    fontWeight: 400
-    lineHeight: '16px'
-  ios-subheadline-emphasized:
-    fontFamily: 'SF Pro'
-    fontSize: '15px'
-    fontWeight: 600
-    lineHeight: '20px'
-  ios-caption-1-emphasized:
-    fontFamily: 'SF Pro'
-    fontSize: '12px'
-    fontWeight: 600
-    lineHeight: '16px'
-  ios-title-3-emphasized:
-    fontFamily: 'SF Pro'
-    fontSize: '20px'
-    fontWeight: 600
-    lineHeight: '25px'
-rounded:
-  control: '6px'
-  row: '7px'
-  card: '10px'
-  bubble: '20px'
-  window: '16px'
-  mailbox-group: '22px'
-  settings-detail: '17px'
-  format-panel: '34px'
-  touch-card: '18px'
-  badge-mac: '4px'
-  badge-touch: '8px'
-  brand-panel: '24px'
-  ipad-sheet: '25.3px'
-  profile-switcher: '14px'
-  close-question: '36px'
-  menu: '12px'
-  alert-mac: '22px'
-  alert-touch: '32px'
-  touch-menu: '24px'
-  touch-menu-item: '14px'
-  chip: '14px'
-  search-field: '18px'
-spacing:
-  xs: '4px'
-  s: '8px'
-  m: '12px'
-  l: '16px'
-  xl: '20px'
-  xxl: '24px'
-  xxxl: '40px'
-components:
-  button-primary:
-    backgroundColor: '{colors.accent-fill}'
-    textColor: '{colors.accent-on-fill}'
-    typography: '{typography.macos-body-emphasized}'
-    rounded: '{rounded.control}'
-    padding: '0 12px'
-    height: '28px'
-  button-secondary:
-    backgroundColor: '{colors.fill-quiet}'
-    textColor: '{colors.text-primary}'
-    typography: '{typography.macos-body}'
-    rounded: '{rounded.control}'
-    padding: '0 12px'
-    height: '28px'
-  button-brand:
-    backgroundColor: '{colors.brand-seal}'
-    textColor: '{colors.brand-on-seal}'
-    typography: '{typography.macos-body-emphasized}'
-    rounded: '{rounded.control}'
-    padding: '0 12px'
-    height: '28px'
-  message-row-selected:
-    backgroundColor: '{colors.accent-fill}'
-    textColor: '{colors.accent-on-fill}'
-    rounded: '{rounded.row}'
-    padding: '8px 12px 9px 22px'
-  sidebar-item-selected:
-    backgroundColor: '{colors.accent-selection-subtle}'
-    textColor: '{colors.text-primary}'
-    typography: '{typography.macos-body-emphasized}'
-    rounded: '{rounded.control}'
-    padding: '0 8px'
-    height: '28px'
-  summary-card:
-    backgroundColor: '{colors.on-device-surface}'
-    textColor: '{colors.text-primary}'
-    rounded: '{rounded.card}'
-    padding: '12px'
-  category-chip-selected:
-    backgroundColor: '{colors.accent-fill}'
-    textColor: '{colors.accent-on-fill}'
-    typography: '{typography.macos-body-emphasized}'
-    rounded: '14px'
-    padding: '0 12px 0 10px'
-    height: '28px'
-  category-chip:
-    backgroundColor: '{colors.fill-quiet}'
-    textColor: '{colors.text-primary}'
-    rounded: '14px'
-    padding: '0 12px 0 10px'
-    height: '28px'
-  catch-up-bubble-received:
-    backgroundColor: '{colors.surface-bubble}'
-    textColor: '{colors.text-primary}'
-    typography: '{typography.ios-subheadline}'
-    rounded: '{rounded.bubble}'
-    padding: '10px 14px 12px'
-  catch-up-bubble-sent:
-    backgroundColor: '{colors.accent-fill}'
-    textColor: '{colors.accent-on-fill}'
-    typography: '{typography.ios-subheadline}'
-    rounded: '{rounded.bubble}'
-    padding: '10px 14px 12px'
 ---
 
 # Design System: Unwired Mail
@@ -291,16 +8,20 @@ components:
 This document records the agreed native design target, including planned screens
 such as Catch Up. It does not describe shipped coverage or change release scope;
 the feature guides and launch specification own those requirements. Layout
-dimensions describe the Figma reference mockups. Both clients read the color,
-type, spacing and radius tokens from `packages/mail-core/src/theme.ts`.
+dimensions describe the Figma reference mockups.
 
 The visual reference for screens and components is the Figma file
 [Unwired Mail — Design](https://www.figma.com/design/d1mHEaUNmnF7YUw6QwIs0T).
-Its `Unwired` variable collection holds every color token below in Light and
-Dark modes. Tokens with a `-dark` suffix are the Dark value of the token
-without the suffix; a token without a `-dark` sibling is the same in both modes.
-Dimensions in the frontmatter use `px` because the DESIGN.md format requires CSS
-units. The Figma frames are drawn at 1×, so 1px equals 1pt on Apple platforms.
+Its `Unwired` variable collection holds the color, spacing and radius values in
+Light and Dark modes, and this document names them without repeating them.
+[`export-figma-variables.js`](packages/mail-core/scripts/export-figma-variables.js)
+exports them to [`figma-variables.json`](packages/mail-core/test/figma-variables.json).
+Both clients read the tokens, and the type ramps, from
+[`theme.ts`](packages/mail-core/src/theme.ts), and
+[`theme.test.ts`](packages/mail-core/test/theme.test.ts) fails when it disagrees
+with the export. A new token becomes a variable and is exported again, or joins
+the test's commented list of tokens without one, such as the Mac glass edges.
+The Figma frames are drawn at 1×, so 1px equals 1pt on Apple platforms.
 Component recipes and dimensions below describe design intent and supported
 customization; they do not require rebuilding system controls or overriding
 their intrinsic metrics.
@@ -335,50 +56,50 @@ content without the marker.
 
 Graphite neutrals with a single warm seal.
 
-| Role              | Token                      | Light         | Dark          | Use                                                            |
-| ----------------- | -------------------------- | ------------- | ------------- | -------------------------------------------------------------- |
-| Accent fill       | `accent/fill`              | `#3A3D44`     | `#6A6E78`     | Selected message row, primary button, sent bubble              |
-| On accent         | `accent/on-fill`           | `#FFFFFF`     | `#FFFFFF`     | Text and icons on the accent fill                              |
-| Unread            | `accent/unread`            | `#3A3D44`     | `#7A7E88`     | Unread dot; Dark is lighter than the fill for contrast         |
-| Accent ink        | `accent/ink`               | `#3A3D44`     | `#C8CBD2`     | Links, tinted sidebar icons, New Message                       |
-| Subtle selection  | `accent/selection-subtle`  | `#3A3D44` 12% | `#C8CBD2` 16% | Selected sidebar item, pressed controls                        |
-| Focus ring        | `accent/focus-ring`        | `#3A3D44` 32% | `#6A6E78` 28% | iPad Command Palette outline around the focused query          |
-| On device ink     | `on-device/ink`            | `#A3321F`     | `#FF9E88`     | The cinnabar seal: On device marker text and icon              |
-| On device surface | `on-device/surface`        | `#FBEEEA`     | `#3A2420`     | Summary card and Mail Assistance surfaces                      |
-| Brand deep        | `brand/deep`               | `#15171B`     | `#15171B`     | Welcome, Recovery Key                                          |
-| On brand deep     | `brand/on-deep`            | `#FFFFFF`     | `#FFFFFF`     | Text and icons on brand deep; the Recovery Key steps' action   |
-| Brand seal        | `brand/seal`               | `#C2412A`     | `#C2412A`     | Welcome "Continue" only                                        |
-| On brand seal     | `brand/on-seal`            | `#FFFFFF`     | `#FFFFFF`     | Text and icons on brand seal                                   |
-| Monogram          | `brand/monogram`           | `#15171B`     | `#6A6E78`     | Account monograms; a Mail Profile in Graphite                  |
-| Brand well        | `brand/well`               | white 8%      | white 8%      | Recovery Key's well, iPad tile and iPad field on brand deep    |
-| Brand well border | `brand/well-border`        | white 16%     | white 16%     | The Recovery Key well's outline                                |
-| Brand action      | `brand/action`             | white 12%     | white 12%     | iPhone Recovery Key Copy and Save to Files on brand deep       |
-| Profile Blue      | `profile/blue`             | `#0A58CA`     | `#3B6FD6`     | A Mail Profile monogram in this Color                          |
-| Profile Indigo    | `profile/indigo`           | `#3634A3`     | `#5E5CE6`     | A Mail Profile monogram in this Color                          |
-| Profile Purple    | `profile/purple`           | `#8944AB`     | `#9558BB`     | A Mail Profile monogram in this Color                          |
-| Profile Pink      | `profile/pink`             | `#C2185B`     | `#D6336C`     | A Mail Profile monogram in this Color                          |
-| Profile Teal      | `profile/teal`             | `#0E7490`     | `#117C97`     | A Mail Profile monogram in this Color                          |
-| Profile Green     | `profile/green`            | `#237A3A`     | `#2A8443`     | A Mail Profile monogram in this Color                          |
-| Profile Brown     | `profile/brown`            | `#7A5C3E`     | `#8C6A4A`     | A Mail Profile monogram in this Color                          |
-| Apple button      | `apple/button`             | `#000000`     | `#FFFFFF`     | Sign in with Apple only, per Apple's button styles             |
-| On Apple button   | `apple/on-button`          | `#FFFFFF`     | `#000000`     | Text and the Apple logo on the Apple button                    |
-| Primary text      | `text/primary`             | black 85%     | white 85%     | Mirrors macOS Labels/Primary                                   |
-| Secondary text    | `text/secondary`           | `#4F4F54`     | `#B0B0B5`     | Previews, timestamps, captions, section headers                |
-| Content surface   | `surface/content`          | `#FFFFFF`     | `#1E1E1E`     | Message list and reading pane                                  |
-| Sidebar surface   | `surface/sidebar`          | `#F3F2F5`     | `#2A2A2C`     | Opaque stand-in for the sidebar material                       |
-| Panel surface     | `surface/panel`            | `#F8F8F8`     | `#1A1A1A`     | iPad floating sidebar panels, as the frames' glass reads       |
-| Sidebar backing   | `material/sidebar-backing` | transparent   | `#2A2A2C` 92% | Mac sidebars only, between the glass and its text              |
-| Glass tint        | `material/glass-tint`      | `#C6C6C6`     | `#3B3B3B`     | iPhone and iPad Liquid Glass tint; over content reads as panel |
-| Bubble surface    | `surface/bubble`           | `#F1F1F4`     | `#2C2C2E`     | Received Catch Up bubbles                                      |
-| Quiet fill        | `fill/quiet`               | black 5%      | white 6%      | Secondary buttons, search field, banners, chips                |
-| Control fill      | `fill/control`             | black 8%      | white 7%      | Pop-up button disc within a grouped row                        |
-| Track             | `fill/track`               | black 9%      | white 16%     | Off switch track                                               |
-| Separator         | `separator`                | black 10%     | white 10%     | Hairlines between rows and panes                               |
-| Scrim             | `scrim/touch`              | black 22%     | black 40%     | iPad composer and setup sheet; link alert backdrops on touch   |
-| Mac scrim         | `scrim/mac`                | black 18%     | black 40%     | The Mac frames' backdrop behind alerts and sheets              |
-| Warning           | `status/warning`           | `#9A5B00`     | `#FFB340`     | Authorization needed, Pin indicator                            |
-| Destructive       | `status/destructive`       | `#D70015`     | `#FF6961`     | Delete Unwired Account, Delete                                 |
-| Success           | `status/success`           | `#1A8C40`     | `#40CC66`     | Mac Sync Status: a connection that is up to date               |
+| Role              | Token                      | Use                                                                  |
+| ----------------- | -------------------------- | -------------------------------------------------------------------- |
+| Accent fill       | `accent/fill`              | Selected message row, primary button, sent bubble                    |
+| On accent         | `accent/on-fill`           | Text and icons on the accent fill                                    |
+| Unread            | `accent/unread`            | Unread dot; Dark is lighter than the fill for contrast               |
+| Accent ink        | `accent/ink`               | Links, tinted sidebar icons, New Message                             |
+| Subtle selection  | `accent/selection-subtle`  | Selected sidebar item, pressed controls                              |
+| Focus ring        | `accent/focus-ring`        | iPad Command Palette outline around the focused query                |
+| On device ink     | `on-device/ink`            | The cinnabar seal: On device marker text and icon                    |
+| On device surface | `on-device/surface`        | Summary card and Mail Assistance surfaces                            |
+| Brand deep        | `brand/deep`               | Welcome, Recovery Key                                                |
+| On brand deep     | `brand/on-deep`            | Text and icons on brand deep; the Recovery Key steps' action         |
+| Brand seal        | `brand/seal`               | Welcome "Continue" only                                              |
+| On brand seal     | `brand/on-seal`            | Text and icons on brand seal                                         |
+| Monogram          | `brand/monogram`           | Account monograms; a Mail Profile in Graphite                        |
+| Brand well        | `brand/well`               | Recovery Key's well, iPad tile and iPad field on brand deep          |
+| Brand well border | `brand/well-border`        | The Recovery Key well's outline                                      |
+| Brand action      | `brand/action`             | iPhone Recovery Key Copy and Save to Files on brand deep             |
+| Profile Blue      | `profile/blue`             | A Mail Profile monogram in this Color                                |
+| Profile Indigo    | `profile/indigo`           | A Mail Profile monogram in this Color                                |
+| Profile Purple    | `profile/purple`           | A Mail Profile monogram in this Color                                |
+| Profile Pink      | `profile/pink`             | A Mail Profile monogram in this Color                                |
+| Profile Teal      | `profile/teal`             | A Mail Profile monogram in this Color                                |
+| Profile Green     | `profile/green`            | A Mail Profile monogram in this Color                                |
+| Profile Brown     | `profile/brown`            | A Mail Profile monogram in this Color                                |
+| Apple button      | `apple/button`             | Sign in with Apple only, per Apple's button styles                   |
+| On Apple button   | `apple/on-button`          | Text and the Apple logo on the Apple button                          |
+| Primary text      | `text/primary`             | Mirrors macOS Labels/Primary                                         |
+| Secondary text    | `text/secondary`           | Previews, timestamps, captions, section headers                      |
+| Content surface   | `surface/content`          | Message list and reading pane                                        |
+| Sidebar surface   | `surface/sidebar`          | Opaque stand-in for the sidebar material                             |
+| Panel surface     | `surface/panel`            | iPad floating sidebar panels, as the frames' glass reads             |
+| Sidebar backing   | `material/sidebar-backing` | Mac sidebars only, between the glass and its text                    |
+| Glass tint        | `material/glass-tint`      | iPhone and iPad Liquid Glass tint; over content reads as panel       |
+| Bubble surface    | `surface/bubble`           | Received Catch Up bubbles                                            |
+| Quiet fill        | `fill/quiet`               | Secondary buttons, search field, banners, chips                      |
+| Control fill      | `fill/control`             | Pop-up button disc within a grouped row                              |
+| Track             | `fill/track`               | Off switch track                                                     |
+| Separator         | `separator`                | Hairlines between rows and panes                                     |
+| Scrim             | `scrim/touch`              | iPad composer and setup sheet; link alert backdrops on touch         |
+| Mac scrim         | `scrim/mac`                | The Mac frames' backdrop behind alerts and sheets                    |
+| Warning           | `status/warning`           | Authorization needed, Pin indicator                                  |
+| Destructive       | `status/destructive`       | Delete Unwired Account, Delete                                       |
+| Success           | `status/success`           | Mac Sync Status: a connection that is up to date; not a variable yet |
 
 Contrast (WCAG 2.x, AA is 4.5:1 for text and 3:1 for non-text):
 
@@ -539,7 +260,7 @@ styles) so the file stays editable.
   Searches and Mail Profile names, and mail content, stay as written. Where a
   longer string does not fit, the neighbouring control gives up width, the text
   wraps, or it truncates with an ellipsis, as the German frames show.
-- **Spacing scale:** 4, 8, 12, 16, 20, 24 and 40pt. Sizes off the scale, such as
+- **Spacing scale:** the `space/…` variables. Sizes off the scale, such as
   the iPad's 1.15× insets, are fixed layout sizes. Hit targets are at least 28pt on the Mac
   and 44pt on iPhone.
 
@@ -573,28 +294,28 @@ content.
 
 ## Shapes
 
-- Controls 6pt, message rows 7pt, cards and banners 10pt, windows 16pt.
+- Controls use `radius.control`, message rows `radius.row`, cards and banners
+  `radius.card`, and windows `radius.window`.
 - iPhone Settings root groups, account cards and other inset groups use
-  `radius.mailboxGroup`, 22pt. Settings detail groups use
-  `radius.settingsDetail`, 17pt, as their reference frames draw them. Mac and iPad keep 10pt groups.
+  `radius.mailboxGroup`. Settings detail groups use
+  `radius.settingsDetail`, as their reference frames draw them. Mac and iPad keep `radius.card` groups.
 - iPhone sheets have 34pt top corners. A floating sheet also rounds its bottom
   corners, concentric with the screen's; the system sheet draws both.
 - iPad popovers, such as Filters, are system popovers and keep the iOS corner
   radius. They are drawn without an arrow.
-- iPad Sign In's deep brand panel uses `radius.brandPanel`, 24pt, and the iPad's
-  centred setup sheet, as Add a Mailbox draws it, `radius.ipadSheet`, 25.3pt:
+- iPad Sign In's deep brand panel uses `radius.brandPanel`, and the iPad's
+  centred setup sheet, as Add a Mailbox draws it, `radius.ipadSheet`:
   the shared sheet's 22pt at the iPad's 1.15.
-  iPhone's Profile Switcher above the Mailboxes groups uses `radius.profileSwitcher`,
-  14pt.
-- Pills and chips are fully rounded (14pt at 28pt tall). Catch Up bubbles are
-  20pt. Glass groups take half their height.
-- The iPhone meeting invitation card uses `radius.touchCard`, 18pt; iPad keeps the
-  10pt `radius.card`. Its status badge, such as Cancelled, uses `radius.badgeMac`,
-  4pt, on Mac and `radius.badgeTouch`, 8pt, on iPhone and iPad.
-- The iPhone compose Format panel uses `radius.formatPanel`, 34pt. Its inset
-  control groups use 22pt corners and 18pt inset selections.
+  iPhone's Profile Switcher above the Mailboxes groups uses `radius.profileSwitcher`.
+- Pills and chips are fully rounded (`radius.chip` at 28pt tall). Catch Up bubbles
+  use `radius.bubble`. Glass groups take half their height.
+- The iPhone meeting invitation card uses `radius.touchCard`; iPad keeps
+  `radius.card`. Its status badge, such as Cancelled, uses `radius.badgeMac`
+  on Mac and `radius.badgeTouch` on iPhone and iPad.
+- The iPhone compose Format panel uses `radius.formatPanel`. Its inset
+  control groups use `radius.mailboxGroup` corners and 18pt inset selections.
 - The iPhone and iPad composer Close question (Delete Draft / Save Draft) is a
-  220pt glass panel with `radius.closeQuestion`, 36pt, 12pt padding and 8pt gaps
+  220pt glass panel with `radius.closeQuestion`, `spacing.m` padding and `spacing.s` gaps
   between 48pt `fill/quiet` capsules with centred Body labels;
   [Components](#components) describes how it opens.
 - Monograms and avatars are circles. A Mail Profile monogram fills the circle
@@ -610,7 +331,7 @@ content.
   only when the contact-images preference is on and a photo exists, and never
   generate initials. Catch Up bubbles and the Thread view show the contact photo
   or neutral initials.
-- iPhone Mailboxes uses 22pt rounded groups of 52pt rows, as shown in the Mailboxes frames.
+- iPhone Mailboxes uses `radius.mailboxGroup` groups of 52pt rows, as shown in the Mailboxes frames.
 
 ## Components
 
@@ -646,8 +367,8 @@ form accessories, keyboards, status bar).
   menu, so each Profile's connections and unread count share its subtitle, the
   checkmark leads and the Profile's monogram is the item image. The Default Profile is named Primary
   Profile.
-- **Mail View Chip (Figma: Category Chip):** the `category-chip` token recipes
-  style each header chip with an icon, label and unread-Thread count badge capped
+- **Mail View Chip (Figma: Category Chip):** each header chip has an icon,
+  label and unread-Thread count badge capped
   at 99+. Selected chips are graphite with an emphasized label; others use the quiet fill.
   Details follow the
   [Mail View requirements](docs/product/organization.md#prototype-mail-views-and-interface-behavior).
