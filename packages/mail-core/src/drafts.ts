@@ -2167,7 +2167,8 @@ export function createDrafts(
 
   // Returns an Outbox message not awaiting Gmail's answer to the Drafts, only while it is `only`
   // when given. One whose claim was requested keeps its claim's identifier retired and returns
-  // under a new one. An Invitation Response, which was never a Draft, only leaves the Outbox.
+  // under a new one. An Invitation Response or an unsubscribe request, which was never a Draft,
+  // only leaves the Outbox.
   const restoring = (
     current: number,
     id: string,
@@ -2192,7 +2193,10 @@ export function createDrafts(
             ) {
               return undefined;
             }
-            if (entry.invitation !== undefined) {
+            if (
+              entry.invitation !== undefined ||
+              entry.unsubscribe !== undefined
+            ) {
               return {
                 drafts: state.drafts,
                 delivery: {

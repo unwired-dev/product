@@ -12,6 +12,8 @@ import type { ImapMailbox, Mailbox, Mailboxes } from './mailboxes.ts';
 import type { OutboxCheck, OutboxSnapshotEntry } from './outbox-copy.ts';
 import type { MailProvider } from './registration-snapshot.ts';
 import type { Registration } from './registration.ts';
+import type { Block, SemanticDocument } from './semantic-document.ts';
+import type { UnsubscribeOffer } from './unsubscribe.ts';
 
 import {
   rejectionCode,
@@ -33,6 +35,7 @@ import {
 } from './outgoing-message.ts';
 import { mailboxesOf } from './registration-snapshot.ts';
 import { canOpenInbox } from './registration.ts';
+import { imageCharacter } from './semantic-document.ts';
 
 export type { OutboxCheck, OutboxSnapshotEntry } from './outbox-copy.ts';
 
@@ -87,6 +90,26 @@ export type SendRefusal =
 // The files Send is checking, by identifier: undefined while a file is read, then what the read
 // found. The check stops at the first file that does not verify.
 export type SendCheck = ReadonlyMap<string, AssetPreview['kind'] | undefined>;
+
+// Where a confirmed `mailto:` unsubscribe request stands: waiting out the Undo Send Window in the
+// Outbox as `id`; not sent because its receiving connection only receives or needs authorization
+// again; or not admitted, as when the connection is gone or storage refused it.
+export type MailtoUnsubscribe =
+  | Readonly<{ kind: 'waiting'; id: string }>
+  | Readonly<{ kind: 'receive-only' | 'authorization' | 'failed' }>;
+
+// One paragraph per line of a `mailto:` body; a span never holds a line break or an image's
+// character.
+const paragraph = (line: string): Block => ({
+  kind: 'paragraph',
+  spans: line === '' ? [] : [{ text: line }],
+});
+const paragraphsOf = (text: string): SemanticDocument => {
+  const [first = '', ...rest] = text
+    .replaceAll(imageCharacter, '')
+    .split(/\r\n?|\n/u);
+  return [paragraph(first), ...rest.map(paragraph)];
+};
 
 // The person's Check Again of an unknown message, for the Send it was asked about and the Product
 // Account it belongs to.
@@ -157,6 +180,9 @@ const withState = (
   ...(entry.epoch === undefined ? {} : { epoch: entry.epoch }),
   ...(problem === undefined ? {} : { problem }),
   ...(entry.invitation === undefined ? {} : { invitation: entry.invitation }),
+  ...(entry.unsubscribe === undefined
+    ? {}
+    : { unsubscribe: entry.unsubscribe }),
 });
 
 // Handed to Gmail without a recorded answer. Another store opening meanwhile marks the entry
@@ -1223,10 +1249,59 @@ export function createOutbox({
         ? undefined
         : 'storage';
     },
+    // Admits the confirmed `mailto:` unsubscribe request `offer` makes, an ordinary message that is
+    // never a Draft, from `connection`, the Mailbox Connection that received it, to the offer's
+    // one address with only its subject and body. It waits out the Undo Send Window like any
+    // message; Undo only takes it out of the Outbox.
+    unsubscribe: async (
+      connection: string,
+      offer: Extract<UnsubscribeOffer, { kind: 'mailto' }>,
+    ): Promise<MailtoUnsubscribe> => {
+      const mailbox = mailboxesOf(registration.getSnapshot().snapshot).find(
+        ({ id }) => id === connection,
+      );
+      if (mailbox?.provider === 'imap' && mailbox.smtp === undefined) {
+        return { kind: 'receive-only' };
+      }
+      if (mailbox?.state === 'authorization') {
+        return { kind: 'authorization' };
+      }
+      if (mailbox === undefined) {
+        return { kind: 'failed' };
+      }
+      const at = Date.now();
+      const draft: Draft = {
+        id: `${at.toString(36)}.${Math.random().toString(36).slice(2, 14)}`,
+        connection,
+        from: mailbox.address,
+        to: [{ address: offer.address }],
+        cc: [],
+        bcc: [],
+        subject: offer.subject ?? '',
+        body: paragraphsOf(offer.body ?? ''),
+        updatedAt: at,
+      };
+      const message =
+        refusalOf(draft) === undefined
+          ? messageOf(draft, mailbox.provider)
+          : undefined;
+      const admitted =
+        message !== undefined &&
+        (await drafts.enqueue({
+          id: draft.id,
+          draft,
+          message,
+          sendAt: at + undoSendWindow,
+          state: 'waiting',
+          epoch: epochOf(draft),
+          unsubscribe: true,
+        }));
+      return admitted ? { kind: 'waiting', id: draft.id } : { kind: 'failed' };
+    },
     // Returns a message to the Drafts, as Undo, after a refusal, or when the person chooses to
     // edit one whose delivery is unknown; only while it is `only` when given. An Invitation
-    // Response only leaves the Outbox. Resolves the Draft's identifier, or false when it can no
-    // longer return.
+    // Response or an unsubscribe request only leaves the Outbox. Resolves the Draft's identifier,
+    // or false when it can no longer return.
     undo: async (id: string, only?: OutboxEntry['state']) => {
       retryAt.delete(id);
       const restored = await drafts.restore(id, only);
