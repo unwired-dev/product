@@ -2,7 +2,8 @@
 
 The visual report compares reproducible native captures of the populated Inbox with the
 approved Figma frames and with reviewed native baselines
-([#1061](https://github.com/unwired-dev/product/issues/1061)). It runs in reporting mode: it
+([#1061](https://github.com/unwired-dev/product/issues/1061),
+[#1062](https://github.com/unwired-dev/product/issues/1062)). It runs in reporting mode: it
 never blocks a pull request, and it never reports a missing capture, reference or baseline
 as passing.
 
@@ -14,7 +15,7 @@ Two results stay separate:
   the same state. A regression shows that the app's rendering changed since the baseline was
   reviewed.
 
-Coverage today is the canonical populated Inbox on iPhone in Light and Dark. iPad and Mac,
+Coverage today is the canonical populated Inbox on iPhone and iPad in Light and Dark. Mac,
 empty, error and loading states and other screens come in later slices. Mock content proves
 appearance only, not provider integration.
 
@@ -30,15 +31,17 @@ mise exec -- pnpm test:visual /absolute/path/to/Release-iphonesimulator/UnwiredM
 ```
 
 The second argument selects another simulator device type; the default is
-`com.apple.CoreSimulator.SimDeviceType.iPhone-18-Pro`. The command runs the
+`com.apple.CoreSimulator.SimDeviceType.iPhone-18-Pro`; pass
+`com.apple.CoreSimulator.SimDeviceType.iPad-Pro-11-inch-M5-12GB` for iPad. The command runs the
 `testInboxVisual` journey through the [native runner](agents/native-validation.md), which owns the
 Simulator, exports the journey's attachments from its result bundle and writes the report to
 `artifacts/expo-bootstrap/native-<id>/visual-report/`. It exits 1 when the journey fails or the
 report is incomplete.
 
-In CI, the non-required **Expo visual report (iPhone)** job of the Mobile workflow runs the
-same command on the packaged app the **Expo native build** job made, adds `report.md` to the
-job summary and uploads the report as `expo-visual-report-iPhone-<run>-<attempt>`.
+In CI, the non-required **Expo visual report (iPhone)** and **Expo visual report (iPad)** jobs
+of the Mobile workflow run the same command on the packaged app the **Expo native build** job
+made, add `report.md` to the job summary and upload the report as
+`expo-visual-report-<iPhone|iPad>-<run>-<attempt>`.
 
 ## What a capture fixes
 
@@ -47,18 +50,21 @@ Messages are the [Mock Mail Session](mock-mail-sessions.md) fixture, once per ap
 switches the Simulator's appearance with `XCUIDevice.appearance`, and captures the whole screen
 once two screenshots a second apart are identical. It fixes:
 
-| Input       | Value                                                                                                                                              |
-| ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Content     | The `open-read-relaunch` fixture messages                                                                                                          |
-| Clock       | `-UnwiredNow 2026-09-28T10:30:00Z`, which only a preview Inbox build reads; the status bar override reads 9:41, which the Simulator draws as 09:41 |
-| Locale      | `-AppleLanguages (en) -AppleLocale en_US`, time zone `TZ=UTC`                                                                                      |
-| Text size   | `-UIPreferredContentSizeCategoryName UICTContentSizeCategoryL` (the default Large)                                                                 |
-| Appearance  | Light, then Dark                                                                                                                                   |
-| Device      | iPhone 18 Pro Simulator, iOS 27.0 runtime, portrait, 402 × 874 pt at 3×                                                                            |
-| Status bar  | 9:41 override (drawn 09:41), Wi-Fi, four cellular bars, a full battery not charging (`simctl status_bar`)                                          |
-| Environment | The journey's `Visual environment` attachment, the Xcode version and the app revision                                                              |
+| Input       | Value                                                                                                                                                |
+| ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Content     | The `open-read-relaunch` fixture messages                                                                                                            |
+| Clock       | `-UnwiredNow 2026-09-28T10:30:00Z`, which only a preview Inbox build reads; the status bar override reads 9:41, which the Simulator draws as 09:41   |
+| Locale      | `-AppleLanguages (en) -AppleLocale en_US`, time zone `TZ=UTC`                                                                                        |
+| Text size   | `-UIPreferredContentSizeCategoryName UICTContentSizeCategoryL` (the default Large)                                                                   |
+| Appearance  | Light, then Dark                                                                                                                                     |
+| Device      | iPhone 18 Pro Simulator, portrait, 402 × 874 pt at 3×; iPad Pro 11-inch (M5) Simulator, landscape, 1210 × 834 pt at 2×; both on the iOS 27.0 runtime |
+| Status bar  | 9:41 on 28 September 2026 in the host's time zone (drawn 09:41), Wi-Fi, four cellular bars, a full battery not charging (`simctl status_bar`)        |
+| Environment | The journey's `Visual environment` attachment, the Xcode version and the app revision                                                                |
 
-The runner sets the status bar for this journey only. The report records the environment and
+The runner sets the status bar for this journey only; iPad also draws the override's date. On
+iPad the journey turns the Simulator to landscape, the orientation the frames draw, and redraws
+each screenshot upright, since XCTest keeps a landscape screenshot's portrait pixels with an
+orientation flag. The report records the environment and
 the app's `UnwiredCommit` revision in `result.json` and in each capture's
 `baseline-candidate.json`. A baseline compares only with a capture from the same environment,
 Xcode version included: any other capture leaves the baseline comparison incomplete. The
@@ -75,7 +81,9 @@ expected images, which are committed beside it, so CI never needs Figma:
   Inbox frames: **Proposal · iPhone — Inbox List · Light** from
   "#2647 #2646 #2131 Inbox consistency review · approved 2026-11-22" and
   **A2 iPhone · Inbox · Dark · lighter unread dot** from
-  "#2650 Warning amber and unread dot · approved 2026-11-22". `fileVersion` is `null`: the
+  "#2650 Warning amber and unread dot · approved 2026-11-22". The iPad frames are
+  **Proposal · iPad · Inbox · Light** and **Proposal · iPad · Inbox · Dark** from the same
+  consistency review, exported at 2×. `fileVersion` is `null`: the
   Figma MCP server cannot read or save version history, so the committed export and its hash
   are the pin until a version ID is recorded (see [Refresh](#refresh-a-reference)).
 - `baseline`: the reviewed native capture with the app revision, toolchain and environment it

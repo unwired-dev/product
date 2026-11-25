@@ -311,6 +311,8 @@ jobs:
         device:
           - name: iPhone
             type: com.apple.CoreSimulator.SimDeviceType.iPhone-18-Pro
+          - name: iPad
+            type: com.apple.CoreSimulator.SimDeviceType.iPad-Pro-11-inch-M5-12GB
     defaults:
       run:
         shell: zsh -e -o pipefail {0}

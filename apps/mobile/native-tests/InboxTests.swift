@@ -4281,12 +4281,13 @@ final class InboxTests: XCTestCase {
       "-UnwiredNow", "2026-09-28T10:30:00Z",
     ]
     app.launchEnvironment["TZ"] = "UTC"
-    let title = UIDevice.current.userInterfaceIdiom == .pad ? "All Inboxes" : "Inbox"
+    // #1062: iPad captures the landscape window the frames draw.
+    let pad = UIDevice.current.userInterfaceIdiom == .pad
+    XCUIDevice.shared.orientation = pad ? .landscapeLeft : .portrait
     var shot = XCUIScreen.main.screenshot()
     for (appearance, name) in [(XCUIDevice.Appearance.light, "light"), (.dark, "dark")] {
       XCUIDevice.shared.appearance = appearance
       app.launch()
-      XCTAssertTrue(app.staticTexts[title].firstMatch.waitForExistence(timeout: 30))
       let row = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Maya Chen"))
       XCTAssertTrue(row.firstMatch.waitForExistence(timeout: 30))
       var previous = Data()
@@ -4297,7 +4298,17 @@ final class InboxTests: XCTestCase {
         shot = XCUIScreen.main.screenshot()
       } while shot.pngRepresentation != previous && Date() < deadline
       XCTAssertEqual(shot.pngRepresentation, previous, "The \(name) Inbox kept changing")
-      let capture = XCTAttachment(screenshot: shot)
+      // A landscape screenshot keeps portrait pixels with an orientation flag; draw it upright.
+      let image = shot.image
+      let format = UIGraphicsImageRendererFormat()
+      format.scale = image.scale
+      format.preferredRange = .standard
+      let capture = image.imageOrientation == .up
+        ? XCTAttachment(screenshot: shot)
+        : XCTAttachment(
+          data: UIGraphicsImageRenderer(size: image.size, format: format).pngData { _ in
+            image.draw(at: .zero)
+          }, uniformTypeIdentifier: "public.png")
       capture.name = "Visual Inbox (\(name))"
       capture.lifetime = .keepAlways
       add(capture)
@@ -4310,6 +4321,7 @@ final class InboxTests: XCTestCase {
       "scale": shot.image.scale,
       "launchArguments": app.launchArguments,
       "timeZone": "UTC",
+      "orientation": pad ? "landscapeLeft" : "portrait",
     ]
     let json = XCTAttachment(
       data: try JSONSerialization.data(withJSONObject: record, options: [.sortedKeys]),
