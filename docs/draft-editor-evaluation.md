@@ -12,7 +12,7 @@ Inline Images ([#820](https://github.com/unwired-dev/product/issues/820)), save
 ordering across the bridge ([#821](https://github.com/unwired-dev/product/issues/821)),
 usability and performance ([#822](https://github.com/unwired-dev/product/issues/822))
 and the adoption decision ([#823](https://github.com/unwired-dev/product/issues/823))
-are separate evaluations.
+are separate evaluations. [ADR 0080](adr/0080-edit-the-draft-body-in-the-tiptap-page.md) records the adoption and its rollout gates.
 
 The [confirmed launch requirements](product/power-user-launch.md#confirmed-scope-additions-from-2026-10-24)
 require lossless editing of provider-hosted Drafts. This evaluation's bounded
@@ -157,6 +157,25 @@ the current composer's:
   sizes are dropped; and multi-line code becomes one code
   line per line. Plain text becomes one paragraph per line. Nothing else reaches
   the stored document.
+- **Tables.** The page edits a Draft's tables
+  ([#2858](https://github.com/unwired-dev/product/issues/2858)) as the
+  [table-editing plan](architecture/draft-table-editing.md#approved-behaviour)
+  describes, with `prosemirror-tables` from `@tiptap/pm`; the hosts give the page
+  the Draft's text without its tables until
+  [#2865](https://github.com/unwired-dev/product/issues/2865). The caret's cell
+  has a 2 pt `accent/fill` outline. Tab moves to the next cell and selects its
+  text; Shift-Tab moves back and stays in the first cell. Tab in the last cell
+  moves to the text after the table, adding a paragraph when the table ends the
+  body, and never adds a row. Return adds a line in the cell, and marks and block
+  kinds apply there. Backspace after a table selects it, and a second deletes it as
+  one Undo step. A table scrolls sideways inside its own frame, and its cells do
+  not wrap. The page edits a table whose rows fill the same columns with no
+  overlapping merged cell and none reaching past the last row, the shapes
+  `prosemirror-tables` keeps; it shows any other table with its text and keeps it
+  unchanged, selectable and deletable but not editable. A cell never holds a table
+  or an Inline Image: a paste keeps a pasted table's text, as anywhere else, an
+  image pasted or converted into a cell is refused, and images added there become
+  Attachments. No control builds a table.
 
 ### Semantic mismatches
 
@@ -639,7 +658,7 @@ No fundamental host failure was found there.
 On the Mac, the signed journey passed on 2026-11-25
 ([#2876](https://github.com/unwired-dev/product/issues/2876)), with the same open,
 type, save and reopen path, formatting, assistance and link editing. This finding is not an adoption
-recommendation; that is #823.
+recommendation; that is #823, recorded in [ADR 0080](adr/0080-edit-the-draft-body-in-the-tiptap-page.md).
 
 **#819 finding.** The current block kinds and marks pass the page and host checks
 above. iPhone/iPad simulator and Mac text, history, the exercised post-assistance

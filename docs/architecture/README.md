@@ -64,6 +64,7 @@ release scopes; a moved passage is not a new requirement or proof of qualificati
 - [Effect adoption scope](../adr/0065-scope-effect-adoption.md)
 - [Device admission through authorized enrollment](../adr/0066-admit-devices-only-through-authorized-enrollment.md)
 - [Minimal native vault and TypeScript-owned client logic](../adr/0067-keep-native-code-to-a-minimal-vault.md)
+- [Tiptap page as the production Draft body, with its rollout gates](../adr/0080-edit-the-draft-body-in-the-tiptap-page.md)
 - [Device-local Background Message Summaries for planned Catch Up](../adr/0068-allow-device-local-background-message-summaries.md)
 - [Per-device sealed rotation and atomic recovery activation](../adr/0070-seal-key-rotations-to-each-remaining-trusted-device.md)
 - [Opt-in PostHog EU telemetry, free-plan limits and partial backend coverage](../adr/0071-use-opt-in-posthog-eu-telemetry-on-the-free-plan.md)

@@ -18,8 +18,8 @@ changes no production behaviour; the slices at the end do.
   (`packages/mail-core/src/editor-history.ts`). A `TextInput` cannot hold cells.
 - The [Tiptap evaluation editor](draft-editor-evaluation.md) is one bundled page in
   `react-native-webview` on all three hosts, behind a validated message bridge.
-  Its adoption is decided in [#823](https://github.com/unwired-dev/product/issues/823),
-  which waits on links ([#878](https://github.com/unwired-dev/product/issues/878)).
+  Its adoption is recorded in [ADR 0080](../adr/0080-edit-the-draft-body-in-the-tiptap-page.md)
+  for [#823](https://github.com/unwired-dev/product/issues/823).
 
 ## Approved behaviour
 
@@ -130,7 +130,7 @@ An advisory council (`gpt-6.2-sol`, `gpt-6.2-astra`, `claude-fable-5-2`) chose C
 3–0, each conditional on the owner's adoption decision, with Draft storage first
 because it does not depend on the editor.
 
-Replacing the production body was the owner's decision, which this plan filed ahead of the slices. The owner also accepted WebKit's own VoiceOver table phrasing: the approved strings name what VoiceOver must convey (table size, a cell's column header and row, a merged cell's column range), not exact wording, so no custom accessibility labels are added. [#823](https://github.com/unwired-dev/product/issues/823) records the adoption. A, with the costs above, stays the fallback should the page fail in production; it needs a React Native probe of caret movement and selection across regions first, since the bare-view probe here bounds its cost from below and does not show it is feasible.
+Replacing the production body was the owner's decision, which this plan filed ahead of the slices. The owner also accepted WebKit's own VoiceOver table phrasing: the approved strings name what VoiceOver must convey (table size, a cell's column header and row, a merged cell's column range), not exact wording, so no custom accessibility labels are added. [ADR 0080](../adr/0080-edit-the-draft-body-in-the-tiptap-page.md) records the adoption for [#823](https://github.com/unwired-dev/product/issues/823). A, with the costs above, stays the fallback should the page fail in production; it needs a React Native probe of caret movement and selection across regions first, since the bare-view probe here bounds its cost from below and does not show it is feasible.
 
 ### What the evidence does not show
 
@@ -138,10 +138,12 @@ Replacing the production body was the owner's decision, which this plan filed ah
   parts as Other. WebKit exposes tables on the Mac; on iOS it is unverified until a
   device run.
 - **VoiceOver wording.** WebKit speaks its own table phrasing, which may differ from the approved "2 Dec, Date, row 3 of 5"; the owner accepted it in #2856.
-- **The evaluation's own gaps.** The [evaluation guide](../draft-editor-evaluation.md)
-  still lists the signed Mac native journey, physical iPhone and iPad runs,
+- **The evaluation's own gaps.** At the probes, the [evaluation guide](../draft-editor-evaluation.md)
+  listed the signed Mac native journey, physical iPhone and iPad runs,
   hardware keyboards, IME, dictation, autocorrection and VoiceOver as outstanding
-  before any adoption decision. The probe page also lacked the evaluation page's
+  before any adoption decision. The signed Mac journey passed on 25 November 2026
+  ([#2876](https://github.com/unwired-dev/product/issues/2876)); the rest are
+  [ADR 0080](../adr/0080-edit-the-draft-body-in-the-tiptap-page.md)'s rollout gates. The probe page also lacked the evaluation page's
   normalizer, conversion and save ordering.
 - **Header identity.** The probe page started from real `th` cells. Storage keeps the header flag since #2857; the page's conversion must carry it (slice 3).
 - **Keys and input.** Simulator Tab injection is not a physical keyboard; IME
@@ -176,7 +178,8 @@ Each slice is one pull request and a sub-issue of #1268, in blocked-by order.
 1. **[#2856](https://github.com/unwired-dev/product/issues/2856) Owner decision** (decided): the Tiptap page becomes the production Draft body, and WebKit's VoiceOver table phrasing is accepted. The production integration of the page is [#2865](https://github.com/unwired-dev/product/issues/2865), which slices 4 to 6 also wait for.
 2. **[#2857](https://github.com/unwired-dev/product/issues/2857) Draft storage of tables** (delivered): `DraftSchema.body` accepts tables with header and merged cells, and the composers keep them intact without showing them. Live provider round trips stay with the provider Draft issues, such as #1269.
 3. **[#2858](https://github.com/unwired-dev/product/issues/2858) Page tables**
-   (blocked by 1 and 2): conversion between table cells and Tiptap, the table shapes it edits unchanged, the Tab
+   (delivered; the [evaluation guide](../draft-editor-evaluation.md#formatting-and-history)
+   lists the shapes it edits): conversion between table cells and Tiptap, the table shapes it edits unchanged, the Tab
    command (including a table that ends the body), Return, Backspace after a
    table, whole-table selection as one Undo step, marks in cells and the
    focused-cell outline, tested in the page.

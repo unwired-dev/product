@@ -767,8 +767,10 @@ function EvaluationEditor({
                   // Editing again retires captured text, as in the current composer.
                   forget();
                   const previous = authored.current;
+                  // The host gives the page the Draft's text without its tables (#2865), and no paste
+                  // makes a table, so the page reports none.
                   const { body, attachments } = knownAssets(known.current, {
-                    document: reported,
+                    document: textOf(reported),
                     attachments: attached,
                   });
                   change({
