@@ -1,7 +1,9 @@
 import type { Translate } from '@private-email/localization';
 
 import { lastUpdated } from '@private-email/localization';
+import { previewInbox } from '@private-email/mail-core/registration-mode';
 import { createContext, use, useSyncExternalStore } from 'react';
+import { Settings } from 'react-native';
 
 import type { InboxMailbox, MailboxList } from './private-storage.ts';
 
@@ -24,7 +26,13 @@ const minute = 60_000;
 // One clock for every reader of the minute, ticking on the minute, so the list and an open reader
 // always read the same minute and change day together.
 const minuteListeners = new Set<() => void>();
-const currentMinute = () => Math.floor(Date.now() / minute) * minute;
+// A preview Inbox journey can pin this clock with `-UnwiredNow <ISO date>`, so the list's times and
+// dividers render the same on every run (#1061). Other builds ignore it.
+const pinned: unknown = previewInbox ? Settings.get('UnwiredNow') : undefined;
+const pinnedNow = typeof pinned === 'string' ? Date.parse(pinned) : Number.NaN;
+const currentMinute = () =>
+  Math.floor((Number.isNaN(pinnedNow) ? Date.now() : pinnedNow) / minute) *
+  minute;
 let shownMinute = currentMinute();
 let minuteTimer: ReturnType<typeof setTimeout> | undefined = undefined;
 const tickMinute = () => {

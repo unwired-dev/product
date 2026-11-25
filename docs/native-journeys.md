@@ -814,6 +814,16 @@ owner's physical-device runs. On iPad, XCUITest sometimes waits 60 seconds per
 step for the app to settle while the software keyboard is shown, so a run can
 take an hour; the iPhone run takes about two minutes.
 
+## iPhone Inbox visual journey
+
+`testInboxVisual` runs on an `open-read-relaunch` Release build through `pnpm test:visual`
+([#1061](https://github.com/unwired-dev/product/issues/1061)). It launches the preview Inbox in
+Light and then Dark with a fixed clock, locale, text size and time zone, and keeps a
+whole-screen capture of each once it stops changing, named `Visual Inbox (light)` and
+`Visual Inbox (dark)`, with a `Visual environment` record. The [visual report](visual-report.md)
+compares them with the pinned Figma frames and the reviewed baselines; CI runs it in the
+non-required **Expo visual report** job.
+
 ## Reference device history
 
 The iPhone reference, the owner's physical iPhone 17 Pro Max on iOS 27, was

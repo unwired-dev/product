@@ -1,0 +1,120 @@
+{
+  "tolerances": {
+    "figma": {
+      "threshold": 0.1,
+      "maxDiffRatio": 0.01,
+      "reason": "Figma rasterizes text itself and draws Liquid Glass as a static blur; UIKit draws the status bar, search field and toolbar glass"
+    },
+    "baseline": {
+      "threshold": 0.1,
+      "maxDiffRatio": 0.001,
+      "reason": "The same app, fixture and toolchain; glass samples the content behind the floating bars"
+    }
+  },
+  "captures": [
+    {
+      "id": "iphone-inbox-light",
+      "device": "com.apple.CoreSimulator.SimDeviceType.iPhone-18-Pro",
+      "attachment": "Visual Inbox (light)",
+      "figma": {
+        "image": "figma/iphone-inbox-light.png",
+        "sha256": "daf12fecd129b6656623db1099ead24b93910418454cb0b2c441c7850fbe5b78",
+        "fileKey": "d1mHEaUNmnF7YUw6QwIs0T",
+        "nodeId": "2454:18954",
+        "frame": "Proposal · iPhone — Inbox List · Light",
+        "section": "#2647 #2646 #2131 Inbox consistency review · approved 2026-11-22",
+        "fileVersion": null,
+        "scale": 3,
+        "exportedAt": "2026-11-25T09:46:52Z",
+        "approvedDifferences": [
+          "Mock content: the open-read-relaunch Synthetic Test Messages replace the frame's sample messages, so every row's text differs (docs/mock-mail-sessions.md)",
+          "Device chrome: a Simulator screenshot has no screen corners, Dynamic Island or home indicator, which the frame draws"
+        ],
+        "outstandingDeviations": [
+          "The preview Inbox is one mailbox: it shows no More button, no list and conversation switch, no filter chips and no attachment glyphs, which the frame's All Inboxes header shows",
+          "The Command Palette tip shows above the list; the frame has none",
+          "Times read 9:42 AM, the frame 10:30",
+          "The simulator status bar reads 09:41, the frame 9:41"
+        ]
+      },
+      "baseline": {
+        "image": "baseline/iphone-inbox-light.png",
+        "sha256": "65929e24061410c1356a0eb7b2d188c9b23320bd18f41bbcb3b2f37e94abfc96",
+        "appRevision": "07d0ee38a50d02c2d937b55f1d6f6ed27f3b6b23 with the #1061 change",
+        "capturedIn": "Local pnpm test:visual run, iOS 27.0 Simulator (24A434)",
+        "reviewedIn": "Design review of the #1061 pull request",
+        "environment": {
+          "device": "iPhone19,2",
+          "launchArguments": [
+            "-AppleLanguages",
+            "(en)",
+            "-AppleLocale",
+            "en_US",
+            "-UIPreferredContentSizeCategoryName",
+            "UICTContentSizeCategoryL",
+            "-UnwiredNow",
+            "2026-09-28T10:30:00Z"
+          ],
+          "os": "27.0",
+          "osBuild": "24A434",
+          "points": [402, 874],
+          "scale": 3,
+          "timeZone": "UTC",
+          "toolchain": "Xcode 27.2 Build version 27B52"
+        }
+      }
+    },
+    {
+      "id": "iphone-inbox-dark",
+      "device": "com.apple.CoreSimulator.SimDeviceType.iPhone-18-Pro",
+      "attachment": "Visual Inbox (dark)",
+      "figma": {
+        "image": "figma/iphone-inbox-dark.png",
+        "sha256": "5d3fbcbf3c7c9e462bf5d0620352673220cdacee70d080bed2c2183c82832ce3",
+        "fileKey": "d1mHEaUNmnF7YUw6QwIs0T",
+        "nodeId": "2484:102",
+        "frame": "A2 iPhone · Inbox · Dark · lighter unread dot",
+        "section": "#2650 Warning amber and unread dot · approved 2026-11-22",
+        "fileVersion": null,
+        "scale": 3,
+        "exportedAt": "2026-11-25T09:46:52Z",
+        "approvedDifferences": [
+          "Mock content: the open-read-relaunch Synthetic Test Messages replace the frame's sample messages, so every row's text differs (docs/mock-mail-sessions.md)",
+          "Device chrome: a Simulator screenshot has no screen corners, Dynamic Island or home indicator, which the frame draws"
+        ],
+        "outstandingDeviations": [
+          "The preview Inbox is one mailbox: it shows no More button, no list and conversation switch, no filter chips and no attachment glyphs, which the frame's All Inboxes header shows",
+          "The Command Palette tip shows above the list; the frame has none",
+          "Times read 9:42 AM, the frame 10:30",
+          "The simulator status bar reads 09:41, the frame 9:41"
+        ]
+      },
+      "baseline": {
+        "image": "baseline/iphone-inbox-dark.png",
+        "sha256": "a22b5e92798eb4fc0ba9fa30fc4cdd7c8230b24f29b973c655f280eacd674941",
+        "appRevision": "07d0ee38a50d02c2d937b55f1d6f6ed27f3b6b23 with the #1061 change",
+        "capturedIn": "Local pnpm test:visual run, iOS 27.0 Simulator (24A434)",
+        "reviewedIn": "Design review of the #1061 pull request",
+        "environment": {
+          "device": "iPhone19,2",
+          "launchArguments": [
+            "-AppleLanguages",
+            "(en)",
+            "-AppleLocale",
+            "en_US",
+            "-UIPreferredContentSizeCategoryName",
+            "UICTContentSizeCategoryL",
+            "-UnwiredNow",
+            "2026-09-28T10:30:00Z"
+          ],
+          "os": "27.0",
+          "osBuild": "24A434",
+          "points": [402, 874],
+          "scale": 3,
+          "timeZone": "UTC",
+          "toolchain": "Xcode 27.2 Build version 27B52"
+        }
+      }
+    }
+  ]
+}

@@ -4225,6 +4225,57 @@ final class InboxTests: XCTestCase {
 
   // #2441: New Label… after a Gmail reader's labels opens Labels, the iPhone sheet or the iPad
   // labels' popover, captured empty and with a nested name for comparison with the I1 and P1 frames.
+  // #1061: the populated preview Inbox in Light and Dark for the visual report
+  // (docs/visual-report.md), with content, clock, locale, text size and time zone fixed. The
+  // runner fixes the status bar. Each capture waits until two screenshots a second apart match.
+  func testInboxVisual() throws {
+    continueAfterFailure = false
+    let environment = ProcessInfo.processInfo.environment
+    XCTAssertEqual(environment["UNWIRED_TEST_SCENARIO"], "open-read-relaunch")
+    let app = XCUIApplication(bundleIdentifier: try XCTUnwrap(environment["UNWIRED_BUNDLE_ID"]))
+    addTeardownBlock { if app.state != .notRunning { app.terminate() } }
+    app.launchArguments = [
+      "-AppleLanguages", "(en)", "-AppleLocale", "en_US",
+      "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryL",
+      "-UnwiredNow", "2026-09-28T10:30:00Z",
+    ]
+    app.launchEnvironment["TZ"] = "UTC"
+    let title = UIDevice.current.userInterfaceIdiom == .pad ? "All Inboxes" : "Inbox"
+    var shot = XCUIScreen.main.screenshot()
+    for (appearance, name) in [(XCUIDevice.Appearance.light, "light"), (.dark, "dark")] {
+      XCUIDevice.shared.appearance = appearance
+      app.launch()
+      XCTAssertTrue(app.staticTexts[title].firstMatch.waitForExistence(timeout: 30))
+      var previous = Data()
+      let deadline = Date().addingTimeInterval(20)
+      repeat {
+        previous = shot.pngRepresentation
+        Thread.sleep(forTimeInterval: 1)
+        shot = XCUIScreen.main.screenshot()
+      } while shot.pngRepresentation != previous && Date() < deadline
+      XCTAssertEqual(shot.pngRepresentation, previous, "The \(name) Inbox kept changing")
+      let capture = XCTAttachment(screenshot: shot)
+      capture.name = "Visual Inbox (\(name))"
+      capture.lifetime = .keepAlways
+      add(capture)
+    }
+    let record: [String: Any] = [
+      "device": environment["SIMULATOR_MODEL_IDENTIFIER", default: ""],
+      "os": UIDevice.current.systemVersion,
+      "osBuild": environment["SIMULATOR_RUNTIME_BUILD_VERSION", default: ""],
+      "points": [shot.image.size.width, shot.image.size.height],
+      "scale": shot.image.scale,
+      "launchArguments": app.launchArguments,
+      "timeZone": "UTC",
+    ]
+    let json = XCTAttachment(
+      data: try JSONSerialization.data(withJSONObject: record, options: [.sortedKeys]),
+      uniformTypeIdentifier: "public.json")
+    json.name = "Visual environment"
+    json.lifetime = .keepAlways
+    add(json)
+  }
+
   func testNewLabel() throws {
     continueAfterFailure = false
     let environment = ProcessInfo.processInfo.environment
