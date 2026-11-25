@@ -608,7 +608,7 @@ describe('the Tiptap evaluation page', () => {
     expect(edited).toStrictEqual([...formatted.slice(0, -1), paragraph('!')]);
     ok(edited);
     // Display offsets follow the current composer's nested and per-level numbered markers.
-    const { text } = displayOf(edited);
+    const { text } = displayOf(textOf(edited));
     const blocks = textblocks(page.editor);
     expect(
       blocks.map(({ from, to }) => {
@@ -999,7 +999,7 @@ describe('the Tiptap evaluation page', () => {
     ]);
     page.editor.commands.setTextSelection({ from: 3, to: 4 });
     page.type('y');
-    expect(bodyOf(page)?.[0]?.spans).toStrictEqual([
+    expect(textBodyOf(page)?.[0]?.spans).toStrictEqual([
       { text: 'ab', link },
       { text: 'y' },
       { text: 'cd', link },
