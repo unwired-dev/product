@@ -1,0 +1,115 @@
+{
+  "fileKey": "d1mHEaUNmnF7YUw6QwIs0T",
+  "exportedAt": "2026-11-25T09:47:46.837Z",
+  "collections": [
+    {
+      "name": "Unwired",
+      "modes": ["Light", "Dark"],
+      "variables": {
+        "accent/fill": { "Light": "#3A3D44", "Dark": "#6A6E78" },
+        "accent/focus-ring": {
+          "Light": "rgba(58, 61, 68, 0.32)",
+          "Dark": "rgba(106, 110, 120, 0.28)"
+        },
+        "accent/ink": { "Light": "#3A3D44", "Dark": "#C8CBD2" },
+        "accent/on-fill": { "Light": "#FFFFFF", "Dark": "#FFFFFF" },
+        "accent/selection-subtle": {
+          "Light": "rgba(58, 61, 68, 0.12)",
+          "Dark": "rgba(200, 203, 210, 0.16)"
+        },
+        "accent/unread": { "Light": "#3A3D44", "Dark": "#7A7E88" },
+        "apple/button": { "Light": "#000000", "Dark": "#FFFFFF" },
+        "apple/on-button": { "Light": "#FFFFFF", "Dark": "#000000" },
+        "brand/action": {
+          "Light": "rgba(255, 255, 255, 0.12)",
+          "Dark": "rgba(255, 255, 255, 0.12)"
+        },
+        "brand/deep": { "Light": "#15171B", "Dark": "#15171B" },
+        "brand/monogram": { "Light": "#15171B", "Dark": "#6A6E78" },
+        "brand/on-deep": { "Light": "#FFFFFF", "Dark": "#FFFFFF" },
+        "brand/on-seal": { "Light": "#FFFFFF", "Dark": "#FFFFFF" },
+        "brand/seal": { "Light": "#C2412A", "Dark": "#C2412A" },
+        "brand/well": {
+          "Light": "rgba(255, 255, 255, 0.08)",
+          "Dark": "rgba(255, 255, 255, 0.08)"
+        },
+        "brand/well-border": {
+          "Light": "rgba(255, 255, 255, 0.16)",
+          "Dark": "rgba(255, 255, 255, 0.16)"
+        },
+        "fill/control": {
+          "Light": "rgba(0, 0, 0, 0.08)",
+          "Dark": "rgba(255, 255, 255, 0.07)"
+        },
+        "fill/quiet": {
+          "Light": "rgba(0, 0, 0, 0.05)",
+          "Dark": "rgba(255, 255, 255, 0.06)"
+        },
+        "fill/track": {
+          "Light": "rgba(0, 0, 0, 0.09)",
+          "Dark": "rgba(255, 255, 255, 0.16)"
+        },
+        "material/glass-tint": { "Light": "#C6C6C6", "Dark": "#3B3B3B" },
+        "material/sidebar-backing": {
+          "Light": "rgba(243, 242, 245, 0)",
+          "Dark": "rgba(42, 42, 44, 0.92)"
+        },
+        "on-device/ink": { "Light": "#A3321F", "Dark": "#FF9E88" },
+        "on-device/surface": { "Light": "#FBEEEA", "Dark": "#3A2420" },
+        "profile/blue": { "Light": "#0A58CA", "Dark": "#3B6FD6" },
+        "profile/brown": { "Light": "#7A5C3E", "Dark": "#8C6A4A" },
+        "profile/green": { "Light": "#237A3A", "Dark": "#2A8443" },
+        "profile/indigo": { "Light": "#3634A3", "Dark": "#5E5CE6" },
+        "profile/pink": { "Light": "#C2185B", "Dark": "#D6336C" },
+        "profile/purple": { "Light": "#8944AB", "Dark": "#9558BB" },
+        "profile/teal": { "Light": "#0E7490", "Dark": "#117C97" },
+        "radius/badge-mac": { "Light": 4, "Dark": 4 },
+        "radius/badge-touch": { "Light": 8, "Dark": 8 },
+        "radius/brand-panel": { "Light": 24, "Dark": 24 },
+        "radius/bubble": { "Light": 20, "Dark": 20 },
+        "radius/card": { "Light": 10, "Dark": 10 },
+        "radius/chip": { "Light": 14, "Dark": 14 },
+        "radius/close-question": { "Light": 36, "Dark": 36 },
+        "radius/control": { "Light": 6, "Dark": 6 },
+        "radius/format-panel": { "Light": 34, "Dark": 34 },
+        "radius/ipad-sheet": { "Light": 25.3, "Dark": 25.3 },
+        "radius/mailbox-group": { "Light": 22, "Dark": 22 },
+        "radius/profile-switcher": { "Light": 14, "Dark": 14 },
+        "radius/row": { "Light": 7, "Dark": 7 },
+        "radius/settings-detail": { "Light": 17, "Dark": 17 },
+        "radius/touch-card": { "Light": 18, "Dark": 18 },
+        "radius/window": { "Light": 16, "Dark": 16 },
+        "scrim/mac": {
+          "Light": "rgba(0, 0, 0, 0.18)",
+          "Dark": "rgba(0, 0, 0, 0.4)"
+        },
+        "scrim/touch": {
+          "Light": "rgba(0, 0, 0, 0.22)",
+          "Dark": "rgba(0, 0, 0, 0.4)"
+        },
+        "separator": {
+          "Light": "rgba(0, 0, 0, 0.1)",
+          "Dark": "rgba(255, 255, 255, 0.1)"
+        },
+        "space/l": { "Light": 16, "Dark": 16 },
+        "space/m": { "Light": 12, "Dark": 12 },
+        "space/s": { "Light": 8, "Dark": 8 },
+        "space/xl": { "Light": 20, "Dark": 20 },
+        "space/xs": { "Light": 4, "Dark": 4 },
+        "space/xxl": { "Light": 24, "Dark": 24 },
+        "space/xxxl": { "Light": 40, "Dark": 40 },
+        "status/destructive": { "Light": "#D70015", "Dark": "#FF6961" },
+        "status/warning": { "Light": "#9A5B00", "Dark": "#FFB340" },
+        "surface/bubble": { "Light": "#F1F1F4", "Dark": "#2C2C2E" },
+        "surface/content": { "Light": "#FFFFFF", "Dark": "#1E1E1E" },
+        "surface/panel": { "Light": "#F8F8F8", "Dark": "#1A1A1A" },
+        "surface/sidebar": { "Light": "#F3F2F5", "Dark": "#2A2A2C" },
+        "text/primary": {
+          "Light": "rgba(0, 0, 0, 0.85)",
+          "Dark": "rgba(255, 255, 255, 0.85)"
+        },
+        "text/secondary": { "Light": "#4F4F54", "Dark": "#B0B0B5" }
+      }
+    }
+  ]
+}
