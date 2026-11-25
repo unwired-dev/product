@@ -598,6 +598,61 @@ struct DraftTests {
     #expect(!session.exists("pins.enc"))
   }
 
+  // Sent unsubscribe requests are kept like Pins, in their own sealed file that the Pins document
+  // does not open as.
+  @Test @MainActor func unsubscribeRequestsStayEncryptedWithTheirProductAccount() async throws {
+    let session = AssetSession()
+    defer { session.remove() }
+    let (store, cache) = (session.store, session.cache)
+    await #expect(throws: PrivateInboxError.mailboxInvalidated) {
+      _ = try await store.openUnsubscribeRequests()
+    }
+    let owner = try await session.owner()
+    let opened = try await store.openUnsubscribeRequests()
+    #expect(opened["owner"] as? String == owner && opened["revision"] as? Int == 0)
+    #expect(opened["document"] is NSNull)
+    let document = #"{"requests":[{"profile":"work","identity":"private.list.example"}]}"#
+    await #expect(throws: PrivateInboxError.mailboxInvalidated) {
+      _ = try await store.commitUnsubscribeRequests(
+        owner: "another-account", expectedRevision: 0, document: document)
+    }
+    let committed = try await store.commitUnsubscribeRequests(
+      owner: owner, expectedRevision: 0, document: document)
+    #expect(committed["revision"] as? Int == 1)
+    await #expect(throws: PrivateInboxError.conflict) {
+      _ = try await store.commitUnsubscribeRequests(
+        owner: owner, expectedRevision: 0, document: "{}")
+    }
+    let file = session.directory.appendingPathComponent("unsubscribe-requests.enc")
+    #expect(try Data(contentsOf: file).range(of: Data("private.list.example".utf8)) == nil)
+
+    let tmp = session.directory.appendingPathComponent("tmp")
+    let relaunched = PrivateInboxStore(
+      directory: session.directory, service: session.service, attachments: tmp,
+      protectedDataAvailable: { true })
+    #expect(try relaunched.openUnsubscribeRequestDocument(owner: owner) == (1, document))
+    #expect(try relaunched.openUnsubscribeRequestDocument(owner: "another-account") == (1, nil))
+    let locked = PrivateInboxStore(
+      directory: session.directory, service: session.service, attachments: tmp,
+      protectedDataAvailable: { false })
+    #expect(throws: PrivateInboxError.locked) {
+      _ = try locked.commitUnsubscribeRequestDocument(
+        owner: owner, expectedRevision: 1, document: "{}")
+    }
+
+    // The Pins document served in its place does not open.
+    _ = try cache.commitPinDocument(owner: owner, expectedRevision: 0, document: document)
+    try FileManager.default.removeItem(at: file)
+    try FileManager.default.copyItem(
+      at: session.directory.appendingPathComponent("pins.enc"), to: file)
+    #expect(throws: PrivateInboxError.invalidStore) {
+      _ = try relaunched.openUnsubscribeRequestDocument(owner: owner)
+    }
+
+    _ = try await store.purge(notice: "signed-out")
+    #expect(!session.exists("unsubscribe-requests.enc"))
+  }
+
   // Send Reminders are kept like Mail Templates, in their own sealed file that neither the Drafts
   // nor the Mail Templates document opens as.
   @Test @MainActor func sendRemindersStayEncryptedWithTheirProductAccount() async throws {

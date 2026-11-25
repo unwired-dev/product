@@ -572,6 +572,13 @@ TypeScript decodes each Pin's Mailbox Connection, Thread and date; another accou
 reads none, and every account purge removes the document. They are not
 synchronized yet; see [Pins](architecture/product/organization.md#pins).
 
+The account's **sent unsubscribe requests**
+([#2823](https://github.com/unwired-dev/product/issues/2823)) are kept like its
+Pins, in their own sealed document that no other document opens as. TypeScript
+decodes each request's Mail Profile, Mailing List Identity, list name and date;
+another account reads none, and every account purge removes the document. They
+are never synchronized; see [Unsubscribe](unsubscribe.md#remembering-a-sent-request).
+
 The account's **Send Reminders**
 ([#2074](https://github.com/unwired-dev/product/issues/2074)) are kept like its
 Mail Templates, in their own sealed document that neither the Drafts nor the Mail
