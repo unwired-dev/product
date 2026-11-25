@@ -29,8 +29,8 @@ temporary capture journey that was not committed.
   work, and the read state survives relaunch.
 - Draft safety and keyboard: `testKeyboardAndAccessibility` (Light, 365.9
   seconds) and `testKeyboardAndAccessibilityDark` (352.1 seconds) passed.
-  Command-K opens the Command Palette and Escape closes it; Command-A, -X,
-  -C and -V edit the search field and the reply body; Command-Option-N,
+  Command-K opens the Command Palette and Escape closes it; Command-A, -X
+  and -V edit the search field and Command-A, -C and -V the reply body; Command-Option-N,
   Command-` and Command-0 open, cycle and show Inbox windows, and Command-W
   closes them. The reply's Close asks before saving and the saved reply
   survives relaunch. **Expand** (#1266) moves the Draft into its own New
@@ -63,8 +63,8 @@ temporary capture journey that was not committed.
   exceeded XCTest's two-minute allowance during that resize and its capture
   was lost.
 - Sidebar, Light and Dark: Hide Sidebar and Show Sidebar work from the
-  toolbar. With Reduce Motion off, accessibility positions changed in steps
-  about 16 to 30 milliseconds apart: the sidebar slid out over 200 to 230
+  toolbar. With Reduce Motion off, sampled accessibility positions show the
+  sidebar sliding out over 200 to 230
   milliseconds and back over about 260. With Reduce Motion on, Hide went from
   shown to gone with no position between; the journey then found Hide Sidebar
   again after Show, and the captures show both the hidden and the shown
