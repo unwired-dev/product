@@ -23,7 +23,8 @@ Xcode 27.2 (`27B52`) and macOS 27.2.1 (`26B131`) on the Mac mini M4
 temporary capture journey that was not committed.
 
 - Windows: `testIndependentWindowsCloseReopenAndQuit` passed in 35.5 seconds in
-  the desktop's appearance. Two Inbox windows keep their own selection, and
+  Light, the desktop's appearance; it has no Dark variant, and the keyboard
+  journeys below cover the window commands in Dark. Two Inbox windows keep their own selection, and
   opening a message reads it in both. Closing both windows leaves the app
   running, opening the app again gives a new Inbox window, Quit stops its
   work, and the read state survives relaunch.
@@ -32,7 +33,8 @@ temporary capture journey that was not committed.
   Command-K opens the Command Palette and Escape closes it; Command-A, -X
   and -V edit the search field and Command-A, -C and -V the reply body; Command-Option-N,
   Command-` and Command-0 open, cycle and show Inbox windows, and Command-W
-  closes them. The reply's Close asks before saving and the saved reply
+  closes them. A new Inbox window opens with nothing selected while the first
+  keeps its open reply Draft. The reply's Close asks before saving and the saved reply
   survives relaunch. **Expand** (#1266) moves the Draft into its own New
   Message window. There Command-W with an invalid recipient asks, and Save
   Draft keeps the window open with "Correct or remove the invalid address to
