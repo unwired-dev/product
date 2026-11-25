@@ -172,6 +172,9 @@ export const OutboxEntrySchema = Schema.Struct({
   // The Invitation Response the message carries. Its Draft never existed in the Drafts, so it never
   // returns to them, and the response is recorded in its mailbox once the server accepts it.
   invitation: Schema.optionalKey(InvitationAnswerSchema),
+  // A confirmed `mailto:` unsubscribe request. Its Draft never existed in the Drafts either, so it
+  // never returns to them.
+  unsubscribe: Schema.optionalKey(Schema.Literal(true)),
 });
 export type OutboxEntry = typeof OutboxEntrySchema.Type;
 

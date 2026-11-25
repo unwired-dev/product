@@ -1295,6 +1295,10 @@ const restorable = (
 } =>
   entry !== undefined && entry.state !== 'sending' && entry.state !== 'filing';
 
+// An Invitation Response or an unsubscribe request, admitted without ever being a Draft.
+const neverDrafted = (entry: OutboxEntry) =>
+  entry.invitation !== undefined || entry.unsubscribe !== undefined;
+
 // The confirmed sends kept to tell a repeated outcome from a new one.
 const sentLimit = 20;
 const equivalentEntry = Schema.toEquivalence(OutboxEntrySchema);
@@ -2167,7 +2171,8 @@ export function createDrafts(
 
   // Returns an Outbox message not awaiting Gmail's answer to the Drafts, only while it is `only`
   // when given. One whose claim was requested keeps its claim's identifier retired and returns
-  // under a new one. An Invitation Response, which was never a Draft, only leaves the Outbox.
+  // under a new one. An Invitation Response or an unsubscribe request, which was never a Draft,
+  // only leaves the Outbox.
   const restoring = (
     current: number,
     id: string,
@@ -2192,7 +2197,7 @@ export function createDrafts(
             ) {
               return undefined;
             }
-            if (entry.invitation !== undefined) {
+            if (neverDrafted(entry)) {
               return {
                 drafts: state.drafts,
                 delivery: {
