@@ -1183,6 +1183,7 @@ final class WindowTests: XCTestCase {
       XCTAssertTrue(german.waitForExistence(timeout: 10))
       german.click()
     }
+    evaluationLinkJourney(app)
     window.buttons["Close"].click()
     waitUntil { window.webViews.count == 0 }
     window.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Garden plans for spring"))
@@ -1195,6 +1196,67 @@ final class WindowTests: XCTestCase {
     ) {
       self.writingTool("Suggest a reply to the quoted message", in: window, of: app).click()
     }
+  }
+
+  // #2876: the Link Editor links the translated paragraph as one edit that one Undo reverts and
+  // Redo restores, and the link and its destination survive Save, relaunch and reopening.
+  private func evaluationLinkJourney(_ app: XCUIApplication) {
+    let window = app.windows["Inbox 1"]
+    let body = window.webViews.textViews["Message body"]
+    let pageText = { body.staticTexts.allElementsBoundByIndex.map { $0.value as? String ?? "" } }
+    let unlinked = pageText()
+    let link = body.links.firstMatch
+    // The one link in the page holds the whole paragraph, not part of it.
+    let linked = {
+      body.links.count == 1
+        && link.staticTexts.allElementsBoundByIndex.map { $0.value as? String ?? "" }.joined()
+          == unlinked.joined()
+    }
+    let addLink = window.buttons["Add Link"]
+    let edit = window.buttons["Edit Link"]
+    let destination = app.textFields["Link"]
+    // Select the paragraph from its first character to its last, inside its one block.
+    webText("Synthetic translation of local mail.", in: window).click()
+    window.typeKey(.upArrow, modifierFlags: .command)
+    window.typeKey(.downArrow, modifierFlags: [.command, .shift])
+    waitUntil { addLink.isEnabled }
+    addLink.click()
+    XCTAssertTrue(destination.waitForExistence(timeout: 10))
+    waitForFocus(destination)
+    XCTAssertEqual(destination.value as? String, "")
+    XCTAssertEqual(app.textFields["Text"].value as? String, unlinked.joined())
+    XCTAssertFalse(app.buttons["Remove Link"].exists)
+    app.typeText("https://example.com/evaluation")
+    let apply = app.buttons["Apply"]
+    waitUntil { apply.isEnabled }
+    apply.click()
+    XCTAssertTrue(destination.waitForNonExistence(timeout: 10))
+    waitUntil(linked)
+    // Edit Link offers Remove Link and the saved destination; Escape changes nothing.
+    let editLink = { (shot: String) in
+      self.waitUntil { edit.isEnabled }
+      edit.click()
+      XCTAssertTrue(app.buttons["Remove Link"].waitForExistence(timeout: 10))
+      XCTAssertEqual(destination.value as? String, "https://example.com/evaluation")
+      let capture = XCTAttachment(screenshot: window.screenshot())
+      capture.name = shot
+      capture.lifetime = .keepAlways
+      self.add(capture)
+      app.typeKey(.escape, modifierFlags: [])
+      XCTAssertTrue(destination.waitForNonExistence(timeout: 10))
+    }
+    editLink("Evaluation Edit Link")
+    waitUntil { window.buttons["Undo"].isEnabled }
+    window.buttons["Undo"].click()
+    waitUntil { !link.exists && pageText() == unlinked }
+    waitUntil { window.buttons["Redo"].isEnabled }
+    window.buttons["Redo"].click()
+    waitUntil(linked)
+    reopenDraft(app)
+    waitUntil(linked)
+    // A click puts the caret in the reopened link, which the page never opens.
+    link.click()
+    editLink("Evaluation Edit Link after relaunch")
   }
 
   private func waitUntil(_ condition: @escaping () -> Bool, timeout: TimeInterval = 20) {
@@ -1583,6 +1645,8 @@ final class WindowTests: XCTestCase {
       return
     }
     if environment["UNWIRED_TEST_SCENARIO"] == "registration-draft-editor" {
+      // XCTest's default ten minutes stays below the runner's maximum otherwise.
+      executionTimeAllowance = 900
       draftEditorJourney(app, first: first)
       return
     }
