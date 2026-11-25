@@ -3857,10 +3857,15 @@ final class InboxTests: XCTestCase {
 
   // Leaves the Link Editor without applying: iPad taps the expanded composer's title row beside
   // Collapse, outside the popover and away from the body, again when a loaded host drops the tap
-  // (#1510). iPhone closes the sheet, whose Close sits below the composer's own.
+  // (#1510); beside the evaluation composer's card, which is not expanded, it taps the window's
+  // top-left corner (#2923). iPhone closes the sheet, whose Close sits below the composer's own.
   private func dismissLinkEditor(_ app: XCUIApplication, field: XCUIElement, pad: Bool) {
     if pad {
-      let title = app.buttons["Collapse"].coordinate(withNormalizedOffset: CGVector(dx: -2, dy: 0.5))
+      let collapse = app.buttons["Collapse"]
+      let title =
+        collapse.exists
+        ? collapse.coordinate(withNormalizedOffset: CGVector(dx: -2, dy: 0.5))
+        : app.coordinate(withNormalizedOffset: CGVector(dx: 0.05, dy: 0.15))
       for _ in 0..<3 where field.exists {
         title.tap()
         _ = field.waitForNonExistence(timeout: 5)
