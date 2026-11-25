@@ -1165,6 +1165,23 @@ describe('the Tiptap evaluation page', () => {
       { kind: 'numbered', spans: [{ text: 'two' }] },
       { ...right, spans: [{ text: 'c' }] },
     ]);
+    // Replacing a line's end adds no empty line and leaves the caret after the pasted text.
+    editor.commands.setTextSelection({
+      from: line(0).from + 7,
+      to: line(0).to,
+    });
+    editor.view.pasteHTML(list);
+    expect([
+      bodyOf(page)?.slice(0, 3),
+      editor.state.selection.from,
+    ]).toStrictEqual([
+      [
+        { ...right, spans: [{ text: 'acopiedone' }] },
+        { kind: 'numbered', spans: [{ text: 'two' }] },
+        { kind: 'numbered', spans: [{ text: 'two' }] },
+      ],
+      line(1).to,
+    ]);
   });
 
   it('drops a heading into an empty list item with the heading alignment', async () => {

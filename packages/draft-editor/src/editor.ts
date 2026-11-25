@@ -378,9 +378,10 @@ const unlaidOut = (fragment: Fragment): Fragment =>
     ),
   );
 
-// A pasted slice opened as far as it goes at its start and, when it holds one line, at its end.
+// A pasted slice opened as far as it goes at its start and, when it holds one line or no text
+// follows it on the line, at its end.
 // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ProseMirror's Slice is a class; this only reads it.
-const joined = (slice: Slice) => {
+const joined = (slice: Slice, followed: boolean) => {
   const open = Slice.maxOpen(slice.content);
   let lines = 0;
   slice.content.descendants((node) => {
@@ -390,7 +391,7 @@ const joined = (slice: Slice) => {
   return new Slice(
     slice.content,
     open.openStart,
-    lines === 1 ? open.openEnd : slice.openEnd,
+    lines === 1 || !followed ? open.openEnd : slice.openEnd,
   );
 };
 
@@ -686,9 +687,15 @@ const DraftBehavior = Extension.create<unknown, { typing: boolean }>({
               }
               const { tr } = view.state;
               deleteSelected(tr);
+              const { $from } = tr.selection;
               view.dispatch(
                 tr
-                  .replaceSelection(joined(slice))
+                  .replaceSelection(
+                    joined(
+                      slice,
+                      $from.parentOffset < $from.parent.content.size,
+                    ),
+                  )
                   .scrollIntoView()
                   .setMeta('paste', true)
                   .setMeta('uiEvent', 'paste'),
