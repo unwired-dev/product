@@ -4348,6 +4348,124 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(app.buttons["Rowan Hale. Garden plans for spring"].exists)
   }
 
+  // #2907: each presenter stays shown, its controls in reach, while the device turns to Landscape
+  // and back; iPad's More menu closes as the system closes menus at a turn. The turn back to
+  // Portrait can close the link confirmation (#2909), so it turns only to Landscape. CI covers
+  // the iPad Filters popover and `testComposerSheet` the iPhone composer.
+  func testPresenterRotation() throws {
+    continueAfterFailure = false
+    let environment = ProcessInfo.processInfo.environment
+    XCTAssertEqual(environment["UNWIRED_TEST_SCENARIO"], "registration-declined")
+    let app = XCUIApplication(bundleIdentifier: try XCTUnwrap(environment["UNWIRED_BUNDLE_ID"]))
+    addTeardownBlock {
+      XCUIDevice.shared.orientation = .portrait
+      if app.state != .notRunning { app.terminate() }
+    }
+    app.launch()
+    XCTAssertTrue(app.staticTexts["Your mail,\non your devices."].waitForExistence(timeout: 60))
+    connectGmail(app)
+    let rowan = app.buttons["Unread. Rowan Hale. Garden plans for spring"]
+    XCTAssertTrue(rowan.waitForExistence(timeout: 30))
+    let phone = UIDevice.current.userInterfaceIdiom == .phone
+    let window = app.windows.firstMatch
+    func turn(to orientation: UIDeviceOrientation) {
+      XCUIDevice.shared.orientation = orientation
+      waitUntil { (window.frame.width > window.frame.height) == orientation.isLandscape }
+    }
+    func turns(
+      _ name: String, _ controls: [XCUIElement],
+      through orientations: [UIDeviceOrientation] = [.landscapeLeft, .portrait]
+    ) {
+      attachScreen(name, of: app, to: self)
+      for orientation in orientations {
+        turn(to: orientation)
+        _ = settledFrame(of: controls[0])
+        for control in controls {
+          waitUntil { control.exists && control.isHittable }
+        }
+        // An app screenshot draws the landscape window turned and clipped to portrait bounds.
+        if orientation.isLandscape {
+          attachScreen("\(name) in Landscape", of: XCUIScreen.main, to: self)
+        }
+      }
+    }
+    if phone {
+      let filter = app.descendants(matching: .any)
+        .matching(NSPredicate(format: "label == %@", "Filter")).firstMatch
+      XCTAssertTrue(filter.waitForExistence(timeout: 10))
+      filter.tap()
+      let summary = app.buttons["Filtered by Unread"]
+      XCTAssertTrue(summary.waitForExistence(timeout: 10))
+      summary.tap()
+      let apply = app.buttons["Apply Filters"]
+      XCTAssertTrue(apply.waitForExistence(timeout: 10))
+      turns("Filters sheet", [apply])
+      apply.tap()
+      XCTAssertTrue(apply.waitForNonExistence(timeout: 10))
+      filter.tap()
+      XCTAssertTrue(summary.waitForNonExistence(timeout: 10))
+    } else {
+      app.buttons["New Message"].tap()
+      let subject = app.textFields["Subject"]
+      XCTAssertTrue(subject.waitForExistence(timeout: 15))
+      turns("Composer card", [subject, app.buttons["Close"]])
+      app.buttons["Close"].tap()
+      XCTAssertTrue(subject.waitForNonExistence(timeout: 10))
+    }
+    rowan.tap()
+    XCTAssertTrue(header("rowan@example.invalid", in: app).waitForExistence(timeout: 10))
+    // iPhone drops a tap that lands while the reader is still being pushed; its rendered body shows
+    // the push has settled.
+    XCTAssertTrue(webText("seed order", in: app).waitForExistence(timeout: 15))
+    app.descendants(matching: .any).matching(identifier: "message-link-control")
+      .matching(NSPredicate(format: "label == %@", "garden plan")).firstMatch.tap()
+    let alert = app.alerts["Open this link in your browser?"]
+    XCTAssertTrue(alert.waitForExistence(timeout: 10))
+    turns(
+      "Link confirmation", [alert.buttons["Open Link"], alert.buttons["Cancel"]],
+      through: [.landscapeLeft])
+    alert.buttons["Cancel"].tap()
+    XCTAssertTrue(alert.waitForNonExistence(timeout: 10))
+    turn(to: .portrait)
+    let newLabel = app.buttons["New Label…"]
+    if phone {
+      app.buttons["Reply"].tap()
+      let replyAll = app.buttons["Reply All"]
+      XCTAssertTrue(replyAll.waitForExistence(timeout: 10))
+      turns("Reply sheet", [replyAll, app.buttons["Labels"]])
+    } else {
+      let more = app.buttons["More"]
+      more.tap()
+      let unread = app.buttons["Mark as Unread"]
+      XCTAssertTrue(unread.waitForExistence(timeout: 10))
+      attachScreen("More menu", of: app, to: self)
+      turn(to: .landscapeLeft)
+      XCTAssertTrue(unread.waitForNonExistence(timeout: 10))
+      more.tap()
+      XCTAssertTrue(unread.waitForExistence(timeout: 10))
+      attachScreen("More menu in Landscape", of: XCUIScreen.main, to: self)
+      turn(to: .portrait)
+      XCTAssertTrue(unread.waitForNonExistence(timeout: 10))
+    }
+    app.buttons["Labels"].tap()
+    XCTAssertTrue(newLabel.waitForExistence(timeout: 10))
+    turns("Labels", [newLabel])
+    newLabel.tap()
+    let name = app.textFields["Label name"]
+    XCTAssertTrue(name.waitForExistence(timeout: 10))
+    turns("New Label", [name, app.buttons["Cancel"]])
+    app.buttons["Cancel"].tap()
+    XCTAssertTrue(name.waitForNonExistence(timeout: 10))
+    if !phone {
+      app.buttons["Reply"].tap()
+      let composer = app.otherElements["composer-overlay"]
+      XCTAssertTrue(composer.waitForExistence(timeout: 15))
+      turns("Docked reply", [app.buttons["Close"]])
+      app.buttons["Close"].tap()
+      XCTAssertTrue(composer.waitForNonExistence(timeout: 10))
+    }
+  }
+
   // #2457: Send's menu offers Send Now, "No Undo", which sends without the Undo Send Window: the
   // composer closes and no Outbox row waits to send with Undo.
   func testSendNow() throws {

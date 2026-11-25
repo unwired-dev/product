@@ -555,6 +555,22 @@ system menu closed at Command-period in only three of five runs, so its Escape w
 hardware keyboard ([#2873](https://github.com/unwired-dev/product/issues/2873)). The message stays open
 and read. A capture of each, named with the appearance, is kept.
 
+## iPhone and iPad presenter rotation journey
+
+`testPresenterRotation` runs on a `registration-declined` Release build with
+`UNWIRED_JOURNEY=testPresenterRotation` ([#2907](https://github.com/unwired-dev/product/issues/2907)).
+It connects the synthetic Gmail mailbox and opens each presenter in Portrait, turns the device to
+Landscape and back, and after each turn waits until the presenter's controls are in reach and its
+frame has settled, then closes it with its own control. On iPhone: the Filters sheet, the link
+confirmation alert, the Reply sheet, the Labels sheet and the New Label sheet. On iPad: the New
+Message card, the link confirmation alert, the toolbar's Labels popover, New Label in its place and
+the docked reply. iPad's **More** system menu closes at each turn, as the system closes a menu, and
+opens again from **More** in Landscape. The link confirmation turns only to Landscape: the turn
+back to Portrait can close it ([#2909](https://github.com/unwired-dev/product/issues/2909)). The
+iPad Filters popover (the `open-read-relaunch` journey) and the iPhone composer
+(`testComposerSheet`) are covered elsewhere; the Move picker needs IMAP mail. A capture of each
+presenter in Portrait and in Landscape, named with the appearance, is kept.
+
 ## iPhone and iPad Send Now journey
 
 `testSendNow` runs on a `registration-declined` Release build with `UNWIRED_JOURNEY=testSendNow`.
