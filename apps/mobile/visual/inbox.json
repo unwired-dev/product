@@ -27,14 +27,21 @@
         "scale": 3,
         "exportedAt": "2026-11-25T09:46:52Z",
         "approvedDifferences": [
-          "Mock content: the open-read-relaunch Synthetic Test Messages replace the frame's sample messages, so every row's text differs (docs/mock-mail-sessions.md)",
-          "Device chrome: a Simulator screenshot has no screen corners, Dynamic Island or home indicator, which the frame draws"
+          "Mock content: the open-read-relaunch Synthetic Test Messages replace the frame's sample messages, so the subtitle, row count and every row's text and time differ (docs/mock-mail-sessions.md)",
+          "Device chrome: a Simulator screenshot has no screen corners, Dynamic Island or home indicator, which the frame draws",
+          "Time format: the capture's en_US locale draws 12-hour times (9:42 AM) where the frame draws 24-hour times; times follow the regional format (docs/localization.md:18-19)",
+          "Status bar: the Simulator draws the overridden time as 09:41, the frame 9:41",
+          "Command hint: a fresh install shows the one-time \"Swipe down on the header for commands\" hint above the list; the frame shows the list without it (docs/command-palette.md:113)",
+          "Attachment glyphs: the fixture messages have no attachments, so no row shows the glyph the frame draws",
+          "Row weight: unread rows use a stronger sender and subject weight than read rows; the frame draws the same weights for both, which contradicts docs/product/organization.md:55",
+          "Footer: the short fixture list ends on screen, so \"Sample messages · Encrypted on this device\" shows above the toolbar; the frame's longer list hides it",
+          "New Message is dimmed: the preview Inbox has no Product Account to send from (docs/mock-mail-sessions.md:25)",
+          "System controls: UIKit draws Back, Filter, the search field and New Message as navigation bar and toolbar items, so their glass, glyph size and placeholder differ from the frame's copies (DESIGN.md:500, DESIGN.md:710-713, AGENTS.md:67)"
         ],
         "outstandingDeviations": [
-          "The preview Inbox is one mailbox: it shows no More button, no list and conversation switch, no filter chips and no attachment glyphs, which the frame's All Inboxes header shows",
-          "The Command Palette tip shows above the list; the frame has none",
-          "Times read 9:42 AM, the frame 10:30",
-          "The simulator status bar reads 09:41, the frame 9:41"
+          "The header has no List/Chat toggle, which the frame draws; it waits for #810 (DESIGN.md:917)",
+          "The header has no More (…) button, which the frame draws; it waits for an issue that names its menu (DESIGN.md:917-918)",
+          "The list has no Mail View chips, which the frame draws; they wait for #2131 (DESIGN.md:935)"
         ]
       },
       "baseline": {
@@ -79,14 +86,21 @@
         "scale": 3,
         "exportedAt": "2026-11-25T09:46:52Z",
         "approvedDifferences": [
-          "Mock content: the open-read-relaunch Synthetic Test Messages replace the frame's sample messages, so every row's text differs (docs/mock-mail-sessions.md)",
-          "Device chrome: a Simulator screenshot has no screen corners, Dynamic Island or home indicator, which the frame draws"
+          "Mock content: the open-read-relaunch Synthetic Test Messages replace the frame's sample messages, so the subtitle, row count and every row's text and time differ (docs/mock-mail-sessions.md)",
+          "Device chrome: a Simulator screenshot has no screen corners, Dynamic Island or home indicator, which the frame draws",
+          "Time format: the capture's en_US locale draws 12-hour times (9:42 AM) where the frame draws 24-hour times; times follow the regional format (docs/localization.md:18-19)",
+          "Status bar: the Simulator draws the overridden time as 09:41, the frame 9:41",
+          "Command hint: a fresh install shows the one-time \"Swipe down on the header for commands\" hint above the list; the frame shows the list without it (docs/command-palette.md:113)",
+          "Attachment glyphs: the fixture messages have no attachments, so no row shows the glyph the frame draws",
+          "Row weight: unread rows use a stronger sender and subject weight than read rows; the frame draws the same weights for both, which contradicts docs/product/organization.md:55",
+          "Footer: the short fixture list ends on screen, so \"Sample messages · Encrypted on this device\" shows above the toolbar; the frame's longer list hides it",
+          "New Message is dimmed: the preview Inbox has no Product Account to send from (docs/mock-mail-sessions.md:25)",
+          "System controls: UIKit draws Back, Filter, the search field and New Message as navigation bar and toolbar items, so their glass, glyph size and placeholder differ from the frame's copies (DESIGN.md:500, DESIGN.md:710-713, AGENTS.md:67)"
         ],
         "outstandingDeviations": [
-          "The preview Inbox is one mailbox: it shows no More button, no list and conversation switch, no filter chips and no attachment glyphs, which the frame's All Inboxes header shows",
-          "The Command Palette tip shows above the list; the frame has none",
-          "Times read 9:42 AM, the frame 10:30",
-          "The simulator status bar reads 09:41, the frame 9:41"
+          "The header has no List/Chat toggle, which the frame draws; it waits for #810 (DESIGN.md:917)",
+          "The header has no More (…) button, which the frame draws; it waits for an issue that names its menu (DESIGN.md:917-918)",
+          "The list has no Mail View chips, which the frame draws; they wait for #2131 (DESIGN.md:935)"
         ]
       },
       "baseline": {

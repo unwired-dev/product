@@ -47,16 +47,16 @@ Messages are the [Mock Mail Session](mock-mail-sessions.md) fixture, once per ap
 switches the Simulator's appearance with `XCUIDevice.appearance`, and captures the whole screen
 once two screenshots a second apart are identical. It fixes:
 
-| Input       | Value                                                                                       |
-| ----------- | ------------------------------------------------------------------------------------------- |
-| Content     | The `open-read-relaunch` fixture messages                                                   |
-| Clock       | `-UnwiredNow 2026-09-28T10:30:00Z`, which only a preview Inbox build reads; status bar 9:41 |
-| Locale      | `-AppleLanguages (en) -AppleLocale en_US`, time zone `TZ=UTC`                               |
-| Text size   | `-UIPreferredContentSizeCategoryName UICTContentSizeCategoryL` (the default Large)          |
-| Appearance  | Light, then Dark                                                                            |
-| Device      | iPhone 18 Pro Simulator, iOS 27.0 runtime, portrait, 402 × 874 pt at 3×                     |
-| Status bar  | 9:41, Wi-Fi, four cellular bars, a full battery not charging (`simctl status_bar`)          |
-| Environment | The journey's `Visual environment` attachment, the Xcode version and the app revision       |
+| Input       | Value                                                                                                                                              |
+| ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Content     | The `open-read-relaunch` fixture messages                                                                                                          |
+| Clock       | `-UnwiredNow 2026-09-28T10:30:00Z`, which only a preview Inbox build reads; the status bar override reads 9:41, which the Simulator draws as 09:41 |
+| Locale      | `-AppleLanguages (en) -AppleLocale en_US`, time zone `TZ=UTC`                                                                                      |
+| Text size   | `-UIPreferredContentSizeCategoryName UICTContentSizeCategoryL` (the default Large)                                                                 |
+| Appearance  | Light, then Dark                                                                                                                                   |
+| Device      | iPhone 18 Pro Simulator, iOS 27.0 runtime, portrait, 402 × 874 pt at 3×                                                                            |
+| Status bar  | 9:41 override (drawn 09:41), Wi-Fi, four cellular bars, a full battery not charging (`simctl status_bar`)                                          |
+| Environment | The journey's `Visual environment` attachment, the Xcode version and the app revision                                                              |
 
 The runner sets the status bar for this journey only. The report records the environment and
 the app's `UnwiredCommit` revision in `result.json` and in each capture's
@@ -128,13 +128,15 @@ app content.
 ## Known differences
 
 The fixture's Synthetic Test Messages are not the frame's sample messages, so the Figma
-comparison flags every row's text; the frames also show the Unified Inbox's filter chips and
-attachment glyphs that the preview Inbox does not. Record each approved difference and each
+comparison flags every row's text; they carry no attachments, so the frames' attachment glyphs
+are missing too. The frames also draw a More button, a List/Chat toggle and Mail View chips,
+which the app has not built yet ([DESIGN.md](../DESIGN.md#known-frame-differences)). Record each approved difference and each
 outstanding deviation in the capture's `figma.approvedDifferences` and
 `figma.outstandingDeviations`. An approved difference documents a reviewed decision; it does
 not change the computed status, so approval never hides a mismatch. Where a frame is stale
 against a product requirement, the requirement wins and the difference is recorded as
-approved with the requirement it follows.
+approved with the requirement it follows. A difference caused by the capture's fixed inputs,
+such as its locale, status bar or fixture, is approved with the input that causes it.
 
 Open [#1057](https://github.com/unwired-dev/product/issues/1057) migrates the mobile controls
 to native components; when it lands, the baselines need a reviewed refresh.
