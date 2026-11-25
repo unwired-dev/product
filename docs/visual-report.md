@@ -134,7 +134,8 @@ which the app has not built yet ([DESIGN.md](../DESIGN.md#known-frame-difference
 outstanding deviation in the capture's `figma.approvedDifferences` and
 `figma.outstandingDeviations`. An approved difference documents a reviewed decision; it does
 not change the computed status, so approval never hides a mismatch. Where a frame contradicts a product requirement, the frame wins
-([AGENTS.md](../AGENTS.md#design)): the difference stays an outstanding deviation until the app
+([AGENTS.md](../AGENTS.md#design)), except where AGENTS.md lets the system size, a provided native
+component, a privacy guarantee or an accepted ADR prevail; otherwise the difference stays an outstanding deviation until the app
 follows the frame and the requirement is corrected, or the owner decides otherwise. A difference caused by the capture's fixed inputs,
 such as its locale, status bar or fixture, is approved with the input that causes it.
 
