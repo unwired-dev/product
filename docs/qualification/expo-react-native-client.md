@@ -11,6 +11,56 @@ The [mobile bootstrap](../expo-client.md) now uses Expo 57.0.25, React Native
 are available on the development host. The maintainer's earlier native-validation
 deferral still applies to unavailable release checks. Mac host evidence follows.
 
+## Mac native pass in Mock Mail, 2026-11-25
+
+[#2880](https://github.com/unwired-dev/product/issues/2880), a slice of
+[#2796](https://github.com/unwired-dev/product/issues/2796), checks the result
+of [#1058](https://github.com/unwired-dev/product/issues/1058)'s slices in the
+native Mac host. It ran on `d72ed590e` with Testing builds
+(`registration-performance`, and `open-read-relaunch` for the window journey),
+Xcode 27.2 (`27B52`) and macOS 27.2.1 (`26B131`) on the Mac mini M4
+(`Mac16,10`). The checks used the [native journeys](../native-journeys.md) and a
+temporary capture journey that was not committed. Host load from other work
+reached 418 during the builds and stayed below 100 for the journeys.
+
+- Windows and Draft safety: `testIndependentWindowsCloseReopenAndQuit` passed
+  in 35.5 seconds. `testKeyboardAndAccessibility` and
+  `testKeyboardAndAccessibilityDark` cover the nonmodal composer, **Expand**
+  into its own New Message window (#1266) and the return to the overlay, and
+  both passed (365.9 and 352.1 seconds).
+- Accessibility audits: the Light run printed 48 reports and the Dark run 41,
+  all classified as known gaps (the dimmed Link sheet, AppKit Touch Bar, email
+  and web address labels, sentence labels and the writing-tools word
+  contrast), none unclassified.
+- Keyboard and menus, Light and Dark: File (New Message, New Window, Close
+  Window, Close All), Edit, View (Commands…, Refresh, Enter Full Screen) and
+  Window list the same items in the Inbox and the reader. In an Inbox window
+  Edit › Undo stays available and Cut, Copy, Paste and Select All are
+  unavailable while no text field has focus; with no Undo notice, Undo does
+  nothing, as #2188 specifies. The composer overlay's Send push button is
+  unavailable without a recipient and available once one is added.
+- Reader More pull-down, Light and Dark: More opens the native pull-down,
+  and Labels opens its submenu with the Gmail account's Travel and New Label….
+  These are the captures #1383 deferred.
+- Resizing, Light and Dark: at about 760 points wide the sidebar folds away and
+  the open composer overlay fills the reader pane; at about 905 and 1,435
+  points the sidebar, list and reader stay side by side, with the overlay over
+  the reader and its format bar wrapping at 905.
+- Sidebar, Light and Dark: Hide Sidebar and Show Sidebar work from the
+  toolbar. With Reduce Motion off, the sidebar slides out over 200 to 230
+  milliseconds and back over about 260, sampled through accessibility
+  positions every 4 milliseconds. With Reduce Motion on, Hide went from shown
+  to gone with no position between, and Show brought the sidebar back.
+
+Deferred: the same Labels submenu and New Label… with an attested Gmail test
+account stay on #2796 for a protected run. The Profile Switcher's focused
+state (#1265) stays deferred while
+[#849](https://github.com/unwired-dev/product/issues/849) keeps keyboard focus
+from reaching it. VoiceOver, Full Keyboard Access and real provider transport
+are not qualified by this pass. `mise exec -- pnpm verify:bundle` passed: it
+verified 873 Mac sources, the shared fixture, and host-only Mac autolinking and
+Podfile pods, so no Expo or mobile renderer package is in the Mac bundle.
+
 ## iPhone and iPad system sheets and popovers, 2026-11-24
 
 [#2798](https://github.com/unwired-dev/product/issues/2798), the last
