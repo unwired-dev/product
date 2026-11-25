@@ -23,6 +23,7 @@ import {
   textOf,
 } from '@private-email/mail-core/semantic-document';
 import { createSyntheticDrafts } from '@private-email/mail-core/testing/drafts';
+import { palette } from '@private-email/mail-core/theme';
 import { Slice } from '@tiptap/pm/model';
 
 import type { Command, Update } from '../src/messages.ts';
@@ -89,6 +90,54 @@ const paragraph = (text: string): Block => ({
 const paragraphs = (first: string, ...rest: string[]): SemanticDocument => [
   paragraph(first),
   ...rest.map(paragraph),
+];
+
+// A Draft with every alignment, every list level, and text with colors, a background and fonts.
+const formatted: SemanticDocument = [
+  {
+    kind: 'heading1',
+    align: 'center',
+    spans: [
+      {
+        text: 'Agenda',
+        font: '"Helvetica Neue", Arial, sans-serif',
+        size: 24,
+      },
+    ],
+  },
+  {
+    kind: 'paragraph',
+    align: 'right',
+    spans: [
+      { text: 'Red ', color: '#c00000' },
+      { text: 'on yellow', marks: ['bold'], background: '#ffff00' },
+      { text: ' plain' },
+    ],
+  },
+  {
+    kind: 'paragraph',
+    align: 'justify',
+    spans: [
+      {
+        text: 'Serif',
+        link: 'https://example.com',
+        color: '#1f3864',
+        font: 'serif',
+      },
+    ],
+  },
+  { kind: 'numbered', spans: [{ text: 'one' }] },
+  { kind: 'numbered', indent: 1, spans: [{ text: 'one.a' }] },
+  { kind: 'bulleted', indent: 2, spans: [{ text: 'deep', color: '#941751' }] },
+  { kind: 'numbered', indent: 1, spans: [{ text: 'one.b' }] },
+  { kind: 'numbered', spans: [{ text: 'two' }] },
+  {
+    kind: 'quote',
+    align: 'center',
+    spans: [{ text: 'quoted', color: '#000000' }],
+  },
+  { kind: 'code', align: 'right', spans: [{ text: 'code' }] },
+  { kind: 'paragraph', spans: [] },
 ];
 
 type Page = Readonly<{
@@ -533,6 +582,154 @@ describe('the Tiptap evaluation page', () => {
     ]);
   });
 
+  it('keeps alignment, list levels, colors and fonts through opening, editing and saving', async () => {
+    expect.hasAssertions();
+    const page = await open(formatted);
+    // Opening changes nothing; the first edit posts the whole body unchanged around it.
+    page.editor.chain().focus('end').run();
+    page.type('!');
+    const edited = bodyOf(page);
+    expect(edited).toStrictEqual([...formatted.slice(0, -1), paragraph('!')]);
+    ok(edited);
+    // Display offsets follow the current composer's nested and per-level numbered markers.
+    const { text } = displayOf(edited);
+    const blocks = textblocks(page.editor);
+    expect(
+      blocks.map(({ from, to }) => {
+        const { start, end } = selectionOf(page, from, to);
+        return text.slice(start, end);
+      }),
+    ).toStrictEqual(blocks.map((block) => block.text));
+  });
+
+  it('shows alignment, list levels, colors and fonts as the current composer does', async () => {
+    expect.hasAssertions();
+    const { editor } = await open(formatted);
+    const html = editor.view.dom.innerHTML;
+    expect(html).toContain('<h1 style="text-align: center;">');
+    expect(html).toContain(
+      '<pre style="text-align: right;"><code>code</code></pre>',
+    );
+    expect(html).toContain('<li data-indent="1">');
+    expect(html).toContain('<li data-indent="2">');
+    // Light shows colors as stored and Dark adapts text colors; text on a background keeps the
+    // Light ink in both.
+    const styles = [
+      ...editor.view.dom.querySelectorAll('[data-draft-format]'),
+    ].map((span) => [span.textContent, span.getAttribute('style')]);
+    expect(styles).toStrictEqual([
+      [
+        'Agenda',
+        'font-family: "Helvetica Neue", system-ui; font-size: 24px; line-height: 32px;',
+      ],
+      ['Red ', '--draft-light: #c00000; --draft-dark: #d96666;'],
+      [
+        'on yellow',
+        `--draft-light: ${palette.light.textPrimary}; --draft-dark: ${palette.light.textPrimary}; background-color: #ffff00;`,
+      ],
+      [
+        'Serif',
+        '--draft-light: #1f3864; --draft-dark: #7988a2; font-family: ui-serif, system-ui;',
+      ],
+      ['deep', '--draft-light: #941751; --draft-dark: #bf7497;'],
+      [
+        'quoted',
+        `--draft-light: #000000; --draft-dark: ${palette.dark.textPrimary};`,
+      ],
+    ]);
+  });
+
+  it('keeps formatting through typing, Return, joining, marks and block kinds', async () => {
+    expect.hasAssertions();
+    const page = await open(formatted);
+    const { editor, command } = page;
+    const line = (wanted: string) => {
+      const block = textblocks(editor).find(({ text }) => text === wanted);
+      ok(block, `Expected the line ${wanted}`);
+      return block;
+    };
+    // Typed text takes the format of the text before it, and at a block's start the text after
+    // it; at a link's edge it stays unlinked.
+    editor.commands.setTextSelection(line('Red on yellow plain').from + 4);
+    page.type('x');
+    editor.commands.setTextSelection(line('Serif').from);
+    page.type('y');
+    // Return keeps the alignment on both sides, and a list item's level.
+    editor.commands.setTextSelection(line('ySerif').from + 3);
+    press(page, 'Enter');
+    editor.commands.setTextSelection(line('one.b').to);
+    press(page, 'Enter');
+    press(page, 'Enter');
+    page.type('z');
+    // A mark keeps the color it formats.
+    editor.commands.setTextSelection({
+      from: line('Red xon yellow plain').from,
+      to: line('Red xon yellow plain').from + 3,
+    });
+    command({ type: 'mark', mark: 'italic' });
+    expect(bodyOf(page)?.slice(1, 11)).toStrictEqual([
+      {
+        kind: 'paragraph',
+        align: 'right',
+        spans: [
+          { text: 'Red', marks: ['italic'], color: '#c00000' },
+          { text: ' x', color: '#c00000' },
+          { text: 'on yellow', marks: ['bold'], background: '#ffff00' },
+          { text: ' plain' },
+        ],
+      },
+      {
+        kind: 'paragraph',
+        align: 'justify',
+        spans: [
+          { text: 'y', color: '#1f3864', font: 'serif' },
+          {
+            text: 'Se',
+            link: 'https://example.com',
+            color: '#1f3864',
+            font: 'serif',
+          },
+        ],
+      },
+      {
+        kind: 'paragraph',
+        align: 'justify',
+        spans: [
+          {
+            text: 'rif',
+            link: 'https://example.com',
+            color: '#1f3864',
+            font: 'serif',
+          },
+        ],
+      },
+      ...formatted.slice(3, 6),
+      { kind: 'numbered', indent: 1, spans: [{ text: 'one.b' }] },
+      { kind: 'numbered', indent: 1, spans: [] },
+      { kind: 'numbered', indent: 1, spans: [{ text: 'z' }] },
+      { kind: 'numbered', spans: [{ text: 'two' }] },
+    ]);
+    // Joining keeps the first block's alignment.
+    editor.commands.setTextSelection(line('rif').from);
+    press(page, 'Backspace');
+    expect(bodyOf(page)?.[2]).toMatchObject({ align: 'justify' });
+    // Block kinds keep alignment, list items keep their level, and a paragraph stops nesting.
+    editor.commands.setTextSelection(line('Agenda').from);
+    command({ type: 'block', kind: 'heading1' });
+    editor.commands.setTextSelection(line('one.a').from);
+    command({ type: 'block', kind: 'bulleted' });
+    editor.commands.setTextSelection(line('deep').from);
+    command({ type: 'block', kind: 'bulleted' });
+    const body = bodyOf(page);
+    expect(body?.[0]).toStrictEqual({ ...formatted[0], kind: 'paragraph' });
+    expect(body?.slice(4, 6)).toStrictEqual([
+      { kind: 'bulleted', indent: 1, spans: [{ text: 'one.a' }] },
+      { kind: 'paragraph', spans: [{ text: 'deep', color: '#941751' }] },
+    ]);
+    command({ type: 'undo' });
+    expect(bodyOf(page)?.[5]).toStrictEqual(formatted[5]);
+  });
+
   it('pastes supported meaning only and never stores unsupported content', async () => {
     expect.hasAssertions();
     const page = await open(paragraphs(''));
@@ -546,7 +743,9 @@ describe('the Tiptap evaluation page', () => {
         '<blockquote><h2>Quoted heading</h2><p>quote</p></blockquote>',
         '<pre><code>line 1\nline 2</code></pre>',
         '<table><tr><td>cell</td></tr></table>',
-        '<p style="color: red; font-size: 40px">styled</p>',
+        // The page's own rendering of stored formatting, as copying within the page carries it.
+        '<p style="text-align: right;"><span data-draft-format="" style="--draft-light: #c00000;">own</span></p><ol><li data-indent="1"><p>level</p></li></ol>',
+        '<p style="color: red; font-size: 40px; text-align: center">styled</p>',
       ].join(''),
     );
     expect(bodyOf(page)).toStrictEqual([
@@ -576,6 +775,8 @@ describe('the Tiptap evaluation page', () => {
       { kind: 'code', spans: [{ text: 'line 1' }] },
       { kind: 'code', spans: [{ text: 'line 2' }] },
       paragraph('cell'),
+      paragraph('own'),
+      { kind: 'numbered', spans: [{ text: 'level' }] },
       paragraph('styled'),
     ]);
     // Numbering shown in the page follows the stored document: it counts from one.

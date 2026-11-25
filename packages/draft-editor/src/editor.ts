@@ -9,6 +9,7 @@ import type {
 import type { ChainedCommands, Editor as TiptapEditor } from '@tiptap/core';
 import type { EditorState, Transaction } from '@tiptap/pm/state';
 
+import { formatStyleOf } from '@private-email/mail-core/body-display';
 import { vettedHref } from '@private-email/mail-core/link-inspection';
 import { Editor, Extension, Mark, Node } from '@tiptap/core';
 import Blockquote from '@tiptap/extension-blockquote';
@@ -37,6 +38,7 @@ import type { Command, Update } from './messages.ts';
 import {
   displayOffset,
   editorPosition,
+  formatOf,
   fromEditor,
   isImageWidth,
   kindAt,
@@ -149,6 +151,77 @@ const Link = Mark.create({
   renderHTML: ({ HTMLAttributes }) => ['a', HTMLAttributes, 0],
 });
 
+// A span's stored color, background, font family and size, shown as the current composer shows
+// them: Dark adapts text colors on screen only. Typed text takes the format of the text before it.
+// Pasted text never carries one.
+const Format = Mark.create({
+  name: 'format',
+  addAttributes: () => ({
+    color: { default: null, rendered: false },
+    background: { default: null, rendered: false },
+    font: { default: null, rendered: false },
+    size: { default: null, rendered: false },
+  }),
+  renderHTML: ({ mark }) => {
+    const span = { text: ' ', ...formatOf(mark.attrs) };
+    const light = formatStyleOf(span, 'light');
+    const dark = formatStyleOf(span, 'dark');
+    const family = /^ui-|^system-ui$/u.test(light.fontFamily ?? '')
+      ? light.fontFamily
+      : `"${light.fontFamily}"`;
+    return [
+      'span',
+      {
+        'data-draft-format': '',
+        style: [
+          light.color === undefined ? '' : `--draft-light: ${light.color};`,
+          dark.color === undefined ? '' : `--draft-dark: ${dark.color};`,
+          light.backgroundColor === undefined
+            ? ''
+            : `background-color: ${light.backgroundColor};`,
+          light.fontFamily === undefined
+            ? ''
+            : `font-family: ${family}, system-ui;`,
+          light.fontSize === undefined
+            ? ''
+            : `font-size: ${light.fontSize}px; line-height: ${light.lineHeight}px;`,
+        ].join(''),
+      },
+      0,
+    ];
+  },
+});
+
+// Each textblock's stored alignment and each list item's level, as the current composer shows
+// them. Return keeps both; pasted HTML carries neither.
+const Layout = Extension.create({
+  name: 'layout',
+  addGlobalAttributes: () => [
+    {
+      types: ['paragraph', 'heading', 'codeLine'],
+      attributes: {
+        align: {
+          default: null,
+          parseHTML: () => null,
+          renderHTML: ({ align }) =>
+            typeof align === 'string' ? { style: `text-align: ${align}` } : {},
+        },
+      },
+    },
+    {
+      types: ['listItem'],
+      attributes: {
+        indent: {
+          default: 0,
+          parseHTML: () => 0,
+          renderHTML: ({ indent }) =>
+            indent === 0 ? {} : { 'data-indent': String(indent) },
+        },
+      },
+    },
+  ],
+});
+
 // One code line per textblock, as the Semantic Message Document stores code; consecutive lines
 // show as one block. A pasted multi-line block splits into lines.
 const CodeLine = Node.create({
@@ -166,10 +239,42 @@ const CodeLine = Node.create({
       contentElement: (pre) => pre.querySelector('code') ?? pre,
     },
   ],
-  renderHTML: () => ['pre', ['code', 0]],
+  renderHTML: ({ HTMLAttributes }) => ['pre', HTMLAttributes, ['code', 0]],
 });
 
-// Sets every selected block to `kind`, from a paragraph: no block nests in another.
+// Every selected textblock, in order, with its alignment and the list item holding it.
+// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ProseMirror's transaction is a class; this only reads it.
+const textblocksIn = ({ doc, selection: { from, to } }: Transaction) => {
+  const found: Array<{
+    position: number;
+    align: unknown;
+    item?: { position: number; indent: unknown };
+  }> = [];
+  doc.nodesBetween(from, to, (node, position, parent) => {
+    if (node.isTextblock) {
+      const attrs: Readonly<Record<string, unknown>> = node.attrs;
+      const item: Readonly<Record<string, unknown>> | undefined =
+        parent?.type.name === 'listItem' ? parent.attrs : undefined;
+      found.push({
+        position,
+        align: attrs.align,
+        ...(item === undefined
+          ? {}
+          : {
+              item: {
+                position: doc.resolve(position).before(),
+                indent: item.indent,
+              },
+            }),
+      });
+    }
+    return !node.isTextblock;
+  });
+  return found;
+};
+
+// Sets every selected block to `kind`, from a paragraph: no block nests in another. As in the
+// current composer, each keeps its alignment, and a list item its level while it stays one.
 type Chain = ChainedCommands;
 // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Tiptap's command chain is mutable by design.
 const kindCommands: Partial<Record<BlockKind, (chain: Chain) => Chain>> = {
@@ -183,8 +288,23 @@ const kindCommands: Partial<Record<BlockKind, (chain: Chain) => Chain>> = {
 };
 // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Tiptap's command chain is mutable by design.
 const setKind = (chain: Chain, kind: BlockKind) => {
-  const cleared = chain.clearNodes();
-  return kindCommands[kind]?.(cleared) ?? cleared;
+  let kept: ReturnType<typeof textblocksIn> = [];
+  const cleared = chain
+    .command(({ tr }) => {
+      kept = textblocksIn(tr);
+      return true;
+    })
+    .clearNodes();
+  return (kindCommands[kind]?.(cleared) ?? cleared).command(({ tr }) => {
+    for (const [index, { position, item }] of textblocksIn(tr).entries()) {
+      const before = kept[index];
+      tr.setNodeAttribute(position, 'align', before?.align ?? null);
+      if (item !== undefined && before?.item !== undefined) {
+        tr.setNodeAttribute(item.position, 'indent', before.item.indent);
+      }
+    }
+    return true;
+  });
 };
 
 // The block kinds of every selected textblock.
@@ -304,7 +424,7 @@ const continueEmpty = ({ state, view }: TiptapEditor) => {
   const at = item ? $from.after(-1) : $from.after();
   const tr = state.tr.insert(
     at,
-    item ? container.type.create(null, paragraph) : paragraph,
+    item ? container.type.create(container.attrs, paragraph) : paragraph,
   );
   view.dispatch(
     tr.setSelection(TextSelection.create(tr.doc, at + (item ? 2 : 1))),
@@ -502,6 +622,8 @@ if (draftEditor !== undefined && element !== null) {
       // The Semantic Message Document admits inline code with other marks.
       Code.extend({ excludes: '' }),
       Link,
+      Format,
+      Layout,
       UndoRedo.configure({ newGroupDelay: Number.MAX_SAFE_INTEGER }),
       DraftBehavior,
     ],

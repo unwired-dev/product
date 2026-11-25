@@ -110,6 +110,15 @@ paragraphs, headings one to three, bulleted and numbered lists, quotes and code
 blocks, with bold, italic, underline, strikethrough and inline code. Its rules are
 the current composer's:
 
+- **Stored formatting.** A Draft's alignment, list levels, text colors,
+  backgrounds, font families and sizes open in the page and save back unchanged
+  ([#2884](https://github.com/unwired-dev/product/issues/2884)). The page shows
+  them as the current composer does, Dark colors included: a nested item sits one
+  level further in and numbered items count per level. Typing, Return, joined
+  blocks, marks and block kinds keep them as [Drafts](drafts.md#composing)
+  describes; text typed at the start of a link takes its color and font but not
+  its link. The page sets none of them.
+
 - **Controls.** On iPad and Mac the current composer's format bar: the text style
   menu, the four marks, lists, the Link control, **Undo** and **Redo**, **Writing
   tools** and the file controls. On iPhone a floating Liquid Glass pill with
@@ -153,8 +162,9 @@ the current composer's:
   numbered list counts from one; a link keeps its destination only when the Draft
   admits it as written (a web, mail or telephone address), and otherwise keeps only
   its text, so one **Undo** removes a pasted link with the rest of the paste;
-  images, except an Inline Image copied or cut within the page, styles, colors and
-  sizes are dropped; and multi-line code becomes one code
+  images, except an Inline Image copied or cut within the page, styles, colors,
+  fonts, sizes, alignment and list levels are dropped, also when copied within
+  the page; and multi-line code becomes one code
   line per line. Plain text becomes one paragraph per line. Nothing else reaches
   the stored document.
 

@@ -148,10 +148,11 @@ Replacing the production body was the owner's decision, which this plan filed ah
   composition, dictation and autocorrection inside cells were not exercised.
 - **Marks and nested content in cells.** Format marks inside cells and reported
   nested tables and images were not probed; slice 3 covers them with page tests.
-- **Formatting parity.** The evaluation page's conversion does not yet carry the
-  current composer's alignment, color and font, so a production body on the page
-  would drop them from existing Drafts, around tables too. Preserving them is a
-  prerequisite of #823's production integration.
+- **Formatting parity.** The page's conversion carries and shows the current
+  composer's alignment, list levels, colors and fonts since
+  [#2884](https://github.com/unwired-dev/product/issues/2884), the first slice of
+  #2865's production integration; formatting inside table cells comes with
+  slice 3.
 - **Table shapes.** `prosemirror-tables` normalizes tables as soon as they are
   edited: typing in a table whose rows have two and one cells adds a cell to the
   short row. mail-core accepts such ragged tables, so the page must define which

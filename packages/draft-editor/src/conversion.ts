@@ -9,6 +9,8 @@ import type {
 import type { JSONContent } from '@tiptap/core';
 import type { Node, ResolvedPos } from '@tiptap/pm/model';
 
+import { markersOf } from '@private-email/mail-core/body-display';
+
 // The explicit boundary between the stored Semantic Message Document and Tiptap's JSON. The
 // Draft stores only the Semantic Message Document; editor JSON never leaves the page.
 // Consecutive list items and quote lines share one Tiptap container, as they share one in
@@ -16,7 +18,8 @@ import type { Node, ResolvedPos } from '@tiptap/pm/model';
 // An Inline Image is an inline node naming its Draft Asset and any display width, and the Draft's Attachments are an
 // attribute of the editor document naming theirs, so one edit and one Undo step can change both.
 // The page keeps the assets it was given by identifier. Linked text carries a `link` mark naming
-// its destination.
+// its destination, and text with a stored color, background, font or size a `format` mark. A
+// textblock carries its alignment and a list item its level.
 
 // The character an Inline Image occupies; typed or pasted text never stores it.
 const imageCharacter = '￼';
@@ -62,11 +65,17 @@ const headingKind: Readonly<Record<number, BlockKind | undefined>> = {
 type Span = Block['spans'][number];
 
 const inlineOf = (span: Span): JSONContent => {
-  const marks: Array<{ type: string; attrs?: { href: string } }> = (
+  const marks: Array<{ type: string; attrs?: Record<string, unknown> }> = (
     span.marks ?? []
   ).map((mark) => ({ type: tiptapMarks[mark] }));
   if ('link' in span && span.link !== undefined) {
     marks.push({ type: 'link', attrs: { href: span.link } });
+  }
+  if (!('image' in span)) {
+    const { color = null, background = null, font = null, size = null } = span;
+    if ([color, background, font, size].some((value) => value !== null)) {
+      marks.push({ type: 'format', attrs: { color, background, font, size } });
+    }
   }
   return {
     ...('image' in span
@@ -79,15 +88,22 @@ const inlineOf = (span: Span): JSONContent => {
   };
 };
 
-const textblock = (type: string, { spans }: Block): JSONContent =>
-  spans.length === 0 ? { type } : { type, content: spans.map(inlineOf) };
+const textblock = (
+  type: string,
+  { spans, align }: Block,
+  attrs?: Readonly<Record<string, unknown>>,
+): JSONContent => ({
+  type,
+  attrs: { ...attrs, align: align ?? null },
+  ...(spans.length === 0 ? {} : { content: spans.map(inlineOf) }),
+});
 
 // One Tiptap node for a run of blocks of one kind; only lists and quotes have runs longer than one.
 const nodeOf = (run: readonly [Block, ...Block[]]): JSONContent => {
   const [first] = run;
   const level = headingLevel[first.kind];
   if (level !== undefined) {
-    return { ...textblock('heading', first), attrs: { level } };
+    return textblock('heading', first, { level });
   }
   const container = containerOf[first.kind];
   if (container === undefined) {
@@ -98,7 +114,11 @@ const nodeOf = (run: readonly [Block, ...Block[]]): JSONContent => {
     content: run.map((block) =>
       first.kind === 'quote'
         ? textblock('paragraph', block)
-        : { type: 'listItem', content: [textblock('paragraph', block)] },
+        : {
+            type: 'listItem',
+            attrs: { indent: block.indent ?? 0 },
+            content: [textblock('paragraph', block)],
+          },
     ),
   };
 };
@@ -147,13 +167,32 @@ const linkOf = (node: JSONContent) => {
   return typeof href === 'string' ? { link: href } : {};
 };
 
-// Whether text `span` continues the `last` span: both text, with the same marks and link.
+// The stored color, background, font family and size a `format` mark's attributes name.
+export const formatOf = ({
+  color,
+  background,
+  font,
+  size,
+}: Readonly<Record<string, unknown>> = {}) => ({
+  ...(typeof color === 'string' ? { color } : {}),
+  ...(typeof background === 'string' ? { background } : {}),
+  ...(typeof font === 'string' ? { font } : {}),
+  ...(typeof size === 'number' ? { size } : {}),
+});
+
+const paintOf = (span: Span) =>
+  'image' in span
+    ? []
+    : [span.color, span.background, span.font, span.size].map(String);
+
+// Whether text `span` continues the `last` span: both text, with the same marks, link and format.
 const continues = (last: Span | undefined, span: Span): last is Span =>
   last !== undefined &&
   !('image' in last) &&
   last.marks?.join(',') === span.marks?.join(',') &&
   ('link' in last ? last.link : undefined) ===
-    ('link' in span ? span.link : undefined);
+    ('link' in span ? span.link : undefined) &&
+  paintOf(last).join(',') === paintOf(span).join(',');
 
 // The display widths the document admits, kept here so the page bundles no schema library.
 const imageWidths: ReadonlySet<unknown> = new Set<ImageWidth>([320, 640, 1024]);
@@ -179,7 +218,12 @@ const spansOf = (nodes: readonly JSONContent[], assets: Assets) => {
         ? assets.get(String(node.attrs?.id))
         : undefined;
     const text = (node.text ?? '').replaceAll(imageCharacter, '');
-    const span: Span = { text, ...marks, ...linkOf(node) };
+    const span: Span = {
+      text,
+      ...marks,
+      ...linkOf(node),
+      ...formatOf(node.marks?.find(({ type }) => type === 'format')?.attrs),
+    };
     const last = spans.at(-1);
     if (image !== undefined) {
       spans.push({ text: imageCharacter, image, ...widthOf(node), ...marks });
@@ -192,8 +236,29 @@ const spansOf = (nodes: readonly JSONContent[], assets: Assets) => {
   return spans;
 };
 
+// The alignments and list levels the document admits.
+type Alignment = NonNullable<Block['align']>;
+const alignments: ReadonlySet<unknown> = new Set<Alignment>([
+  'center',
+  'right',
+  'justify',
+]);
+const isAlignment = (value: unknown): value is Alignment =>
+  alignments.has(value);
+type Level = NonNullable<Block['indent']>;
+const levels: ReadonlySet<unknown> = new Set<Level>([1, 2]);
+const isLevel = (value: unknown): value is Level => levels.has(value);
+
+// A textblock's alignment, when it has one.
+const alignOf = ({ align }: Readonly<Record<string, unknown>> = {}) =>
+  isAlignment(align) ? { align } : {};
+
+// A list item's level below its list's first, when it is nested.
+const indentOf = ({ indent }: Readonly<Record<string, unknown>> = {}) =>
+  isLevel(indent) ? { indent } : {};
+
 // Every block a node holds, in reading order. The schema admits no nesting: a list item or quote
-// holds only paragraphs.
+// holds only paragraphs, and a list item's level is an attribute.
 const blocksOf = (
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Tiptap's JSON type is mutable; this only reads it.
   node: JSONContent,
@@ -203,8 +268,12 @@ const blocksOf = (
   const { type = '', content = [], attrs } = node;
   const contained = containedKind[type];
   if (contained !== undefined || type === 'listItem') {
+    const level = type === 'listItem' ? indentOf(attrs) : {};
     return content.flatMap((child) =>
-      blocksOf(child, contained ?? kind, assets),
+      blocksOf(child, contained ?? kind, assets).map((block) => ({
+        ...block,
+        ...level,
+      })),
     );
   }
   let own = kind;
@@ -213,7 +282,13 @@ const blocksOf = (
   } else if (type === 'codeLine') {
     own = 'code';
   }
-  return [{ kind: own, spans: spansOf(content, assets) }];
+  return [
+    {
+      kind: own,
+      spans: spansOf(content, assets),
+      ...alignOf(attrs),
+    },
+  ];
 };
 
 export const fromEditor = (
@@ -248,7 +323,8 @@ export const kindAt = ($position: ResolvedPos): BlockKind => {
 
 // Where each semantic line starts in the editor and in the composer's display text, and its text
 // length. The display text joins blocks with line breaks and shows list items after their marker
-// (`displayOf` in mail-core): consecutive numbered items count from one. Offsets inside a
+// (`displayOf` in mail-core): nested items after their level's indent, numbered items counting
+// per level from one. Offsets inside a
 // textblock count code units, and an Inline Image counts one, as its character does.
 export type Line = Readonly<{
   editor: number;
@@ -257,31 +333,40 @@ export type Line = Readonly<{
   length: number;
 }>;
 
-const markerLength = (kind: BlockKind, number: number) => {
-  if (kind === 'bulleted') {
-    return '• '.length;
-  }
-  return kind === 'numbered' ? `${number}. `.length : 0;
+// A list item's level, from a position in its textblock.
+// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ProseMirror's resolved position is a class; this only reads it.
+const indentAt = ($position: ResolvedPos) => {
+  const item = $position.node(-1);
+  return item.type.name === 'listItem' ? indentOf(item.attrs) : {};
 };
 
 // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ProseMirror's node is a class; this only reads it.
 export const linesOfDocument = (doc: Node): Line[] => {
-  const lines: Line[] = [];
-  let start = 0;
-  let number = 0;
+  const blocks: Array<
+    Readonly<{ editor: number; length: number; kind: BlockKind }> &
+      Pick<Block, 'indent'>
+  > = [];
   doc.descendants((node, position) => {
     if (!node.isTextblock) {
       return true;
     }
-    const kind = kindAt(doc.resolve(position + 1));
-    number = kind === 'numbered' ? number + 1 : 0;
-    const marker = markerLength(kind, number);
-    const length = node.content.size;
-    lines.push({ editor: position + 1, start, marker, length });
-    start += marker + length + 1;
+    const $position = doc.resolve(position + 1);
+    blocks.push({
+      editor: position + 1,
+      length: node.content.size,
+      kind: kindAt($position),
+      ...indentAt($position),
+    });
     return false;
   });
-  return lines;
+  const markers = markersOf(blocks);
+  let start = 0;
+  return blocks.map(({ editor, length }, index) => {
+    const marker = markers[index]?.length ?? 0;
+    const line = { editor, start, marker, length };
+    start += marker + length + 1;
+    return line;
+  });
 };
 
 // The last line starting at or before `at`; positions before the first line belong to it.

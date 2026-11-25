@@ -25,6 +25,20 @@ body { font: -apple-system-body; -webkit-text-size-adjust: 100%; }
 .ProseMirror h3 { font-size: 1.15em; }
 .ProseMirror ul, .ProseMirror ol { margin: 0 0 0.75em; padding-left: 1.5em; }
 .ProseMirror li p, .ProseMirror blockquote p { margin: 0; }
+.ProseMirror li[data-indent="1"] { margin-left: 1.5em; }
+.ProseMirror li[data-indent="2"] { margin-left: 3em; }
+.ProseMirror { counter-reset: level0 level1 level2; }
+.ProseMirror > :not(ul, ol), .ProseMirror ul > li { counter-set: level0 0 level1 0 level2 0; }
+.ProseMirror ul > li[data-indent="1"] { counter-set: level1 0 level2 0; }
+.ProseMirror ul > li[data-indent="2"] { counter-set: level2 0; }
+.ProseMirror ol > li { position: relative; list-style: none; counter-increment: level0; counter-set: level1 0 level2 0; }
+.ProseMirror ol > li[data-indent="1"] { counter-increment: level1; counter-set: level2 0; }
+.ProseMirror ol > li[data-indent="2"] { counter-increment: level2; counter-set: none; }
+.ProseMirror ol > li::before { position: absolute; right: 100%; padding-right: 0.4em; content: counter(level0) "."; }
+.ProseMirror ol > li[data-indent="1"]::before { content: counter(level1) "."; }
+.ProseMirror ol > li[data-indent="2"]::before { content: counter(level2) "."; }
+.ProseMirror [data-draft-format] { color: var(--draft-light); }
+@media (prefers-color-scheme: dark) { .ProseMirror [data-draft-format] { color: var(--draft-dark); } }
 .ProseMirror blockquote { margin: 0 0 0.75em; padding-left: 12px; border-left: 3px solid rgba(128, 128, 128, 0.5); }
 .ProseMirror pre { margin: 0; padding: 0 8px; background: rgba(128, 128, 128, 0.12); white-space: pre-wrap; }
 .ProseMirror pre + :not(pre) { margin-top: 0.75em; }
