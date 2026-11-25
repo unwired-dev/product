@@ -2399,11 +2399,34 @@ describe('tables in the Tiptap page', () => {
         {
           kind: 'table',
           rows: [
-            [cell('0Xter'), cell('')],
+            [cell('0X'), cell('')],
             [cell(''), cell('')],
           ],
         },
+        paragraph('ter'),
       ],
+    ]);
+  });
+
+  it('keeps an Inline Image after a deletion from a cell out of the table', async () => {
+    expect.hasAssertions();
+    const after = {
+      kind: 'paragraph',
+      spans: [{ text: 'ab' }, { text: '￼', image: photo }],
+    } as const;
+    const page = await open([shaped([[{}, {}]]), after], [photo]);
+    const { editor } = page;
+    editor.commands.setTextSelection({
+      from: nth(textblocks(editor), 0).from + 1,
+      to: nth(textblocks(editor), 2).from + 1,
+    });
+    press(page, 'Backspace');
+    expect(bodyOf(page)).toStrictEqual([
+      { kind: 'table', rows: [[cell('0'), cell('')]] },
+      {
+        kind: 'paragraph',
+        spans: [{ text: 'b' }, { text: '￼', image: photo }],
+      },
     ]);
   });
 
@@ -2416,14 +2439,22 @@ describe('tables in the Tiptap page', () => {
       bodyOf(page),
       page.editor.state.selection instanceof NodeSelection,
     ];
+    press(page, 'Delete');
+    const deleted = bodyOf(page);
     const all = await open([shaped([[{}, {}], [{}]]), paragraph('after')]);
     all.editor.commands.selectAll();
     press(all, 'Enter');
     expect([
       selected,
+      deleted,
       bodyOf(all),
       all.editor.state.selection instanceof TextSelection,
-    ]).toStrictEqual([[undefined, true], paragraphs('', ''), true]);
+    ]).toStrictEqual([
+      [undefined, true],
+      paragraphs('before'),
+      paragraphs('', ''),
+      true,
+    ]);
   });
 
   it.each([

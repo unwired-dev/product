@@ -644,6 +644,12 @@ const normalized = (state: EditorState) => {
   return tr.docChanged ? tr : null;
 };
 
+// Whether positions `a` and `b` in `doc` are in different table cells, or one is in a cell and
+// the other is not.
+// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ProseMirror's node is a class; this only reads it.
+const inOtherCell = (doc: ProseMirrorNode, a: number, b: number) =>
+  cellAround(doc.resolve(a + 1))?.pos !== cellAround(doc.resolve(b + 1))?.pos;
+
 // Deletes `from` to `to` as the current composer deletes across lines: the first textblock keeps
 // its kind, alignment and list level and takes the rest of the last one, and every other textblock
 // in the range goes, with any quote or list item left empty, as does every table wholly inside it.
@@ -681,17 +687,30 @@ const flatDelete = (tr: Transaction, from: number, to: number) => {
     return;
   }
   const last = textblocks.at(-1) ?? first;
-  const tail = last.node.content.cut(
-    Math.min(Math.max(0, to - last.position - 1), last.node.content.size),
+  const cut = Math.min(
+    Math.max(0, to - last.position - 1),
+    last.node.content.size,
   );
+  // No text moves into or out of a table cell: a last line in another cell, or outside the
+  // first line's table, keeps its text after the range.
+  const kept = inOtherCell(tr.doc, first.position, last.position)
+    ? last
+    : undefined;
   const before = blocks.filter(({ position }) => position < first.position);
-  for (const { node, position } of blocks.toReversed()) {
-    if (position > first.position) {
+  for (const block of blocks.toReversed()) {
+    const { node, position } = block;
+    if (block === kept) {
+      tr.delete(position + 1, position + 1 + cut);
+    } else if (position > first.position) {
       tr.deleteRange(position, position + node.nodeSize);
     }
   }
   const start = Math.max(from, first.position + 1);
-  tr.replaceWith(start, first.position + first.node.nodeSize - 1, tail);
+  tr.replaceWith(
+    start,
+    first.position + first.node.nodeSize - 1,
+    kept === undefined ? last.node.content.cut(cut) : Fragment.empty,
+  );
   for (const { node, position } of before.toReversed()) {
     tr.deleteRange(position, position + node.nodeSize);
   }
