@@ -171,10 +171,8 @@
       },
       "baseline": {
         "image": "baseline/ipad-inbox-light.png",
-        "sha256": "9e6b9ea90090192e90a4410cffbc45f5fca02373f2e2fe1dce1eaf4848ccab32",
-        "appRevision": "95089fb15b46c88512d0335b97a904f39fd646f7",
-        "capturedIn": "Local pnpm test:visual run, iOS 27.0 Simulator (24A434)",
-        "reviewedIn": "Design review of the #1062 pull request",
+        "sha256": "0beb4b5c7273f78fb6b34bc49f4f49a0938c7ed3623206ba37095dad7f73df6d",
+        "appRevision": "b72e650973cec584c8eb3812894cb6a8ce050c69",
         "environment": {
           "device": "iPad17,2",
           "launchArguments": [
@@ -193,8 +191,10 @@
           "points": [1210, 834],
           "scale": 2,
           "timeZone": "UTC",
-          "toolchain": "Xcode 27.2 Build version 27B52"
-        }
+          "toolchain": "Xcode 27.0 Build version 27A266a"
+        },
+        "capturedIn": "CI Expo visual report (iPad), run 45618319810 job 139264566920",
+        "reviewedIn": "Design review of the #1062 pull request: matches the reviewed local Xcode 27.2 capture within 0.07% of pixels"
       }
     },
     {
@@ -236,10 +236,8 @@
       },
       "baseline": {
         "image": "baseline/ipad-inbox-dark.png",
-        "sha256": "348f1b7f18f1aef76ab8e54c9594e08c132fe65a30bfc032fecb618494777a3a",
-        "appRevision": "95089fb15b46c88512d0335b97a904f39fd646f7",
-        "capturedIn": "Local pnpm test:visual run, iOS 27.0 Simulator (24A434)",
-        "reviewedIn": "Design review of the #1062 pull request",
+        "sha256": "da839c5a3538e32d5012066f0a815aa79aff5c50396802af2b793160aaad78c3",
+        "appRevision": "b72e650973cec584c8eb3812894cb6a8ce050c69",
         "environment": {
           "device": "iPad17,2",
           "launchArguments": [
@@ -258,8 +256,10 @@
           "points": [1210, 834],
           "scale": 2,
           "timeZone": "UTC",
-          "toolchain": "Xcode 27.2 Build version 27B52"
-        }
+          "toolchain": "Xcode 27.0 Build version 27A266a"
+        },
+        "capturedIn": "CI Expo visual report (iPad), run 45618319810 job 139264566920",
+        "reviewedIn": "Design review of the #1062 pull request: matches the reviewed local Xcode 27.2 capture within 0.07% of pixels"
       }
     }
   ]
