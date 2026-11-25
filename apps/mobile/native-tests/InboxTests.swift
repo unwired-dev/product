@@ -3421,7 +3421,24 @@ final class InboxTests: XCTestCase {
       ).firstMatch
       XCTAssertTrue(current.exists)
       XCTAssertFalse(current.isEnabled)
-      if close == "Close" || close == "tap" { capture(phone ? "Move sheet" : "Folders popover") }
+      if close == "Close" || close == "tap" {
+        let name = phone ? "Move sheet" : "Folders popover"
+        capture(name)
+        // #2931: the picker stays shown, its folders and Close in reach, through a turn to
+        // Landscape and back. An app screenshot draws the landscape window turned and clipped.
+        let window = app.windows.firstMatch
+        let reach =
+          [spam, app.buttons["Move to Deleted Messages"]] + (phone ? [app.buttons["Close"]] : [])
+        for orientation in [UIDeviceOrientation.landscapeLeft, .portrait] {
+          XCUIDevice.shared.orientation = orientation
+          waitUntil { (window.frame.width > window.frame.height) == orientation.isLandscape }
+          _ = settledFrame(of: spam)
+          for control in reach { waitUntil { control.exists && control.isHittable } }
+          if orientation.isLandscape {
+            attachScreen("\(name) in Landscape", of: XCUIScreen.main, to: self)
+          }
+        }
+      }
       switch close {
       case "Close": app.buttons["Close"].tap()
       case "swipe":
