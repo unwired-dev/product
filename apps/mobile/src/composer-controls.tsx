@@ -94,6 +94,8 @@ const overflowSlop = {
 };
 
 const styles = StyleSheet.create({
+  // The sheet's empty host stays out of the row, so its gap doesn't move the controls.
+  sheetHost: { position: 'absolute' },
   // iPad draws the Mac Link Editor popover at the iPad list scale.
   linkPopover: {
     width: 340 * ipadListScale,
@@ -255,15 +257,6 @@ const styles = StyleSheet.create({
   popUpButton: { flexShrink: 1, maxWidth: '100%' },
   popUpText: { ...textStyles.subheadline, flexShrink: 1 },
   popUpPrefix: { flexShrink: 0 },
-  menuItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.s,
-    minHeight: 44,
-    paddingHorizontal: spacing.m,
-    borderRadius: radius.control,
-  },
-  menuItemText: { ...textStyles.body, flex: 1 },
 });
 
 export const kindStyles: Record<BlockKind, TextStyle> = {
@@ -471,58 +464,6 @@ export function PopUp({
         )}
       </View>
     </MenuButton>
-  );
-}
-
-export function MenuItem({
-  label,
-  accessibilityLabel,
-  selected,
-  disabled = false,
-  destructive = false,
-  onPress,
-}: {
-  readonly label: string;
-  readonly accessibilityLabel?: string;
-  readonly selected: boolean;
-  readonly disabled?: boolean;
-  readonly destructive?: boolean;
-  readonly onPress: () => void;
-}) {
-  const colors = usePalette();
-  return (
-    <Pressable
-      accessibilityLabel={accessibilityLabel ?? label}
-      accessibilityRole="button"
-      accessibilityState={{ selected, disabled }}
-      disabled={disabled}
-      onPress={onPress}
-      style={[
-        styles.menuItem,
-        {
-          backgroundColor: selected
-            ? colors.accentSelectionSubtle
-            : 'transparent',
-        },
-      ]}>
-      <Text
-        numberOfLines={1}
-        style={[
-          styles.menuItemText,
-          {
-            color: destructive ? colors.statusDestructive : colors.textPrimary,
-          },
-        ]}>
-        {label}
-      </Text>
-      {selected ? (
-        <SFSymbol
-          name="checkmark"
-          size={12}
-          color={colors.textPrimary}
-        />
-      ) : null}
-    </Pressable>
   );
 }
 
@@ -1556,7 +1497,9 @@ export function GeneratePrompt({
   ) : (
     <>
       {trigger}
-      <Host matchContents>
+      <Host
+        matchContents
+        style={styles.sheetHost}>
         <BottomSheet
           isPresented={shown}
           onIsPresentedChange={dismiss}>

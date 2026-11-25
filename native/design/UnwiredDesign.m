@@ -1535,6 +1535,8 @@ RCT_EXPORT_METHOD(retire:(nonnull NSNumber *)request)
 @interface UnwiredMenuButtonView : UIButton
 @property (nonatomic, copy) NSArray<NSDictionary *> *sections;
 @property (nonatomic, copy) RCTDirectEventBlock onSelect;
+@property (nonatomic) BOOL alignMenuToRowEnd;
+@property (nonatomic, weak) UIView *presentedMenuRow;
 @end
 
 @implementation UnwiredMenuButtonView
@@ -1544,6 +1546,86 @@ RCT_EXPORT_METHOD(retire:(nonnull NSNumber *)request)
     self.showsMenuAsPrimaryAction = YES;
   }
   return self;
+}
+
+- (void)setAlignMenuToRowEnd:(BOOL)alignMenuToRowEnd
+{
+  _alignMenuToRowEnd = alignMenuToRowEnd;
+  self.preferredMenuElementOrder = alignMenuToRowEnd
+    ? UIContextMenuConfigurationElementOrderFixed
+    : UIContextMenuConfigurationElementOrderAutomatic;
+}
+
+- (UIView *)alignedMenuRow
+{
+  UIView *glass = self.alignMenuToRowEnd ? self.superview : nil;
+  while (glass && ![glass isKindOfClass:UIVisualEffectView.class]) {
+    glass = glass.superview;
+  }
+  // The glass's host view sits in the controls row, which React Native keeps as a native view
+  // (collapsable={false} on iPhone's PhoneControls).
+  return glass.superview.superview;
+}
+
+- (UITargetedPreview *)contextMenuInteraction:(UIContextMenuInteraction *)interaction
+                                configuration:(UIContextMenuConfiguration *)configuration
+        highlightPreviewForItemWithIdentifier:(id<NSCopying>)identifier
+{
+  UIView *row = [self alignedMenuRow];
+  if (!row) {
+    // Other menu buttons keep UIKit's own highlight preview.
+    if ([UIButton instancesRespondToSelector:_cmd]) {
+      return [super contextMenuInteraction:interaction configuration:configuration
+                     highlightPreviewForItemWithIdentifier:identifier];
+    }
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+    SEL legacy = @selector(contextMenuInteraction:previewForHighlightingMenuWithConfiguration:);
+    return [UIButton instancesRespondToSelector:legacy]
+      ? [super contextMenuInteraction:interaction previewForHighlightingMenuWithConfiguration:configuration]
+      : nil;
+#pragma clang diagnostic pop
+  }
+
+  // A preview from inside the glass is confined to its bounds. Use the row
+  // for menu placement while the actual button stays inside interactive glass.
+  CGRect frame = [self convertRect:self.bounds toView:row];
+  if (self.effectiveUserInterfaceLayoutDirection == UIUserInterfaceLayoutDirectionRightToLeft) {
+    frame.size.width = CGRectGetMaxX(frame) - CGRectGetMinX(row.bounds);
+    frame.origin.x = CGRectGetMinX(row.bounds);
+  } else {
+    frame.size.width = CGRectGetMaxX(row.bounds) - CGRectGetMinX(frame);
+  }
+  // Keep the clear preview at the menu's attachment edge.
+  // UIKit ends the menu 2pt below the preview, so the strip sits 2pt above the row's bottom.
+  frame.size.height = 2;
+  frame.origin.y = CGRectGetMaxY(row.bounds) - frame.size.height;
+  // A clear stand-in of that size, so the row's own controls do not move with the preview.
+  UIView *anchor = [[UIView alloc] initWithFrame:(CGRect){CGPointZero, frame.size}];
+  UIPreviewParameters *parameters = [UIPreviewParameters new];
+  parameters.backgroundColor = UIColor.clearColor;
+  UIPreviewTarget *target = [[UIPreviewTarget alloc] initWithContainer:row
+      center:CGPointMake(CGRectGetMidX(frame), CGRectGetMidY(frame))];
+  return [[UITargetedPreview alloc] initWithView:anchor parameters:parameters target:target];
+}
+
+- (void)contextMenuInteraction:(UIContextMenuInteraction *)interaction
+  willDisplayMenuForConfiguration:(UIContextMenuConfiguration *)configuration
+                        animator:(id<UIContextMenuInteractionAnimating>)animator
+{
+  [super contextMenuInteraction:interaction willDisplayMenuForConfiguration:configuration animator:animator];
+  self.presentedMenuRow = [self alignedMenuRow];
+  // Hide any part of the controls that UIKit leaves below the menu.
+  self.presentedMenuRow.hidden = YES;
+}
+
+- (void)contextMenuInteraction:(UIContextMenuInteraction *)interaction
+        willEndForConfiguration:(UIContextMenuConfiguration *)configuration
+                        animator:(id<UIContextMenuInteractionAnimating>)animator
+{
+  [super contextMenuInteraction:interaction willEndForConfiguration:configuration animator:animator];
+  self.presentedMenuRow.hidden = NO;
+  self.presentedMenuRow = nil;
 }
 
 - (void)setSections:(NSArray<NSDictionary *> *)sections
@@ -1658,10 +1740,39 @@ RCT_EXPORT_VIEW_PROPERTY(onEscape, RCTDirectEventBlock)
 
 @implementation UnwiredMenuButtonManager
 RCT_EXPORT_MODULE(UnwiredMenuButton)
+RCT_EXPORT_VIEW_PROPERTY(alignMenuToRowEnd, BOOL)
 RCT_EXPORT_VIEW_PROPERTY(sections, NSArray)
 RCT_EXPORT_VIEW_PROPERTY(enabled, BOOL)
 RCT_EXPORT_VIEW_PROPERTY(onSelect, RCTDirectEventBlock)
 - (UnwiredPlatformView *)view { return [UnwiredMenuButtonView new]; }
+@end
+#endif
+
+#if !TARGET_OS_OSX
+// Shows the system grabber on the sheet presenting it: React Native's page sheet Modal offers none.
+@interface UnwiredSheetGrabberView : UIView
+@end
+
+@implementation UnwiredSheetGrabberView
+- (void)didMoveToWindow
+{
+  [super didMoveToWindow];
+  for (UIResponder *responder = self; responder; responder = responder.nextResponder) {
+    if ([responder isKindOfClass:UIViewController.class]
+        && ((UIViewController *)responder).presentingViewController) {
+      ((UIViewController *)responder).sheetPresentationController.prefersGrabberVisible = YES;
+      return;
+    }
+  }
+}
+@end
+
+@interface UnwiredSheetGrabberManager : RCTViewManager
+@end
+
+@implementation UnwiredSheetGrabberManager
+RCT_EXPORT_MODULE(UnwiredSheetGrabber)
+- (UIView *)view { return [UnwiredSheetGrabberView new]; }
 @end
 #endif
 

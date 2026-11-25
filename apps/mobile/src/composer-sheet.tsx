@@ -1,10 +1,11 @@
 import type { ReactNode } from 'react';
 
 import { useEffect, useRef, useState } from 'react';
-import { Modal, StyleSheet, View } from 'react-native';
+import { Modal, Platform, StyleSheet, View } from 'react-native';
 
 import { InSheet, SheetPalette } from './command-palette.tsx';
 import { ComposerPresentedContext } from './composer.tsx';
+import { SheetGrabber } from './design.tsx';
 import { useComposerNavigation } from './mailbox.tsx';
 import { usePalette } from './theme.ts';
 
@@ -109,6 +110,7 @@ export function ComposerSheet({
             </ComposerPresentedContext>
           </InSheet>
           <SheetPalette leave={leave} />
+          {Platform.OS === 'ios' && !Platform.isPad ? <SheetGrabber /> : null}
         </View>
       )}
     </Modal>
