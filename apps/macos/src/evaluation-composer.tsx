@@ -68,6 +68,7 @@ import {
   Notice,
   retires,
   SendingMailbox,
+  useRecoveryJournal,
 } from './composer.tsx';
 import { askInSheet, Button, MenuPresence, ToolbarButton } from './design.tsx';
 import { PageFormatBar, DraftFields } from './evaluation-composer-controls.tsx';
@@ -98,10 +99,12 @@ const styles = StyleSheet.create({
 
 // The Tiptap evaluation editor for one Draft, in the current composer's layout: the packaged page
 // edits the body, and native controls format it, add files and offer writing tools. Nothing is
-// saved until the person chooses Save on Close, as in Mail; Don't Save removes the Draft.
+// saved until the person chooses Save on Close, as in Mail; Don't Save removes the Draft. Unsaved
+// edits are journaled to a composer recovery record, as in the current composer (ADR 0077).
 function EvaluationEditor({
   page,
   initial,
+  opening,
   onClose,
   onRebind,
   onExpand,
@@ -109,6 +112,9 @@ function EvaluationEditor({
 }: {
   readonly page: string;
   readonly initial: Draft;
+  // The version the editor opens on: `initial`, or the unsaved version a composer recovery record
+  // kept.
+  readonly opening: Draft;
   readonly onClose: () => void;
   readonly onRebind: (id: string) => void;
   readonly onExpand?: ((id: string) => void) | undefined;
@@ -119,13 +125,14 @@ function EvaluationEditor({
   const colors = usePalette();
   const { t } = useLocalization();
   // Page messages and field edits can arrive before React commits an earlier edit or a rebind.
-  const authored = useRef(initial);
+  const authored = useRef(opening);
   const getDraft = useCallback(() => authored.current, []);
-  // The version the store holds: the Draft as opened, until Save or Send stores this one.
+  // The version the store holds: the Draft as opened, or the version a restored record's edits
+  // started from, until Save or Send stores this one.
   const stored = useRef(initial);
   // Whether storage may not hold the stored version yet, because its Save is pending or failed.
   const unsaved = useRef(false);
-  const [draft, setDraft] = useState(initial);
+  const [draft, setDraft] = useState(opening);
   // Undefined until the page reports that it is ready for commands.
   const [pageState, setPageState] = useState<PageState>();
   const pageNow = useRef<PageState>(undefined);
@@ -169,6 +176,19 @@ function EvaluationEditor({
       onRebindNow.current(id);
     }
   }, []);
+  const [closeRecord, journalNow] = useRecoveryJournal(
+    draft,
+    useCallback(() => {
+      if (authored.current === stored.current && !unsaved.current) {
+        return undefined;
+      }
+      // No base while a save is pending or failed: storage may still hold the version before it.
+      return unsaved.current
+        ? { version: authored.current }
+        : { version: authored.current, base: stored.current };
+    }, []),
+    rebind,
+  );
   useLayoutEffect(() => {
     mounted.current = true;
     store.hold(authored.current.id, rebind);
@@ -233,10 +253,10 @@ function EvaluationEditor({
   };
   // Every asset this editor gave its page, as native code last settled it. The page reports only
   // these, and Undo in the page can restore any of them.
-  const initialImages = imagesOf(textOf(initial.body));
+  const initialImages = imagesOf(textOf(opening.body));
   const known = useRef(
     new Map(
-      [...initialImages, ...(initial.attachments ?? [])].map((asset) => [
+      [...initialImages, ...(opening.attachments ?? [])].map((asset) => [
         asset.id,
         asset,
       ]),
@@ -418,7 +438,7 @@ function EvaluationEditor({
   // oxlint-disable-next-line react/hook-use-state -- Injected once, before the page's script.
   const [injected] = useState(
     () =>
-      `window.draftEditor = ${JSON.stringify({ document: textOf(initial.body), attachments: initial.attachments ?? [], label: t('drafts.body') })}; true;`,
+      `window.draftEditor = ${JSON.stringify({ document: textOf(opening.body), attachments: opening.attachments ?? [], label: t('drafts.body') })}; true;`,
   );
   // Entries still being typed become recipients; an invalid one keeps the Draft here.
   const finishEntries = () => {
@@ -460,6 +480,9 @@ function EvaluationEditor({
       closed = pageReady && (await finish());
     } catch {
       // An unexpected storage rejection keeps the composer open and retryable too.
+    }
+    if (closed) {
+      await closeRecord(authored.current.id);
     }
     paused.current = undefined;
     busy.current = false;
@@ -550,6 +573,7 @@ function EvaluationEditor({
       // A refused Send still stored the version shown; Close asks only if saving it failed.
       if (await store.save()) {
         unsaved.current = false;
+        journalNow();
       }
       setClosing(undefined);
       setRefused(refusal);
@@ -898,6 +922,7 @@ function EvaluationEditor({
 function EvaluationComposer({
   page,
   id,
+  recovered,
   onClose,
   onRebind,
   onExpand,
@@ -905,6 +930,8 @@ function EvaluationComposer({
 }: {
   readonly page: string;
   readonly id: string;
+  // The composer recovery record of Draft `id` to open on instead.
+  readonly recovered?: Recovered | undefined;
   readonly onClose: () => void;
   readonly onRebind: (id: string) => void;
   readonly onExpand?: ((id: string) => void) | undefined;
@@ -931,6 +958,8 @@ function EvaluationComposer({
     [onRebind],
   );
   const opened = editor.followed === id ? editor.opened : draft;
+  const restoring =
+    recovered?.version.id === editor.key ? recovered : undefined;
   if (opened === undefined) {
     return (
       <Composer
@@ -946,7 +975,8 @@ function EvaluationComposer({
     <EvaluationEditor
       key={editor.key}
       page={page}
-      initial={opened}
+      initial={restoring?.base ?? opened}
+      opening={restoring?.version ?? opened}
       onClose={onClose}
       onExpand={onExpand}
       onRebind={rebind}
@@ -957,7 +987,7 @@ function EvaluationComposer({
 
 type ComposerProps = Readonly<{
   id: string;
-  // The composer recovery record restored, which only the current composer opens.
+  // The composer recovery record restored, which the editor opens on.
   recovered?: Recovered | undefined;
   onClose: () => void;
   // Follows the editor to its conflicting copy without reopening it.
@@ -980,7 +1010,7 @@ export function DraftComposer(props: ComposerProps) {
   return (
     <ProfileMailAssistanceGate
       profile={profileOf(draft?.connection, mailboxes)}>
-      {editorPage === undefined || props.recovered !== undefined ? (
+      {editorPage === undefined ? (
         <Composer {...props} />
       ) : (
         <EvaluationComposer
