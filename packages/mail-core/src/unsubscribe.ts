@@ -140,9 +140,13 @@ const listOf = (headers: NonNullable<BodyDocument['headers']>) => {
     phraseOf(listId) ||
     phraseOf(from) ||
     (addressPattern.test(address) ? address : '');
-  // RFC 2919 lets whitespace sit inside the brackets; it is no part of the identifier.
+  // RFC 2919 lets whitespace sit around the identifier's dots; it is no part of the identifier.
+  // Elsewhere, as where a comment was, it leaves the identifier invalid.
   const identifier = listId.includes('<')
-    ? bracketedOf(listId).replaceAll(/\s/gu, '')
+    ? bracketedOf(listId)
+        .split('.')
+        .map((atom) => atom.trim())
+        .join('.')
     : '';
   return name === ''
     ? undefined

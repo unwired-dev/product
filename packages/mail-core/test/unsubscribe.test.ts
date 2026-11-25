@@ -232,6 +232,8 @@ describe('unsubscribe offers', () => {
     for (const listId of [
       'Club <https://club.example/u/42>',
       'Club <club>',
+      'Club <week(note)ly.club.example>',
+      'Club <weekly club.example>',
       'club.example',
     ]) {
       expect(identityOf({ listId })).toBeUndefined();
