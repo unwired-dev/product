@@ -1184,6 +1184,33 @@ describe('the Tiptap evaluation page', () => {
     ]);
   });
 
+  it('pastes a whole Draft over a line end without changing the lines after it', async () => {
+    expect.hasAssertions();
+    const bullet = { kind: 'bulleted' } as const;
+    const page = await open([
+      { ...bullet, spans: [{ text: 'abc' }] },
+      { ...bullet, spans: [{ text: 'survivor' }] },
+      { kind: 'paragraph', spans: [{ text: 'one' }] },
+      { kind: 'numbered', spans: [{ text: 'three' }] },
+    ]);
+    const { editor } = page;
+    const { dom } = editor.view.serializeForClipboard(
+      editor.state.doc.slice(0, editor.state.doc.content.size),
+    );
+    const first = nth(textblocks(editor), 0);
+    editor.commands.setTextSelection({ from: first.from + 1, to: first.to });
+    editor.view.pasteHTML(dom.innerHTML);
+    expect(bodyOf(page)).toStrictEqual([
+      { ...bullet, spans: [{ text: 'aabc' }] },
+      { ...bullet, spans: [{ text: 'survivor' }] },
+      { kind: 'paragraph', spans: [{ text: 'one' }] },
+      { kind: 'numbered', spans: [{ text: 'three' }] },
+      { ...bullet, spans: [{ text: 'survivor' }] },
+      { kind: 'paragraph', spans: [{ text: 'one' }] },
+      { kind: 'numbered', spans: [{ text: 'three' }] },
+    ]);
+  });
+
   it('drops a heading into an empty list item with the heading alignment', async () => {
     expect.hasAssertions();
     const page = await open([

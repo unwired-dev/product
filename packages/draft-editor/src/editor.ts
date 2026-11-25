@@ -32,6 +32,7 @@ import { UndoRedo } from '@tiptap/extensions';
 import { closeHistory } from '@tiptap/pm/history';
 import { Fragment, Node as ProseMirrorNode, Slice } from '@tiptap/pm/model';
 import { Plugin, Selection, TextSelection } from '@tiptap/pm/state';
+import { ReplaceStep } from '@tiptap/pm/transform';
 
 import type { Command, Update } from './messages.ts';
 
@@ -378,10 +379,9 @@ const unlaidOut = (fragment: Fragment): Fragment =>
     ),
   );
 
-// A pasted slice opened as far as it goes at its start and, when it holds one line or no text
-// follows it on the line, at its end.
+// A pasted slice opened as far as it goes at its start and, when it holds one line, at its end.
 // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ProseMirror's Slice is a class; this only reads it.
-const joined = (slice: Slice, followed: boolean) => {
+const joined = (slice: Slice) => {
   const open = Slice.maxOpen(slice.content);
   let lines = 0;
   slice.content.descendants((node) => {
@@ -391,7 +391,7 @@ const joined = (slice: Slice, followed: boolean) => {
   return new Slice(
     slice.content,
     open.openStart,
-    lines === 1 || !followed ? open.openEnd : slice.openEnd,
+    lines === 1 ? open.openEnd : slice.openEnd,
   );
 };
 
@@ -688,14 +688,25 @@ const DraftBehavior = Extension.create<unknown, { typing: boolean }>({
               const { tr } = view.state;
               deleteSelected(tr);
               const { $from } = tr.selection;
+              const followed = $from.parentOffset < $from.parent.content.size;
+              tr.replaceSelection(joined(slice));
+              // A paste over a line's end leaves no empty line after it and the caret at its end.
+              const step = tr.steps.at(-1);
+              if (!followed && step instanceof ReplaceStep) {
+                const $end = tr.doc.resolve(step.from + step.slice.size);
+                let at = $end.pos;
+                if ($end.parent.isTextblock && $end.parent.content.size === 0) {
+                  let { depth } = $end;
+                  while (depth > 1 && $end.node(depth - 1).childCount === 1) {
+                    depth -= 1;
+                  }
+                  at = $end.before(depth);
+                  tr.delete(at, $end.after(depth));
+                }
+                tr.setSelection(Selection.near(tr.doc.resolve(at), -1));
+              }
               view.dispatch(
                 tr
-                  .replaceSelection(
-                    joined(
-                      slice,
-                      $from.parentOffset < $from.parent.content.size,
-                    ),
-                  )
                   .scrollIntoView()
                   .setMeta('paste', true)
                   .setMeta('uiEvent', 'paste'),
