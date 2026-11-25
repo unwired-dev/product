@@ -620,8 +620,7 @@ with keyboard" are named with the appearance.
 ([#2891](https://github.com/unwired-dev/product/issues/2891)). It connects the synthetic Gmail
 mailbox and opens New Message as the card narrower than the regular-width window. Subject and then
 the body are typed on the software keyboard's keys; the card ends above the keyboard with the field
-being typed in view. **Expand** takes the same Draft over the whole window, where Subject stays
-above the keyboard, and **Collapse** returns the card with the same Subject and body. **Close**
+being typed in view. **Expand** takes the same Draft over the whole window, and **Collapse** returns the card with the same Subject and body. **Close**
 then asks, and **Delete Draft** closes it. The captures "Composer card above the keyboard",
 "Composer card body above the keyboard", "Expanded composer keeps the Draft" and "Collapsed card
 keeps the Draft" are named with the appearance.

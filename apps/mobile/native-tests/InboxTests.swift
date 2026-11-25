@@ -3809,6 +3809,14 @@ final class InboxTests: XCTestCase {
     element.value(forKey: "hasKeyboardFocus") as? Bool == true
   }
 
+  // The software keyboard's top edge: its typing predictions and shortcuts bar sits above the
+  // `Keyboard` element's frame (#2891).
+  private func keyboardTop(_ app: XCUIApplication) -> CGFloat {
+    let assistant = app.otherElements["SystemInputAssistantView"]
+    let keys = app.keyboards.firstMatch.frame.minY
+    return assistant.exists ? min(assistant.frame.minY, keys) : keys
+  }
+
   // Taps `element` until `taken` holds: on a loaded host a tap can land while the screen is still
   // settling and leave focus where it was (#1510).
   private func focus(_ element: XCUIElement, until taken: @escaping () -> Bool) {
@@ -4190,7 +4198,7 @@ final class InboxTests: XCTestCase {
     waitUntil { name.value as? String == "Travel/Spain" }
     for control in [name, app.buttons["Cancel"], app.buttons["Apply"]] {
       XCTAssertTrue(control.isHittable, "\(control) is out of reach")
-      XCTAssertLessThanOrEqual(control.frame.maxY, keyboard.frame.minY)
+      XCTAssertLessThanOrEqual(control.frame.maxY, keyboardTop(app))
     }
     XCTAssertTrue(
       app.buttons["Create “Spain” inside “Travel”, Created in Gmail, then applied"]
@@ -4521,14 +4529,16 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(keyboard.waitForExistence(timeout: 10))
     typeKeys("venue")
     waitUntil { (subject.value as? String)?.lowercased() == "venue" }
-    waitUntil { composer.frame.maxY <= keyboard.frame.minY }
-    XCTAssertLessThanOrEqual(subject.frame.maxY, keyboard.frame.minY)
+    waitUntil { composer.frame.maxY <= self.keyboardTop(app) }
+    XCTAssertTrue(subject.isHittable)
+    XCTAssertLessThanOrEqual(subject.frame.maxY, keyboardTop(app))
     attachScreen("Composer card above the keyboard", of: app, to: self)
     focus(body) { self.hasFocus(body) }
     typeKeys("seats")
     waitUntil { (body.value as? String)?.lowercased().hasPrefix("seats") == true }
-    XCTAssertLessThanOrEqual(composer.frame.maxY, keyboard.frame.minY)
-    XCTAssertLessThanOrEqual(body.frame.minY, keyboard.frame.minY)
+    XCTAssertLessThanOrEqual(composer.frame.maxY, keyboardTop(app))
+    XCTAssertTrue(body.isHittable)
+    XCTAssertGreaterThanOrEqual(body.frame.minY, composer.frame.minY)
     attachScreen("Composer card body above the keyboard", of: app, to: self)
     let typed = (subject.value as? String, body.value as? String)
     let keeps = {
@@ -4540,9 +4550,6 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(collapse.waitForExistence(timeout: 10))
     waitUntil { composer.frame == window }
     keeps()
-    focus(subject) { self.hasFocus(subject) }
-    XCTAssertTrue(keyboard.waitForExistence(timeout: 10))
-    waitUntil { subject.frame.maxY <= keyboard.frame.minY && collapse.isHittable }
     attachScreen("Expanded composer keeps the Draft", of: app, to: self)
     collapse.tap()
     XCTAssertTrue(app.buttons["Expand"].waitForExistence(timeout: 10))

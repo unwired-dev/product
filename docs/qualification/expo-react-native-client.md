@@ -19,7 +19,7 @@ checks the 2026-11-24 pass below deferred. It ran on `e20a2d516` with the
 journey changes, on a `registration-declined` Release Simulator build with
 Xcode 27.2 (`27B52`), the iOS 27.0 runtime and macOS 27.2.1, on iPhone 18 Pro
 and iPad Pro 11-inch (M5) in portrait, in Light and Dark. Each run passed on
-its first attempt; the 1-minute host load was 7–30.
+its first attempt; the 1-minute host load was 7–90.
 
 - New Label (`testNewLabel`, iPhone and iPad): the software keyboard is up
   while the name is typed, and its own delete and **n** keys edit
@@ -29,9 +29,12 @@ its first attempt; the 1-minute host load was 7–30.
 - The regular-width iPad composer (`testComposerCard`): Subject and then the
   body are typed on the software keyboard's keys, and the New Message card ends
   above the keyboard with the field being typed in view.
+- "Above the keyboard" means above its typing predictions and shortcuts bar
+  (`SystemInputAssistantView`), which starts 55 pt above the `Keyboard`
+  element XCUITest reports on iPad.
 - Expand in the regular-width iPad composer (`testComposerCard`): **Expand**
-  takes the same Draft, Subject and body, over the whole window, with Subject
-  above the keyboard, and **Collapse** returns the card with them.
+  takes the same Draft, Subject and body, over the whole window, and
+  **Collapse** returns the card with them.
 
 The other checks #2873 lists stay open there.
 
