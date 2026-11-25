@@ -25,7 +25,8 @@ loads of 33 and 127. Three runs between those, at host loads of 90–120,
 stopped at **Cancel** not closing the reopened New Label, at New Label kept
 after the swipe that follows the keyboard's, and at Reply not reopening after
 New Label closed. A sheet still moving is the suspected cause; the journey now
-waits for **Cancel** to settle and for **Reply** to be hittable.
+waits for **Cancel** to settle and for **Reply** to be hittable, and with those
+waits it passed in Dark and Light at host loads of 34 and 260.
 
 - `testSheetSwipes`: from a Gmail reader, the Reply sheet, its Labels sheet
   and that sheet's New Label sheet each stay at the same frame after a
