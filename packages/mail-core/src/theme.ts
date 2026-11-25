@@ -1,4 +1,5 @@
-// The DESIGN.md tokens ("Graphite & Cinnabar"); each client picks its platform's type ramp.
+// The design tokens ("Graphite & Cinnabar"); each client picks its platform's type ramp.
+// test/theme.test.ts checks them against the Figma file's variables.
 export const spacing = { xs: 4, s: 8, m: 12, l: 16, xl: 20, xxl: 24, xxxl: 40 };
 
 // The iPad Inbox frames scale the Mac list recipe by 1.15; type rounds to whole points.

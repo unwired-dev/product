@@ -88,6 +88,15 @@ export default buildOxlintConfig({
         },
       },
       {
+        // use_figma runs this file as one returned expression inside an async function in Figma.
+        files: ['packages/mail-core/scripts/export-figma-variables.js'],
+        rules: {
+          'import/unambiguous': 'allow',
+          'unicorn/prefer-top-level-await': 'allow',
+          'unicorn/consistent-function-scoping': 'allow',
+        },
+      },
+      {
         files: ['**/*.test.ts', '**/*.test.tsx'],
         // Vitest rule settings only apply where an override enables the plugin.
         plugins: ['vitest'],

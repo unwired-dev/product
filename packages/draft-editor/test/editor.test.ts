@@ -28,7 +28,7 @@ import {
 import { createSyntheticDrafts } from '@private-email/mail-core/testing/drafts';
 import { palette } from '@private-email/mail-core/theme';
 import { Slice } from '@tiptap/pm/model';
-import { NodeSelection } from '@tiptap/pm/state';
+import { NodeSelection, TextSelection } from '@tiptap/pm/state';
 import { CellSelection, TableMap } from '@tiptap/pm/tables';
 import * as Arr from 'effect/Array';
 import * as Fn from 'effect/Function';
@@ -2293,17 +2293,18 @@ describe('tables in the Tiptap page', () => {
         ),
       ),
     );
-    press(page, 'Enter');
     const input = new InputEvent('beforeinput', {
       inputType: 'insertText',
       data: 'X',
       cancelable: true,
     });
+    const uncancelled = view.dom.dispatchEvent(input);
+    press(page, 'Enter');
     expect([
       afterNode,
+      uncancelled,
       textblocks(editor).map(({ text }) => text),
-      view.dom.dispatchEvent(input),
-    ]).toStrictEqual([[table], ['', '00', '01', '', 'after'], true]);
+    ]).toStrictEqual([[table], true, ['', '00', '01', '', 'after']]);
   });
 
   it.each([
@@ -2327,6 +2328,149 @@ describe('tables in the Tiptap page', () => {
         [undefined, true],
         [paragraph('')],
       ]);
+    },
+  );
+
+  it('keeps the first line layout inside a cell and the grid under an edit across lines into a table', async () => {
+    expect.hasAssertions();
+    const page = await open([
+      {
+        kind: 'table',
+        rows: [
+          [
+            {
+              blocks: [
+                { kind: 'numbered', spans: [{ text: 'a' }] },
+                {
+                  kind: 'numbered',
+                  indent: 1,
+                  align: 'right',
+                  spans: [{ text: 'bb' }],
+                },
+                { kind: 'bulleted', align: 'center', spans: [{ text: 'cc' }] },
+              ],
+            },
+          ],
+        ],
+      },
+    ]);
+    const { editor } = page;
+    editor.commands.setTextSelection({
+      from: nth(textblocks(editor), 1).from,
+      to: nth(textblocks(editor), 2).from + 1,
+    });
+    press(page, 'Backspace');
+    const crossing = await open([
+      paragraph('before'),
+      shaped([
+        [{}, {}],
+        [{}, {}],
+      ]),
+      paragraph('after'),
+    ]);
+    crossing.editor.commands.setTextSelection({
+      from: nth(textblocks(crossing.editor), 5).from + 2,
+      to: nth(textblocks(crossing.editor), 1).from + 1,
+    });
+    crossing.type('X');
+    expect([bodyOf(page), bodyOf(crossing)]).toStrictEqual([
+      [
+        {
+          kind: 'table',
+          rows: [
+            [
+              {
+                blocks: [
+                  { kind: 'numbered', spans: [{ text: 'a' }] },
+                  {
+                    kind: 'numbered',
+                    align: 'right',
+                    indent: 1,
+                    spans: [{ text: 'c' }],
+                  },
+                ],
+              },
+            ],
+          ],
+        },
+      ],
+      [
+        paragraph('before'),
+        {
+          kind: 'table',
+          rows: [
+            [cell('0X'), cell('')],
+            [cell(''), cell('')],
+          ],
+        },
+        paragraph('ter'),
+      ],
+    ]);
+  });
+
+  it('keeps an Inline Image after a deletion from a cell out of the table', async () => {
+    expect.hasAssertions();
+    const after = {
+      kind: 'paragraph',
+      spans: [{ text: 'ab' }, { text: '￼', image: photo }],
+    } as const;
+    const page = await open([shaped([[{}, {}]]), after], [photo]);
+    const { editor } = page;
+    editor.commands.setTextSelection({
+      from: nth(textblocks(editor), 0).from + 1,
+      to: nth(textblocks(editor), 2).from + 1,
+    });
+    press(page, 'Backspace');
+    expect(bodyOf(page)).toStrictEqual([
+      { kind: 'table', rows: [[cell('0'), cell('')]] },
+      {
+        kind: 'paragraph',
+        spans: [{ text: 'b' }, { text: '￼', image: photo }],
+      },
+    ]);
+  });
+
+  it('selects a kept table ending the body before Delete removes it, and Return after Select All leaves a caret', async () => {
+    expect.hasAssertions();
+    const page = await open([paragraph('before'), shaped([[{}, {}], [{}]])]);
+    page.editor.commands.setTextSelection(nth(textblocks(page.editor), 0).to);
+    press(page, 'Delete');
+    const selected = [
+      bodyOf(page),
+      page.editor.state.selection instanceof NodeSelection,
+    ];
+    press(page, 'Delete');
+    const deleted = bodyOf(page);
+    const all = await open([shaped([[{}, {}], [{}]]), paragraph('after')]);
+    all.editor.commands.selectAll();
+    press(all, 'Enter');
+    expect([
+      selected,
+      deleted,
+      bodyOf(all),
+      all.editor.state.selection instanceof TextSelection,
+    ]).toStrictEqual([
+      [undefined, true],
+      paragraphs('before'),
+      paragraphs('', ''),
+      true,
+    ]);
+  });
+
+  it.each([
+    ['one table', [shaped([[{}, {}]])]],
+    [
+      'a table and a kept table',
+      [shaped([[{}, {}]]), shaped([[{}, {}], [{}]])],
+    ],
+  ] as const)(
+    'empties a body of %s with Select All and Backspace',
+    async (_, body) => {
+      expect.hasAssertions();
+      const page = await open(body);
+      page.editor.commands.selectAll();
+      press(page, 'Backspace');
+      expect(bodyOf(page)).toStrictEqual([paragraph('')]);
     },
   );
 

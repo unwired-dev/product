@@ -156,6 +156,8 @@ RCT_EXTERN_METHOD(pullDrafts:(NSString *)owner known:(NSArray *)known resolver:(
 RCT_EXTERN_METHOD(pushDraft:(NSString *)owner record:(NSDictionary *)record resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(pullMailTemplates:(NSString *)owner known:(NSArray *)known resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(pushMailTemplate:(NSString *)owner record:(NSDictionary *)record resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
+RCT_EXTERN_METHOD(pullSendReminders:(NSString *)owner known:(NSArray *)known resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
+RCT_EXTERN_METHOD(pushSendReminder:(NSString *)owner record:(NSDictionary *)record resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(pullBlockedSenders:(NSString *)owner known:(NSArray *)known resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(pushBlockedSenders:(NSString *)owner record:(NSDictionary *)record resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(pullInboxPreferences:(NSString *)owner known:(NSArray *)known resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)

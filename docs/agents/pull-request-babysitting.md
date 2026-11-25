@@ -25,8 +25,12 @@ repository adds:
   (UI or user-facing copy) carries, in the body, screenshots of each touched
   platform (iOS, iPadOS, macOS) in Light and Dark, a short video of the new
   behavior recorded from the real app, and a link to each approved Figma frame
-  it implements, one per changed state. Delegate the capture to the latest
-  available GPT Sol model with high reasoning through `delegate_task`. In each
+  it implements, one per changed state. Show each changed state as a pair, the
+  frame export beside the capture, with the [design judge](design-judge.md)'s
+  verdict and rounds; links and screenshots without the pairs prove no match.
+  A UI PR stays a draft until the judge passes its head.
+  Delegate the capture to the latest available GPT Sol model with high
+  reasoning through `delegate_task`. In each
   capture brief, including retries, tell the delegate to use the
   native runner's cleanup for resources it owns. Have the delegate return any
   verified media and remaining task-owned temporary paths, even if the capture
