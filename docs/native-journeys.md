@@ -515,6 +515,14 @@ On iPhone, the new connection's Enter the Password… and Remove… are full-wid
 below its address, and Email Accounts passes an accessibility audit
 ([#1929](https://github.com/unwired-dev/product/issues/1929)).
 
+Once the connection joins All Mail, its message's **Folders** lists the connection's folders
+([#2902](https://github.com/unwired-dev/product/issues/2902)): in the system popover on iPad, which
+one tap outside and Command-period, UIKit's Escape, each close, and in the system Move sheet on
+iPhone, which **Close** and a downward swipe each close. **Move to Bulk Mail** then closes the
+reader and the list reports **Moved: “Welcome to IMAP”.** The synthetic server discards the move,
+so its next sync may list the message again. The captures "Folders popover" or "Move sheet" and
+"Moved to Spam" are named with the appearance.
+
 Settings › Signatures then lists the IMAP Sending Identity with None
 ([#2059](https://github.com/unwired-dev/product/issues/2059)). Its signature is typed,
 made bold and stored when the editor is left; the row shows its first line, Delete

@@ -3402,6 +3402,41 @@ final class InboxTests: XCTestCase {
     XCTAssertFalse(row("Old receipt").exists)
     capture("All Mail with the connection")
 
+    // #2902: the IMAP message's Folders lists the connection's folders, in the system popover on
+    // iPad, which one tap outside and Escape (Command-period, #1396) close, and in the system Move
+    // sheet on iPhone, which Close and a downward swipe close. Bulk Mail then moves it to Spam.
+    let welcome = row("Welcome to IMAP")
+    welcome.tap()
+    let folders = app.buttons["Folders"]
+    let spam = app.buttons["Move to Bulk Mail"]
+    XCTAssertTrue(folders.waitForExistence(timeout: 10))
+    for close in phone ? ["Close", "swipe"] : ["tap", "Escape"] {
+      folders.tap()
+      XCTAssertTrue(spam.waitForExistence(timeout: 10))
+      _ = settledFrame(of: spam)
+      XCTAssertTrue(app.buttons["Move to Deleted Messages"].exists)
+      if close == "Close" || close == "tap" { capture(phone ? "Move sheet" : "Folders popover") }
+      switch close {
+      case "Close": app.buttons["Close"].tap()
+      case "swipe":
+        let start = text("Move this message to another folder.", in: app)
+          .coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        start.press(forDuration: 0.1, thenDragTo: start.withOffset(CGVector(dx: 0, dy: 500)))
+      case "tap":
+        app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.9)).tap()
+      default: app.typeKey(".", modifierFlags: .command)
+      }
+      XCTAssertTrue(spam.waitForNonExistence(timeout: 5), "Folders stayed open after \(close)")
+    }
+    folders.tap()
+    XCTAssertTrue(spam.waitForExistence(timeout: 10))
+    spam.tap()
+    // The reader closes and the move is reported. The synthetic server discards it, so its next
+    // sync may list the message again.
+    XCTAssertTrue(text("Moved: “Welcome to IMAP”.", in: app).waitForExistence(timeout: 15))
+    XCTAssertFalse(folders.exists)
+    capture("Moved to Spam")
+
     openEmailAccounts()
     let change = settingsRow("Change…", "Spam: Bulk Mail · Trash: Deleted Messages · chosen by you")
     capture("Settings folders chosen")
