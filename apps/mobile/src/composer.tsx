@@ -115,11 +115,13 @@ import {
   selectedText,
   setBlockKind,
   setLink,
+  textOf,
   toggled,
   toggleMark,
   undo,
   withImageWidth,
   withoutImage,
+  withText,
 } from '@private-email/mail-core/semantic-document';
 import {
   ipadListScale,
@@ -802,7 +804,7 @@ function DraftRowView({
   const secondaryColor = selected ? colors.accentOnFill : colors.textSecondary;
   const { t } = useLocalization();
   // The sending mailbox stays visible whatever the body holds.
-  const preview = previewOf(draft.body);
+  const preview = previewOf(textOf(draft.body));
   // One line each: long metadata is cut before it is rendered or announced.
   const { subject, recipients, from, shortened } = draftSummary(t, draft);
   return (
@@ -1994,7 +1996,7 @@ export function DraftAssets({
   const images = [
     ...new Map(
       [
-        ...imagesOf(draft.body),
+        ...imagesOf(textOf(draft.body)),
         ...(draft.quoted === undefined ? [] : imagesOf(draft.quoted)),
       ].map((asset) => [asset.id, asset]),
     ).values(),
@@ -2002,7 +2004,7 @@ export function DraftAssets({
   if (attachments.length + images.length === 0) {
     return null;
   }
-  const inBody = new Set(imagesOf(draft.body).map(({ id }) => id));
+  const inBody = new Set(imagesOf(textOf(draft.body)).map(({ id }) => id));
   const rows = (assets: readonly Asset[], inline: boolean) =>
     assets.map((asset) => (
       <AssetRow
@@ -2016,7 +2018,7 @@ export function DraftAssets({
         onRemove={onRemove}
         {...(inline && inBody.has(asset.id)
           ? {
-              width: imageWidthOf(draft.body, asset.id),
+              width: imageWidthOf(textOf(draft.body), asset.id),
               onResize: (width: ImageWidth | undefined) => {
                 onResize(asset.id, width);
               },
@@ -2657,7 +2659,7 @@ function WritingTools({
     accessibilityLabel: t('translation.translateSelectionLabel'),
     symbol: 'translate',
     disabled: !hasTranslatableText(
-      selectedText(body, selection, translationInputLimit + 1),
+      selectedText(textOf(body), selection, translationInputLimit + 1),
     ),
     run: onTranslate,
   };
@@ -2779,10 +2781,15 @@ function useTemplateItems({
     ]);
   };
   const save = () => {
-    const { subject, body } = getDraft();
+    const { subject, body: shown } = getDraft();
+    const body = textOf(shown);
     const owner = profile;
     if (imagesOf(body).length > 0) {
       notSaved(t('drafts.templates.hasImages'));
+      return;
+    }
+    if (shown.some((part) => part.kind === 'table')) {
+      notSaved(t('drafts.templates.hasTables'));
       return;
     }
     const saveNamed = async (entered = '') => {
@@ -3505,14 +3512,14 @@ function useBodyRecipients(
     arm(undefined);
   }, [arm]);
   const query = useMemo(
-    () => bodyRecipientQuery(draft.body, selection),
+    () => bodyRecipientQuery(textOf(draft.body), selection),
     [draft.body, selection],
   );
   const open =
     !paused &&
     armed !== undefined &&
     query?.start === armed &&
-    onlyQueryIn(draft.body, query);
+    onlyQueryIn(textOf(draft.body), query);
   // Read once each time an @ arms, never asking for Contacts access.
   const contacts = useContactAddresses(armed !== undefined, false);
   const connections = use(AccountContext)?.mailboxes;
@@ -3573,12 +3580,12 @@ function useBodyRecipients(
   }, [showing, hidden, emptyNow, noteNow]);
   // The suggestions for the latest Draft and caret, ahead of rendering, while they show.
   const candidates = (latest: Draft, at: Selection) => {
-    const current = bodyRecipientQuery(latest.body, at);
+    const current = bodyRecipientQuery(textOf(latest.body), at);
     if (
       pausedNow.current ||
       current === undefined ||
       current.start !== armedNow.current ||
-      !onlyQueryIn(latest.body, current)
+      !onlyQueryIn(textOf(latest.body), current)
     ) {
       return undefined;
     }
@@ -3633,7 +3640,7 @@ function useBodyRecipients(
     // still list that person.
     choosable: (latest: Draft, at: Selection, address: string) =>
       candidates(latest, at)?.some((listed) => listed.address === address)
-        ? bodyRecipientQuery(latest.body, at)
+        ? bodyRecipientQuery(textOf(latest.body), at)
         : undefined,
     // What VoiceOver hears once a choice added the person.
     added: (recipient: Recipient) =>
@@ -3911,7 +3918,9 @@ function useSlashMenu(
           kinds: slashCommands(query.text, titleOf, tools(body, query)),
         };
   };
-  const current = paused ? undefined : listed(draft.body, selection, armed);
+  const current = paused
+    ? undefined
+    : listed(textOf(draft.body), selection, armed);
   const kinds = current?.kinds ?? [];
   const active = kinds.find((kind) => kind === chosen) ?? kinds[0];
   const latest = (body: SemanticDocument, at: Selection) =>
@@ -4461,7 +4470,7 @@ function Editor({
   // The field opens with its caret after the body and reports no selection until the caret moves,
   // so a tap there sends none (#1801).
   const [selection, setSelection] = useState<Selection>(() => {
-    const end = displayOf(opening.body).text.length;
+    const end = displayOf(textOf(opening.body)).text.length;
     return { start: end, end };
   });
   // Body text captured for an explicitly requested translation, rewrite or reply suggestion, until
@@ -4580,7 +4589,7 @@ function Editor({
   const breakTyping = () => {
     commitHistory((current) => ({ ...current, typing: false }));
   };
-  const display = displayOf(draft.body);
+  const display = displayOf(textOf(draft.body));
   const recipientMenu = useBodyRecipients(draft, selection, {
     paused: sending,
     pausedNow: sendingNow,
@@ -4733,9 +4742,10 @@ function Editor({
     const without = (document: SemanticDocument) =>
       ids.reduce((remaining, id) => withoutImage(remaining, id), document);
     const latest = authored.current;
+    const text = without(textOf(latest.body));
     change({
       ...latest,
-      body: without(latest.body),
+      body: withText(latest.body, text),
       ...(latest.quoted === undefined
         ? {}
         : { quoted: without(latest.quoted) }),
@@ -4754,7 +4764,10 @@ function Editor({
   // Every use of a body image shows at `width`, as one edit; its current size changes nothing.
   const resizeAsset = (id: string, width: ImageWidth | undefined) => {
     const latest = authored.current;
-    const body = withImageWidth(latest.body, id, width);
+    const body = withText(
+      latest.body,
+      withImageWidth(textOf(latest.body), id, width),
+    );
     if (body !== latest.body) {
       change({ ...latest, body });
     }
@@ -4835,7 +4848,11 @@ function Editor({
   // removes the query and runs it as the format bar's Writing tools do.
   const chooseBlock = (kind?: SlashCommand) => {
     const latest = authored.current;
-    const choice = slashMenu.choice(latest.body, selectionNow.current, kind);
+    const choice = slashMenu.choice(
+      textOf(latest.body),
+      selectionNow.current,
+      kind,
+    );
     if (sendingNow.current || choice === undefined) {
       return;
     }
@@ -4844,14 +4861,14 @@ function Editor({
       : undefined;
     const result =
       isSlashInsert(choice.kind) || isSlashTool(choice.kind)
-        ? replaceSelection(latest.body, choice.query, '')
-        : applySlashBlock(latest.body, choice.query, choice.kind);
+        ? replaceSelection(textOf(latest.body), choice.query, '')
+        : applySlashBlock(textOf(latest.body), choice.query, choice.kind);
     const at = result.selection ?? {
       start: choice.query.start,
       end: choice.query.start,
     };
     slashMenu.close();
-    change({ ...latest, body: result.document });
+    change({ ...latest, body: withText(latest.body, result.document) });
     placeTyping(undefined);
     caret.current = at.start;
     selectionNow.current = at;
@@ -4874,7 +4891,7 @@ function Editor({
       chooseRecipient(highlighted);
       return true;
     }
-    if (slashMenu.choice(latest.body, at) === undefined) {
+    if (slashMenu.choice(textOf(latest.body), at) === undefined) {
       return false;
     }
     chooseBlock();
@@ -4886,7 +4903,7 @@ function Editor({
     }
     const at = selectionNow.current;
     const latest = authored.current;
-    const textBefore = displayOf(latest.body).text;
+    const textBefore = displayOf(textOf(latest.body)).text;
     const after = changedSelection.current;
     changedSelection.current = undefined;
     // Including what it replaced, so typing over a selection still counts.
@@ -4914,7 +4931,7 @@ function Editor({
       text.length < textBefore.length &&
       after?.start === at.start &&
       after.end === at.start;
-    const result = applyText(latest.body, text, {
+    const result = applyText(textOf(latest.body), text, {
       marks: typingNow.current,
       selection: at,
       shown: shownBody.current,
@@ -4927,19 +4944,22 @@ function Editor({
       at.end + text.length - textBefore.length;
     caret.current = typedTo;
     if (result.literal === undefined) {
-      change({ ...latest, body: result.document }, result.typing, 'body');
+      change(
+        { ...latest, body: withText(latest.body, result.document) },
+        result.typing,
+        'body',
+      );
     } else {
       // The literal marker is its own step, so one Undo restores it.
-      const { literal } = result;
+      const withLiteral = {
+        ...latest,
+        body: withText(latest.body, result.literal),
+      };
+      const typed = { ...latest, body: withText(latest.body, result.document) };
       commitHistory((current) =>
-        keepIdentity(
-          record(record(current, { ...latest, body: literal }), {
-            ...latest,
-            body: result.document,
-          }),
-        ),
+        keepIdentity(record(record(current, withLiteral), typed)),
       );
-      update({ ...latest, body: result.document });
+      update(typed);
     }
     shownBody.current = text;
     if (result.selection !== undefined) {
@@ -4963,11 +4983,15 @@ function Editor({
     }
     const at = selectionNow.current;
     const latest = authored.current;
+    const text = textOf(latest.body);
     if (at.start === at.end) {
-      placeTyping(toggled(typingNow.current ?? marksAt(latest.body, at), mark));
+      placeTyping(toggled(typingNow.current ?? marksAt(text, at), mark));
       return;
     }
-    change({ ...latest, body: toggleMark(latest.body, at, mark) });
+    change({
+      ...latest,
+      body: withText(latest.body, toggleMark(text, at, mark)),
+    });
   };
   // Replaces exactly the captured text with its reviewed result as one undoable edit. Recipients,
   // the subject, quoted text, attachments and delivery state are left as they are.
@@ -4985,11 +5009,11 @@ function Editor({
     captureNow.current = undefined;
     setCaptured(undefined);
     const result = replaceSelection(
-      latest.body,
+      textOf(latest.body),
       captured.selection,
       draftReplacement(captured.text, replacement),
     );
-    change({ ...latest, body: result.document });
+    change({ ...latest, body: withText(latest.body, result.document) });
     placeTyping(undefined);
     selectionNow.current = result.selection ?? selectionNow.current;
     setPlaced(result.selection);
@@ -5000,11 +5024,15 @@ function Editor({
       return;
     }
     const latest = authored.current;
-    const applied = applyTemplate(latest, selectionNow.current, template);
+    const applied = applyTemplate(
+      { ...latest, body: textOf(latest.body) },
+      selectionNow.current,
+      template,
+    );
     change({
       ...latest,
       subject: applied.subject,
-      body: applied.edit.document,
+      body: withText(latest.body, applied.edit.document),
     });
     placeTyping(undefined);
     selectionNow.current = applied.edit.selection ?? selectionNow.current;
@@ -5026,8 +5054,8 @@ function Editor({
     }
     const at = selectionNow.current;
     const latest = authored.current;
-    const result = setBlockKind(latest.body, at, kind);
-    change({ ...latest, body: result.document });
+    const result = setBlockKind(textOf(latest.body), at, kind);
+    change({ ...latest, body: withText(latest.body, result.document) });
     selectionNow.current = result.selection ?? at;
     setPlaced(result.selection);
   };
@@ -5037,11 +5065,11 @@ function Editor({
     }
     const at = selectionNow.current;
     const latest = authored.current;
-    const result = indentList(latest.body, at, direction);
-    if (result.document === latest.body) {
+    const result = indentList(textOf(latest.body), at, direction);
+    if (result.document === textOf(latest.body)) {
       return;
     }
-    change({ ...latest, body: result.document });
+    change({ ...latest, body: withText(latest.body, result.document) });
     selectionNow.current = result.selection ?? at;
     setPlaced(result.selection);
   };
@@ -5050,8 +5078,8 @@ function Editor({
       return;
     }
     const latest = authored.current;
-    const result = setLink(latest.body, link, { text, href });
-    change({ ...latest, body: result.document });
+    const result = setLink(textOf(latest.body), link, { text, href });
+    change({ ...latest, body: withText(latest.body, result.document) });
     placeTyping(undefined);
     selectionNow.current = result.selection ?? selectionNow.current;
     setPlaced(result.selection);
@@ -5367,9 +5395,9 @@ function Editor({
   const docked = presentation === 'docked';
   const parts = partStyles[presentation];
   const { title, titleLabel } = composerTitle(t, draft, docked || !regular);
-  const active = typing ?? marksAt(draft.body, selection);
-  const kind = blockKindAt(draft.body, selection.start);
-  const indents = listIndentAt(draft.body, selection);
+  const active = typing ?? marksAt(textOf(draft.body), selection);
+  const kind = blockKindAt(textOf(draft.body), selection.start);
+  const indents = listIndentAt(textOf(draft.body), selection);
   const copiesShown = copiesShownOf(draft);
   // An edit in Cc or Bcc keeps both shown for the Draft, even once they are empty.
   const changeCopies = (next: Draft, word: boolean, field: string) => {
@@ -5461,7 +5489,7 @@ function Editor({
       onTextTool={rewrite}
       onTranslate={() => {
         const at = selectionNow.current;
-        const { body } = authored.current;
+        const body = textOf(authored.current.body);
         const text = selectedText(body, at, translationInputLimit + 1);
         if (
           sendingNow.current ||
@@ -5539,7 +5567,7 @@ function Editor({
           <LinkEditor
             state={linkEditor}
             disabled={sending}
-            link={editableLinkAt(draft.body, selection)}
+            link={editableLinkAt(textOf(draft.body), selection)}
             popover
             {...(lists === undefined
               ? {}
@@ -5839,7 +5867,7 @@ function Editor({
                 if (slashMenu.moving) {
                   slashMenu.move(
                     key,
-                    authored.current.body,
+                    textOf(authored.current.body),
                     selectionNow.current,
                   );
                 } else {
@@ -6105,7 +6133,7 @@ function Editor({
             open={formatting}
             active={active}
             kind={kind}
-            link={editableLinkAt(draft.body, selection)}
+            link={editableLinkAt(textOf(draft.body), selection)}
             linkEditor={linkEditor}
             undo={history.past.length > 0}
             redo={history.future.length > 0}

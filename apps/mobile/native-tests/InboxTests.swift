@@ -257,7 +257,8 @@ final class InboxTests: XCTestCase {
     // sheet (#2781), whose dimmed top half the tap lands on, as the link can lie under the sheet.
     let bodyText = app.webViews.links["garden plan"].firstMatch
     let phone = UIDevice.current.userInterfaceIdiom == .phone
-    let labels = app.staticTexts["Labels"]
+    // The labels sheet's title reaches XCTest as a text inside a text of the same label.
+    let labels = app.staticTexts["Labels"].firstMatch
     // iPad's More is the system menu, titled as the row menu names its actions.
     let panelItem = phone ? labels : app.buttons["Mark as Unread"]
     if phone {
@@ -2678,6 +2679,7 @@ final class InboxTests: XCTestCase {
         for: [XCTNSPredicateExpectation(predicate: restored, object: nil)], timeout: 10),
       .completed)
     formattingJourney(app, typed: typed)
+    evaluationLinkJourney(app)
     // Teardown: the last round trip reopened the Draft unchanged, so Close removes the page's web
     // view without asking.
     app.buttons["Close"].tap()
@@ -2964,6 +2966,66 @@ final class InboxTests: XCTestCase {
     accepted.name = "Evaluation editor after rewrite and translation"
     accepted.lifetime = .keepAlways
     add(accepted)
+  }
+
+  // #2866: the Link Editor links the translated paragraph as one edit that one Undo reverts and
+  // Redo restores, and the link survives saving, relaunch and reopening.
+  private func evaluationLinkJourney(_ app: XCUIApplication) {
+    // The translation replaced one word of the paragraph, so the page names the whole paragraph.
+    let paragraph = webText("Synthetic translation of local mail.", in: app).label
+    let link = app.webViews.links[paragraph]
+    let pageText = { app.webViews.staticTexts.allElementsBoundByIndex.map { $0.label } }
+    let unlinked = pageText()
+    let copy = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Copy"))
+      .firstMatch
+    let destination = app.textFields["Link"]
+    let text = app.textFields["Text"]
+    let pad = UIDevice.current.userInterfaceIdiom == .pad
+    // A triple tap on a loaded host can select only a word; close the editor and select again.
+    for _ in 0..<3 where !(destination.exists && text.value as? String == paragraph) {
+      if destination.exists { dismissLinkEditor(app, field: destination, pad: pad) }
+      for attempt in 0..<3 where attempt == 0 || !copy.exists {
+        webText(paragraph, in: app).tap(withNumberOfTaps: 3, numberOfTouches: 1)
+        _ = copy.waitForExistence(timeout: 5)
+      }
+      let addLink = formatControl("Add Link", in: app)
+      waitUntil { addLink.isEnabled }
+      addLink.tap()
+      XCTAssertTrue(destination.waitForExistence(timeout: 10))
+    }
+    waitForFocus(destination)
+    XCTAssertEqual(text.value as? String, paragraph)
+    let empty = destination.value as? String
+    XCTAssertTrue(empty == nil || empty == "" || empty == destination.placeholderValue)
+    XCTAssertFalse(app.buttons["Remove Link"].exists)
+    submit("https://example.com", into: destination, in: app)
+    XCTAssertTrue(destination.waitForNonExistence(timeout: 10))
+    XCTAssertTrue(link.waitForExistence(timeout: 10))
+    // Edit Link offers Remove Link and the saved destination; closing it changes nothing.
+    let editLink = { (shot: String) in
+      let edit = self.formatControl("Edit Link", in: app)
+      self.waitUntil { edit.isEnabled }
+      edit.tap()
+      XCTAssertTrue(app.buttons["Remove Link"].waitForExistence(timeout: 10))
+      XCTAssertEqual(destination.value as? String, "https://example.com")
+      let linked = XCTAttachment(screenshot: app.screenshot())
+      linked.name = shot
+      linked.lifetime = .keepAlways
+      self.add(linked)
+      self.dismissLinkEditor(app, field: destination, pad: pad)
+    }
+    editLink("Evaluation Edit Link")
+
+    formatControl("Undo", in: app).tap()
+    waitUntil { !link.exists && pageText() == unlinked }
+    XCTAssertTrue(formatControl("Add Link", in: app).waitForExistence(timeout: 10))
+    formatControl("Redo", in: app).tap()
+    XCTAssertTrue(link.waitForExistence(timeout: 10))
+    reopenDraft(app)
+    XCTAssertTrue(link.waitForExistence(timeout: 15))
+    // A tap puts the caret in the reopened link, which the page never opens.
+    link.tap()
+    editLink("Evaluation Edit Link after relaunch")
   }
 
   // Close, relaunch and reopen through the native encrypted Draft store, not mounted history.

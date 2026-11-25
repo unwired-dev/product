@@ -3,7 +3,7 @@ import type { SyntheticProductSync } from '../src/testing/drafts.ts';
 
 import { createMailboxes } from '../src/mailboxes.ts';
 import { createOutbox } from '../src/outbox.ts';
-import { applyText } from '../src/semantic-document.ts';
+import { applyText, textOf } from '../src/semantic-document.ts';
 import { createSyntheticProductSync } from '../src/testing/drafts.ts';
 import {
   createSyntheticGmail,
@@ -71,7 +71,7 @@ export function sharedAccount(
 
 export const write = (draft: Draft, text: string): Draft => ({
   ...draft,
-  body: applyText(draft.body, text).document,
+  body: applyText(textOf(draft.body), text).document,
 });
 
 // A Draft with recipients and a subject, ready to send.

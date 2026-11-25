@@ -322,15 +322,24 @@ It chooses **Save Draft** on
 accepts selected-text and whole-body rewrites, selected-text translation, and a
 reply suggestion. Each operation checks the complete visible authored text after
 one **Undo** and **Redo**, and relaunches to reopen both its undone and accepted
-states. The Mac journey also uses Command-B, Command-Z and Shift-Command-Z. The
+states. After the translation, the iPhone and iPad journey selects the paragraph and
+links it with **Add Link** (from the Format panel on iPhone), checks that **Edit Link**
+offers **Remove Link** and the destination, steps one **Undo**, which removes the
+link and keeps the text so the control reads **Add Link** again, and **Redo**, then
+relaunches and reopens the linked Draft, whose **Edit Link** shows the destination
+([#2866](https://github.com/unwired-dev/product/issues/2866)). The Mac journey takes
+the same step after its translation, selecting the paragraph with Command-Up Arrow
+and Shift-Command-Down Arrow and choosing **Save** before the relaunch
+([#2876](https://github.com/unwired-dev/product/issues/2876)). The Mac journey also
+uses Command-B, Command-Z and Shift-Command-Z. The
 iPhone and iPad journey then starts another **New Message**, types, places a photo
 with **Insert Image** from the system Photos picker, types after it, turns it into an
 Attachment with **Attach Instead** from the row's context menu and back with
 **Show Inline**, steps **Undo** and **Redo** across the last conversion, then saves
 and relaunches and reopens the Draft with the image and its thumbnail in place. The
 runner adds `native-tests/photo.png` to each fresh Simulator's photo library for it. The mobile journey
-attaches screenshots to the XCTest results; the Mac journey records its assertions
-when signing permits execution.
+attaches screenshots to the XCTest results; the Mac journey attaches its **Edit Link**
+captures.
 
 Shared and component checks:
 
@@ -382,9 +391,10 @@ The final app build log is `artifacts/review-634-r7/native-build-final.log`.
 | ------------------------------- | ----------------------------------------- | ---------------------------------------------------------------------- | -------------------------------------------------------------- | ------------------------------------------------------------ |
 | iPhone 18 Pro Simulator         | Passed with the encrypted Draft store     | Tapping the body showed the software keyboard; typing reached the page | Landscape rotation kept the page and its text without a reload | Close removed the web view; relaunch reopened the saved body |
 | iPad Pro 11-inch (M5) Simulator | Passed with the encrypted Draft store     | Typing reached the page beside the Inbox column                        | Landscape rotation kept the page and its text without a reload | Close removed the web view; relaunch reopened the saved body |
-| Mac (AppKit)                    | Outstanding                               | Outstanding                                                            | Outstanding                                                    | Outstanding                                                  |
+| Mac (AppKit)                    | Passed on 2026-11-25 (#2876)              | Clicking the body focused the page; typing reached it                  | A narrower window kept the page and its text without a reload  | Close removed the web view; relaunch reopened the saved body |
 
-On the Mac, the corrected `registration-draft-editor` `Testing` build
+The Mac row is from the first Mac run, on 2026-11-25, recorded below. Until
+then, the history below applied. On the Mac, the corrected `registration-draft-editor` `Testing` build
 (`react-native-macos` 0.81.9, `react-native-webview` 13.16.1) succeeded with the
 scenario marker and the packaged page in its bundle
 (`artifacts/mock-mail-818/review-mac-build-retry.log`), and the corrected journey's
@@ -409,6 +419,32 @@ text tool's review leaves the composer expanded over the window, so the page nev
 returned to its portrait width. With **Collapse** added to the journey, the iPad
 (`artifacts/expo-bootstrap/native-HRPtG8/`) and iPhone 18 Pro
 (`artifacts/expo-bootstrap/native-oKyg0t/`) journeys passed with zero failures.
+
+Rerun on 2026-11-24 for [#2866](https://github.com/unwired-dev/product/issues/2866),
+same host, macOS 27.2.1, Xcode 27.2 (27B52), iOS 27.0 Simulator runtime, Release
+`registration-draft-editor` build of `8dbd55782` with the journey's new link step,
+Dark appearance. The iPhone 18 Pro (`artifacts/expo-bootstrap/native-06uxf8/`) and
+iPad Pro 11-inch (M5) (`artifacts/expo-bootstrap/native-rdraMI/`) journeys passed
+with zero failures: **Add Link** opened with the paragraph as Text and Link empty
+and linked the paragraph, **Edit Link** offered **Remove Link** and the destination,
+one **Undo** removed the link and kept the text with **Add Link** back, **Redo**
+restored it, and the relaunched Draft reopened with the link and its destination.
+Other attempts at loads of about 150–440 stalled waiting for the app to idle or
+lost a tap on the Format panel before the link step; they are not evidence.
+
+First Mac run on 2026-11-25 for [#2876](https://github.com/unwired-dev/product/issues/2876),
+same Mac mini, macOS 27.2.1 (26B131), Xcode 27.2 (27B52), signed `Testing`
+`registration-draft-editor` build of `d72ed590e` with the journey's new link step,
+Light appearance. `testIndependentWindowsCloseReopenAndQuit` passed with zero
+failures in 479 s (`artifacts/macos-inbox/journey.vZfqPf/`), and again in 592 s with the
+link matched by the whole paragraph (`artifacts/macos-inbox/journey.zzMdGX/`), from sign-in through the
+formatting, assistance and reply round trips, the link step and the native close
+journey: **Add Link** opened with the paragraph as Text and Link empty and focused,
+without **Remove Link**, and linked the paragraph; **Edit Link** offered **Remove
+Link** and the destination; one **Undo** removed the link and kept the text, **Redo**
+restored it, and the relaunched Draft reopened with the link and its destination.
+An earlier attempt failed at its first **Close** because crash alerts left by other
+tasks covered the window; it is not evidence.
 
 ### Formatting fidelity (#819)
 
@@ -468,8 +504,7 @@ The earlier Mac `Testing` build succeeded with the page in its bundle. The updat
 journey (both rewrite scopes, translation, reply suggestions, and undone/accepted
 reopening) type-checks; it was not run, for the signing reason above.
 
-Outstanding before any adoption decision: the Mac native journey with a signed
-mock profile; physical iPhone and iPad runs; hardware keyboards, IME, dictation,
+Outstanding before any adoption decision: physical iPhone and iPad runs; hardware keyboards, IME, dictation,
 autocorrection and VoiceOver ([#822](https://github.com/unwired-dev/product/issues/822));
 the Inline Image checks that remain outstanding [below](#inline-images-820); and the
 native save-ordering checks that remain outstanding [below](#save-ordering-821).
@@ -509,9 +544,8 @@ stores the shown version; the iPhone Format panel, its keyboard hand-off and Wri
 tools; the iPad format bar; and the conversion menu and its accessibility action.
 The Mac component journey substitutes the native close module and checks window
 routing, repeated requests, Cancel, failed Save and successful Save. The native
-Mac journey now also covers Command-W cancellation, cancelled Quit and one Quit
-finishing two open editors; this added interaction coverage remains unexecuted
-without a signed mock profile.
+Mac journey also covers Command-W cancellation, cancelled Quit and one Quit
+finishing two open editors; it passed on 2026-11-25 (#2876).
 
 Native execution on 2026-10-15, same Mac mini and toolchain as above (macOS 27.0.1,
 Xcode 27.0, iOS 27.0 Simulator runtime), with a Release `registration-draft-editor`
@@ -586,8 +620,9 @@ Discard of that copy while the other version survives. The page tests also check
 that the page refuses a replacement computed for another body revision. None of these are native evidence: native code delivers the page's messages in order, so late delivery is
 simulated at the host boundary.
 
-Outstanding for #821: the Mac two-window journey and the Command-W, window close and
-**Quit** questions natively, which need a signed mock profile; and edits lost when
+Outstanding for #821: the Mac two-window journey on one Draft and the window's close
+button natively (the Command-W and **Quit** questions passed on 2026-11-25, #2876);
+and edits lost when
 the app ends before **Save Draft**. The regular iPhone, iPad and Mac composers now
 use the same save model. On iPhone both composers cover the
 Inbox and reader, so system **Back** cannot leave them
@@ -601,15 +636,15 @@ encrypted Draft store on iPhone and iPad simulators, with networking refused, no
 renderer dependency on React DOM, and no native adapter beyond the existing WebView.
 No fundamental host failure was found there.
 
-The Mac remains **unproven**, not failed: its build and bundle checks pass, but
-its native journey needs a signed mock profile. Run it before Mac-dependent
-evaluation work treats the Mac host as feasible. This finding is not an adoption
+On the Mac, the signed journey passed on 2026-11-25
+([#2876](https://github.com/unwired-dev/product/issues/2876)), with the same open,
+type, save and reopen path, formatting, assistance and link editing. This finding is not an adoption
 recommendation; that is #823.
 
 **#819 finding.** The current block kinds and marks pass the page and host checks
-above. Link editing remains deferred to #878, Mac native formatting remains
-unproven, and iPhone/iPad simulator text, history and the exercised post-assistance
-formatting assertions have passing evidence. This does not approve adoption; #823
+above. iPhone/iPad simulator and Mac text, history, the exercised post-assistance
+formatting assertions and link editing with **Undo** and **Redo** (#2866, #2876) have
+passing evidence. This does not approve adoption; #823
 owns that decision.
 
 **#820 finding.** Inline Images and Attachments keep their Draft Asset identity

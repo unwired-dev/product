@@ -49,6 +49,87 @@ where iPhone 18 Pro passed the whole journey too.
   expands the reply before checking the fields.
 - **Light, landscape, VoiceOver and physical devices are deferred.**
 
+## iPhone and iPad system sheets and popovers, 2026-11-24
+
+[#2798](https://github.com/unwired-dev/product/issues/2798), the last
+criterion of [#1056](https://github.com/unwired-dev/product/issues/1056),
+checks the presenters #1056 moved to the system on device. It ran on
+`8dbd55782`, on a `registration-declined` Release Simulator build with Xcode
+27.2 (`27B52`), the iOS 27.0 runtime and macOS 27.2.1, on iPhone 18 Pro and
+iPad Pro 11-inch (M5) in portrait, signed in to the synthetic Gmail mailbox.
+Manual checks went through `agent-device`, with a screenshot of each
+presenter; each names the appearances it ran in. Host load from other work was
+45–147.
+
+- Move picker (`move-sheet.tsx`), iPhone: the Reply sheet's Folders opens the
+  sheet at its portrait detent, 70 points below the top, and Close closes it
+  (Light and Dark). Its search stays above the software keyboard, and a
+  downward swipe closes it (Dark). The iPad Folders popover belongs to IMAP
+  and Microsoft accounts, which the synthetic mailbox lacks.
+- Reply sheet (`reply-sheet.tsx`, iPhone): it opens (Light and Dark); Close
+  and a downward swipe close it (Dark).
+- Filters (`inbox-filters.tsx`): on iPhone "Filtered by" opens the sheet, and a
+  downward swipe closes it (Light and Dark); in Dark the swipe discarded a
+  changed Unread and Apply Filters closed it. On iPad it opens the popover
+  above the bar, and a tap outside closes it (Light and Dark). CI's
+  `open-read-relaunch` journey passed on iPhone and iPad in Dark at
+  `8dbd55782`
+  ([run 45461747661](https://github.com/unwired-dev/product/actions/runs/45461747661)):
+  a swipe or a tap outside discards a change, Escape (Command-period, as UIKit
+  delivers it) does on iPad, and the iPad popover stays open while the device
+  rotates.
+- Link confirmation (`message-body.tsx`): a link opens the system alert on
+  iPhone and iPad, and Cancel closes it (Light and Dark).
+- Reader More, iPad: More opens the system menu (Mark as Unread, Move to Spam,
+  Move to…) (Light and Dark).
+- Gmail labels (`organize.tsx`): on iPhone Reply › Labels opens the system
+  sheet, and a tap on the dimmed area above closes it (Light and Dark). On iPad
+  the toolbar's Labels and More › Move to… open the Labels popover, and a tap
+  outside closes it (Light and Dark). `testNewLabel` passed in Dark on both
+  devices: New Label… opens its sheet on iPhone and takes the checkboxes'
+  place in the popover on iPad, and Cancel closes it.
+- The `registration-declined` journey's Labels steps ran for the first time
+  since #2781. In Light on iPhone it stopped before the #972 swipe: XCTest saw
+  the sheet's "Labels" title as a text inside a text of the same label. The
+  journey now takes the first match, and in Light on iPhone it then passed the
+  Labels steps: a tap above closes the sheet, a downward swipe closes it, and
+  the Reply sheet reopens without it. It stopped later, outside this slice,
+  where Settings › Appearance waits 20 seconds for the app to follow the device
+  into Dark. In Dark it stopped where Labels reopens after a Command Palette
+  star, its app not idle for 60 seconds at each step; the same steps by hand
+  opened the sheet. A second Dark run stopped earlier, where the Reply sheet
+  did not open within 5 seconds for the pin steps, at host load 59; CI passes
+  the same steps in Dark at `8dbd55782`.
+- Composer: on iPhone New Message opens the system sheet, and Close closes an
+  empty Draft (Light and Dark). Its controls stay above the software keyboard,
+  and a slow downward swipe on a changed Draft keeps the sheet and asks Delete
+  Draft or Save Draft (Dark). `testComposerSheet` passed in Dark on iPhone:
+  the sheet turns with the device while presented, Keep Editing keeps it and
+  its text, and Save Draft and Delete Draft close it. On regular-width iPad a
+  new message opens as the nonmodal card centred on the window, and a reply
+  docks in the reading column, both closed by Close (Light and Dark).
+- On iPad, a tap outside the Labels popover (from the toolbar and from More, in
+  Dark) and the Filters popover (in Light) sometimes closed it only at the
+  second tap. CI closes the Filters popover with one tap in Dark; the cause of
+  each observation is not established, and
+  [#2873](https://github.com/unwired-dev/product/issues/2873) keeps them open.
+- **Deferred** to [#2873](https://github.com/unwired-dev/product/issues/2873):
+  the iPad Folders popover; VoiceOver focus when a presenter opens and its
+  return when it closes; Reduce Motion; a compact iPad window, where the
+  composer and Filters turn into sheets and the Move and Labels popovers, chosen
+  by device rather than width, adapt as SwiftUI decides; a hardware keyboard,
+  including Escape on the Labels popover; the software keyboard in New Label and
+  in the regular-width iPad composer; rotation while any presenter but the iPad
+  Filters popover and the iPhone composer is presented; Expand on iPad; a
+  downward swipe on the iPhone Labels sheet in Dark and on the New Label sheet,
+  and a swipe released early that keeps any sheet; closing iPad More without
+  choosing an action; the Dark-only and Light-only checks above in the other
+  appearance; and iPhone's More, which shows only for mail without Reply, which
+  no journey or the synthetic mailbox has. `agent-device` cannot turn VoiceOver
+  on, rotate the device or resize an iPad window. The `registration-apple`
+  journey, whose Move steps rotate to landscape before opening the picker and
+  check its keyboard there, stopped under host load before them.
+
 ## iPhone and iPad Settings at the largest text size, 2026-11-23
 
 [#2730](https://github.com/unwired-dev/product/issues/2730), part of

@@ -34,6 +34,8 @@ import {
   imagesOf,
   replaceSelection,
   setLink,
+  textOf,
+  withText,
 } from '@private-email/mail-core/semantic-document';
 import { spacing } from '@private-email/mail-core/theme';
 import {
@@ -241,11 +243,13 @@ function EvaluationEditor({
   };
   // Every asset this editor gave its page, as native code last settled it. The page reports only
   // these, and Undo in the page can restore any of them.
+  const initialImages = imagesOf(textOf(initial.body));
   const known = useRef(
     new Map(
-      [...imagesOf(initial.body), ...(initial.attachments ?? [])].map(
-        (asset) => [asset.id, asset],
-      ),
+      [...initialImages, ...(initial.attachments ?? [])].map((asset) => [
+        asset.id,
+        asset,
+      ]),
     ),
   );
   // An import settles in this editor, and the store keeps every asset the page can restore while
@@ -380,7 +384,7 @@ function EvaluationEditor({
     }
     forget();
     const result = replaceSelection(
-      latest.body,
+      textOf(latest.body),
       captured.selection,
       draftReplacement(captured.text, replacement),
     );
@@ -396,7 +400,7 @@ function EvaluationEditor({
   // it is.
   const editLink = (link: Link, text: string, href?: string) => {
     const reported = pageNow.current;
-    const { body } = authored.current;
+    const body = textOf(authored.current.body);
     const current = reported && editableLinkAt(body, reported.selection);
     if (
       !mounted.current ||
@@ -424,7 +428,7 @@ function EvaluationEditor({
   // oxlint-disable-next-line react/hook-use-state -- Injected once, before the page's script.
   const [injected] = useState(
     () =>
-      `window.draftEditor = ${JSON.stringify({ document: initial.body, attachments: initial.attachments ?? [], label: t('drafts.body') })}; true;`,
+      `window.draftEditor = ${JSON.stringify({ document: textOf(initial.body), attachments: initial.attachments ?? [], label: t('drafts.body') })}; true;`,
   );
   // Entries still being typed become recipients; an invalid one keeps the Draft here.
   const finishEntries = () => {
@@ -769,7 +773,7 @@ function EvaluationEditor({
                   });
                   change({
                     ...previous,
-                    body,
+                    body: withText(previous.body, body),
                     ...(attachments.length === 0 &&
                     previous.attachments === undefined
                       ? {}
@@ -836,7 +840,7 @@ function EvaluationEditor({
             open={open === 'format'}
             active={retained.phone.marks}
             kind={retained.phone.kind}
-            link={editableLinkAt(draft.body, retained.phone.selection)}
+            link={editableLinkAt(textOf(draft.body), retained.phone.selection)}
             linkEditor={linkEditor}
             undo={retained.phone.undo}
             redo={retained.phone.redo}
