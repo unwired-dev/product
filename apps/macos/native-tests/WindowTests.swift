@@ -1645,6 +1645,8 @@ final class WindowTests: XCTestCase {
       return
     }
     if environment["UNWIRED_TEST_SCENARIO"] == "registration-draft-editor" {
+      // XCTest's default ten minutes stays below the runner's maximum otherwise.
+      executionTimeAllowance = 900
       draftEditorJourney(app, first: first)
       return
     }
