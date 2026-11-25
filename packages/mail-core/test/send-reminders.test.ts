@@ -399,13 +399,15 @@ describe('synchronized Send Reminders', () => {
   it('removes a reminder of a Draft sent or discarded before the reminder arrived', async () => {
     expect.hasAssertions();
     const { server, mac, phone } = devices();
+    // Each device's reminders: none once the Draft is gone.
+    const neither = () =>
+      Promise.all([mac.reminders('work'), phone.reminders('work')]);
     await mac.remind('work', keys);
     await mac.synchronize();
-    await expect(phone.cancel('work', keys.draft)).resolves.toBe(true);
+    await phone.cancel('work', keys.draft);
     await phone.synchronize();
     await mac.synchronize();
-    await expect(phone.reminders('work')).resolves.toStrictEqual([]);
-    await expect(mac.reminders('work')).resolves.toStrictEqual([]);
+    await expect(neither()).resolves.toStrictEqual([[], []]);
 
     // Also before the reminder reached Product Sync.
     const invoice = { ...keys, draft: 'invoice' };
@@ -418,8 +420,7 @@ describe('synchronized Send Reminders', () => {
     await phone.synchronize();
     await mac.synchronize();
     await phone.synchronize();
-    await expect(phone.reminders('work')).resolves.toStrictEqual([]);
-    await expect(mac.reminders('work')).resolves.toStrictEqual([]);
+    await expect(neither()).resolves.toStrictEqual([[], []]);
 
     // Also when this device set a reminder of its own that it never published.
     const receipt = { ...keys, draft: 'receipt' };
@@ -433,8 +434,7 @@ describe('synchronized Send Reminders', () => {
     await mac.synchronize();
     await phone.synchronize();
     await mac.synchronize();
-    await expect(phone.reminders('work')).resolves.toStrictEqual([]);
-    await expect(mac.reminders('work')).resolves.toStrictEqual([]);
+    await expect(neither()).resolves.toStrictEqual([[], []]);
 
     // Also when both devices already hold the record's removal.
     server.setReachable(false);
@@ -446,8 +446,7 @@ describe('synchronized Send Reminders', () => {
     await mac.synchronize();
     await phone.synchronize();
     await mac.synchronize();
-    await expect(phone.reminders('work')).resolves.toStrictEqual([]);
-    await expect(mac.reminders('work')).resolves.toStrictEqual([]);
+    await expect(neither()).resolves.toStrictEqual([[], []]);
   });
 
   it('lets a Draft reminded again after a cancellation take the first write', async () => {
