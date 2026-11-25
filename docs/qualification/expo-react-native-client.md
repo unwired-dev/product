@@ -20,37 +20,55 @@ native Mac host. It ran on `d72ed590e` with Testing builds
 (`registration-performance`, and `open-read-relaunch` for the window journey),
 Xcode 27.2 (`27B52`) and macOS 27.2.1 (`26B131`) on the Mac mini M4
 (`Mac16,10`). The checks used the [native journeys](../native-journeys.md) and a
-temporary capture journey that was not committed. Host load from other work
-reached 418 during the builds and stayed below 100 for the journeys.
+temporary capture journey that was not committed.
 
-- Windows and Draft safety: `testIndependentWindowsCloseReopenAndQuit` passed
-  in 35.5 seconds. `testKeyboardAndAccessibility` and
-  `testKeyboardAndAccessibilityDark` cover the nonmodal composer, **Expand**
-  into its own New Message window (#1266) and the return to the overlay, and
-  both passed (365.9 and 352.1 seconds).
-- Accessibility audits: the Light run printed 48 reports and the Dark run 41,
-  all classified as known gaps (the dimmed Link sheet, AppKit Touch Bar, email
-  and web address labels, sentence labels and the writing-tools word
-  contrast), none unclassified.
-- Keyboard and menus, Light and Dark: File (New Message, New Window, Close
-  Window, Close All), Edit, View (Commands…, Refresh, Enter Full Screen) and
-  Window list the same items in the Inbox and the reader. In an Inbox window
-  Edit › Undo stays available and Cut, Copy, Paste and Select All are
-  unavailable while no text field has focus; with no Undo notice, Undo does
-  nothing, as #2188 specifies. The composer overlay's Send push button is
-  unavailable without a recipient and available once one is added.
-- Reader More pull-down, Light and Dark: More opens the native pull-down,
-  and Labels opens its submenu with the Gmail account's Travel and New Label….
-  These are the captures #1383 deferred.
-- Resizing, Light and Dark: at about 760 points wide the sidebar folds away and
-  the open composer overlay fills the reader pane; at about 905 and 1,435
-  points the sidebar, list and reader stay side by side, with the overlay over
-  the reader and its format bar wrapping at 905.
+- Windows: `testIndependentWindowsCloseReopenAndQuit` passed in 35.5 seconds in
+  the desktop's appearance. Two Inbox windows keep their own selection, and
+  opening a message reads it in both. Closing both windows leaves the app
+  running, opening the app again gives a new Inbox window, Quit stops its
+  work, and the read state survives relaunch.
+- Draft safety and keyboard: `testKeyboardAndAccessibility` (Light, 365.9
+  seconds) and `testKeyboardAndAccessibilityDark` (352.1 seconds) passed.
+  Command-K opens the Command Palette and Escape closes it; Command-A, -X,
+  -C and -V edit the search field and the reply body; Command-Option-N,
+  Command-` and Command-0 open, cycle and show Inbox windows, and Command-W
+  closes them. The reply's Close asks before saving and the saved reply
+  survives relaunch. **Expand** (#1266) moves the Draft into its own New
+  Message window. There Command-W with an invalid recipient asks, and Save
+  Draft keeps the window open with "Correct or remove the invalid address to
+  close this Draft."; Command-Q asks too, and Cancel keeps the app running.
+  With the address removed, Save Draft closes the window and returns the Draft
+  to its Inbox window's overlay.
+- Pop-up and pull-down buttons (#1259), Light and Dark: in the same journeys,
+  Privacy & Data's remote-content pop-up closes on Escape without a change and
+  takes Never, and the reader's Folders pull-down closes on Escape and on a
+  click outside, then moves the message with Down and Return.
+- Accessibility audits: the Light run printed 48 reports and the Dark run 41;
+  every report matched a known exception of the journey, none unclassified.
+- Menus, Light and Dark: File (New Message, New Window, Close Window, Close
+  All), Edit, View (Commands…, Refresh, Enter Full Screen) and Window list the
+  same items in the Inbox and the reader. In an Inbox window Edit › Undo
+  stays available and Cut, Copy, Paste and Select All are unavailable while no
+  text field has focus; with no Undo notice, Undo does nothing, as #2188
+  specifies. The composer overlay's Send push button is unavailable without a
+  recipient and available once one is added.
+- Reader More pull-down, Light and Dark: captured at rest, open, and with
+  Mock Mail's Gmail Labels submenu (Travel, New Label…) open. These are the
+  captures #1383 deferred.
+- Resizing: at about 760 points wide the sidebar folds away and the open
+  composer overlay spans the reader's width below its header, in Light and
+  Dark. At about 905 points the sidebar, list and reader stay side by side,
+  with the overlay's format bar wrapping (Light and Dark). At about 1,435
+  points the layout was captured in Light only: the Dark capture journey
+  exceeded XCTest's two-minute allowance during that resize and its capture
+  was lost.
 - Sidebar, Light and Dark: Hide Sidebar and Show Sidebar work from the
-  toolbar. With Reduce Motion off, the sidebar slides out over 200 to 230
-  milliseconds and back over about 260, sampled through accessibility
-  positions every 4 milliseconds. With Reduce Motion on, Hide went from shown
-  to gone with no position between, and Show brought the sidebar back.
+  toolbar. With Reduce Motion off, accessibility positions changed in steps
+  about 16 to 30 milliseconds apart: the sidebar slid out over 200 to 230
+  milliseconds and back over about 260. With Reduce Motion on, Hide went from
+  shown to gone with no position between; the journey then found Hide Sidebar
+  again after Show, and the captures show both the hidden and the shown
+  sidebar.
 
 Deferred: the same Labels submenu and New Label… with an attested Gmail test
 account stay on #2796 for a protected run. The Profile Switcher's focused
