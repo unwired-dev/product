@@ -1025,7 +1025,64 @@ final class WindowTests: XCTestCase {
     // The accepted reply body reopens as it was saved.
     XCTAssertTrue(
       webText("Synthetic reply to local mail.", in: relaunched).waitForExistence(timeout: 15))
+    pastedImageJourney(app, window: relaunched)
     nativeCloseJourney(app, window: relaunched)
+  }
+
+  // #2929: an image pasted into the page is read from the pasteboard by native code, goes inline
+  // with its verified thumbnail, and keeps its place through Save, relaunch and reopening.
+  private func pastedImageJourney(_ app: XCUIApplication, window: XCUIElement) {
+    let image = NSImage(size: NSSize(width: 120, height: 80), flipped: false) { rect in
+      NSColor.systemTeal.setFill()
+      rect.fill()
+      return true
+    }
+    let png = image.tiffRepresentation.flatMap { NSBitmapImageRep(data: $0) }?
+      .representation(using: .png, properties: [:])
+    XCTAssertNotNil(png)
+    // Give the person their pasteboard back afterwards.
+    let pasteboard = NSPasteboard.general
+    let saved = (pasteboard.pasteboardItems ?? []).map { item in
+      let copy = NSPasteboardItem()
+      for type in item.types {
+        if let data = item.data(forType: type) { copy.setData(data, forType: type) }
+      }
+      return copy
+    }
+    pasteboard.clearContents()
+    pasteboard.setData(png, forType: .png)
+    let written = pasteboard.changeCount
+    addTeardownBlock {
+      guard pasteboard.changeCount == written else { return }
+      pasteboard.clearContents()
+      pasteboard.writeObjects(saved)
+    }
+    let body = window.webViews.textViews["Message body"]
+    webText("Synthetic reply to local mail.", in: window).click()
+    window.typeKey(.downArrow, modifierFlags: .command)
+    window.typeKey("v", modifierFlags: .command)
+    let row = window.descendants(matching: .any)
+      .matching(NSPredicate(format: "label BEGINSWITH %@", "Pasted image, ")).firstMatch
+    XCTAssertTrue(row.waitForExistence(timeout: 30))
+    let inline = body.images.firstMatch
+    XCTAssertTrue(inline.waitForExistence(timeout: 30))
+    // The placeholder gives way to the native thumbnail once the bytes verify.
+    waitUntil { inline.frame.width > 60 }
+    let pasted = XCTAttachment(screenshot: window.screenshot())
+    pasted.name = "Evaluation editor pasted image"
+    pasted.lifetime = .keepAlways
+    add(pasted)
+    reopenDraft(app)
+    XCTAssertTrue(
+      webText("Synthetic reply to local mail.", in: window).waitForExistence(timeout: 15))
+    let reopened = window.webViews.textViews["Message body"].images.firstMatch
+    XCTAssertTrue(reopened.waitForExistence(timeout: 30))
+    waitUntil { reopened.frame.width > 60 }
+    XCTAssertTrue(row.waitForExistence(timeout: 15))
+    let shot = XCTAttachment(screenshot: window.screenshot())
+    shot.name = "Evaluation Draft with pasted image after relaunch"
+    shot.lifetime = .keepAlways
+    add(shot)
   }
 
   private func nativeCloseJourney(_ app: XCUIApplication, window: XCUIElement) {
@@ -1132,8 +1189,9 @@ final class WindowTests: XCTestCase {
     window.typeKey("b", modifierFlags: .command)
     let numbered = window.buttons["Numbered List"]
     numbered.click()
-    // The paragraph's text stays in the list item, beside the item's number marker.
-    let marker = window.webViews.otherElements.matching(NSPredicate(format: "value == %@", "1"))
+    // The paragraph's text stays in the list item, beside the item's number marker, which the
+    // page draws as generated text since #2884 (#2932).
+    let marker = window.webViews.staticTexts.matching(NSPredicate(format: "value == %@", "1"))
       .firstMatch
     XCTAssertTrue(marker.waitForExistence(timeout: 10))
     window.typeKey("z", modifierFlags: .command)
@@ -1203,7 +1261,12 @@ final class WindowTests: XCTestCase {
   private func evaluationLinkJourney(_ app: XCUIApplication) {
     let window = app.windows["Inbox 1"]
     let body = window.webViews.textViews["Message body"]
-    let pageText = { body.staticTexts.allElementsBoundByIndex.map { $0.value as? String ?? "" } }
+    // The numbered item's marker comes first, as the texts "1" and "." (#2932).
+    let pageText = {
+      Array(
+        body.staticTexts.allElementsBoundByIndex.map { $0.value as? String ?? "" }
+          .drop { $0 == "1" || $0 == "." })
+    }
     let unlinked = pageText()
     let link = body.links.firstMatch
     // The one link in the page holds the whole paragraph, not part of it.
