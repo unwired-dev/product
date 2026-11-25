@@ -1060,9 +1060,9 @@ final class WindowTests: XCTestCase {
       XCTFail("Another app wrote to the pasteboard during the journey")
       return
     }
-    pasteboard.clearContents()
+    // The count clearContents returns is ours: a later copy by another app changes it.
+    var written = pasteboard.clearContents()
     pasteboard.writeObjects([file as NSURL])
-    var written = pasteboard.changeCount
     addTeardownBlock {
       guard pasteboard.changeCount == written else { return }
       pasteboard.clearContents()
@@ -1081,9 +1081,8 @@ final class WindowTests: XCTestCase {
       XCTFail("Another app wrote to the pasteboard during the journey")
       return
     }
-    pasteboard.clearContents()
+    written = pasteboard.clearContents()
     pasteboard.setData(png, forType: .png)
-    written = pasteboard.changeCount
     window.typeKey("v", modifierFlags: .command)
     let row = window.descendants(matching: .any)
       .matching(NSPredicate(format: "label BEGINSWITH %@", "Pasted image, ")).firstMatch
