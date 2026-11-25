@@ -928,7 +928,8 @@ describe('the Tiptap evaluation page', () => {
     const page = await open([
       { ...right, spans: [{ text: 'ab' }] },
       { ...centred, spans: [{ text: 'cd' }] },
-      { kind: 'paragraph', spans: [] },
+      // The empty line is a heading; the dragged paragraphs stay paragraphs.
+      { kind: 'heading1', spans: [] },
     ]);
     const { editor } = page;
     const line = (index: number) => nth(textblocks(editor), index);
@@ -1097,6 +1098,18 @@ describe('the Tiptap evaluation page', () => {
       ...item,
       spans: [{ text: 'copied' }],
     });
+    // A list item copied whole stays an item, without its layout.
+    const { dom } = editor.view.serializeForClipboard(
+      editor.state.doc.slice(0, editor.state.doc.firstChild?.nodeSize),
+    );
+    const quote = nth(textblocks(editor), 1);
+    editor.commands.setTextSelection(quote.from + 2);
+    editor.view.pasteHTML(dom.innerHTML);
+    expect(bodyOf(page)?.slice(1)).toStrictEqual([
+      { kind: 'quote', spans: [{ text: 'qu' }] },
+      { kind: 'numbered', spans: [{ text: 'copied' }] },
+      { kind: 'quote', spans: [{ text: 'ote' }] },
+    ]);
   });
 
   it('pastes supported meaning only and never stores unsupported content', async () => {

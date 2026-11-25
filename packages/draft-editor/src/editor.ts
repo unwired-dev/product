@@ -378,6 +378,11 @@ const unlaidOut = (fragment: Fragment): Fragment =>
     ),
   );
 
+// Whether a block copied whole is a paragraph that a paste opens, so its text joins the line.
+// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ProseMirror's Node is a class; this only reads it.
+const opens = (node: ProseMirrorNode | null) =>
+  node?.type.name === 'paragraph' && node.content.size > 0;
+
 // Whether a paste or drop carries files or image data, which only native code may read.
 // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The DOM's DataTransfer is mutable by design; this only reads it.
 const carriesFiles = (data: DataTransfer | null) =>
@@ -640,12 +645,24 @@ const DraftBehavior = Extension.create<unknown, { typing: boolean }>({
     return [
       new Plugin({
         props: {
-          // A drag within the page moves its content as it is. A paste is opened, as ProseMirror
-          // opens pasted HTML, so its first block joins the destination line, as a partial copy does.
-          transformPasted: (slice, view) =>
-            view.dragging === null
-              ? Slice.maxOpen(unlaidOut(slice.content))
-              : slice,
+          // A drag within the page moves its content as it is. A paragraph copied whole, as after
+          // Select All, joins the line it is pasted into, as a partial copy does; other blocks
+          // copied whole stay blocks.
+          transformPasted: (slice, view) => {
+            if (view.dragging !== null) {
+              return slice;
+            }
+            const content = unlaidOut(slice.content);
+            return new Slice(
+              content,
+              slice.openStart === 0 && opens(content.firstChild)
+                ? 1
+                : slice.openStart,
+              slice.openEnd === 0 && opens(content.lastChild)
+                ? 1
+                : slice.openEnd,
+            );
+          },
           // A pasted image is read from the pasteboard by native code, where it can; the page
           // never reads the data, and a dropped file is refused.
           // Pasting over a selection deletes it as Backspace does first.
@@ -672,7 +689,7 @@ const DraftBehavior = Extension.create<unknown, { typing: boolean }>({
             return true;
           },
           // A drag within the page into an empty line fills it with the content as it is: the line
-          // takes the first dragged block's alignment and list level, not its own.
+          // takes the first dragged block's kind, where it may, alignment and list level.
           // oxlint-disable-next-line max-params -- ProseMirror's handleDrop signature.
           handleDrop: (view, event, slice, moved) => {
             if (!moved) {
@@ -699,18 +716,19 @@ const DraftBehavior = Extension.create<unknown, { typing: boolean }>({
               return false;
             }
             tr.deleteSelection();
-            // oxlint-disable-next-line unicorn/no-array-method-this-argument -- ProseMirror Mapping.map takes an association, not an array thisArg.
             const at = tr.mapping.map(target.pos);
             const steps = tr.mapping.maps.length;
             tr.replaceRange(at, at, slice);
-            // oxlint-disable-next-line unicorn/no-array-method-this-argument -- ProseMirror Mapping.map takes an association, not an array thisArg.
             const end = tr.mapping.slice(steps).map(at);
             const $at = tr.doc.resolve(at);
-            tr.setNodeAttribute(
-              $at.before(),
-              'align',
-              $source.parent.attrs.align,
-            );
+            const { parent: line } = $source;
+            const index = $at.index($at.depth - 1);
+            if (
+              $at.node(-1).canReplaceWith(index, index + 1, line.type) &&
+              line.type.validContent($at.parent.content)
+            ) {
+              tr.setNodeMarkup($at.before(), line.type, line.attrs);
+            }
             if (
               $source.node(-1).type.name === 'listItem' &&
               $at.node(-1).type.name === 'listItem'
