@@ -1106,12 +1106,19 @@ final class WindowTests: XCTestCase {
     let second = app.windows["Inbox 2"]
     XCTAssertTrue(second.waitForExistence(timeout: 15))
     openDraft(second, original)
+    // The saved body, which each version must keep beside its own text.
+    func keepsBody(_ window: XCUIElement) {
+      for saved in ["Synthetic reply to local mail.", "Resumed", "After refusal"] {
+        XCTAssertTrue(webText(saved, in: window).waitForExistence(timeout: 15))
+      }
+    }
     // Typing reaches the page of the window in front, at the end of its body.
     func append(_ value: String, in window: XCUIElement) {
       window.webViews.textViews["Message body"].click()
       window.typeKey(.downArrow, modifierFlags: .command)
       app.typeText(value)
       XCTAssertTrue(webText(value, in: window).waitForExistence(timeout: 10))
+      keepsBody(window)
     }
     append(" Window B", in: second)
     app.menuBars.menuBarItems["Window"].click()
@@ -1130,6 +1137,7 @@ final class WindowTests: XCTestCase {
     sheet.buttons["Cancel"].click()
     XCTAssertTrue(sheet.waitForNonExistence(timeout: 10))
     XCTAssertTrue(webText("Window B", in: second).exists)
+    keepsBody(second)
     close.click()
     XCTAssertTrue(sheet.buttons["Save"].waitForExistence(timeout: 10))
     sheet.buttons["Save"].click()
@@ -1141,12 +1149,14 @@ final class WindowTests: XCTestCase {
     openDraft(first, copy)
     XCTAssertTrue(webText("Window B", in: first).waitForExistence(timeout: 15))
     XCTAssertFalse(webText("Window A", in: first).exists)
+    keepsBody(first)
     // Unchanged since it opened, so Close needs no save choice.
     first.buttons["Close"].click()
     waitUntil { first.webViews.count == 0 }
     openDraft(first, original)
     XCTAssertTrue(webText("Window A", in: first).waitForExistence(timeout: 15))
     XCTAssertFalse(webText("Window B", in: first).exists)
+    keepsBody(first)
   }
 
   private func webText(_ value: String, in window: XCUIElement) -> XCUIElement {
