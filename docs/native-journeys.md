@@ -539,6 +539,18 @@ captures **Labels** empty, with **Apply** unavailable, and again with `Travel/Sp
 approved frames, then closes it with **Cancel**. Creating the label is covered by Jest; the
 synthetic Gmail layer does not create labels.
 
+## iPad popover dismissal journey
+
+`testPopoverDismissal` runs on a `registration-declined` Release build with
+`UNWIRED_JOURNEY=testPopoverDismissal` on iPad; iPhone skips it
+([#2879](https://github.com/unwired-dev/product/issues/2879)). It connects the synthetic Gmail
+mailbox and opens the Inbox's Filters popover, then in a reader the toolbar's **Labels**
+popover, **More**'s system menu and the **Labels** popover that **More › Move to…** opens.
+Each is opened three times and, once settled, closed by a single tap low in the window (above
+the popover for Filters) within 5 seconds. The reader's three then close once more with
+Command-period, which UIKit delivers as Escape; the Inbox journey checks Filters' Escape. The
+message stays open and read. A capture of each, named with the appearance, is kept.
+
 ## iPhone and iPad Send Now journey
 
 `testSendNow` runs on a `registration-declined` Release build with `UNWIRED_JOURNEY=testSendNow`.

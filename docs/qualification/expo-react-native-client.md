@@ -11,6 +11,33 @@ The [mobile bootstrap](../expo-client.md) now uses Expo 57.0.25, React Native
 are available on the development host. The maintainer's earlier native-validation
 deferral still applies to unavailable release checks. Mac host evidence follows.
 
+## iPad popovers close at one tap outside and at Escape, 2026-11-25
+
+[#2879](https://github.com/unwired-dev/product/issues/2879), a slice of
+[#2873](https://github.com/unwired-dev/product/issues/2873), follows up the second
+taps #2798 saw on iPad. It ran on `d72ed590e`, on a `registration-declined` Release
+Simulator build with Xcode 27.2 (`27B52`), the iOS 27.0 runtime and macOS 27.2.1,
+on iPad Pro 11-inch (M5) in portrait. Host load from other work was 5–58.
+
+- The new `testPopoverDismissal` journey passed in Light and in Dark. Each of the
+  Inbox's Filters popover, the reader toolbar's Labels popover, More's system menu
+  and the Labels popover from More › Move to… closed at a single tap outside, three
+  times in each appearance, and the reader's three closed at Command-period, which
+  UIKit delivers as Escape. The message stayed open and read.
+- Through `agent-device`, on the same build and an owned iPad, a single coordinate
+  tap outside closed 35 of 36 times: Filters 6 in Light; Labels and More 6 each in
+  Light; Labels 6, More 4 and Move to…'s Labels 4 in Dark; and 3 more after the
+  refused press below. The one miss followed that refused press at host load
+  about 50, and did not recur when the sequence was repeated three times.
+- An open iPad popover hides the window behind it from accessibility (#1403), so a
+  press aimed at a ref or element behind it, taken before it opened, is refused
+  as `Ref … not found. Not dispatched.` and the popover stays open. That and a tap
+  lost under host load (the Sync Status journey already taps again for it) explain
+  the second taps; the app closes each popover at the first delivered tap.
+- **Deferred** to [#2873](https://github.com/unwired-dev/product/issues/2873): the
+  rest of its list, including VoiceOver, Reduce Motion, compact windows, rotation
+  and the Folders popover.
+
 ## iPhone and iPad system sheets and popovers, 2026-11-24
 
 [#2798](https://github.com/unwired-dev/product/issues/2798), the last
@@ -72,9 +99,9 @@ presenter; each names the appearances it ran in. Host load from other work was
   docks in the reading column, both closed by Close (Light and Dark).
 - On iPad, a tap outside the Labels popover (from the toolbar and from More, in
   Dark) and the Filters popover (in Light) sometimes closed it only at the
-  second tap. CI closes the Filters popover with one tap in Dark; the cause of
-  each observation is not established, and
-  [#2873](https://github.com/unwired-dev/product/issues/2873) keeps them open.
+  second tap. CI closes the Filters popover with one tap in Dark;
+  [#2879](https://github.com/unwired-dev/product/issues/2879) traced the second
+  taps to the tooling (2026-11-25 entry above).
 - **Deferred** to [#2873](https://github.com/unwired-dev/product/issues/2873):
   the iPad Folders popover; VoiceOver focus when a presenter opens and its
   return when it closes; Reduce Motion; a compact iPad window, where the
