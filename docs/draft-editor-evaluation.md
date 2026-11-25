@@ -119,11 +119,13 @@ the current composer's:
   from the Format controls or their shortcuts, keep them as
   [Drafts](drafts.md#composing) describes: typed text takes the format of the
   text before it, or at a block's start the text after it, even at a link's
-  start, where it stays unlinked; editing a selection, Select All included, keeps
-  the first selected block's alignment and list level; and joining an empty
-  block with the next line keeps the empty block's. Pasted text carries no
-  alignment or list level, while a drag within the page moves content as it is.
-  The page sets none of them.
+  start, where it stays unlinked; typing, deleting, cutting or pasting over a
+  selection, or adding an image there, Select All included, keeps the first
+  selected block's kind, alignment and list level, even across a quote or list,
+  as do Backspace and Delete across a block's edge; and joining an empty block
+  with the next line keeps the empty block's. Pasted text carries no alignment
+  or list level, while a drag within the page moves content as it is, also into
+  an empty line. The page sets none of them.
 
 - **Controls.** On iPad and Mac the current composer's format bar: the text style
   menu, the four marks, lists, the Link control, **Undo** and **Redo**, **Writing

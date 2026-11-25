@@ -921,6 +921,108 @@ describe('the Tiptap evaluation page', () => {
     editor.view.dragging = null;
   });
 
+  it('drops whole paragraphs into an empty line as they are', async () => {
+    expect.hasAssertions();
+    const right = { kind: 'paragraph', align: 'right' } as const;
+    const centred = { kind: 'paragraph', align: 'center' } as const;
+    const page = await open([
+      { ...right, spans: [{ text: 'ab' }] },
+      { ...centred, spans: [{ text: 'cd' }] },
+      { kind: 'paragraph', spans: [] },
+    ]);
+    const { editor } = page;
+    const line = (index: number) => nth(textblocks(editor), index);
+    const [first, second, empty] = [line(0), line(1), line(2)];
+    editor.commands.setTextSelection({ from: first.from, to: second.to });
+    const slice = editor.state.doc.slice(first.from, second.to);
+    editor.view.posAtCoords = () => ({ pos: empty.from, inside: -1 });
+    const event = new DragEvent('drop', { clientX: 1, clientY: 1 });
+    expect(
+      editor.view.someProp('handleDrop', (drop) =>
+        drop(editor.view, event, slice, true),
+      ),
+    ).toBe(true);
+    expect(bodyOf(page)).toStrictEqual([
+      { kind: 'paragraph', align: 'right', spans: [] },
+      { ...right, spans: [{ text: 'ab' }] },
+      { ...centred, spans: [{ text: 'cd' }] },
+    ]);
+  });
+
+  it('deletes, splits and cuts across blocks as the current composer does', async () => {
+    expect.hasAssertions();
+    const item = { kind: 'numbered', indent: 2, align: 'right' } as const;
+    const centred = { kind: 'paragraph', align: 'center' } as const;
+    const page = await open([
+      { ...item, spans: [{ text: 'left' }] },
+      { ...centred, spans: [{ text: 'right' }] },
+      { kind: 'paragraph', align: 'right', spans: [{ text: 'ab' }] },
+      { ...centred, spans: [{ text: 'cd' }] },
+      { ...item, spans: [{ text: 'one' }] },
+      { ...centred, spans: [{ text: 'two' }] },
+      { kind: 'quote', spans: [{ text: 'q1' }] },
+      { kind: 'quote', spans: [{ text: 'q2' }] },
+    ]);
+    const { editor } = page;
+    const line = (index: number) => nth(textblocks(editor), index);
+    const select = (from: number, to: number) =>
+      editor.commands.setTextSelection({ from, to });
+    // The first block keeps its kind, level and alignment and takes the rest of the last.
+    select(line(0).from, line(1).from + 1);
+    press(page, 'Backspace');
+    select(line(0).from, line(0).from + 1);
+    press(page, 'Enter');
+    // Cut deletes as Backspace does.
+    select(line(2).from + 1, line(3).from + 1);
+    editor.view.dispatch(
+      editor.state.tr.deleteSelection().setMeta('uiEvent', 'cut'),
+    );
+    // Delete at the end of a list item joins the next paragraph into it.
+    editor.commands.setTextSelection(line(3).to);
+    press(page, 'Delete');
+    // Backspace at the start of a quote line joins it into the line before.
+    editor.commands.setTextSelection(line(4).from);
+    press(page, 'Backspace');
+    expect(bodyOf(page)).toStrictEqual([
+      { ...item, spans: [] },
+      { ...item, spans: [{ text: 'ght' }] },
+      { kind: 'paragraph', align: 'right', spans: [{ text: 'ad' }] },
+      { ...item, spans: [{ text: 'onetwoq1' }] },
+      { kind: 'quote', spans: [{ text: 'q2' }] },
+    ]);
+  });
+
+  it('keeps the first block through Select All with typing, deletion, paste and images', async () => {
+    expect.hasAssertions();
+    const item = { kind: 'numbered', indent: 2, align: 'right' } as const;
+    const page = await open([
+      { ...item, spans: [{ text: 'item' }] },
+      { kind: 'quote', spans: [{ text: 'quote' }] },
+    ]);
+    const { editor, command } = page;
+    const replaced = (edit: () => void) => {
+      editor.commands.selectAll();
+      edit();
+      const body = bodyOf(page);
+      command({ type: 'undo' });
+      return body;
+    };
+    expect(replaced(() => page.type('x'))).toStrictEqual([
+      { ...item, spans: [{ text: 'x' }] },
+    ]);
+    expect(replaced(() => press(page, 'Delete'))).toStrictEqual([
+      { ...item, spans: [] },
+    ]);
+    expect(
+      replaced(() => editor.view.pasteHTML('<p>pasted</p>')),
+    ).toStrictEqual([{ ...item, spans: [{ text: 'pasted' }] }]);
+    expect(
+      replaced(() =>
+        command({ type: 'add', images: [photo], attachments: [] }),
+      )?.[0],
+    ).toMatchObject({ ...item, spans: [{ image: photo }] });
+  });
+
   it('pastes supported meaning only and never stores unsupported content', async () => {
     expect.hasAssertions();
     const page = await open(paragraphs(''));

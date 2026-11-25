@@ -435,85 +435,64 @@ const normalized = (state: EditorState) => {
   return tr.docChanged ? tr : null;
 };
 
-// The layout of the first textblock from `from` to `to`, as a function giving it to the blocks an
-// edit of that range creates from `start` to `end`. As in the current composer, they keep its
-// alignment and list level; after Select All, which starts outside every textblock, the block
-// holding the caret at `end` also keeps its kind.
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ProseMirror's node is a class; this only reads it.
-const layoutOf = (doc: ProseMirrorNode, from: number, to: number) => {
-  const found: Array<Readonly<{ first: ProseMirrorNode; indent: unknown }>> =
+// Deletes `from` to `to` as the current composer deletes across lines: the textblock holding
+// `from` keeps its kind, alignment and list level and takes the rest of the last one, and every
+// textblock after it in the range goes, with any quote or list item left empty. After Select All
+// the first textblock stays, emptied; Tiptap would reset a document emptied this way.
+// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ProseMirror's transaction is a class; this edits it.
+const flatDelete = (tr: Transaction, from: number, to: number) => {
+  const blocks: Array<Readonly<{ node: ProseMirrorNode; position: number }>> =
     [];
-  doc.nodesBetween(from, to, (node, _position, parent) => {
-    if (found.length === 0 && node.isTextblock) {
-      const attrs: Readonly<Record<string, unknown>> | undefined =
-        parent?.type.name === 'listItem' ? parent.attrs : undefined;
-      found.push({ first: node, indent: attrs?.indent });
+  tr.doc.nodesBetween(from, to, (node, position) => {
+    if (node.isTextblock) {
+      blocks.push({ node, position });
     }
-    return found.length === 0;
+    return !node.isTextblock;
   });
-  const [layout] = found;
-  const whole = !doc.resolve(from).parent.isTextblock;
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ProseMirror's transaction is a class; this sets attributes on it.
-  return (tr: Transaction, start: number, end: number) => {
-    if (layout === undefined) {
-      return;
-    }
-    const { first, indent } = layout;
-    tr.doc.nodesBetween(start, end, (node, position, parent) => {
-      if (!node.isTextblock) {
-        return true;
-      }
-      if (whole && position < end && end <= position + node.nodeSize) {
-        tr.setNodeMarkup(position, first.type, first.attrs);
-      } else if ('align' in node.attrs) {
-        tr.setNodeAttribute(position, 'align', first.attrs.align);
-      }
-      if (parent?.type.name === 'listItem' && indent !== undefined) {
-        tr.setNodeAttribute(
-          tr.doc.resolve(position).before(),
-          'indent',
-          indent,
-        );
-      }
-      return false;
-    });
-  };
+  const [first, ...rest] = blocks;
+  if (from === to || first === undefined) {
+    return;
+  }
+  const last = rest.at(-1) ?? first;
+  const start = Math.max(from, first.position + 1);
+  const tail = last.node.content.cut(
+    Math.min(Math.max(0, to - last.position - 1), last.node.content.size),
+  );
+  for (const { node, position } of rest.toReversed()) {
+    tr.deleteRange(position, position + node.nodeSize);
+  }
+  tr.replaceWith(start, first.position + first.node.nodeSize - 1, tail);
+  tr.setSelection(TextSelection.create(tr.doc, start));
+  tr.setMeta('preventClearDocument', true);
 };
 
-// Deletes the selection, keeping the first selected block's layout; Tiptap would reset a document
-// emptied this way.
 // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ProseMirror's transaction is a class; this edits it.
-const deleteKeepingLayout = (tr: Transaction) => {
-  const { from, to } = tr.selection;
-  const keepLayout = layoutOf(tr.doc, from, to);
-  tr.deleteSelection().setMeta('preventClearDocument', true);
-  keepLayout(tr, tr.selection.from, tr.selection.from);
+const deleteSelected = (tr: Transaction) => {
+  flatDelete(tr, tr.selection.from, tr.selection.to);
   return true;
 };
 
-// Typed text takes the format of the text before it, and at a block's start the text after it, as
-// in the current composer. Text replacing a selection also keeps the first replaced block's
-// layout and the first replaced character's link: including for Select All and, unlike
-// marksAcross, when the selection crosses the link's end.
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ProseMirror's transaction is a class; this marks the text it inserted.
-const keepReplaced = (tr: Transaction, from: number, to: number) => {
+// Text typed over `from` to `to`, now at `start` to `end`, takes the format of the text before
+// it, and at a block's start the text after it, as in the current composer. Replacing text also
+// keeps the first replaced character's link: including for Select All and, unlike marksAcross,
+// when the selection crosses the link's end.
+const keepReplaced = (
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ProseMirror's transaction is a class; this marks the text it inserted.
+  tr: Transaction,
+  [from, to]: readonly [number, number],
+  [start, end]: readonly [number, number],
+) => {
   const doc = tr.before;
   const $from = doc.resolve(from);
   const beside =
     $from.parentOffset > 0 ? $from.nodeBefore : doc.resolve(to).nodeAfter;
   const format = beside?.marks.find((mark) => mark.type.name === 'format');
-  // oxlint-disable-next-line unicorn/no-array-method-this-argument -- ProseMirror Mapping.map takes an association, not an array thisArg.
-  const start = tr.mapping.map(from, -1);
-  const end = tr.mapping.map(to);
   if (format === undefined) {
     tr.removeMark(start, end, doc.type.schema.marks.format);
   } else {
     tr.addMark(start, end, format);
   }
-  if (from === to) {
-    return;
-  }
-  let node = doc.nodeAt(from);
+  let node = from === to ? null : doc.nodeAt(from);
   while (node !== null && !node.isInline) {
     node = node.firstChild;
   }
@@ -521,7 +500,6 @@ const keepReplaced = (tr: Transaction, from: number, to: number) => {
   if (link !== undefined) {
     tr.addMark(start, end, link);
   }
-  layoutOf(doc, from, to)(tr, start, end);
 };
 
 // Return in an empty list item or quote line continues it, as in the current composer; Tiptap's
@@ -566,8 +544,8 @@ const paragraphAbove = (tr: Transaction) => {
   return true;
 };
 
-// Return over a selection deletes it first, keeping the first selected block's layout on both
-// lines Return leaves.
+// Return over a selection deletes it first, so both lines Return leaves keep the first selected
+// block's layout.
 // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Tiptap's editor is a class; this runs commands on it.
 const returnKey = (editor: TiptapEditor) =>
   editor.state.selection.empty
@@ -576,7 +554,7 @@ const returnKey = (editor: TiptapEditor) =>
       )
     : editor
         .chain()
-        .command(({ tr }) => deleteKeepingLayout(tr))
+        .command(({ tr }) => deleteSelected(tr))
         .first(({ commands }) => [
           () =>
             commands.command(
@@ -589,36 +567,33 @@ const returnKey = (editor: TiptapEditor) =>
         .scrollIntoView()
         .run();
 
-// Backspace and Delete over a selection keep the first selected block's layout. Joining an empty
-// block with the next textblock, even one inside a quote or list, keeps the empty block's
-// alignment and kind, as joining any other block does; ProseMirror would remove the empty block
-// instead. Backspace at the start of a quote line or list item keeps lifting it.
+// Backspace and Delete delete a selection, and at a block's edge join it with the textblock
+// before or after it, as the current composer does: the first keeps its kind, alignment and list
+// level, even across a quote or list. Backspace at the start of a list item keeps turning it into
+// a paragraph, and at the start of the document keeps Tiptap's behavior.
 // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Tiptap's editor is a class; this runs commands on it.
 const deleteKey = (editor: TiptapEditor, forward: boolean) => {
-  const { $from, empty } = editor.state.selection;
+  const { selection, doc } = editor.state;
+  const { $from, empty } = selection;
   if (!empty) {
-    return editor.commands.command(({ tr }) => deleteKeepingLayout(tr));
+    return editor.commands.command(({ tr }) => deleteSelected(tr));
   }
-  const { doc } = editor.state;
-  const $first = forward
-    ? $from
-    : Selection.findFrom(doc.resolve($from.before()), -1, true)?.$from;
-  const $second = forward
-    ? Selection.findFrom(doc.resolve($from.after()), 1, true)?.$from
-    : $from;
-  if (
-    $first === undefined ||
-    $second === undefined ||
-    $first.parent.content.size > 0 ||
-    (!forward && ($from.parentOffset > 0 || $first.after() !== $from.before()))
-  ) {
+  const $other = forward
+    ? $from.parentOffset === $from.parent.content.size &&
+      Selection.findFrom(doc.resolve($from.after()), 1, true)?.$from
+    : $from.parentOffset === 0 &&
+      $from.node(-1).type.name !== 'listItem' &&
+      Selection.findFrom(doc.resolve($from.before()), -1, true)?.$from;
+  if (!$other) {
     return false;
   }
   return editor.commands.command(({ tr }) => {
-    const [start, end] = [$second.before(), $second.after()];
-    tr.insert($first.pos, $second.parent.content);
-    tr.deleteRange(tr.mapping.map(start), tr.mapping.map(end));
-    tr.setSelection(TextSelection.create(tr.doc, $first.pos)).scrollIntoView();
+    flatDelete(
+      tr,
+      forward ? $from.pos : $other.end(),
+      forward ? $other.start() : $from.pos,
+    );
+    tr.scrollIntoView();
     return true;
   });
 };
@@ -671,9 +646,22 @@ const DraftBehavior = Extension.create<unknown, { typing: boolean }>({
               : slice,
           // A pasted image is read from the pasteboard by native code, where it can; the page
           // never reads the data, and a dropped file is refused.
-          handlePaste: (_view, event) => {
+          // Pasting over a selection deletes it as Backspace does first.
+          handlePaste: (view, event, slice) => {
             if (!carriesFiles(event.clipboardData)) {
-              return false;
+              if (view.state.selection.empty) {
+                return false;
+              }
+              const { tr } = view.state;
+              deleteSelected(tr);
+              view.dispatch(
+                tr
+                  .replaceSelection(slice)
+                  .scrollIntoView()
+                  .setMeta('paste', true)
+                  .setMeta('uiEvent', 'paste'),
+              );
+              return true;
             }
             event.preventDefault();
             globalThis.ReactNativeWebView?.postMessage(
@@ -681,12 +669,47 @@ const DraftBehavior = Extension.create<unknown, { typing: boolean }>({
             );
             return true;
           },
+          // A drag within the page into an empty line fills it with the content as it is, the
+          // first block's layout included; ProseMirror would give that block the line's layout.
           // oxlint-disable-next-line max-params -- ProseMirror's handleDrop signature.
-          handleDrop: (_view, event, _slice, moved) => {
-            if (moved || !carriesFiles(event.dataTransfer)) {
+          handleDrop: (view, event, slice, moved) => {
+            if (!moved) {
+              if (!carriesFiles(event.dataTransfer)) {
+                return false;
+              }
+              event.preventDefault();
+              return true;
+            }
+            const { tr } = view.state;
+            const target = view.posAtCoords({
+              left: event.clientX,
+              top: event.clientY,
+            });
+            const $target = target && tr.doc.resolve(target.pos);
+            if (
+              target === null ||
+              !$target?.parent.isTextblock ||
+              $target.parent.content.size > 0 ||
+              slice.openStart === 0 ||
+              (target.pos >= tr.selection.from && target.pos <= tr.selection.to)
+            ) {
               return false;
             }
-            event.preventDefault();
+            tr.deleteSelection();
+            const from = tr.mapping.map($target.before());
+            const to = tr.mapping.map($target.after());
+            const steps = tr.mapping.maps.length;
+            tr.replaceRange(
+              from,
+              to,
+              new Slice(slice.content, 0, slice.openEnd),
+            );
+            const end = tr.mapping.slice(steps).map(to);
+            tr.setSelection(
+              TextSelection.between(tr.doc.resolve(from), tr.doc.resolve(end)),
+            );
+            view.focus();
+            view.dispatch(tr.setMeta('uiEvent', 'drop'));
             return true;
           },
           // oxlint-disable-next-line max-params -- ProseMirror's handleTextInput signature.
@@ -701,8 +724,16 @@ const DraftBehavior = Extension.create<unknown, { typing: boolean }>({
             const kind = shortcuts.get(marker);
             const word =
               from === to && [...text].length === 1 && !/\s/u.test(text);
-            const tr = deflt();
-            keepReplaced(tr, from, to);
+            // Typing over a selection deletes it as Backspace does first.
+            const tr = from === to ? deflt() : view.state.tr;
+            // oxlint-disable-next-line unicorn/no-array-method-this-argument -- ProseMirror Mapping.map takes an association, not an array thisArg.
+            let start = tr.mapping.map(from, -1);
+            if (from !== to) {
+              flatDelete(tr, from, to);
+              start = tr.selection.from;
+              tr.insertText(text);
+            }
+            keepReplaced(tr, [from, to], [start, start + text.length]);
             view.dispatch(word ? tr.setMeta(typing, true) : tr);
             if (kind !== undefined) {
               setKind(
@@ -723,7 +754,15 @@ const DraftBehavior = Extension.create<unknown, { typing: boolean }>({
       }),
     ];
   },
-  dispatchTransaction({ transaction, next }) {
+  dispatchTransaction({ transaction: dispatched, next }) {
+    // Cut deletes the selection as Backspace does.
+    const transaction =
+      dispatched.getMeta('uiEvent') === 'cut'
+        ? this.editor.state.tr.setMeta('uiEvent', 'cut').scrollIntoView()
+        : dispatched;
+    if (transaction !== dispatched) {
+      deleteSelected(transaction);
+    }
     const typed = transaction.getMeta(typing) === true;
     const { storage } = this;
     if (transaction.docChanged && !(typed && storage.typing)) {
@@ -916,6 +955,7 @@ if (draftEditor !== undefined && element !== null) {
         return;
       }
       remove(tr, id);
+      deleteSelected(tr);
       tr.replaceSelectionWith(editor.schema.node('inlineImage', { id }), false);
     } else if (remove(tr, id)) {
       tr.setDocAttribute('attachments', [...attachmentsOf(tr), id]);
@@ -941,6 +981,7 @@ if (draftEditor !== undefined && element !== null) {
     learn([...images, ...attachments]);
     const { tr } = editor.state;
     if (images.length > 0) {
+      deleteSelected(tr);
       tr.replaceSelection(
         new Slice(
           Fragment.from(
