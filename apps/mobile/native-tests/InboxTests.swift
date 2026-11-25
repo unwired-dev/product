@@ -4304,13 +4304,22 @@ final class InboxTests: XCTestCase {
       app.buttons["Labels"].tap()
       XCTAssertTrue(newLabel.waitForExistence(timeout: 10))
     }
-    func swipes(_ sheet: String, from grab: XCUIElement, shown: XCUIElement, open: () -> Void) {
+    let keyboard = app.keyboards.firstMatch
+    func swipes(
+      _ sheet: String, from grab: XCUIElement, shown: XCUIElement, typing: Bool = false,
+      open: () -> Void
+    ) {
       open()
       XCTAssertTrue(shown.waitForExistence(timeout: 10))
+      if typing {
+        XCTAssertTrue(keyboard.waitForExistence(timeout: 10), "\(sheet) has no keyboard")
+      }
       let rest = settledFrame(of: grab)
       swipeReleasedEarly(from: grab.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)))
       XCTAssertEqual(settledFrame(of: grab), rest, "\(sheet) moved after a swipe released early")
       XCTAssertTrue(shown.exists, "\(sheet) closed at a swipe released early")
+      XCTAssertEqual(
+        keyboard.exists, typing, "\(sheet) changed the keyboard at a swipe released early")
       attachScreen("\(sheet) after a swipe released early", of: app, to: self)
       // An element swipe is too short to dismiss; drag most of the way down the screen.
       let complete = {
@@ -4321,8 +4330,7 @@ final class InboxTests: XCTestCase {
       }
       // With the software keyboard up, as New Label's focused name brings it, the system sheet
       // lowers the keyboard at the first swipe and closes at the next.
-      let keyboard = app.keyboards.firstMatch
-      if keyboard.exists {
+      if typing {
         complete()
         XCTAssertTrue(keyboard.waitForNonExistence(timeout: 5), "\(sheet) kept the keyboard")
         XCTAssertTrue(shown.exists, "\(sheet) closed with the keyboard up")
@@ -4336,7 +4344,7 @@ final class InboxTests: XCTestCase {
     }
     swipes("Reply sheet", from: replyAll, shown: replyAll, open: openReply)
     swipes("Labels sheet", from: heading, shown: newLabel, open: openLabels)
-    swipes("New Label sheet", from: heading, shown: name) {
+    swipes("New Label sheet", from: heading, shown: name, typing: true) {
       if !newLabel.exists { openLabels() }
       newLabel.tap()
     }

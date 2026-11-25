@@ -19,15 +19,15 @@ swipe checks the 2026-11-24 pass below deferred. It ran on `a4ce7fe80` with the
 journey changes, on a `registration-declined` Release Simulator build with
 Xcode 27.2 (`27B52`), the iOS 27.0 runtime and macOS 27.2.1, on iPhone 18 Pro
 in portrait, in Light and Dark. Each passing run passed on its first attempt;
-the 1-minute host load was 6–15.
+the 1-minute host load was 3–15.
 
 - `testSheetSwipes`: from a Gmail reader, the Reply sheet, its Labels sheet
   and that sheet's New Label sheet each stay at the same frame after a
   downward swipe held short and released at rest. A completed downward swipe
   closes the Reply and Labels sheets, and the same control opens each again.
-- New Label opens with its name focused and the software keyboard up. There
-  the system sheet lowers the keyboard at the first completed swipe and stays,
-  and closes at the next. The first Dark run, which expected the sheet to
+- New Label opens with its name focused and the software keyboard up, which
+  stays up at a swipe released early. The system sheet lowers the keyboard at
+  the first completed swipe and stays, and closes at the next. The first Dark run, which expected the sheet to
   close at once, failed there.
 - `testComposerSheet`: a swipe released early on a changed Draft keeps the
   sheet, its Subject and no Delete Draft or Save Draft question.
