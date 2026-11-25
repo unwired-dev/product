@@ -34,7 +34,8 @@
     "testflight": "node scripts/testflight-env.mjs",
     "third-party-notices": "node scripts/third-party-notices.mjs",
     "verify:bundle": "turbo run verify:bundle",
-    "version-packages": "changeset version"
+    "version-packages": "changeset version",
+    "visual-report": "node scripts/visual-report.mjs"
   },
   "devDependencies": {
     "@changesets/cli": "catalog:",

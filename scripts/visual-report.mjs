@@ -115,23 +115,57 @@ const deviations = [];
 const regressions = [];
 const write = (file, png) => writeFileSync(file, PNG.sync.write(png));
 
-function compare({ id, kind, expected, actual, directory }) {
-  const label = `${id} ${kind}`;
+// The reviewed image a comparison expects, or the status that stops it.
+function readReference(label, expected) {
   if (!expected) {
     incomplete.push(`${label}: no reviewed reference`);
-    return { status: 'incomplete' };
+    return 'incomplete';
   }
   const file = path.join(references, expected.image);
   if (!existsSync(file)) {
     failures.push(`${label}: ${expected.image} is missing`);
-    return { status: 'failed' };
+    return 'failed';
   }
   const bytes = readFileSync(file);
   if (sha256(bytes) !== expected.sha256) {
     failures.push(
       `${label}: ${expected.image} does not match its recorded sha256`,
     );
-    return { status: 'failed' };
+    return 'failed';
+  }
+  return bytes;
+}
+
+// Writes the diff and a half-and-half overlay of two aligned images and counts differing pixels.
+function difference(reference, actual, threshold, directory) {
+  const { width, height } = reference;
+  const diff = new PNG({ width, height });
+  const pixels = pixelmatch(
+    reference.data,
+    actual.data,
+    diff.data,
+    width,
+    height,
+    { threshold },
+  );
+  const overlay = new PNG({ width, height });
+  for (let index = 0; index < overlay.data.length; index += 4) {
+    for (let channel = 0; channel < 3; channel += 1) {
+      overlay.data[index + channel] =
+        (reference.data[index + channel] + actual.data[index + channel]) / 2;
+    }
+    overlay.data[index + 3] = 255;
+  }
+  write(path.join(directory, 'diff.png'), diff);
+  write(path.join(directory, 'overlay.png'), overlay);
+  return pixels;
+}
+
+function compare({ id, kind, expected, actual, directory }) {
+  const label = `${id} ${kind}`;
+  const bytes = readReference(label, expected);
+  if (typeof bytes === 'string') {
+    return { status: bytes };
   }
   mkdirSync(directory, { recursive: true });
   writeFileSync(path.join(directory, 'reference.png'), bytes);
@@ -148,36 +182,17 @@ function compare({ id, kind, expected, actual, directory }) {
     return { status: 'failed' };
   }
   const tolerance = manifest.tolerances[kind];
-  const diff = new PNG({ width, height });
-  const pixels = pixelmatch(
-    reference.data,
-    actual.data,
-    diff.data,
-    width,
-    height,
-    {
-      threshold: tolerance.threshold,
-    },
-  );
-  const overlay = new PNG({ width, height });
-  for (let index = 0; index < overlay.data.length; index += 4) {
-    for (let channel = 0; channel < 3; channel += 1) {
-      overlay.data[index + channel] =
-        (reference.data[index + channel] + actual.data[index + channel]) / 2;
-    }
-    overlay.data[index + 3] = 255;
-  }
-  write(path.join(directory, 'diff.png'), diff);
-  write(path.join(directory, 'overlay.png'), overlay);
+  const pixels = difference(reference, actual, tolerance.threshold, directory);
   const ratio = pixels / (width * height);
-  const within = ratio <= tolerance.maxDiffRatio;
+  const measured = { differingPixels: pixels, ratio, tolerance };
   const changed = kind === 'baseline' ? drift(expected.environment) : [];
   if (changed.length > 0) {
     incomplete.push(
       `${label}: captured with a different ${changed.join(', ')}`,
     );
-    return { status: 'incomplete', differingPixels: pixels, ratio, tolerance };
+    return { status: 'incomplete', ...measured };
   }
+  const within = ratio <= tolerance.maxDiffRatio;
   if (!within) {
     (kind === 'figma' ? deviations : regressions).push(
       `${label}: ${(ratio * 100).toFixed(2)}% of pixels differ`,
@@ -185,8 +200,7 @@ function compare({ id, kind, expected, actual, directory }) {
   }
   const [held, broken] =
     kind === 'figma' ? ['conforms', 'deviates'] : ['matches', 'regressed'];
-  const status = within ? held : broken;
-  return { status, differingPixels: pixels, ratio, tolerance };
+  return { status: within ? held : broken, ...measured };
 }
 
 const captures = manifest.captures
