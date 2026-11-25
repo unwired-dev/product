@@ -32,7 +32,36 @@ private func attachScreen(
   test.add(shot)
 }
 
+// #1873: on iPad, XCTest's count of the app's running animations can stay above zero after a
+// keyboard or text-selection change, so every later action waits a minute for animations to end.
+// Once that wait runs out for an app process, later waits for the same process skip the animations
+// and still wait for its main run loop to idle.
+private var leakedAnimations = Set<Int32>()
+private let waitPastLeakedAnimations: Void = {
+  let selector = NSSelectorFromString(
+    "waitForQuiescenceIncludingAnimationsIdle:usingActivity:isPreEvent:")
+  guard let process = NSClassFromString("XCUIApplicationProcess"),
+    let method = class_getInstanceMethod(process, selector)
+  else { return }
+  typealias Wait = @convention(c) (NSObject, Selector, Bool, Bool, Bool) -> Void
+  let wait = unsafeBitCast(method_getImplementation(method), to: Wait.self)
+  typealias Replacement = @convention(block) (NSObject, Bool, Bool, Bool) -> Void
+  let replacement: Replacement = { process, animations, activity, preEvent in
+    let pid = process.value(forKey: "processID") as? Int32 ?? 0
+    wait(process, selector, animations && !leakedAnimations.contains(pid), activity, preEvent)
+    if animations && process.value(forKey: "animationsHaveFinished") as? Bool == false {
+      leakedAnimations.insert(pid)
+    }
+  }
+  method_setImplementation(method, imp_implementationWithBlock(replacement))
+}()
+
 final class InboxTests: XCTestCase {
+  override static func setUp() {
+    super.setUp()
+    _ = waitPastLeakedAnimations
+  }
+
   // A new Product Account connects the synthetic Gmail mailbox and confirms its Recovery Key.
   private func connectGmail(_ app: XCUIApplication) {
     app.buttons["Continue"].tap()
@@ -3485,7 +3514,7 @@ final class InboxTests: XCTestCase {
     try audit(app, "Inbox")
     if phone {
       app.buttons["Back to Mailboxes"].tap()
-    } else if app.buttons["Show Sidebar"].exists {
+    } else if app.buttons["Show Sidebar"].exists || app.buttons["Hide Sidebar"].exists {
       showSidebar(app)
     } else {
       app.navigationBars.buttons.firstMatch.tap()
@@ -3625,10 +3654,13 @@ final class InboxTests: XCTestCase {
         app.swipeDown()
       }
       draft.tap()
-      XCTAssertTrue(app.textFields["Subject"].waitForExistence(timeout: 15))
       if pad {
+        // At this size iPad's docked reply shows its fields only once expanded (#2882).
+        XCTAssertTrue(app.buttons["Expand"].waitForExistence(timeout: 15))
         app.buttons["Expand"].tap()
         XCTAssertTrue(app.buttons["Collapse"].waitForExistence(timeout: 10))
+      } else {
+        XCTAssertTrue(app.textFields["Subject"].waitForExistence(timeout: 15))
       }
     }
     reopen()
@@ -3755,6 +3787,8 @@ final class InboxTests: XCTestCase {
     XCTAssertEqual(text.value as? String, "reply")
     XCTAssertEqual(destination.value as? String, initialDestination)
     submit("https://example.com", into: destination, in: app)
+    // A loaded host can drop the Return (#1510).
+    if !destination.waitForNonExistence(timeout: 10), hasFocus(destination) { press("\n", in: app) }
     XCTAssertTrue(destination.waitForNonExistence(timeout: 10))
     XCTAssertEqual(body.value as? String, "Keyboard reply")
     let edit = formatControl("Edit Link", in: app)
@@ -3780,11 +3814,16 @@ final class InboxTests: XCTestCase {
     }
   }
 
-  // Leaves the Link Editor without applying: iPad taps beside the popover, above the software
-  // keyboard; iPhone closes the sheet, whose Close sits below the composer's own.
+  // Leaves the Link Editor without applying: iPad taps the expanded composer's title row beside
+  // Collapse, outside the popover and away from the body, again when a loaded host drops the tap
+  // (#1510). iPhone closes the sheet, whose Close sits below the composer's own.
   private func dismissLinkEditor(_ app: XCUIApplication, field: XCUIElement, pad: Bool) {
     if pad {
-      app.coordinate(withNormalizedOffset: CGVector(dx: 0.05, dy: 0.15)).tap()
+      let title = app.buttons["Collapse"].coordinate(withNormalizedOffset: CGVector(dx: -2, dy: 0.5))
+      for _ in 0..<3 where field.exists {
+        title.tap()
+        _ = field.waitForNonExistence(timeout: 5)
+      }
     } else {
       app.buttons.matching(NSPredicate(format: "label == %@", "Close")).allElementsBoundByIndex
         .max { $0.frame.minY < $1.frame.minY }?.tap()
@@ -3798,15 +3837,31 @@ final class InboxTests: XCTestCase {
   }
 
   // Presses Return only once `field` shows `text`, so Return never runs before a loaded host has
-  // delivered the keys before it (#1510).
+  // delivered the keys before it (#1510). On iPad the simulator can drop a key, or carry a Shift to
+  // the next key as the software keyboard rises, so a field still without `text` is retyped once
+  // (#1873).
   private func submit(_ text: String, into field: XCUIElement, in app: XCUIApplication) {
     press(text, in: app)
+    let typed = NSPredicate { _, _ in field.value as? String == text }
+    let wait = XCTNSPredicateExpectation(predicate: typed, object: nil)
+    if XCTWaiter.wait(for: [wait], timeout: 20) != .completed {
+      app.typeKey("a", modifierFlags: .command)
+      press(text, in: app)
+    }
     waitUntil { field.value as? String == text }
     press("\n", in: app)
   }
 
   private func hasFocus(_ element: XCUIElement) -> Bool {
     element.value(forKey: "hasKeyboardFocus") as? Bool == true
+  }
+
+  // The software keyboard's top edge: its typing predictions and shortcuts bar sits above the
+  // `Keyboard` element's frame (#2891).
+  private func keyboardTop(_ app: XCUIApplication) -> CGFloat {
+    let assistant = app.otherElements["SystemInputAssistantView"]
+    let keys = app.keyboards.firstMatch.frame.minY
+    return assistant.exists ? min(assistant.frame.minY, keys) : keys
   }
 
   // Taps `element` until `taken` holds: on a loaded host a tap can land while the screen is still
@@ -3850,10 +3905,15 @@ final class InboxTests: XCTestCase {
     }
   }
 
-  // iPad taps the command input; iPhone swipes down on the screen's header.
+  // iPad taps the command input; iPhone swipes down on the screen's header. On iPad a tap soon after
+  // launch can reach the command input before its handler, so it taps again (#1873).
   private func openPalette(_ app: XCUIApplication, header: XCUIElement) {
     if UIDevice.current.userInterfaceIdiom == .pad {
-      app.buttons["Open Command Palette"].firstMatch.tap()
+      let query = app.textFields["Type a command"]
+      for _ in 0..<3 where !query.exists {
+        app.buttons["Open Command Palette"].firstMatch.tap()
+        _ = query.waitForExistence(timeout: 5)
+      }
     } else {
       XCTAssertTrue(header.waitForExistence(timeout: 10))
       let start = header.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
@@ -3926,9 +3986,22 @@ final class InboxTests: XCTestCase {
     where UIDevice.current.userInterfaceIdiom == .pad
       && issue.element?.identifier == "mailboxes-edit":
       return "Mailboxes Edit button (#2769)"
+    // Some iPad runs report an unlabeled view the size of a message list row, 77.5pt tall, beside
+    // the Mailboxes sidebar (#2843).
+    case .sufficientElementDescription
+    where UIDevice.current.userInterfaceIdiom == .pad && screen == "Mailboxes"
+      && issue.element?.elementType == .other && label.isEmpty
+      && abs((issue.element?.frame.height ?? 0) - 77.5) < 1:
+      return "unlabeled list row view (#2843)"
     // WCAG sets no contrast for an inactive control, such as the Link Editor's Apply before a link.
     case .contrast where issue.element?.elementType == .button && issue.element?.isEnabled == false:
       return "inactive control"
+    // iPad's expanded composer is modal over the window, yet the audit still finds the Mailboxes
+    // sidebar's Edit button under it and measures that button against the composer drawn above.
+    case .contrast
+    where UIDevice.current.userInterfaceIdiom == .pad && screen == "Composer"
+      && issue.element?.identifier == "mailboxes-edit":
+      return "Mailboxes Edit button under the expanded composer"
     // An open iPad popover or form sheet hides the window behind it from accessibility, as a modal
     // should, and the audit reports the text it can still see there, such as the Mailboxes
     // sidebar's rows, as text it locates no element for. A plain UIKit split view behind a SwiftUI
@@ -4180,6 +4253,18 @@ final class InboxTests: XCTestCase {
     XCTAssertFalse(app.buttons["Apply"].isEnabled)
     attachScreen("Labels", of: app, to: self)
     type("Travel/Spain", into: name)
+    // #2891: the software keyboard's own keys type the name, which stays in view above it with
+    // Cancel and Apply.
+    let keyboard = app.keyboards.firstMatch
+    XCTAssertTrue(keyboard.waitForExistence(timeout: 10))
+    keyboard.keys["delete"].tap()
+    waitUntil { name.value as? String == "Travel/Spai" }
+    keyboard.keys.matching(NSPredicate(format: "label ==[c] %@", "n")).firstMatch.tap()
+    waitUntil { name.value as? String == "Travel/Spain" }
+    for control in [name, app.buttons["Cancel"], app.buttons["Apply"]] {
+      XCTAssertTrue(control.isHittable, "\(control) is out of reach")
+      XCTAssertLessThanOrEqual(control.frame.maxY, keyboardTop(app))
+    }
     XCTAssertTrue(
       app.buttons["Create “Spain” inside “Travel”, Created in Gmail, then applied"]
         .waitForExistence(timeout: 10))
@@ -4547,6 +4632,74 @@ final class InboxTests: XCTestCase {
     // Send admitted the message: the Outbox offers its Undo inside the Undo Send Window.
     openOutbox(app)
     XCTAssertTrue(app.buttons["Undo"].waitForExistence(timeout: 15))
+  }
+
+  // #2891: in a regular-width iPad window New Message's card rises above the software keyboard, with
+  // the field being typed in view. Expand takes the same Draft over the whole window, and Collapse
+  // returns the card.
+  func testComposerCard() throws {
+    try XCTSkipIf(UIDevice.current.userInterfaceIdiom != .pad, "The card is iPad's")
+    continueAfterFailure = false
+    let environment = ProcessInfo.processInfo.environment
+    XCTAssertEqual(environment["UNWIRED_TEST_SCENARIO"], "registration-declined")
+    let app = XCUIApplication(bundleIdentifier: try XCTUnwrap(environment["UNWIRED_BUNDLE_ID"]))
+    addTeardownBlock { if app.state != .notRunning { app.terminate() } }
+    app.launch()
+    XCTAssertTrue(app.staticTexts["Your mail,\non your devices."].waitForExistence(timeout: 60))
+    connectGmail(app)
+    XCTAssertTrue(
+      app.buttons["Unread. Rowan Hale. Garden plans for spring"].waitForExistence(timeout: 30))
+    let window = app.windows.firstMatch.frame
+    app.buttons["New Message"].tap()
+    let composer = app.otherElements["composer-overlay"]
+    let subject = app.textFields["Subject"]
+    let body = app.textViews.matching(NSPredicate(format: "label BEGINSWITH %@", "Message body"))
+      .firstMatch
+    XCTAssertTrue(subject.waitForExistence(timeout: 15))
+    XCTAssertLessThan(composer.frame.width, window.width)
+    let keyboard = app.keyboards.firstMatch
+    let typeKeys = { (letters: String) in
+      for letter in letters {
+        keyboard.keys.matching(NSPredicate(format: "label ==[c] %@", String(letter))).firstMatch
+          .tap()
+      }
+    }
+    focus(subject) { self.hasFocus(subject) }
+    XCTAssertTrue(keyboard.waitForExistence(timeout: 10))
+    typeKeys("venue")
+    waitUntil { (subject.value as? String)?.lowercased() == "venue" }
+    waitUntil { composer.frame.maxY <= self.keyboardTop(app) }
+    XCTAssertTrue(subject.isHittable)
+    XCTAssertLessThanOrEqual(subject.frame.maxY, keyboardTop(app))
+    attachScreen("Composer card above the keyboard", of: app, to: self)
+    focus(body) { self.hasFocus(body) }
+    typeKeys("seats")
+    waitUntil { (body.value as? String)?.lowercased().hasPrefix("seats") == true }
+    XCTAssertLessThanOrEqual(composer.frame.maxY, keyboardTop(app))
+    XCTAssertTrue(body.isHittable)
+    XCTAssertGreaterThanOrEqual(body.frame.minY, composer.frame.minY)
+    attachScreen("Composer card body above the keyboard", of: app, to: self)
+    let typed = (subject.value as? String, body.value as? String)
+    let keeps = {
+      XCTAssertEqual(subject.value as? String, typed.0)
+      XCTAssertEqual(body.value as? String, typed.1)
+    }
+    app.buttons["Expand"].tap()
+    let collapse = app.buttons["Collapse"]
+    XCTAssertTrue(collapse.waitForExistence(timeout: 10))
+    waitUntil { composer.frame == window }
+    keeps()
+    attachScreen("Expanded composer keeps the Draft", of: app, to: self)
+    collapse.tap()
+    XCTAssertTrue(app.buttons["Expand"].waitForExistence(timeout: 10))
+    waitUntil { composer.frame.width < window.width }
+    keeps()
+    attachScreen("Collapsed card keeps the Draft", of: app, to: self)
+    app.buttons["Close"].tap()
+    let delete = app.buttons["Delete Draft"]
+    XCTAssertTrue(delete.waitForExistence(timeout: 10))
+    delete.tap()
+    XCTAssertTrue(composer.waitForNonExistence(timeout: 10))
   }
 
   // #2465: in a list, Tab and Shift-Tab nest its items up to three levels, and Outdent and Indent,

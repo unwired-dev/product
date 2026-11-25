@@ -11,6 +11,71 @@ The [mobile bootstrap](../expo-client.md) now uses Expo 57.0.25, React Native
 are available on the development host. The maintainer's earlier native-validation
 deferral still applies to unavailable release checks. Mac host evidence follows.
 
+## iPad keyboard and accessibility journey to the end, 2026-11-25
+
+[#1873](https://github.com/unwired-dev/product/issues/1873): the iPad
+`registration-performance` journey, which stopped after the Inbox audit, now
+runs to the end. It passed whole on iPad Pro 11-inch (M5) on a
+`registration-performance` Release Simulator build with Xcode 27.2 (`27B52`),
+the iOS 27.0 runtime and macOS 27.2.1, in Dark, in 18 minutes on the final
+code at host load 7–16, and in 20 minutes on the code before review fixes,
+where iPhone 18 Pro passed the whole journey too.
+
+- After a keyboard or text-selection change, XCTest's count of running
+  animations stayed above zero, so each later action waited a minute for the
+  app to idle. The journey now skips that wait for a process once it has
+  timed out, and still waits for the main run loop to idle. A run sees the
+  timeout about once per launch.
+- The composer's title, which offers **Open Command Palette** to VoiceOver,
+  failed the hit-area audit at 18.5 points tall. It is now a 44-point element.
+  The Command Palette's Cancel passed the audit.
+- The Mailboxes audit permits an unlabeled view the size of a list row, which
+  some runs report ([#2843](https://github.com/unwired-dev/product/issues/2843)).
+  The Composer audit permits the Mailboxes Edit button's contrast measured
+  under the modal expanded composer. The Link Editor audit passed with the
+  "system popover" gap.
+- On a loaded host a tap or a key can be lost. The journey retries the palette
+  tap, the Link Editor's Return and its dismissal, and retypes a
+  palette query that lost a key.
+- When the Link Editor closes, the body takes focus back and the simulator
+  raises the software keyboard. The next typed keys hide it again. In some runs
+  those transitions collapsed the expanded composer, and it lost its body
+  ([#2885](https://github.com/unwired-dev/product/issues/2885)). The journey
+  closes the popover from the title row so that the tap cannot land in the
+  body, but the collapse still stops some runs until #2885 is fixed.
+- At Accessibility XXXL, the reopened Draft's docked reply has a From picker
+  706 points tall that covers its fields
+  ([#2882](https://github.com/unwired-dev/product/issues/2882)). The journey
+  expands the reply before checking the fields.
+- **Light, landscape, VoiceOver and physical devices are deferred.**
+
+## Software keyboard in New Label and the iPad composer card, 2026-11-25
+
+[#2891](https://github.com/unwired-dev/product/issues/2891), a slice of
+[#2873](https://github.com/unwired-dev/product/issues/2873), runs three of the
+checks the 2026-11-24 pass below deferred. It ran on `e20a2d516` with the
+journey changes, on a `registration-declined` Release Simulator build with
+Xcode 27.2 (`27B52`), the iOS 27.0 runtime and macOS 27.2.1, on iPhone 18 Pro
+and iPad Pro 11-inch (M5) in portrait, in Light and Dark. Each run passed on
+its first attempt; the 1-minute host load was 7–90.
+
+- New Label (`testNewLabel`, iPhone and iPad): the software keyboard is up
+  while the name is typed, and its own delete and **n** keys edit
+  `Travel/Spain`. The name, **Cancel** and **Apply** stay in reach above it: on
+  iPhone in the Labels sheet, on iPad in the Labels popover. On iPhone the
+  slash hint scrolls under **Cancel** with the rest of the sheet's content.
+- The regular-width iPad composer (`testComposerCard`): Subject and then the
+  body are typed on the software keyboard's keys, and the New Message card ends
+  above the keyboard with the field being typed in view.
+- "Above the keyboard" means above its typing predictions and shortcuts bar
+  (`SystemInputAssistantView`), which starts 55 pt above the `Keyboard`
+  element XCUITest reports on iPad.
+- Expand in the regular-width iPad composer (`testComposerCard`): **Expand**
+  takes the same Draft, Subject and body, over the whole window, and
+  **Collapse** returns the card with them.
+
+The other checks #2873 lists stay open there.
+
 ## iPad popovers close at one tap outside and at Escape, 2026-11-25
 
 [#2879](https://github.com/unwired-dev/product/issues/2879), a slice of

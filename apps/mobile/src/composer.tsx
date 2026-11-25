@@ -319,6 +319,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.l,
   },
   title: { ...textStyles.headline, textAlign: 'center' },
+  titleTarget: { minHeight: 44, justifyContent: 'center' },
   leadingTitle: { textAlign: 'left' },
   // iPad's New Message header is 63pt with its controls centred 33.8pt down; a docked reply's is
   // 46pt. Both title in the list's semibold type.
@@ -5732,20 +5733,25 @@ function Editor({
               }
             }}
           />
-          <Text
+          {/* The title's Open Command Palette action makes it a control, so its accessible
+              element takes the header row's 44pt height rather than the text's. */}
+          <View
+            accessible
             accessibilityLabel={titleLabel}
             accessibilityRole="header"
-            numberOfLines={1}
-            style={[
-              styles.grow,
-              styles.title,
-              titleStyles[presentation],
-              sheetParts.title,
-              { color: colors.textPrimary },
-            ]}
+            style={[styles.grow, styles.titleTarget]}
             {...paletteHeader.action}>
-            {title}
-          </Text>
+            <Text
+              numberOfLines={1}
+              style={[
+                styles.title,
+                titleStyles[presentation],
+                sheetParts.title,
+                { color: colors.textPrimary },
+              ]}>
+              {title}
+            </Text>
+          </View>
           <HeaderControls
             presentation={presentation}
             sender={senderPlace.header}

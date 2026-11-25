@@ -4,8 +4,9 @@
 [#654](https://github.com/unwired-dev/product/issues/654), finds the
 [Unsubscribe Suggestion](domain/organization.md) an opened message offers, and
 [#2077](https://github.com/unwired-dev/product/issues/2077) sends its one-click
-request, and [#2824](https://github.com/unwired-dev/product/issues/2824) sends a
-`mailto:` request through the Outbox. The reader banner, confirmation and
+request, [#2823](https://github.com/unwired-dev/product/issues/2823) remembers each
+request that was sent, and [#2824](https://github.com/unwired-dev/product/issues/2824)
+sends a `mailto:` request through the Outbox. The reader banner, confirmation and
 outcomes follow in later #654 slices, under
 [ADR 0044](adr/0044-isolate-standards-based-unsubscribe-actions.md).
 
@@ -37,8 +38,13 @@ RFC 2369 asks, and a bracketed URI inside a comment is not one, even when it hol
 parentheses. Field names and
 values are percent-decoded. The offer names the list by the `List-Id` phrase,
 such as `Alza.cz newsletter` in `Alza.cz newsletter <newsletter.alza.example>`,
-else by the sender's display name or address. With no name at all there is no
-offer.
+else by the sender's display name or address. With no name there is no offer.
+Its **Mailing List Identity**, which scopes the request's record, is the
+`List-Id` identifier in angle brackets, such as `newsletter.alza.example`, in
+lower case. Only an [RFC 2919](https://www.rfc-editor.org/rfc/rfc2919) identifier
+counts: dot-separated atoms, which no URI with a scheme matches. Whitespace around
+its dots is ignored. A sender's address is not an identity, since several lists can share
+it, so an offer without a valid `List-Id` has none.
 
 The check is syntactic. It does not verify that a DKIM signature covers the
 list headers, so the confirmation names the list and the receiving address, and
@@ -97,6 +103,32 @@ body, and Convex hears only the claim's opaque identifier.
 `receive-only` and `authorization` are not failures, so the reader can say why
 the connection cannot send.
 
+## Remembering a sent request
+
+`createUnsubscribe(native, registration)` returns the host's `unsubscribe`.
+Its `request(profile, offer)` sends the request as above and, when it ends
+`sent`, records it for `profile`, the Mail Profile that owns the receiving
+connection, and for the Product Account signed in when the request started: the
+Mailing List Identity, the list's name and the time it was sent. The record
+holds no unsubscribe URI, other header value or request body. A later request
+to the same list from that Profile replaces the earlier one. `failed` and
+`uncertain` record nothing, nor does an offer without a Mailing List Identity or
+an answer that arrives after another account signed in.
+
+`sentRequest(profile, offer, receivedAt)` returns the Profile's record for the
+offer's Mailing List Identity while a message the list sent at `receivedAt` is
+at most 14 days (`unsubscribeOfferReturnsAfter`) newer than the request, so the
+reader can show it as sent on that date. After that, for another Profile or for
+an offer without a Mailing List Identity, it returns nothing and the message offers Unsubscribe again, as
+[ADR 0044](adr/0044-isolate-standards-based-unsubscribe-actions.md) allows.
+
+Native code keeps the records in `unsubscribe-requests.enc`, a document sealed
+for the signed-in Product Account like its Pins and removed by an account purge.
+They stay on the device: never logged, sent to Convex or included in Product
+Sync. A write storage refuses leaves the outcome as it was, and a record that
+cannot be read, belongs to another account or is locked reads as not sent, so
+neither shows a false Sent state.
+
 ## Verification
 
 ```sh
@@ -104,12 +136,20 @@ mise exec -- pnpm --dir packages/mail-core exec vitest run test/unsubscribe.test
 ```
 
 The tests open a message from synthetic Gmail, Graph and IMAP mailboxes and
-cover each offer, refusal and list name, and how a native answer becomes an
-outcome. `test/unsubscribe-mailto.test.ts` sends a `mailto:` request from
-synthetic Gmail, Graph and IMAP connections and covers Undo, a refused handoff
-and connections that cannot send. The native tests cover the request bytes, redirects and every outcome,
+cover each offer, refusal, list name and identity, how a native answer becomes
+an outcome, and which outcomes are recorded and for how long.
+`test/unsubscribe-mailto.test.ts` sends a `mailto:` request from synthetic
+Gmail, Graph and IMAP connections and covers Undo, a refused handoff and
+connections that cannot send. The native tests cover the request bytes, redirects and every outcome,
 including a loopback HTTPS server that takes the request and never answers:
 
 ```sh
 cd native/private-inbox && swift test --filter 'oneClick|remoteContent'
+```
+
+The hosted storage suite covers the sealed `unsubscribe-requests.enc` document
+(`unsubscribeRequestsStayEncryptedWithTheirProductAccount`):
+
+```sh
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer mise exec -- zsh native/private-inbox/integration/test.zsh ios
 ```

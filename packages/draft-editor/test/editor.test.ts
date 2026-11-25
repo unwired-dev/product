@@ -26,6 +26,7 @@ import {
   textOf,
 } from '@private-email/mail-core/semantic-document';
 import { createSyntheticDrafts } from '@private-email/mail-core/testing/drafts';
+import { palette } from '@private-email/mail-core/theme';
 import { Slice } from '@tiptap/pm/model';
 import { NodeSelection } from '@tiptap/pm/state';
 import { CellSelection, TableMap } from '@tiptap/pm/tables';
@@ -99,6 +100,54 @@ const paragraphs = (first: string, ...rest: string[]): SemanticDocument => [
   ...rest.map(paragraph),
 ];
 
+// A Draft with every alignment, every list level, and text with colors, a background and fonts.
+const formatted: SemanticDocument = [
+  {
+    kind: 'heading1',
+    align: 'center',
+    spans: [
+      {
+        text: 'Agenda',
+        font: '"Helvetica Neue", Arial, sans-serif',
+        size: 24,
+      },
+    ],
+  },
+  {
+    kind: 'paragraph',
+    align: 'right',
+    spans: [
+      { text: 'Red ', color: '#c00000' },
+      { text: 'on yellow', marks: ['bold'], background: '#ffff00' },
+      { text: ' plain' },
+    ],
+  },
+  {
+    kind: 'paragraph',
+    align: 'justify',
+    spans: [
+      {
+        text: 'Serif',
+        link: 'https://example.com',
+        color: '#1f3864',
+        font: 'serif',
+      },
+    ],
+  },
+  { kind: 'numbered', spans: [{ text: 'one' }] },
+  { kind: 'numbered', indent: 1, spans: [{ text: 'one.a' }] },
+  { kind: 'bulleted', indent: 2, spans: [{ text: 'deep', color: '#941751' }] },
+  { kind: 'numbered', indent: 1, spans: [{ text: 'one.b' }] },
+  { kind: 'numbered', spans: [{ text: 'two' }] },
+  {
+    kind: 'quote',
+    align: 'center',
+    spans: [{ text: 'quoted', color: '#000000' }],
+  },
+  { kind: 'code', align: 'right', spans: [{ text: 'code' }] },
+  { kind: 'paragraph', spans: [] },
+];
+
 type Page = Readonly<{
   editor: Editor;
   posted: Update[];
@@ -168,10 +217,13 @@ async function open(
 
 // Exercises the page's key handlers; Tiptap's keyboardShortcut command would keep only the
 // document steps of its handler, not the caret it places.
-const press = ({ editor }: Page, key: string, shiftKey = false) =>
+const press = ({ editor }: Page, key: string, init: KeyboardEventInit = {}) =>
   editor.view.someProp('handleKeyDown', (handle) =>
-    handle(editor.view, new KeyboardEvent('keydown', { key, shiftKey })),
+    handle(editor.view, new KeyboardEvent('keydown', { key, ...init })),
   );
+const mod = /Mac|iP(?:hone|[ao]d)/u.test(navigator.platform)
+  ? { metaKey: true }
+  : { ctrlKey: true };
 
 // The body and Attachments the page last posted.
 const bodyOf = ({ posted }: Page) =>
@@ -546,6 +598,699 @@ describe('the Tiptap evaluation page', () => {
     ]);
   });
 
+  it('keeps alignment, list levels, colors and fonts through opening, editing and saving', async () => {
+    expect.hasAssertions();
+    const page = await open(formatted);
+    // Opening changes nothing; the first edit posts the whole body unchanged around it.
+    page.editor.chain().focus('end').run();
+    page.type('!');
+    const edited = bodyOf(page);
+    expect(edited).toStrictEqual([...formatted.slice(0, -1), paragraph('!')]);
+    ok(edited);
+    // Display offsets follow the current composer's nested and per-level numbered markers.
+    const { text } = displayOf(textOf(edited));
+    const blocks = textblocks(page.editor);
+    expect(
+      blocks.map(({ from, to }) => {
+        const { start, end } = selectionOf(page, from, to);
+        return text.slice(start, end);
+      }),
+    ).toStrictEqual(blocks.map((block) => block.text));
+  });
+
+  it('shows alignment, list levels, colors and fonts as the current composer does', async () => {
+    expect.hasAssertions();
+    const { editor } = await open(formatted);
+    const html = editor.view.dom.innerHTML;
+    expect(html).toContain('<h1 style="text-align: center;">');
+    expect(html).toContain(
+      '<pre style="text-align: right;"><code>code</code></pre>',
+    );
+    expect(html).toContain('<li data-indent="1">');
+    expect(html).toContain('<li data-indent="2">');
+    // Light shows colors as stored and Dark adapts text colors; text on a background keeps the
+    // Light ink in both.
+    const styles = [
+      ...editor.view.dom.querySelectorAll('[data-draft-format]'),
+    ].map((span) => [span.textContent, span.getAttribute('style')]);
+    expect(styles).toStrictEqual([
+      [
+        'Agenda',
+        'font-family: "Helvetica Neue", system-ui; font-size: 24px; line-height: 32px;',
+      ],
+      ['Red ', '--draft-light: #c00000; --draft-dark: #d96666;'],
+      [
+        'on yellow',
+        `--draft-light: ${palette.light.textPrimary}; --draft-dark: ${palette.light.textPrimary}; background-color: #ffff00;`,
+      ],
+      [
+        'Serif',
+        '--draft-light: #1f3864; --draft-dark: #7988a2; font-family: ui-serif, system-ui;',
+      ],
+      ['deep', '--draft-light: #941751; --draft-dark: #bf7497;'],
+      [
+        'quoted',
+        `--draft-light: #000000; --draft-dark: ${palette.dark.textPrimary};`,
+      ],
+    ]);
+  });
+
+  it('keeps formatting through typing, Return, joining, marks and block kinds', async () => {
+    expect.hasAssertions();
+    const page = await open(formatted);
+    const { editor, command } = page;
+    const line = (wanted: string) => {
+      const block = textblocks(editor).find(({ text }) => text === wanted);
+      ok(block, `Expected the line ${wanted}`);
+      return block;
+    };
+    // Typed text takes the format of the text before it, and at a block's start the text after
+    // it; at a link's edge it stays unlinked.
+    editor.commands.setTextSelection(line('Red on yellow plain').from + 4);
+    page.type('x');
+    editor.commands.setTextSelection(line('Serif').from);
+    page.type('y');
+    // Return keeps the alignment on both sides, and a list item's level.
+    editor.commands.setTextSelection(line('ySerif').from + 3);
+    press(page, 'Enter');
+    editor.commands.setTextSelection(line('one.b').to);
+    press(page, 'Enter');
+    press(page, 'Enter');
+    page.type('z');
+    // A mark keeps the color it formats.
+    editor.commands.setTextSelection({
+      from: line('Red xon yellow plain').from,
+      to: line('Red xon yellow plain').from + 3,
+    });
+    command({ type: 'mark', mark: 'italic' });
+    expect(bodyOf(page)?.slice(1, 11)).toStrictEqual([
+      {
+        kind: 'paragraph',
+        align: 'right',
+        spans: [
+          { text: 'Red', marks: ['italic'], color: '#c00000' },
+          { text: ' x', color: '#c00000' },
+          { text: 'on yellow', marks: ['bold'], background: '#ffff00' },
+          { text: ' plain' },
+        ],
+      },
+      {
+        kind: 'paragraph',
+        align: 'justify',
+        spans: [
+          { text: 'y', color: '#1f3864', font: 'serif' },
+          {
+            text: 'Se',
+            link: 'https://example.com',
+            color: '#1f3864',
+            font: 'serif',
+          },
+        ],
+      },
+      {
+        kind: 'paragraph',
+        align: 'justify',
+        spans: [
+          {
+            text: 'rif',
+            link: 'https://example.com',
+            color: '#1f3864',
+            font: 'serif',
+          },
+        ],
+      },
+      ...formatted.slice(3, 6),
+      { kind: 'numbered', indent: 1, spans: [{ text: 'one.b' }] },
+      { kind: 'numbered', indent: 1, spans: [] },
+      { kind: 'numbered', indent: 1, spans: [{ text: 'z' }] },
+      { kind: 'numbered', spans: [{ text: 'two' }] },
+    ]);
+    // Joining keeps the first block's alignment.
+    editor.commands.setTextSelection(line('rif').from);
+    press(page, 'Backspace');
+    expect(bodyOf(page)?.[2]).toMatchObject({ align: 'justify' });
+    // Block kinds keep alignment, list items keep their level, and a paragraph stops nesting.
+    editor.commands.setTextSelection(line('Agenda').from);
+    command({ type: 'block', kind: 'heading1' });
+    editor.commands.setTextSelection(line('one.a').from);
+    command({ type: 'block', kind: 'bulleted' });
+    editor.commands.setTextSelection(line('deep').from);
+    command({ type: 'block', kind: 'bulleted' });
+    const body = bodyOf(page);
+    expect(body?.[0]).toStrictEqual({ ...formatted[0], kind: 'paragraph' });
+    expect(body?.slice(4, 6)).toStrictEqual([
+      { kind: 'bulleted', indent: 1, spans: [{ text: 'one.a' }] },
+      { kind: 'paragraph', spans: [{ text: 'deep', color: '#941751' }] },
+    ]);
+    command({ type: 'undo' });
+    expect(bodyOf(page)?.[5]).toStrictEqual(formatted[5]);
+  });
+
+  it('keeps alignment and format at block edges and in replacements as the current composer does', async () => {
+    expect.hasAssertions();
+    const red = { color: '#c00000' };
+    const blue = { color: '#1f3864' };
+    const page = await open([
+      { kind: 'heading1', align: 'right', spans: [{ text: 'Title' }] },
+      { kind: 'paragraph', align: 'right', spans: [] },
+      { kind: 'paragraph', align: 'center', spans: [{ text: 'Centre' }] },
+      { kind: 'paragraph', align: 'right', spans: [] },
+      { kind: 'paragraph', align: 'center', spans: [{ text: 'Middle' }] },
+      {
+        kind: 'paragraph',
+        spans: [
+          { text: 'ab', ...red },
+          { text: 'cd', ...blue },
+        ],
+      },
+      { kind: 'numbered', indent: 2, spans: [{ text: 'deep item' }] },
+      { kind: 'paragraph', spans: [{ text: 'plain' }] },
+      // A font named "undefined" is a font, not the absence of one.
+      {
+        kind: 'paragraph',
+        spans: [{ text: 'x' }, { text: 'y', font: 'undefined' }],
+      },
+      paragraph(''),
+    ]);
+    const { editor } = page;
+    const line = (index: number) => nth(textblocks(editor), index);
+    // Return at the start of a heading inserts a paragraph above it with the heading's alignment.
+    editor.commands.setTextSelection(line(0).from);
+    press(page, 'Enter');
+    // Backspace and Delete keep the first joined block's alignment, even when it is empty.
+    editor.commands.setTextSelection(line(3).from);
+    press(page, 'Backspace');
+    editor.commands.setTextSelection(line(3).from);
+    press(page, 'Delete');
+    // Replacing text takes the format before it, and at a block's start the format after it.
+    editor.commands.setTextSelection({
+      from: line(4).from + 2,
+      to: line(4).from + 3,
+    });
+    page.type('x');
+    editor.commands.setTextSelection({
+      from: line(4).from,
+      to: line(4).from + 3,
+    });
+    page.type('y');
+    // Return at the end of formatted text starts an unformatted line.
+    editor.commands.setTextSelection(line(4).to);
+    press(page, 'Enter');
+    page.type('n');
+    // A paste of part of a nested item carries no list level.
+    editor.commands.setTextSelection({
+      from: line(6).from,
+      to: line(6).from + 4,
+    });
+    const { dom } = editor.view.serializeForClipboard(
+      editor.state.selection.content(),
+    );
+    editor.commands.setTextSelection(line(-1).from);
+    editor.view.pasteHTML(dom.innerHTML);
+    expect(bodyOf(page)).toStrictEqual([
+      { kind: 'paragraph', align: 'right', spans: [] },
+      { kind: 'heading1', align: 'right', spans: [{ text: 'Title' }] },
+      { kind: 'paragraph', align: 'right', spans: [{ text: 'Centre' }] },
+      { kind: 'paragraph', align: 'right', spans: [{ text: 'Middle' }] },
+      { kind: 'paragraph', spans: [{ text: 'yd', ...blue }] },
+      paragraph('n'),
+      { kind: 'numbered', indent: 2, spans: [{ text: 'deep item' }] },
+      paragraph('plain'),
+      {
+        kind: 'paragraph',
+        spans: [{ text: 'x' }, { text: 'y', font: 'undefined' }],
+      },
+      { kind: 'numbered', spans: [{ text: 'deep' }] },
+    ]);
+  });
+
+  it('keeps the first block layout when a selection is replaced, deleted or split', async () => {
+    expect.hasAssertions();
+    const red = { color: '#c00000' };
+    const blue = { color: '#1f3864' };
+    const page = await open([
+      { kind: 'heading1', align: 'right', spans: [{ text: 'Title' }] },
+      { kind: 'numbered', indent: 2, align: 'right', spans: [{ text: 'two' }] },
+      {
+        kind: 'numbered',
+        indent: 1,
+        align: 'center',
+        spans: [{ text: 'one' }],
+      },
+      {
+        kind: 'paragraph',
+        spans: [
+          { text: 'ab', ...red },
+          { text: 'cd', ...blue },
+          { text: 'ef' },
+        ],
+      },
+      { kind: 'paragraph', align: 'right', spans: [] },
+      { kind: 'quote', align: 'center', spans: [{ text: 'Q' }] },
+      { kind: 'paragraph', align: 'right', spans: [{ text: 'left' }] },
+      { kind: 'paragraph', align: 'center', spans: [{ text: 'right' }] },
+    ]);
+    const { editor } = page;
+    const line = (index: number) => nth(textblocks(editor), index);
+    const select = (from: number, to: number) =>
+      editor.commands.setTextSelection({ from, to });
+    // Return over a selection keeps the first block's alignment and level on both lines.
+    select(line(1).from, line(2).from + 1);
+    press(page, 'Enter');
+    // Return over a heading's first character adds a paragraph above with its alignment.
+    select(line(0).from, line(0).from + 1);
+    press(page, 'Enter');
+    // Typing after a deletion takes the format before it.
+    select(line(4).from + 2, line(4).from + 4);
+    press(page, 'Backspace');
+    page.type('x');
+    // Delete in an empty block joins the next line, even a quote's, into it.
+    editor.commands.setTextSelection(line(5).from);
+    press(page, 'Delete');
+    // Block kind shortcuts keep each block's alignment.
+    select(line(6).from, line(7).to);
+    press(page, '1', { altKey: true, ...mod });
+    expect(bodyOf(page)).toStrictEqual([
+      { kind: 'paragraph', align: 'right', spans: [] },
+      { kind: 'heading1', align: 'right', spans: [{ text: 'itle' }] },
+      { kind: 'numbered', indent: 2, align: 'right', spans: [] },
+      { kind: 'numbered', indent: 2, align: 'right', spans: [{ text: 'ne' }] },
+      {
+        kind: 'paragraph',
+        spans: [{ text: 'abx', ...red }, { text: 'ef' }],
+      },
+      { kind: 'paragraph', align: 'right', spans: [{ text: 'Q' }] },
+      { kind: 'heading1', align: 'right', spans: [{ text: 'left' }] },
+      { kind: 'heading1', align: 'center', spans: [{ text: 'right' }] },
+    ]);
+  });
+
+  it('keeps the first block after Select All, moves dragged content as it is and shows one family per font name', async () => {
+    expect.hasAssertions();
+    const page = await open([
+      { kind: 'heading1', align: 'right', spans: [{ text: 'Title' }] },
+      {
+        kind: 'numbered',
+        indent: 2,
+        align: 'center',
+        spans: [{ text: 'item' }],
+      },
+    ]);
+    const { editor, command } = page;
+    // A font name is one family, even one that begins as a system family does.
+    const font = editor.schema.marks.format?.create({
+      font: '"ui-brand, Georgia", Arial',
+    });
+    ok(font);
+    expect(font.type.spec.toDOM?.(font, true)).toMatchObject([
+      'span',
+      { style: 'font-family: "ui-brand, Georgia", system-ui;' },
+      0,
+    ]);
+    const title = { kind: 'heading1', align: 'right' } as const;
+    editor.commands.selectAll();
+    page.type('x');
+    expect(bodyOf(page)).toStrictEqual([{ ...title, spans: [{ text: 'x' }] }]);
+    command({ type: 'undo' });
+    editor.commands.selectAll();
+    press(page, 'Backspace');
+    expect(bodyOf(page)).toStrictEqual([{ ...title, spans: [] }]);
+    command({ type: 'undo' });
+    // Dropping a drag from within the page keeps the list level and alignment.
+    editor.commands.setTextSelection({
+      from: 0,
+      to: editor.state.doc.content.size,
+    });
+    const slice = editor.state.doc.slice(
+      nth(textblocks(editor), 1).from - 3,
+      editor.state.doc.content.size,
+    );
+    editor.view.dragging = { slice, move: true };
+    expect(
+      editor.view.someProp('transformPasted', (transform) =>
+        transform(slice, editor.view, false),
+      ),
+    ).toBe(slice);
+    editor.view.dragging = null;
+  });
+
+  it('drops whole paragraphs into an empty line as they are', async () => {
+    expect.hasAssertions();
+    const right = { kind: 'paragraph', align: 'right' } as const;
+    const centred = { kind: 'paragraph', align: 'center' } as const;
+    const page = await open([
+      { ...right, spans: [{ text: 'ab' }] },
+      { ...centred, spans: [{ text: 'cd' }] },
+      // The empty line is a heading; the dragged paragraphs stay paragraphs.
+      { kind: 'heading1', spans: [] },
+    ]);
+    const { editor } = page;
+    const line = (index: number) => nth(textblocks(editor), index);
+    const [first, second, empty] = [line(0), line(1), line(2)];
+    editor.commands.setTextSelection({ from: first.from, to: second.to });
+    const slice = editor.state.doc.slice(first.from, second.to);
+    editor.view.posAtCoords = () => ({ pos: empty.from, inside: -1 });
+    const event = new DragEvent('drop', { clientX: 1, clientY: 1 });
+    expect(
+      editor.view.someProp('handleDrop', (drop) =>
+        drop(editor.view, event, slice, true),
+      ),
+    ).toBe(true);
+    expect(bodyOf(page)).toStrictEqual([
+      { kind: 'paragraph', align: 'right', spans: [] },
+      { ...right, spans: [{ text: 'ab' }] },
+      { ...centred, spans: [{ text: 'cd' }] },
+    ]);
+  });
+
+  it('drops list items into an empty item of the same list as they are', async () => {
+    expect.hasAssertions();
+    const nested = { kind: 'numbered', indent: 1, align: 'right' } as const;
+    const page = await open([
+      { ...nested, spans: [{ text: 'one' }] },
+      { ...nested, spans: [{ text: 'two' }] },
+      { kind: 'numbered', spans: [] },
+    ]);
+    const { editor } = page;
+    const line = (index: number) => nth(textblocks(editor), index);
+    const [first, second, empty] = [line(0), line(1), line(2)];
+    editor.commands.setTextSelection({ from: first.from, to: second.to });
+    const slice = editor.state.doc.slice(first.from, second.to);
+    editor.view.posAtCoords = () => ({ pos: empty.from, inside: -1 });
+    const event = new DragEvent('drop', { clientX: 1, clientY: 1 });
+    editor.view.someProp('handleDrop', (drop) =>
+      drop(editor.view, event, slice, true),
+    );
+    expect(bodyOf(page)).toStrictEqual([
+      { ...nested, spans: [] },
+      { ...nested, spans: [{ text: 'one' }] },
+      { ...nested, spans: [{ text: 'two' }] },
+    ]);
+  });
+
+  it('types over unlinked text between two runs of one link without linking it', async () => {
+    expect.hasAssertions();
+    const link = 'https://example.com';
+    const page = await open([
+      {
+        kind: 'paragraph',
+        spans: [{ text: 'ab', link }, { text: 'x' }, { text: 'cd', link }],
+      },
+    ]);
+    page.editor.commands.setTextSelection({ from: 3, to: 4 });
+    page.type('y');
+    expect(textBodyOf(page)?.[0]?.spans).toStrictEqual([
+      { text: 'ab', link },
+      { text: 'y' },
+      { text: 'cd', link },
+    ]);
+  });
+
+  it('deletes, splits and cuts across blocks as the current composer does', async () => {
+    expect.hasAssertions();
+    const item = { kind: 'numbered', indent: 2, align: 'right' } as const;
+    const centred = { kind: 'paragraph', align: 'center' } as const;
+    const page = await open([
+      { ...item, spans: [{ text: 'left' }] },
+      { ...centred, spans: [{ text: 'right' }] },
+      { kind: 'paragraph', align: 'right', spans: [{ text: 'ab' }] },
+      { ...centred, spans: [{ text: 'cd' }] },
+      { ...item, spans: [{ text: 'one' }] },
+      { ...centred, spans: [{ text: 'two' }] },
+      { kind: 'quote', spans: [{ text: 'q1' }] },
+      { kind: 'quote', spans: [{ text: 'q2' }] },
+    ]);
+    const { editor } = page;
+    const line = (index: number) => nth(textblocks(editor), index);
+    const select = (from: number, to: number) =>
+      editor.commands.setTextSelection({ from, to });
+    // The first block keeps its kind, level and alignment and takes the rest of the last.
+    select(line(0).from, line(1).from + 1);
+    press(page, 'Backspace');
+    select(line(0).from, line(0).from + 1);
+    press(page, 'Enter');
+    // Cut deletes as Backspace does.
+    select(line(2).from + 1, line(3).from + 1);
+    editor.view.dispatch(
+      editor.state.tr.deleteSelection().setMeta('uiEvent', 'cut'),
+    );
+    // Delete at the end of a list item joins the next paragraph into it.
+    editor.commands.setTextSelection(line(3).to);
+    press(page, 'Delete');
+    // Backspace at the start of a quote line joins it into the line before.
+    editor.commands.setTextSelection(line(4).from);
+    press(page, 'Backspace');
+    expect(bodyOf(page)).toStrictEqual([
+      { ...item, spans: [] },
+      { ...item, spans: [{ text: 'ght' }] },
+      { kind: 'paragraph', align: 'right', spans: [{ text: 'ad' }] },
+      { ...item, spans: [{ text: 'onetwoq1' }] },
+      { kind: 'quote', spans: [{ text: 'q2' }] },
+    ]);
+  });
+
+  it('keeps the first block through Select All with typing, deletion, paste and images', async () => {
+    expect.hasAssertions();
+    const item = { kind: 'numbered', indent: 2, align: 'right' } as const;
+    const page = await open([
+      { ...item, spans: [{ text: 'item' }] },
+      { kind: 'quote', spans: [{ text: 'quote' }] },
+    ]);
+    const { editor, command } = page;
+    const replaced = (edit: () => void) => {
+      editor.commands.selectAll();
+      edit();
+      const body = bodyOf(page);
+      command({ type: 'undo' });
+      return body;
+    };
+    expect(replaced(() => page.type('x'))).toStrictEqual([
+      { ...item, spans: [{ text: 'x' }] },
+    ]);
+    expect(replaced(() => press(page, 'Delete'))).toStrictEqual([
+      { ...item, spans: [] },
+    ]);
+    expect(
+      replaced(() => editor.view.pasteHTML('<p>pasted</p>')),
+    ).toStrictEqual([{ ...item, spans: [{ text: 'pasted' }] }]);
+    // Text inserted without a key press, as by dictation, and an empty pasteboard.
+    expect(
+      replaced(() =>
+        editor.view.dom.dispatchEvent(
+          new InputEvent('beforeinput', {
+            inputType: 'insertText',
+            data: 'said',
+            cancelable: true,
+          }),
+        ),
+      ),
+    ).toStrictEqual([{ ...item, spans: [{ text: 'said' }] }]);
+    expect(
+      replaced(() =>
+        command({ type: 'add', images: [photo], attachments: [] }),
+      )?.[0],
+    ).toMatchObject({ ...item, spans: [{ image: photo }] });
+  });
+
+  it('leaves a selection for an empty pasteboard and joins a paragraph copied whole', async () => {
+    expect.hasAssertions();
+    const item = { kind: 'numbered', indent: 2, align: 'right' } as const;
+    const page = await open([
+      { ...item, spans: [{ text: 'item' }] },
+      { kind: 'quote', spans: [{ text: 'quote' }] },
+    ]);
+    const { editor } = page;
+    editor.commands.selectAll();
+    const selected = editor.state.selection;
+    editor.view.pasteHTML('');
+    expect([bodyOf(page), editor.state.selection.eq(selected)]).toStrictEqual([
+      undefined,
+      true,
+    ]);
+    // A paragraph copied whole, as after Select All, joins the line it is pasted into.
+    const { from, to } = nth(textblocks(editor), 0);
+    editor.commands.setTextSelection({ from, to });
+    editor.view.pasteHTML('<p data-pm-slice="0 0 []">copied</p>');
+    expect(bodyOf(page)?.[0]).toStrictEqual({
+      ...item,
+      spans: [{ text: 'copied' }],
+    });
+    // A list item copied whole stays an item, without its layout.
+    const { dom } = editor.view.serializeForClipboard(
+      editor.state.doc.slice(0, editor.state.doc.firstChild?.nodeSize),
+    );
+    const quote = nth(textblocks(editor), 1);
+    editor.commands.setTextSelection(quote.from + 2);
+    editor.view.pasteHTML(dom.innerHTML);
+    expect(bodyOf(page)?.slice(1)).toStrictEqual([
+      { kind: 'quote', spans: [{ text: 'qu' }] },
+      { kind: 'numbered', spans: [{ text: 'copied' }] },
+      { kind: 'quote', spans: [{ text: 'ote' }] },
+    ]);
+  });
+
+  it('pastes a quote copied whole over a selected quote line into that line', async () => {
+    expect.hasAssertions();
+    const page = await open([
+      { kind: 'quote', align: 'justify', spans: [{ text: 'kept' }] },
+      { kind: 'paragraph', spans: [{ text: 'gap' }] },
+      { kind: 'quote', spans: [{ text: 'copied' }] },
+    ]);
+    const { editor } = page;
+    const line = (index: number) => nth(textblocks(editor), index);
+    const { dom } = editor.view.serializeForClipboard(
+      editor.state.doc.slice(line(2).from - 2, line(2).to + 2),
+    );
+    editor.commands.setTextSelection({ from: line(0).from, to: line(0).to });
+    editor.view.pasteHTML(dom.innerHTML);
+    expect(bodyOf(page)?.[0]).toStrictEqual({
+      kind: 'quote',
+      align: 'justify',
+      spans: [{ text: 'copied' }],
+    });
+  });
+
+  it('keeps the text after a selection on its own line under lines pasted from elsewhere', async () => {
+    expect.hasAssertions();
+    const page = await open(paragraphs('abc'));
+    page.editor.commands.setTextSelection({ from: 2, to: 3 });
+    page.editor.view.pasteHTML('<p>one</p><p>two</p>');
+    expect(bodyOf(page)).toStrictEqual(paragraphs('aone', 'two', 'c'));
+  });
+
+  it('pastes a paragraph copied whole at the caret as its text and keeps the line after a selection', async () => {
+    expect.hasAssertions();
+    const right = { kind: 'paragraph', align: 'right' } as const;
+    const page = await open([
+      { ...right, spans: [{ text: 'abc' }] },
+      { kind: 'paragraph', spans: [{ text: 'copied' }] },
+      { kind: 'numbered', spans: [{ text: 'one' }] },
+      { kind: 'numbered', spans: [{ text: 'two' }] },
+    ]);
+    const { editor } = page;
+    const line = (index: number) => nth(textblocks(editor), index);
+    const copy = (from: number, to: number) =>
+      editor.view.serializeForClipboard(editor.state.doc.slice(from, to)).dom
+        .innerHTML;
+    const paragraph = copy(line(1).from - 1, line(1).to + 1);
+    const list = copy(line(2).from - 3, line(3).to + 3);
+    editor.commands.setTextSelection(line(0).from + 1);
+    editor.view.pasteHTML(paragraph);
+    expect(bodyOf(page)?.[0]).toStrictEqual({
+      ...right,
+      spans: [{ text: 'acopiedbc' }],
+    });
+    editor.commands.setTextSelection({
+      from: line(0).from + 7,
+      to: line(0).from + 8,
+    });
+    editor.view.pasteHTML(list);
+    expect(bodyOf(page)?.slice(0, 3)).toStrictEqual([
+      { ...right, spans: [{ text: 'acopiedone' }] },
+      { kind: 'numbered', spans: [{ text: 'two' }] },
+      { ...right, spans: [{ text: 'c' }] },
+    ]);
+    // Replacing a line's end adds no empty line and leaves the caret after the pasted text.
+    editor.commands.setTextSelection({
+      from: line(0).from + 7,
+      to: line(0).to,
+    });
+    editor.view.pasteHTML(list);
+    expect([
+      bodyOf(page)?.slice(0, 3),
+      editor.state.selection.from,
+    ]).toStrictEqual([
+      [
+        { ...right, spans: [{ text: 'acopiedone' }] },
+        { kind: 'numbered', spans: [{ text: 'two' }] },
+        { kind: 'numbered', spans: [{ text: 'two' }] },
+      ],
+      line(1).to,
+    ]);
+  });
+
+  it('pastes a whole Draft over a line end without changing the lines after it', async () => {
+    expect.hasAssertions();
+    const bullet = { kind: 'bulleted' } as const;
+    const page = await open([
+      { ...bullet, spans: [{ text: 'abc' }] },
+      { ...bullet, spans: [{ text: 'survivor' }] },
+      { kind: 'paragraph', spans: [{ text: 'one' }] },
+      { kind: 'numbered', spans: [{ text: 'three' }] },
+    ]);
+    const { editor } = page;
+    const { dom } = editor.view.serializeForClipboard(
+      editor.state.doc.slice(0, editor.state.doc.content.size),
+    );
+    const first = nth(textblocks(editor), 0);
+    editor.commands.setTextSelection({ from: first.from + 1, to: first.to });
+    editor.view.pasteHTML(dom.innerHTML);
+    expect(bodyOf(page)).toStrictEqual([
+      { ...bullet, spans: [{ text: 'aabc' }] },
+      { ...bullet, spans: [{ text: 'survivor' }] },
+      { kind: 'paragraph', spans: [{ text: 'one' }] },
+      { kind: 'numbered', spans: [{ text: 'three' }] },
+      { ...bullet, spans: [{ text: 'survivor' }] },
+      { kind: 'paragraph', spans: [{ text: 'one' }] },
+      { kind: 'numbered', spans: [{ text: 'three' }] },
+    ]);
+  });
+
+  it('keeps a pasted blank last line and a line a paste leaves empty', async () => {
+    expect.hasAssertions();
+    const item = { kind: 'bulleted', indent: 1, align: 'right' } as const;
+    const page = await open([
+      { kind: 'paragraph', spans: [{ text: 'abc' }] },
+      { ...item, spans: [{ text: 'item' }] },
+      { kind: 'paragraph', spans: [] },
+    ]);
+    const { editor } = page;
+    const line = (index: number) => nth(textblocks(editor), index);
+    const blank = editor.view.serializeForClipboard(
+      editor.state.doc.slice(line(2).from - 1, line(2).to + 1),
+    ).dom.innerHTML;
+    editor.commands.setTextSelection({ from: line(1).from, to: line(1).to });
+    editor.view.pasteHTML(blank);
+    editor.commands.setTextSelection({
+      from: line(0).from + 1,
+      to: line(0).to,
+    });
+    editor.view.pasteText('first\n\n');
+    expect([bodyOf(page), editor.state.selection.from]).toStrictEqual([
+      [
+        { kind: 'paragraph', spans: [{ text: 'afirst' }] },
+        { kind: 'paragraph', spans: [] },
+        { ...item, spans: [] },
+        { kind: 'paragraph', spans: [] },
+      ],
+      line(1).from,
+    ]);
+  });
+
+  it('drops a heading into an empty list item with the heading alignment', async () => {
+    expect.hasAssertions();
+    const page = await open([
+      { kind: 'heading1', align: 'right', spans: [{ text: 'head' }] },
+      { kind: 'numbered', spans: [{ text: 'item' }] },
+      { kind: 'numbered', align: 'justify', spans: [] },
+    ]);
+    const { editor } = page;
+    const line = (index: number) => nth(textblocks(editor), index);
+    const [first, second, empty] = [line(0), line(1), line(2)];
+    editor.commands.setTextSelection({ from: first.from, to: second.to });
+    const slice = editor.state.doc.slice(first.from, second.to);
+    editor.view.posAtCoords = () => ({ pos: empty.from, inside: -1 });
+    const event = new DragEvent('drop', { clientX: 1, clientY: 1 });
+    editor.view.someProp('handleDrop', (drop) =>
+      drop(editor.view, event, slice, true),
+    );
+    expect(bodyOf(page)).toContainEqual({
+      kind: 'numbered',
+      align: 'right',
+      spans: [{ text: 'head' }],
+    });
+  });
+
   it('pastes supported meaning only and never stores unsupported content', async () => {
     expect.hasAssertions();
     const page = await open(paragraphs(''));
@@ -559,7 +1304,9 @@ describe('the Tiptap evaluation page', () => {
         '<blockquote><h2>Quoted heading</h2><p>quote</p></blockquote>',
         '<pre><code>line 1\nline 2</code></pre>',
         '<table><tr><td>cell</td></tr></table>',
-        '<p style="color: red; font-size: 40px">styled</p>',
+        // The page's own rendering of stored formatting, as copying within the page carries it.
+        '<p style="text-align: right;"><span data-draft-format="" style="--draft-light: #c00000;">own</span></p><ol><li data-indent="1"><p>level</p></li></ol>',
+        '<p style="color: red; font-size: 40px; text-align: center">styled</p>',
       ].join(''),
     );
     expect(bodyOf(page)).toStrictEqual([
@@ -589,6 +1336,8 @@ describe('the Tiptap evaluation page', () => {
       { kind: 'code', spans: [{ text: 'line 1' }] },
       { kind: 'code', spans: [{ text: 'line 2' }] },
       paragraph('cell'),
+      paragraph('own'),
+      { kind: 'numbered', spans: [{ text: 'level' }] },
       paragraph('styled'),
     ]);
     // Numbering shown in the page follows the stored document: it counts from one.
@@ -1341,9 +2090,9 @@ describe('tables in the Tiptap page', () => {
     });
     // Shift-Tab moves back a cell, and stays in the first.
     page.editor.commands.setTextSelection(nth(cellsOf(page.editor), 1));
-    press(page, 'Tab', true);
+    press(page, 'Tab', { shiftKey: true });
     const back = selected(page);
-    const handled = press(page, 'Tab', true);
+    const handled = press(page, 'Tab', { shiftKey: true });
     expect({ back, handled, stayed: selected(page) }).toStrictEqual({
       back: 'Item',
       handled: true,
@@ -1470,6 +2219,128 @@ describe('tables in the Tiptap page', () => {
         ],
       },
     ]);
+  });
+
+  it('keeps alignment, list levels, colors and fonts inside cells', async () => {
+    expect.hasAssertions();
+    const table: Table = {
+      kind: 'table',
+      rows: [
+        [
+          {
+            blocks: [
+              {
+                kind: 'paragraph',
+                align: 'center',
+                spans: [{ text: 'red', color: '#c00000', font: 'serif' }],
+              },
+              { kind: 'numbered', spans: [{ text: 'one' }] },
+              { kind: 'numbered', indent: 1, spans: [{ text: 'one.a' }] },
+            ],
+          },
+          cell('plain'),
+        ],
+      ],
+    };
+    const page = await open([table, paragraph('after')]);
+    page.editor.chain().focus('end').run();
+    page.type('!');
+    expect(bodyOf(page)).toStrictEqual([table, paragraph('after!')]);
+  });
+
+  it('keeps text in its cell at a cell edge and clears selected cells', async () => {
+    expect.hasAssertions();
+    const page = await open([shaped([[{}, {}]])]);
+    const { editor } = page;
+    editor.commands.setTextSelection(nth(cellsOf(editor), 0) + 2);
+    press(page, 'Delete');
+    editor.commands.setTextSelection(nth(cellsOf(editor), 1));
+    press(page, 'Backspace');
+    expect(bodyOf(page)).toBeUndefined();
+    const { state, view } = editor;
+    view.dispatch(
+      state.tr.setSelection(
+        CellSelection.create(
+          state.doc,
+          nth(cellsOf(editor), 0) - 2,
+          nth(cellsOf(editor), 1) - 2,
+        ),
+      ),
+    );
+    press(page, 'Delete');
+    expect(bodyOf(page)).toStrictEqual([
+      { kind: 'table', rows: [[cell(''), cell('')]] },
+    ]);
+  });
+
+  it('keeps cell text when Return or text input meets a selected table or cells', async () => {
+    expect.hasAssertions();
+    const table = shaped([[{}, {}]]);
+    const page = await open([table, paragraph('after')]);
+    const { editor } = page;
+    editor.view.dispatch(
+      editor.state.tr.setSelection(NodeSelection.create(editor.state.doc, 0)),
+    );
+    press(page, 'Enter');
+    const afterNode = bodyOf(page)?.filter(({ kind }) => kind === 'table');
+    const { state, view } = editor;
+    view.dispatch(
+      state.tr.setSelection(
+        CellSelection.create(
+          state.doc,
+          nth(cellsOf(editor), 0) - 2,
+          nth(cellsOf(editor), 1) - 2,
+        ),
+      ),
+    );
+    press(page, 'Enter');
+    const input = new InputEvent('beforeinput', {
+      inputType: 'insertText',
+      data: 'X',
+      cancelable: true,
+    });
+    expect([
+      afterNode,
+      textblocks(editor).map(({ text }) => text),
+      view.dom.dispatchEvent(input),
+    ]).toStrictEqual([[table], ['', '00', '01', '', 'after'], true]);
+  });
+
+  it.each([
+    ['a kept table', shaped([[{}, {}], [{}]])],
+    ['a table', shaped([[{}, {}]])],
+  ] as const)(
+    'deletes %s inside a selection and never joins text across it',
+    async (_, table) => {
+      expect.hasAssertions();
+      const page = await open([paragraph('before'), table, paragraph('after')]);
+      const { editor } = page;
+      editor.commands.setTextSelection(nth(textblocks(editor), 0).to);
+      press(page, 'Delete');
+      const joined = [
+        bodyOf(page),
+        editor.state.selection instanceof NodeSelection,
+      ];
+      editor.commands.selectAll();
+      press(page, 'Backspace');
+      expect([joined, bodyOf(page)]).toStrictEqual([
+        [undefined, true],
+        [paragraph('')],
+      ]);
+    },
+  );
+
+  it('cuts a selected kept table', async () => {
+    expect.hasAssertions();
+    const page = await open([shaped([[{}, {}], [{}]]), paragraph('after')]);
+    const { editor } = page;
+    editor.view.dispatch(
+      editor.state.tr.setSelection(NodeSelection.create(editor.state.doc, 0)),
+    );
+    editor.view.dispatch(
+      editor.state.tr.deleteSelection().setMeta('uiEvent', 'cut'),
+    );
+    expect(bodyOf(page)).toStrictEqual([paragraph('after')]);
   });
 
   it('outlines the cell holding the caret, inside a frame that scrolls sideways', async () => {

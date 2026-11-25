@@ -1927,6 +1927,29 @@ extension UnwiredRegistration {
     }
   }
 
+  @objc(openUnsubscribeRequests:rejecter:)
+  func openUnsubscribeRequests(
+    _ resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
+  ) {
+    mailbox("openUnsubscribeRequests", resolve, reject: reject) {
+      try await $0.openUnsubscribeRequests()
+    }
+  }
+
+  @objc(commitUnsubscribeRequests:expectedRevision:document:resolver:rejecter:)
+  func commitUnsubscribeRequests(
+    _ owner: String, expectedRevision: Double, document: String,
+    resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
+  ) {
+    mailbox("commitUnsubscribeRequests", resolve, reject: reject) {
+      guard let revision = Int(exactly: expectedRevision), revision >= 0 else {
+        throw RegistrationError.unavailable
+      }
+      return try await $0.commitUnsubscribeRequests(
+        owner: owner, expectedRevision: revision, document: document)
+    }
+  }
+
   @objc(openComposerRecovery:rejecter:)
   func openComposerRecovery(
     _ resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock

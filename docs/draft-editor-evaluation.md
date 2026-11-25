@@ -110,6 +110,23 @@ paragraphs, headings one to three, bulleted and numbered lists, quotes and code
 blocks, with bold, italic, underline, strikethrough and inline code. Its rules are
 the current composer's:
 
+- **Stored formatting.** A Draft's alignment, list levels, text colors,
+  backgrounds, font families and sizes open in the page and save back unchanged
+  ([#2884](https://github.com/unwired-dev/product/issues/2884)). The page shows
+  them as the current composer does, Dark colors included: a nested item sits one
+  level further in, numbered items count per level and an aligned item's marker
+  moves with its text. Typing, Return, joined blocks, marks and block kinds,
+  from the Format controls or their shortcuts, keep them as
+  [Drafts](drafts.md#composing) describes: typed text takes the format of the
+  text before it, or at a block's start the text after it, even at a link's
+  start, where it stays unlinked; typing, deleting, cutting or pasting over a
+  selection, or adding an image there, Select All included, keeps the first
+  selected block's kind, alignment and list level, even across a quote or list,
+  as do Backspace and Delete across a block's edge; and joining an empty block
+  with the next line keeps the empty block's. Pasted text carries no alignment
+  or list level, while a drag within the page moves content as it is, also into
+  an empty line. The page sets none of them.
+
 - **Controls.** On iPad and Mac the current composer's format bar: the text style
   menu, the four marks, lists, the Link control, **Undo** and **Redo**, **Writing
   tools** and the file controls. On iPhone a floating Liquid Glass pill with
@@ -153,8 +170,9 @@ the current composer's:
   numbered list counts from one; a link keeps its destination only when the Draft
   admits it as written (a web, mail or telephone address), and otherwise keeps only
   its text, so one **Undo** removes a pasted link with the rest of the paste;
-  images, except an Inline Image copied or cut within the page, styles, colors and
-  sizes are dropped; and multi-line code becomes one code
+  images, except an Inline Image copied or cut within the page, styles, colors,
+  fonts, sizes, alignment and list levels are dropped, also when copied within
+  the page; and multi-line code becomes one code
   line per line. Plain text becomes one paragraph per line. Nothing else reaches
   the stored document.
 - **Tables.** The page edits a Draft's tables
@@ -193,10 +211,6 @@ replacement of the body revision it reported, so each is one **Undo** step and a
 page that has moved on refuses it. A link or selection that the page has moved or
 changed since the editor opened stays as it is. On iPhone the Format panel stays
 open while the Link Editor is shown.
-
-The page does not keep block alignment, text color, background color or fonts:
-editing a body here drops them
-([#1267](https://github.com/unwired-dev/product/issues/1267)).
 
 Return in code always starts another code line; use **Code Block** to return the
 selected lines to paragraphs. Extra Tiptap keyboard shortcuts, such as Command-E
