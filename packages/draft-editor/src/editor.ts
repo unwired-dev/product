@@ -665,7 +665,19 @@ const flatDelete = (tr: Transaction, from: number, to: number) => {
   });
   const textblocks = blocks.filter(({ node }) => node.isTextblock);
   const [first] = textblocks;
-  if (from === to || first === undefined) {
+  const [outer] = blocks;
+  if (from === to || outer === undefined) {
+    return;
+  }
+  // Tables alone give way to one empty paragraph.
+  if (first === undefined) {
+    const end = blocks.at(-1) ?? outer;
+    tr.replaceWith(
+      outer.position,
+      end.position + end.node.nodeSize,
+      tr.doc.type.schema.node('paragraph'),
+    );
+    tr.setSelection(TextSelection.create(tr.doc, outer.position + 1));
     return;
   }
   const last = textblocks.at(-1) ?? first;

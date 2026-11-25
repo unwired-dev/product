@@ -2426,6 +2426,23 @@ describe('tables in the Tiptap page', () => {
     ]).toStrictEqual([[undefined, true], paragraphs('', ''), true]);
   });
 
+  it.each([
+    ['one table', [shaped([[{}, {}]])]],
+    [
+      'a table and a kept table',
+      [shaped([[{}, {}]]), shaped([[{}, {}], [{}]])],
+    ],
+  ] as const)(
+    'empties a body of %s with Select All and Backspace',
+    async (_, body) => {
+      expect.hasAssertions();
+      const page = await open(body);
+      page.editor.commands.selectAll();
+      press(page, 'Backspace');
+      expect(bodyOf(page)).toStrictEqual([paragraph('')]);
+    },
+  );
+
   it('cuts a selected kept table', async () => {
     expect.hasAssertions();
     const page = await open([shaped([[{}, {}], [{}]]), paragraph('after')]);
