@@ -152,10 +152,12 @@ const Link = Mark.create({
 });
 
 // A span's stored color, background, font family and size, shown as the current composer shows
-// them: Dark adapts text colors on screen only. Typed text takes the format of the text before it.
-// Pasted text never carries one.
+// them: Dark adapts text colors on screen only. Typed text takes the format of the text before it,
+// and at a block's start the text after it; the line Return starts has none. Pasted text never
+// carries one.
 const Format = Mark.create({
   name: 'format',
+  keepOnSplit: false,
   addAttributes: () => ({
     color: { default: null, rendered: false },
     background: { default: null, rendered: false },
@@ -336,18 +338,55 @@ const shortcuts = new Map<string, BlockKind>([
 const typing = 'draftTyping';
 const imageCharacter = '\uFFFC';
 
-// The first replaced character owns the replacement's link, including for Select All.
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ProseMirror's state is a class; this only reads it.
-const replacedLink = ({ doc }: EditorState, from: number, to: number) => {
+// Text replacing `from` to `to` keeps the first replaced character's link, including for Select
+// All and unlike marksAcross even when the selection crosses its end. As in the current composer,
+// it takes the format of the text before it, and at a block's start the text after it.
+// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ProseMirror's transaction is a class; this marks the text it inserted.
+const keepReplaced = (tr: Transaction, from: number, to: number) => {
   if (from === to) {
-    return undefined;
+    return;
   }
+  const doc = tr.before;
   let node = doc.nodeAt(from);
   while (node !== null && !node.isInline) {
     node = node.firstChild;
   }
-  return node?.marks.find((mark) => mark.type.name === 'link');
+  const link = node?.marks.find((mark) => mark.type.name === 'link');
+  const $from = doc.resolve(from);
+  const beside =
+    $from.parentOffset > 0 ? $from.nodeBefore : doc.resolve(to).nodeAfter;
+  const format = beside?.marks.find((mark) => mark.type.name === 'format');
+  // oxlint-disable-next-line unicorn/no-array-method-this-argument -- ProseMirror Mapping.map takes an association, not an array thisArg.
+  const start = tr.mapping.map(from, -1);
+  const end = tr.mapping.map(to);
+  if (link !== undefined) {
+    tr.addMark(start, end, link);
+  }
+  if (format === undefined) {
+    tr.removeMark(start, end, doc.type.schema.marks.format);
+  } else {
+    tr.addMark(start, end, format);
+  }
 };
+
+// A pasted slice without alignments and list levels, which copying within the page would carry.
+// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ProseMirror's Fragment is a class; this only reads it.
+const unlaidOut = (fragment: Fragment): Fragment =>
+  Fragment.fromArray(
+    fragment.content.map((node) =>
+      node.isText
+        ? node
+        : node.type.create(
+            {
+              ...node.attrs,
+              ...('align' in node.attrs ? { align: null } : {}),
+              ...('indent' in node.attrs ? { indent: 0 } : {}),
+            },
+            unlaidOut(node.content),
+            node.marks,
+          ),
+    ),
+  );
 
 // Whether a paste or drop carries files or image data, which only native code may read.
 // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The DOM's DataTransfer is mutable by design; this only reads it.
@@ -432,6 +471,47 @@ const continueEmpty = ({ state, view }: TiptapEditor) => {
   return true;
 };
 
+// Return at the start of a heading inserts a paragraph above it with the heading's alignment, as
+// in the current composer; Tiptap's would be start-aligned.
+// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Tiptap's editor is a class; this dispatches through its view.
+const paragraphAbove = ({ state, view }: TiptapEditor) => {
+  const { $from, empty } = state.selection;
+  if (
+    !empty ||
+    $from.parentOffset > 0 ||
+    $from.parent.content.size === 0 ||
+    $from.parent.type.name !== 'heading'
+  ) {
+    return false;
+  }
+  const { align }: Readonly<Record<string, unknown>> = $from.parent.attrs;
+  const paragraph = state.schema.node('paragraph', { align });
+  view.dispatch(state.tr.insert($from.before(), paragraph).scrollIntoView());
+  return true;
+};
+
+// Joining an empty block with the next keeps the empty block's alignment and kind, as joining
+// any other block does; ProseMirror would remove the empty block instead.
+// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Tiptap's editor is a class; this dispatches through its view.
+const joinIntoEmpty = ({ state, view }: TiptapEditor, forward: boolean) => {
+  const { $from, empty } = state.selection;
+  const at = forward ? $from.after() : $from.before();
+  const $cut = state.doc.resolve(at);
+  const first = $cut.nodeBefore;
+  const second = $cut.nodeAfter;
+  if (
+    !empty ||
+    $from.parentOffset !== (forward ? $from.parent.content.size : 0) ||
+    first?.isTextblock !== true ||
+    first.content.size > 0 ||
+    second?.isTextblock !== true
+  ) {
+    return false;
+  }
+  view.dispatch(state.tr.join(at).scrollIntoView());
+  return true;
+};
+
 // Undo steps a word of typing at a time; every other edit is a step of its own. A Markdown
 // shortcut first stores its literal marker, so one Undo restores it. Text never keeps an Inline
 // Image's character, a code line never keeps a line break, and a list item holds one paragraph.
@@ -440,13 +520,19 @@ const DraftBehavior = Extension.create<unknown, { typing: boolean }>({
   // Ahead of the list item's own Return.
   priority: 1000,
   addKeyboardShortcuts() {
-    return { Enter: ({ editor }) => continueEmpty(editor) };
+    return {
+      Enter: ({ editor }) => continueEmpty(editor) || paragraphAbove(editor),
+      Backspace: ({ editor }) => joinIntoEmpty(editor, false),
+      Delete: ({ editor }) => joinIntoEmpty(editor, true),
+    };
   },
   addProseMirrorPlugins() {
     const { editor } = this;
     return [
       new Plugin({
         props: {
+          transformPasted: (slice) =>
+            new Slice(unlaidOut(slice.content), slice.openStart, slice.openEnd),
           // A pasted image is read from the pasteboard by native code, where it can; the page
           // never reads the data, and a dropped file is refused.
           handlePaste: (_view, event) => {
@@ -479,14 +565,8 @@ const DraftBehavior = Extension.create<unknown, { typing: boolean }>({
             const kind = shortcuts.get(marker);
             const word =
               from === to && [...text].length === 1 && !/\s/u.test(text);
-            // Unlike marksAcross, the document keeps the first replaced character's link
-            // even when the selection crosses its end.
-            const link = replacedLink(view.state, from, to);
             const tr = deflt();
-            if (link !== undefined) {
-              // oxlint-disable-next-line unicorn/no-array-method-this-argument -- ProseMirror Mapping.map takes an association, not an array thisArg.
-              tr.addMark(tr.mapping.map(from, -1), tr.mapping.map(to), link);
-            }
+            keepReplaced(tr, from, to);
             view.dispatch(word ? tr.setMeta(typing, true) : tr);
             if (kind !== undefined) {
               setKind(

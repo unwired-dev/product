@@ -114,10 +114,12 @@ the current composer's:
   backgrounds, font families and sizes open in the page and save back unchanged
   ([#2884](https://github.com/unwired-dev/product/issues/2884)). The page shows
   them as the current composer does, Dark colors included: a nested item sits one
-  level further in and numbered items count per level. Typing, Return, joined
+  level further in, numbered items count per level and an aligned item's marker
+  moves with its text. Typing, Return, joined
   blocks, marks and block kinds keep them as [Drafts](drafts.md#composing)
   describes; text typed at the start of a link takes its color and font but not
-  its link. The page sets none of them.
+  its link, and text replacing a selection takes the format before it. Pasted
+  text carries no alignment or list level. The page sets none of them.
 
 - **Controls.** On iPad and Mac the current composer's format bar: the text style
   menu, the four marks, lists, the Link control, **Undo** and **Redo**, **Writing
@@ -184,10 +186,6 @@ replacement of the body revision it reported, so each is one **Undo** step and a
 page that has moved on refuses it. A link or selection that the page has moved or
 changed since the editor opened stays as it is. On iPhone the Format panel stays
 open while the Link Editor is shown.
-
-The page does not keep block alignment, text color, background color or fonts:
-editing a body here drops them
-([#1267](https://github.com/unwired-dev/product/issues/1267)).
 
 Return in code always starts another code line; use **Code Block** to return the
 selected lines to paragraphs. Extra Tiptap keyboard shortcuts, such as Command-E

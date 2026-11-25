@@ -730,6 +730,84 @@ describe('the Tiptap evaluation page', () => {
     expect(bodyOf(page)?.[5]).toStrictEqual(formatted[5]);
   });
 
+  it('keeps alignment and format at block edges and in replacements as the current composer does', async () => {
+    expect.hasAssertions();
+    const red = { color: '#c00000' };
+    const blue = { color: '#1f3864' };
+    const page = await open([
+      { kind: 'heading1', align: 'right', spans: [{ text: 'Title' }] },
+      { kind: 'paragraph', align: 'right', spans: [] },
+      { kind: 'paragraph', align: 'center', spans: [{ text: 'Centre' }] },
+      { kind: 'paragraph', align: 'right', spans: [] },
+      { kind: 'paragraph', align: 'center', spans: [{ text: 'Middle' }] },
+      {
+        kind: 'paragraph',
+        spans: [
+          { text: 'ab', ...red },
+          { text: 'cd', ...blue },
+        ],
+      },
+      { kind: 'numbered', indent: 2, spans: [{ text: 'deep item' }] },
+      { kind: 'paragraph', spans: [{ text: 'plain' }] },
+      // A font named "undefined" is a font, not the absence of one.
+      {
+        kind: 'paragraph',
+        spans: [{ text: 'x' }, { text: 'y', font: 'undefined' }],
+      },
+      paragraph(''),
+    ]);
+    const { editor } = page;
+    const line = (index: number) => nth(textblocks(editor), index);
+    // Return at the start of a heading inserts a paragraph above it with the heading's alignment.
+    editor.commands.setTextSelection(line(0).from);
+    press(page, 'Enter');
+    // Backspace and Delete keep the first joined block's alignment, even when it is empty.
+    editor.commands.setTextSelection(line(3).from);
+    press(page, 'Backspace');
+    editor.commands.setTextSelection(line(3).from);
+    press(page, 'Delete');
+    // Replacing text takes the format before it, and at a block's start the format after it.
+    editor.commands.setTextSelection({
+      from: line(4).from + 2,
+      to: line(4).from + 3,
+    });
+    page.type('x');
+    editor.commands.setTextSelection({
+      from: line(4).from,
+      to: line(4).from + 3,
+    });
+    page.type('y');
+    // Return at the end of formatted text starts an unformatted line.
+    editor.commands.setTextSelection(line(4).to);
+    press(page, 'Enter');
+    page.type('n');
+    // A paste of part of a nested item carries no list level.
+    editor.commands.setTextSelection({
+      from: line(6).from,
+      to: line(6).from + 4,
+    });
+    const { dom } = editor.view.serializeForClipboard(
+      editor.state.selection.content(),
+    );
+    editor.commands.setTextSelection(line(-1).from);
+    editor.view.pasteHTML(dom.innerHTML);
+    expect(bodyOf(page)).toStrictEqual([
+      { kind: 'paragraph', align: 'right', spans: [] },
+      { kind: 'heading1', align: 'right', spans: [{ text: 'Title' }] },
+      { kind: 'paragraph', align: 'right', spans: [{ text: 'Centre' }] },
+      { kind: 'paragraph', align: 'right', spans: [{ text: 'Middle' }] },
+      { kind: 'paragraph', spans: [{ text: 'yd', ...blue }] },
+      paragraph('n'),
+      { kind: 'numbered', indent: 2, spans: [{ text: 'deep item' }] },
+      paragraph('plain'),
+      {
+        kind: 'paragraph',
+        spans: [{ text: 'x' }, { text: 'y', font: 'undefined' }],
+      },
+      { kind: 'numbered', spans: [{ text: 'deep' }] },
+    ]);
+  });
+
   it('pastes supported meaning only and never stores unsupported content', async () => {
     expect.hasAssertions();
     const page = await open(paragraphs(''));

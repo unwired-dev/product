@@ -37,6 +37,12 @@ body { font: -apple-system-body; -webkit-text-size-adjust: 100%; }
 .ProseMirror ol > li::before { position: absolute; right: 100%; padding-right: 0.4em; content: counter(level0) "."; }
 .ProseMirror ol > li[data-indent="1"]::before { content: counter(level1) "."; }
 .ProseMirror ol > li[data-indent="2"]::before { content: counter(level2) "."; }
+.ProseMirror li:has(> [style*="text-align"]) { list-style: none; }
+.ProseMirror ol > li:has(> [style*="text-align"])::before { content: none; }
+.ProseMirror ul > li > [style*="text-align"]::before { content: "• "; }
+.ProseMirror ol > li > [style*="text-align"]::before { content: counter(level0) ". "; }
+.ProseMirror ol > li[data-indent="1"] > [style*="text-align"]::before { content: counter(level1) ". "; }
+.ProseMirror ol > li[data-indent="2"] > [style*="text-align"]::before { content: counter(level2) ". "; }
 .ProseMirror [data-draft-format] { color: var(--draft-light); }
 @media (prefers-color-scheme: dark) { .ProseMirror [data-draft-format] { color: var(--draft-dark); } }
 .ProseMirror blockquote { margin: 0 0 0.75em; padding-left: 12px; border-left: 3px solid rgba(128, 128, 128, 0.5); }

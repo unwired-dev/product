@@ -181,9 +181,7 @@ export const formatOf = ({
 });
 
 const paintOf = (span: Span) =>
-  'image' in span
-    ? []
-    : [span.color, span.background, span.font, span.size].map(String);
+  'image' in span ? [] : [span.color, span.background, span.font, span.size];
 
 // Whether text `span` continues the `last` span: both text, with the same marks, link and format.
 const continues = (last: Span | undefined, span: Span): last is Span =>
@@ -192,7 +190,7 @@ const continues = (last: Span | undefined, span: Span): last is Span =>
   last.marks?.join(',') === span.marks?.join(',') &&
   ('link' in last ? last.link : undefined) ===
     ('link' in span ? span.link : undefined) &&
-  paintOf(last).join(',') === paintOf(span).join(',');
+  paintOf(last).every((value, index) => value === paintOf(span)[index]);
 
 // The display widths the document admits, kept here so the page bundles no schema library.
 const imageWidths: ReadonlySet<unknown> = new Set<ImageWidth>([320, 640, 1024]);
