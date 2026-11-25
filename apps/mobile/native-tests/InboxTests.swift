@@ -3402,6 +3402,47 @@ final class InboxTests: XCTestCase {
     XCTAssertFalse(row("Old receipt").exists)
     capture("All Mail with the connection")
 
+    // #2902: the IMAP message's Folders lists the connection's folders, in the system popover on
+    // iPad, which one tap outside and Escape (Command-period, #1396) close, and in the system Move
+    // sheet on iPhone, which Close and a downward swipe close. It then asks to move it to Spam.
+    row("Welcome to IMAP").tap()
+    let folders = app.buttons["Folders"]
+    let spam = app.buttons["Move to Bulk Mail"]
+    XCTAssertTrue(folders.waitForExistence(timeout: 10))
+    for close in phone ? ["Close", "swipe"] : ["tap", "Escape"] {
+      folders.tap()
+      XCTAssertTrue(spam.waitForExistence(timeout: 10))
+      _ = settledFrame(of: spam)
+      XCTAssertTrue(app.buttons["Move to Sent Messages"].exists)
+      XCTAssertTrue(app.buttons["Move to Deleted Messages"].exists)
+      // The message's own folder is listed, selected and unavailable.
+      let current = app.buttons.matching(
+        NSPredicate(format: "label == %@ AND selected == YES", "Inbox")
+      ).firstMatch
+      XCTAssertTrue(current.exists)
+      XCTAssertFalse(current.isEnabled)
+      if close == "Close" || close == "tap" { capture(phone ? "Move sheet" : "Folders popover") }
+      switch close {
+      case "Close": app.buttons["Close"].tap()
+      case "swipe":
+        let start = text("Move this message to another folder.", in: app)
+          .coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        start.press(forDuration: 0.1, thenDragTo: start.withOffset(CGVector(dx: 0, dy: 500)))
+      case "tap":
+        app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.9)).tap()
+      default: app.typeKey(".", modifierFlags: .command)
+      }
+      XCTAssertTrue(spam.waitForNonExistence(timeout: 5), "Folders stayed open after \(close)")
+    }
+    folders.tap()
+    XCTAssertTrue(spam.waitForExistence(timeout: 10))
+    spam.tap()
+    // The reader closes and the list reports the move at once, before the server answers. The
+    // synthetic server discards moves; mail-core's imap-organize tests cover the server's side.
+    XCTAssertTrue(text("Moved: “Welcome to IMAP”.", in: app).waitForExistence(timeout: 15))
+    XCTAssertFalse(folders.exists)
+    capture("Moved to Spam")
+
     openEmailAccounts()
     let change = settingsRow("Change…", "Spam: Bulk Mail · Trash: Deleted Messages · chosen by you")
     capture("Settings folders chosen")
