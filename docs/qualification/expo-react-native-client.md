@@ -18,8 +18,9 @@ back to Portrait for the link confirmation in `testPresenterRotation`. On
 `registration-declined` Release Simulator builds (Xcode 27.2, iOS 27.0 runtime,
 Dark, host load 5–450), the alert stayed shown after every turn back: a probe
 journey turned it to Landscape and back six times on iPhone 18 Pro, on
-`cf500a39d` and on `0240b4673`, whose app code matches the `6fef500a2` build in
-which #2907 saw it close; the full journey passed twice on iPhone at
+`cf500a39d` and on `0240b4673`, whose reader and link confirmation code
+matches the `6fef500a2` build in which #2907 saw it close (the app differs only
+in Send Reminder sync); the full journey passed twice on iPhone at
 `0240b4673`, and once on iPhone and iPad Pro 11-inch (M5) on `cf500a39d` with
 and without the change. The probe saw no unmount of the reader or the
 confirmation and no dismissal reported by the alert, so the earlier dismissal

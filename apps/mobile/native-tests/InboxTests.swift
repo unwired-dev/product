@@ -4390,9 +4390,8 @@ final class InboxTests: XCTestCase {
   }
 
   // #2907: each presenter stays shown, its controls in reach, while the device turns to Landscape
-  // and back; iPad's More menu closes as the system closes menus at a turn. The turn back to
-  // Portrait can close the link confirmation (#2909), so it turns only to Landscape. CI covers
-  // the iPad Filters popover and `testComposerSheet` the iPhone composer.
+  // and back, the link confirmation too (#2909); iPad's More menu closes as the system closes
+  // menus at a turn. CI covers the iPad Filters popover and `testComposerSheet` the iPhone composer.
   func testPresenterRotation() throws {
     continueAfterFailure = false
     let environment = ProcessInfo.processInfo.environment
