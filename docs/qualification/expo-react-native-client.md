@@ -29,6 +29,104 @@ not choose now discards the pending link: before, it left the link pending and
 the alert's own presentation closed, so choosing a link again in that reader
 showed nothing.
 
+## iPhone and iPad composer system menus, 2026-11-25
+
+[#2787](https://github.com/unwired-dev/product/issues/2787), part of
+[#1075](https://github.com/unwired-dev/product/issues/1075), moved the Tiptap
+evaluation composer's Attach (iPhone) and Writing tools (iPhone and iPad) to
+the system menu. It also records the checks
+[#2167](https://github.com/unwired-dev/product/pull/2167) deferred for the
+regular composer's menus. Both composers ran on `2525f6afb`, and the iPhone
+Close question and the landscape iPad scroll ran again on `4f62e4732`. These
+were Release Simulator builds of `registration-draft-editor` (evaluation
+composer) and `registration-declined` (regular composer), made with Xcode 27.2
+(`27B52`) and run on the iOS 27.0 runtime (`24A434`) on macOS 27.2.1, on
+iPhone 18 Pro and iPad Pro 11-inch (M5). Checks went through `agent-device`,
+with a screenshot of each state, in Light and Dark unless noted. Host load from
+other work was 2–352.
+
+- Evaluation composer, iPhone: Add files opens the system menu above the pill
+  (Paste Image, Insert Image, Attach Photo, Attach File), also with the software
+  keyboard up, and Attach File opens Files. Writing tools opens Rewrite and
+  Translate, Translate dimmed with no selection; Rewrite opens the review, and
+  Keep leaves the body unchanged. A tap outside closes either menu and changes
+  nothing. With the Save Draft or Delete Draft question open, the first tap on
+  either button only closes the question; the next tap opens the menu.
+- Evaluation composer, iPhone placement follow-up. An arm64 Release build of
+  `registration-draft-editor` from `1fc3708d3` with the working-tree changes ran on
+  iPhone 18 Pro (iOS 27.0, `24A434`) in Light and Dark. Xcode 27.2 (`27B52`)
+  compiled `UnwiredDesign.m` without warnings from that file. With the software
+  keyboard visible, both menus spanned x=136–386 and ended at screen y=536
+  (sheet y=474), level with the closed glass row. Removing the attachment-point
+  override preserved both bounds. Paste Image showed two overlapping pages.
+  Attach File opened Files. Selecting “Thursday” enabled both Rewrite and
+  Translate in both appearances. Rewrite opened one review for the selection.
+  The native grabber measured 60 × 4pt at (171, 68). With the evaluation
+  header and From insets, Close and Send started at sheet y=17, title ink at
+  y=33, and the From pill at y=67. The editor's new insets put the first body
+  ink at sheet (21.7, 121), 20pt below the From pill. Body text sampled
+  `#262626` in Light and `#DDDDDD` in Dark. The lease paragraph wrapped at the
+  same words as the frame and advanced 22pt per line, matching the frame.
+  Swiping down after edits offered Save Draft and Delete Draft in both
+  appearances. A downward swipe closed an empty Draft in Dark. VoiceOver and
+  Full Keyboard Access remain deferred for this follow-up.
+- iPhone-only scope of the sheet top. A rebuild of both scenarios moved the
+  grabber, the evaluation header and From insets, and the editor text colour
+  to iPhone only. iPad and Mac keep their earlier sheet top and editor text.
+  On iPhone the evaluation body still sampled `#262626` in Light and `#DDDDDD`
+  in Dark. The regular composer showed the same 60 × 4pt grabber and body
+  colours. At compact iPad width (about 375pt), neither composer showed a
+  grabber, and the Add files menus of both showed Paste Image with two pages.
+  No approved iPad frame shows Paste Image, so that symbol on iPad was not
+  compared with a frame. The compact evaluation header pushes Send out of
+  view, as it does on `main`
+  ([#2924](https://github.com/unwired-dev/product/issues/2924)).
+- Regular composer, iPhone placement. The regular composer's Add files and
+  Writing tools menus now use the same alignment. A Release
+  `registration-declined` build, with Mail Assistance turned on during setup,
+  ran on iPhone 18 Pro in Light and Dark with the keyboard up. Both menus spanned x=136–386 and ended at sheet
+  y=474, level with the closed controls row, which hid while a menu was open
+  and returned after a tap outside. Attach File opened Files, and Insert
+  Template opened its submenu. The nine-row Writing tools menu reached the top
+  of the sheet and scrolled to its last row. The glass press response was not
+  verified, because holding a menu button opens its menu.
+  The closed controls first ended at x=376, because the empty host of the
+  Generate a Draft sheet took part in the row's 10pt gap. Positioned
+  absolutely, the host leaves the row ending at x=386, as in the frame. In the rebuilt app,
+  Generate a Draft still opened its sheet, and closing it left the Draft
+  unchanged.
+- Evaluation composer, iPad: Writing tools opens Rewrite and Translate on a new
+  message, and also Suggest Reply on a docked reply; Rewrite opens the review
+  and expands the card. From, Text style, More Lists and Links, More Files and
+  More Formatting open, act and close, and every menu fits above the software
+  keyboard.
+- Regular composer, iPhone: From, Compose actions (Discard asks before
+  discarding), Add files (with the Insert Template submenu) and the nine Writing
+  tools open, act and close.
+- Regular composer, iPad: From, Text style, Templates, Writing tools and the
+  docked reply's overflow menus open, act and close, and fit above the software
+  keyboard in portrait. In the expanded landscape card the keyboard leaves room
+  for six of Writing tools' nine rows: the system menu scrolls, and Make More
+  Neutral, scrolled into view, opens the review with the keyboard still up.
+- VoiceOver: focus and double-tap activated a row in every iPhone menu tried
+  (Attach File, Rewrite, the sender, Discard, New Template from This Message)
+  and Rewrite in both iPad composers, in Light and Dark. The accessibility tree
+  names the rows by their labels, such as "Rewrite the message body" and
+  "Translate the selected text". XCUITest element-detection audits of the open
+  iPad Writing tools menus reported no issues (Dark).
+- iPad hardware keyboard (Dark): Command-period closed the regular composer's
+  Writing tools with Full Keyboard Access off. With Full Keyboard Access on,
+  Command-period and Escape left the evaluation composer's open. Twenty Tabs
+  reached neither trigger, typing tabs into the body instead.
+- A docked iPad reply set to Numbered List pushes the format bar's file overflow
+  menu out of reach in both composers;
+  [#2892](https://github.com/unwired-dev/product/issues/2892) owns it.
+- **Deferred:** spoken VoiceOver output and VoiceOver activation of the other
+  iPad menu rows; the rest of the hardware-keyboard matrix, including opening a
+  menu from the keyboard and whether Full Keyboard Access changes how Escape
+  reaches an open menu; More Formatting's effects; Reduce Motion. `agent-device`
+  sends no arbitrary hardware keys and does not report spoken output.
+
 ## iPhone sheet swipes, 2026-11-25
 
 [#2898](https://github.com/unwired-dev/product/issues/2898), a slice of

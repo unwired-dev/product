@@ -505,6 +505,11 @@ export function ContextMenu({
   );
 }
 
+// Shows the system grabber on the sheet it is in, which React Native's page sheet Modal leaves out.
+export const SheetGrabber = requireNativeComponent<ViewProps>(
+  'UnwiredSheetGrabber',
+);
+
 const NativeArrowKeys = requireNativeComponent<
   ViewProps & {
     readonly enabled: boolean;
@@ -569,6 +574,7 @@ const NativeMenuButton = requireNativeComponent<
       }>
     >;
     readonly enabled: boolean;
+    readonly alignMenuToRowEnd?: boolean | undefined;
     readonly onSelect: (event: NativeSyntheticEvent<{ id: string }>) => void;
   }
 >('UnwiredMenuButton');
@@ -585,6 +591,7 @@ export function MenuButton({
 }: ViewProps & {
   readonly sections: readonly MenuSection[];
   readonly disabled?: boolean;
+  readonly alignMenuToRowEnd?: boolean | undefined;
 }) {
   const menu = menuState(sections);
   return (

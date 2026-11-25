@@ -262,21 +262,19 @@ describe('evaluation composer lifetime', () => {
       size: 'compact',
       menus: [
         ['Close', 'Save Draft', 'Keep Editing'],
-        ['Add files', 'Attach File', 'Add files'],
-        ['Writing tools', 'Rewrite the message body', 'Writing tools'],
         ['Format', 'Close Format', 'Close Format'],
       ],
+      // The Format panel stays open as the header finishes.
+      finishing: { opens: ['Format'], control: 'Close Format' },
     },
     {
       size: 'regular',
-      menus: [
-        ['Close', 'Save Draft', 'Keep Editing'],
-        ['Writing tools', 'Rewrite the message body', 'Writing tools'],
-      ],
+      menus: [['Close', 'Save Draft', 'Keep Editing']],
+      finishing: { opens: [], control: 'Italic' },
     },
   ] as const)(
     'keeps dismissed $size panels mounted, hidden and untouchable until their exit ends',
-    async ({ size, menus }) => {
+    async ({ size, menus, finishing }) => {
       expect.hasAssertions();
       const motion = holdMenuMotion();
       try {
@@ -310,16 +308,15 @@ describe('evaluation composer lifetime', () => {
           ).toBeNull();
         }
         // Header finishing must retain the containing controls as well as the panel itself.
-        const menu = menus.at(-1);
-        ok(menu, 'Expected a menu');
-        const [trigger, action] = menu;
-        await press(trigger);
+        for (const trigger of finishing.opens) {
+          await press(trigger);
+        }
         await press('Close', false);
-        expectRetiringControl(action);
+        expectRetiringControl(finishing.control);
         await motion.finish();
         expect(
           screen.queryByRole('button', {
-            name: action,
+            name: finishing.control,
             includeHiddenElements: true,
           }),
         ).toBeNull();

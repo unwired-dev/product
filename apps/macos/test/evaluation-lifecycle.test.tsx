@@ -446,6 +446,68 @@ describe('evaluation composer lifetime', () => {
     expect(sheetShown()).toBeDefined();
   });
 
+  it('journals unsaved edits and restores them in the page (#2933)', async () => {
+    expect.hasAssertions();
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    const first = await render(<App drafts={drafts} />);
+    await press('New Message');
+    await fireEvent.changeText(
+      screen.getByLabelText('Subject'),
+      'Unsaved plan',
+    );
+    await simulatedPage().typed('Typed before the app ended');
+    // A few seconds after the edits, the editor journals them without storing the Draft.
+    await waitFor(
+      () => {
+        expect(storage.recoveryRecords().size).toBe(1);
+      },
+      { timeout: 4000 },
+    );
+    // The app ends without Close.
+    await first.unmount();
+    const reopened = createDrafts(storage.native, registration);
+    await reopened.load();
+    const records = await reopened.recovered();
+    ok(records, 'Expected storage to read the recovery records');
+    const [record] = records;
+    ok(record?.base, 'Expected a recovery record with its stored version');
+    expect(record.base.subject).toBe('');
+    // Restore, as the window's offer answers it, opens the page on the recovered edits.
+    reopened.take(record.version.id);
+    await render(
+      <App
+        drafts={reopened}
+        restore={{ version: record.version, base: record.base }}
+      />,
+    );
+    expect(
+      screen.getByTestId('message-webview').props
+        .injectedJavaScriptBeforeContentLoaded,
+    ).toContain('"spans":[{"text":"Typed before the app ended"}]');
+    expect(screen.getByLabelText('Subject')).toHaveProp(
+      'value',
+      'Unsaved plan',
+    );
+    // Close asks to save them, and Save stores them and removes the record.
+    await press('Close');
+    await answer('Save');
+    await waitFor(() => {
+      expect(storage.recoveryRecords().size).toBe(0);
+    });
+    expect(draftsOf(reopened.getSnapshot())).toMatchObject([
+      {
+        subject: 'Unsaved plan',
+        body: [
+          {
+            kind: 'paragraph',
+            spans: [{ text: 'Typed before the app ended' }],
+          },
+        ],
+      },
+    ]);
+  }, 15_000);
+
   it('asks before Command-W closes a window with unsaved edits', async () => {
     expect.hasAssertions();
     // Substitute only the native menu boundary that Command-W and Quit reach.

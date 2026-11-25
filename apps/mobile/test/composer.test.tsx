@@ -4130,7 +4130,7 @@ describe('composing Drafts', () => {
         ['Attach File', 'doc', undefined],
         ['Attach Photo', 'photo', undefined],
         ['Insert Image', 'photo.on.rectangle', undefined],
-        ['Paste Image', 'doc.on.clipboard', undefined],
+        ['Paste Image', 'doc.on.doc', undefined],
       ],
       [['Insert Template…', 'doc.on.doc', undefined]],
     ]);
@@ -4775,7 +4775,7 @@ describe('composing Drafts', () => {
       [
         ['Attach Photo', 'photo', false],
         ['Insert Image', 'photo.on.rectangle', false],
-        ['Paste Image', 'doc.on.clipboard', false],
+        ['Paste Image', 'doc.on.doc', false],
       ],
       [['Templates', 'doc.on.doc', undefined]],
     ]);
