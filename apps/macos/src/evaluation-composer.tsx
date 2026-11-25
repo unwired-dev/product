@@ -23,6 +23,7 @@ import {
   entryOf,
   isEmptyDraft,
   profileOf,
+  sameContent,
   withAsset,
   withSender,
 } from '@private-email/mail-core/drafts';
@@ -179,7 +180,8 @@ function EvaluationEditor({
   const [closeRecord, journalNow] = useRecoveryJournal(
     draft,
     useCallback(() => {
-      if (authored.current === stored.current && !unsaved.current) {
+      // Undo in the page can return the stored content as a new version.
+      if (!unsaved.current && sameContent(authored.current, stored.current)) {
         return undefined;
       }
       // No base while a save is pending or failed: storage may still hold the version before it.
@@ -506,8 +508,13 @@ function EvaluationEditor({
     }
     return closed;
   };
+  // False when the store declines this version, as one moving into another Mail Profile: it stays
+  // unstored, so the editor and its recovery record stay open.
   const storeAndSave = async () => {
     if (authored.current !== stored.current) {
+      if (store.declines(authored.current, stored.current)) {
+        return false;
+      }
       void store.update(authored.current, stored.current, rebind);
       stored.current = authored.current;
       unsaved.current = true;
@@ -557,9 +564,10 @@ function EvaluationEditor({
       forget();
       setSending(true);
       const shown = authored.current;
-      if (shown !== stored.current) {
+      const kept = !store.declines(shown, stored.current);
+      if (shown !== stored.current && kept) {
         void store.update(shown, stored.current, rebind);
-        stored.current = shown;
+        stored.current = authored.current;
         unsaved.current = true;
       }
       const refusal = await outbox.send(() => ({
@@ -570,8 +578,9 @@ function EvaluationEditor({
       if (refusal === undefined) {
         return true;
       }
-      // A refused Send still stored the version shown; Close asks only if saving it failed.
-      if (await store.save()) {
+      // A refused Send still stored the version shown, unless the store declined it; Close asks
+      // only if saving it failed.
+      if ((await store.save()) && kept) {
         unsaved.current = false;
         journalNow();
       }

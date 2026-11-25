@@ -92,10 +92,11 @@ their controls stop accepting input and leave VoiceOver immediately.
 - **Ordering.** The page numbers its body edits. The editor keeps the newest body it
   has received and ignores a late report of an earlier edit, also while Close,
   Save Draft or Send waits for the page.
-- **Durability.** Edits live only in the open editor until **Save Draft** or **Send**
-  stores them, and reopening shows the stored version. On iPhone and iPad ending the
-  app loses them; on Mac they are journaled to a composer recovery record, which the
-  next launch offers to restore in the page (ADR 0077, #2933).
+- **Durability.** Edits reach the Drafts only when **Save Draft** or **Send** stores
+  them, and reopening shows the stored version. On iPhone and iPad ending the app
+  before that loses them. On Mac the editor also journals them, about 2 seconds after
+  an edit, to a device-local composer recovery record, which the next launch offers to
+  restore in the page (ADR 0077, #2933).
 - **Failures.** If the page stops, the editor says so and clears assistance previews.
   Callbacks from a stopped or closed page cannot submit edits or accept results.
   **Save Draft** still stores the body the page last reported; reopen the Draft to
