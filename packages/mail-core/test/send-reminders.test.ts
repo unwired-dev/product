@@ -1,12 +1,23 @@
 import type { RegistrationSnapshot } from '@private-email/mail-core/registration';
-import type { NativeSendReminders } from '@private-email/mail-core/send-reminders';
+import type {
+  NativeSendReminderSync,
+  NativeSendReminders,
+  SendReminder,
+} from '@private-email/mail-core/send-reminders';
 
 import {
   createSendReminders,
+  reminderCity,
   reminderDay,
   mobileReminderTimes,
   reminderTimes,
 } from '@private-email/mail-core/send-reminders';
+import * as Option from 'effect/Option';
+import * as Schema from 'effect/Schema';
+
+import type { SyntheticProductSync } from '../src/testing/drafts.ts';
+
+import { createSyntheticProductSync } from '../src/testing/drafts.ts';
 
 // Tomorrow, 09:00 in Prague, as the approved banner shows it.
 const tomorrowMorning = Date.UTC(2026, 10, 13, 8);
@@ -35,9 +46,74 @@ const splitOffset = (
   ];
 };
 
+const openRecord = Schema.decodeUnknownOption(
+  Schema.fromJsonString(
+    Schema.Struct({
+      id: Schema.String,
+      version: Schema.Finite,
+      reminder: Schema.String,
+    }),
+  ),
+);
+
+// Product Sync as native code moves reminder records for `owner`: one record per Draft under an
+// identifier derived from the Draft's.
+const remote = (server: SyntheticProductSync): NativeSendReminderSync => ({
+  pullSendReminders: (owner, known) => {
+    const refused = server.reach();
+    if (refused !== undefined) {
+      return Promise.reject(refused);
+    }
+    const opened = server
+      .list(owner, 'send-reminder.')
+      .map(({ identifier, sealed, updatedAt }) => {
+        const record = Option.getOrUndefined(
+          openRecord(server.open(sealed, owner, identifier) ?? ''),
+        );
+        return record === undefined ||
+          identifier !== `send-reminder.${record.id}`
+          ? { identifier }
+          : { identifier, record: { ...record, updatedAt } };
+      });
+    return Promise.resolve({
+      owner,
+      records: opened.flatMap(({ record }) =>
+        record === undefined ? [] : [record],
+      ),
+      unreadable: known.filter((id) =>
+        opened.some(
+          ({ identifier, record }) =>
+            identifier === `send-reminder.${id}` && record === undefined,
+        ),
+      ),
+    });
+  },
+  pushSendReminder: async (
+    owner,
+    { id, version, reminder, expectedUpdatedAt },
+  ) => {
+    const refused = server.reach();
+    if (refused !== undefined) {
+      throw refused;
+    }
+    const identifier = `send-reminder.${id}`;
+    return {
+      owner,
+      ...server.put(owner, identifier, {
+        sealed: server.seal(
+          owner,
+          identifier,
+          JSON.stringify({ id, version, reminder }),
+        ),
+        expected: expectedUpdatedAt,
+      }),
+    };
+  },
+});
+
 // Native Send Reminder storage as the store sees it: one document for the signed-in account,
-// replaced only from the revision read.
-const storage = () => {
+// replaced only from the revision read. With `server`, the store also synchronizes through it.
+const storage = (server?: SyntheticProductSync) => {
   const state: {
     account: string;
     // `cached` while registration has not verified again, as offline after a relaunch.
@@ -97,8 +173,14 @@ const storage = () => {
       failed: false,
     }),
   };
-  const relaunch = () => createSendReminders(native, registration);
-  return { state, store: relaunch(), relaunch };
+  const sync = server === undefined ? undefined : remote(server);
+  const relaunch = () =>
+    createSendReminders(
+      native,
+      registration,
+      sync === undefined ? undefined : { native: sync },
+    );
+  return { state, store: relaunch(), relaunch, sync };
 };
 
 describe('stored Send Reminders', () => {
@@ -247,6 +329,203 @@ describe('stored Send Reminders', () => {
       reminders: [{ ...keys, profile: 'work', timeZone: 'Mars/Olympus' }],
     });
     await expect(store.reminders('work')).resolves.toBeUndefined();
+  });
+});
+
+describe('synchronized Send Reminders', () => {
+  // Two Trusted Devices of one Product Account sharing Product Sync.
+  const devices = () => {
+    const server = createSyntheticProductSync();
+    const mac = storage(server);
+    const phone = storage(server);
+    return { server, mac: mac.store, phone: phone.store, macSync: mac.sync };
+  };
+  const evening = { ...keys, dueAt: tomorrowMorning + 11 * 3_600_000 };
+  // Each reminder as a device shows it: its day after `now`'s and its time zone's city.
+  const shownAs =
+    (now: number) => (reminders: readonly SendReminder[] | undefined) =>
+      reminders?.map((reminder) => ({
+        ...reminder,
+        day: reminderDay(reminder, now),
+        city: reminderCity(reminder.timeZone),
+      }));
+  // What a stored record seals, as native code holds it.
+  const sealedRecord = Schema.decodeUnknownSync(
+    Schema.fromJsonString(
+      Schema.Struct({ reminder: Schema.fromJsonString(Schema.Unknown) }),
+    ),
+  );
+
+  it('carries a reminder set offline to another device, in the time zone it was set in', async () => {
+    expect.hasAssertions();
+    const { server, mac, phone } = devices();
+    server.setReachable(false);
+    await expect(mac.remind('work', keys)).resolves.toBe(true);
+    await mac.synchronize();
+    server.setReachable(true);
+    await mac.synchronize();
+    await phone.synchronize();
+    // The other device shows it as set: tomorrow, 09:00 in Prague.
+    await expect(
+      phone.reminders('work').then(shownAs(Date.UTC(2026, 10, 12, 12))),
+    ).resolves.toStrictEqual([
+      { ...keys, profile: 'work', day: 1, city: 'Prague' },
+    ]);
+  });
+
+  it("carries a reminder's change and its removal to another device", async () => {
+    expect.hasAssertions();
+    const { mac, phone } = devices();
+    await mac.remind('work', keys);
+    await mac.synchronize();
+    await phone.synchronize();
+    await phone.remind('work', evening);
+    await phone.synchronize();
+    await mac.synchronize();
+    await expect(mac.reminders('work')).resolves.toStrictEqual([
+      { ...evening, profile: 'work' },
+    ]);
+
+    // Sending or discarding the Draft cancels its reminder, which the other device then drops.
+    await mac.cancel('work', keys.draft);
+    await mac.synchronize();
+    await phone.synchronize();
+    await expect(phone.reminders('work')).resolves.toStrictEqual([]);
+  });
+
+  it('converges concurrent rescheduling on one reminder on both devices', async () => {
+    expect.hasAssertions();
+    const { mac, phone } = devices();
+    await mac.remind('work', keys);
+    await mac.synchronize();
+    await phone.synchronize();
+
+    await mac.remind('work', evening);
+    await phone.remind('work', { ...keys, timeZone: 'America/New_York' });
+    await mac.synchronize();
+    await phone.synchronize();
+    await mac.synchronize();
+
+    const merged = [{ ...evening, profile: 'work' }];
+    await expect(mac.reminders('work')).resolves.toStrictEqual(merged);
+    await expect(phone.reminders('work')).resolves.toStrictEqual(merged);
+  });
+
+  it('never restores a removed reminder from a stale change', async () => {
+    expect.hasAssertions();
+    const { mac, phone } = devices();
+    await mac.remind('work', keys);
+    await mac.synchronize();
+    await phone.synchronize();
+
+    // Removed on one device, rescheduled offline on the other first or after.
+    await mac.cancel('work', keys.draft);
+    await phone.remind('work', evening);
+    await mac.synchronize();
+    await phone.synchronize();
+    await mac.synchronize();
+    await expect(mac.reminders('work')).resolves.toStrictEqual([]);
+    await expect(phone.reminders('work')).resolves.toStrictEqual([]);
+
+    await mac.remind('work', keys);
+    await mac.synchronize();
+    await phone.synchronize();
+    await phone.remind('work', evening);
+    await mac.cancel('work', keys.draft);
+    await phone.synchronize();
+    await mac.synchronize();
+    await phone.synchronize();
+    await expect(mac.reminders('work')).resolves.toStrictEqual([]);
+    await expect(phone.reminders('work')).resolves.toStrictEqual([]);
+  });
+
+  it("leaves another Profile's reminders alone and seals no Draft content", async () => {
+    expect.hasAssertions();
+    const { server, mac, phone } = devices();
+    const home = {
+      draft: 'photos-from-the-wedding',
+      dueAt: tomorrowMorning,
+      timeZone: 'America/New_York',
+    };
+    await mac.remind('work', keys);
+    await phone.remind('home', home);
+    await mac.synchronize();
+    await phone.synchronize();
+    await mac.synchronize();
+    await expect(phone.cancel('home', keys.draft)).resolves.toBe(false);
+    await phone.synchronize();
+    await mac.synchronize();
+
+    for (const device of [mac, phone]) {
+      await expect(device.reminders('work')).resolves.toStrictEqual([
+        { ...keys, profile: 'work' },
+      ]);
+      await expect(device.reminders('home')).resolves.toStrictEqual([
+        { ...home, profile: 'home' },
+      ]);
+    }
+    // Each record seals the reminder and a write identifier, and nothing of the Draft.
+    expect(
+      server
+        .list('account-1', 'send-reminder.')
+        .map(
+          ({ identifier, sealed }) =>
+            sealedRecord(server.open(sealed, 'account-1', identifier)).reminder,
+        ),
+    ).toStrictEqual([
+      { reminder: { ...keys, profile: 'work' }, write: expect.any(String) },
+      { reminder: { ...home, profile: 'home' }, write: expect.any(String) },
+    ]);
+  });
+
+  it('changes nothing for a record that does not open, was moved or is older', async () => {
+    expect.hasAssertions();
+    const { server, mac, phone } = devices();
+    const invoice = { ...keys, draft: 'invoice' };
+    await mac.remind('work', keys);
+    await mac.remind('work', invoice);
+    await mac.synchronize();
+    await phone.synchronize();
+    const first = server.get(
+      'account-1',
+      `send-reminder.${keys.draft}`,
+    )?.sealed;
+    await mac.remind('work', evening);
+    await mac.synchronize();
+    await phone.synchronize();
+    const current = await phone.reminders('work');
+
+    server.replace('account-1', `send-reminder.${keys.draft}`, String(first));
+    const moved = server.get(
+      'account-1',
+      `send-reminder.${keys.draft}`,
+    )?.sealed;
+    server.replace('account-1', 'send-reminder.invoice', String(moved));
+    await phone.synchronize();
+    await expect(phone.reminders('work')).resolves.toStrictEqual(current);
+
+    // A record that does not open is never taken for a removal, nor overwritten.
+    server.replace('account-1', 'send-reminder.invoice', 'damaged');
+    await phone.cancel('work', 'invoice');
+    await phone.synchronize();
+    expect(server.get('account-1', 'send-reminder.invoice')?.sealed).toBe(
+      'damaged',
+    );
+  });
+
+  it('takes back its own write whose reply was lost', async () => {
+    expect.hasAssertions();
+    vi.spyOn(console, 'error').mockReturnValue();
+    const { server, mac, phone } = devices();
+    server.loseNextReply();
+    await mac.remind('work', keys);
+    await mac.synchronize();
+    await mac.synchronize();
+    await phone.synchronize();
+
+    const synced = [{ ...keys, profile: 'work' }];
+    await expect(mac.reminders('work')).resolves.toStrictEqual(synced);
+    await expect(phone.reminders('work')).resolves.toStrictEqual(synced);
   });
 });
 

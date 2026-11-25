@@ -4,11 +4,15 @@ import * as Option from 'effect/Option';
 import * as Schema from 'effect/Schema';
 import * as Semaphore from 'effect/Semaphore';
 
-import type { DraftStorageFailure } from './draft-native.ts';
 import type { Registration } from './registration.ts';
 
 import { runLogged } from './diagnostics.ts';
 import { malformed, native, ownerMismatch } from './draft-native.ts';
+import {
+  preferencePasses,
+  PushedSchema,
+  reportPreference,
+} from './draft-sync.ts';
 import { ownerOf } from './drafts.ts';
 
 // A Send Reminder: the Draft it belongs to, the Mail Profile that owns that Draft, the instant it is
@@ -25,9 +29,37 @@ export const SendReminderSchema = Schema.Struct({
 export type SendReminder = typeof SendReminderSchema.Type;
 
 const isReminder = Schema.is(SendReminderSchema);
-const DocumentSchema = Schema.fromJsonString(
-  Schema.Struct({ reminders: Schema.Array(SendReminderSchema) }),
-);
+const Version = Schema.Int.check(Schema.isGreaterThanOrEqualTo(1));
+const NullableReminder = Schema.NullOr(SendReminderSchema);
+const sameReminder = Schema.toEquivalence(NullableReminder);
+// A Draft's Private Sync record as this device last read or wrote it: the record's write count, its
+// Convex revision, the reminder, null once removed, and the random identifier of the write that
+// made it.
+const SyncedSchema = Schema.Struct({
+  id: Schema.NonEmptyString,
+  version: Version,
+  updatedAt: Schema.Finite,
+  reminder: NullableReminder,
+  write: Schema.NonEmptyString,
+});
+type Synced = typeof SyncedSchema.Type;
+const SentSchema = Schema.Struct({
+  id: Schema.NonEmptyString,
+  version: Version,
+  write: Schema.NonEmptyString,
+});
+type Sent = typeof SentSchema.Type;
+const StoredDocumentSchema = Schema.Struct({
+  reminders: Schema.Array(SendReminderSchema),
+  // Each Draft's base: a reminder that differs from it has a change to publish.
+  synced: Schema.optionalKey(Schema.Array(SyncedSchema)),
+  // Each write sent and not yet known to have landed or lost, so reading one back after a lost
+  // reply is no conflict.
+  sent: Schema.optionalKey(Schema.Array(SentSchema)),
+});
+type Reminders = typeof StoredDocumentSchema.Type;
+const DocumentSchema = Schema.fromJsonString(StoredDocumentSchema);
+const sameDocument = Schema.toEquivalence(StoredDocumentSchema);
 const OpenedSchema = Schema.Struct({
   owner: Schema.NonEmptyString,
   revision: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
@@ -37,6 +69,27 @@ const CommittedSchema = Schema.Struct({
   owner: Schema.NonEmptyString,
   revision: Schema.Int.check(Schema.isGreaterThanOrEqualTo(1)),
 });
+const PulledSchema = Schema.Struct({
+  owner: Schema.NonEmptyString,
+  records: Schema.Array(
+    Schema.Struct({
+      id: Schema.NonEmptyString,
+      version: Version,
+      updatedAt: Schema.Finite,
+      // Decoded one by one, so a record this device cannot read changes nothing.
+      reminder: Schema.NullOr(Schema.String),
+    }),
+  ),
+  unreadable: Schema.Array(Schema.NonEmptyString),
+});
+// What a record seals: the Draft's reminder, null once removed, and its write's identifier, so this
+// device tells its own writes from another device's identical one.
+const RecordJsonSchema = Schema.fromJsonString(
+  Schema.Struct({ reminder: NullableReminder, write: Schema.NonEmptyString }),
+);
+const decodeRecord = Schema.decodeUnknownOption(RecordJsonSchema);
+// Native code accepts a Private Sync record identifier of at most 200 characters.
+const publishable = (id: string) => id.length <= 200;
 
 // The signed-in Product Account's Send Reminders on this device: one document native code keeps
 // encrypted for the account that wrote it, like its Mail Templates. Every call rejects with
@@ -52,19 +105,169 @@ export interface NativeSendReminders {
   ) => Promise<unknown>;
 }
 
-// Locked storage is expected while the device is locked; any other failure is logged.
-const report = (
-  error: Readonly<Pick<DraftStorageFailure, 'kind' | 'diagnostic'>>,
-) =>
-  error.kind === 'locked'
-    ? Effect.void
-    : Effect.logError('Send Reminder storage failed:', error.diagnostic);
+// The account's Send Reminders in Private Sync, one record per Draft. Native code seals each record
+// to the account and an opaque identifier derived from the Draft's, so Convex holds only
+// ciphertext. Every call rejects with 'unavailable' while this device holds no keys or Product
+// Sign-In session.
+export interface NativeSendReminderSync {
+  // Resolves `{ owner, records: [{ id, version, updatedAt, reminder }], unreadable }`, `reminder`
+  // being the JSON the record seals. `unreadable` names the Drafts of `known` whose record exists
+  // but does not open here.
+  readonly pullSendReminders: (
+    owner: string,
+    known: readonly string[],
+  ) => Promise<unknown>;
+  // Writes Draft `id`'s record, sealing `reminder` (the reminder or its removal, as JSON), only
+  // while it is still at `expectedUpdatedAt` (absent: while there is none). Resolves
+  // `{ owner, committed, updatedAt? }`.
+  readonly pushSendReminder: (
+    owner: string,
+    record: Readonly<{
+      id: string;
+      version: number;
+      reminder: string;
+      expectedUpdatedAt?: number;
+    }>,
+  ) => Promise<unknown>;
+}
 
-// Each Draft's Send Reminder, stored on this device without network access. Reminders are not
-// synchronized and notify nobody yet.
+const report = reportPreference('Send Reminder');
+
+const byDraft = (reminders: readonly SendReminder[]) =>
+  new Map(reminders.map((reminder) => [reminder.draft, reminder]));
+const byId = <T extends Readonly<{ id: string }>>(items: readonly T[] = []) =>
+  new Map(items.map((item) => [item.id, item]));
+
+// Each Draft whose reminder differs from the record it was made from, with that record: a change,
+// or a removal, to publish.
+const pendingOf = ({ reminders, synced }: Reminders) => {
+  const live = byDraft(reminders);
+  const bases = byId(synced);
+  return [...new Set([...live.keys(), ...bases.keys()])].flatMap((id) => {
+    const reminder = live.get(id) ?? null;
+    const base = bases.get(id);
+    return sameReminder(base?.reminder ?? null, reminder)
+      ? []
+      : [{ id, reminder, base }];
+  });
+};
+
+// A random identifier for one write, as Draft assets are named.
+const writeId = () => {
+  let id = '';
+  while (id.length < 24) {
+    id += Math.random().toString(36).slice(2);
+  }
+  return id.slice(0, 24);
+};
+
+// Takes one record newer than the one this device read. This device's own write read back, as after
+// a lost reply, changes nothing. A Draft without a change to publish takes the record. A removal
+// wins either way, so a stale write never restores a removed reminder: a pending removal outlives
+// the record, and a removal record ends a pending change. Of two changes, the one written first
+// wins, so both devices end with one reminder.
+// fallow-ignore-next-line complexity -- Each condition is one merge rule above.
+const adoptRecord = (
+  {
+    live,
+    bases,
+    sent,
+  }: Readonly<{
+    live: Map<string, SendReminder>;
+    bases: Map<string, Synced>;
+    sent: Set<Sent>;
+  }>,
+  record: Synced,
+) => {
+  const local = live.get(record.id) ?? null;
+  const pending = !sameReminder(bases.get(record.id)?.reminder ?? null, local);
+  const own = [...sent].some(
+    ({ id, write }) => id === record.id && write === record.write,
+  );
+  bases.set(record.id, record);
+  for (const item of sent) {
+    if (item.id === record.id && item.version <= record.version) {
+      sent.delete(item);
+    }
+  }
+  if (own || (pending && local === null)) {
+    return;
+  }
+  if (record.reminder === null) {
+    live.delete(record.id);
+  } else {
+    live.set(record.id, record.reminder);
+  }
+};
+
+// Merges records another device wrote. A version authenticates one immutable record, so an older or
+// replayed one changes nothing.
+const adopt = (document: Reminders, records: readonly Synced[]) => {
+  const live = byDraft(document.reminders);
+  const bases = byId(document.synced);
+  const sent = new Set(document.sent);
+  for (const record of records.filter(
+    ({ id, version }) => version > (bases.get(id)?.version ?? 0),
+  )) {
+    adoptRecord({ live, bases, sent }, record);
+  }
+  const next = {
+    reminders: [...live.values()],
+    synced: [...bases.values()],
+    sent: [...sent],
+  };
+  return sameDocument(document, next) ? document : next;
+};
+
+// The records this device can read; one that does not decode, or names another Draft, is
+// unreadable and changes nothing.
+const readable = (pulled: typeof PulledSchema.Type) => {
+  const unreadable = new Set(pulled.unreadable);
+  const records = pulled.records.flatMap(({ reminder: json, ...record }) => {
+    const sealed = Option.getOrUndefined(decodeRecord(json ?? ''));
+    if (
+      sealed === undefined ||
+      (sealed.reminder !== null && sealed.reminder.draft !== record.id)
+    ) {
+      unreadable.add(record.id);
+      return [];
+    }
+    return [{ ...record, ...sealed }];
+  });
+  return { records, unreadable };
+};
+
+// `document` knowing a committed write, unless it already knows one as new.
+const settled = (document: Reminders, written: Synced) => {
+  const base = document.synced?.find(({ id }) => id === written.id);
+  if (base !== undefined && base.version >= written.version) {
+    return document;
+  }
+  return {
+    ...document,
+    synced: [
+      ...(document.synced ?? []).filter(({ id }) => id !== written.id),
+      written,
+    ],
+    sent: (document.sent ?? []).filter(
+      ({ id, version }) => id !== written.id || version > written.version,
+    ),
+  };
+};
+
+// Each Draft's Send Reminder, stored on this device without network access. With `sync`, reminders
+// also synchronize through Private Sync: after each change and on `synchronize`. They notify nobody
+// yet.
 export function createSendReminders(
   storage: NativeSendReminders,
   registration: Pick<Registration, 'getSnapshot'>,
+  sync?: Readonly<{
+    native: NativeSendReminderSync;
+    // Called when native code purged the account because this device was removed.
+    removed?: () => void;
+    // Adopts a key epoch another device's removal moved the account to.
+    adoptKeyRotation?: () => Promise<unknown>;
+  }>,
 ) {
   const semaphore = Semaphore.makeUnsafe(1);
   const signedIn = () => ownerOf(registration.getSnapshot().snapshot);
@@ -80,48 +283,163 @@ export function createSendReminders(
       if (owner !== account || signedIn() !== account) {
         return yield* ownerMismatch();
       }
-      return { owner, revision, reminders: document?.reminders ?? [] };
+      return { owner, revision, document: document ?? { reminders: [] } };
     });
 
-  // Resolves whether storage holds what `change` makes of `profile`'s Draft `draft` reminder:
-  // another Profile's reminder for that Draft is refused, and returning the reminders unchanged
-  // writes nothing.
-  const changing = (
+  // Stores what `change` makes of `account`'s stored reminders and resolves it. It refuses with
+  // undefined, and returning the document unchanged writes nothing.
+  const changed = (
+    account: string | undefined,
+    change: (document: Reminders) => Reminders | undefined,
+  ) =>
+    Effect.gen(function* () {
+      const { owner, revision, document } = yield* opened(account);
+      const next = change(document);
+      if (next === undefined || next === document) {
+        return next;
+      }
+      const encoded = yield* Schema.encodeEffect(DocumentSchema)(next).pipe(
+        Effect.mapError(malformed),
+      );
+      const committed = yield* native(
+        () => storage.commitSendReminders(owner, revision, encoded),
+        CommittedSchema,
+      );
+      if (committed.owner !== owner) {
+        return yield* ownerMismatch();
+      }
+      return next;
+    }).pipe(semaphore.withPermit);
+
+  // Publishes one change by compare-and-set from the record it was made from, remembering the write
+  // first so reading it back after a lost reply is no conflict. Its version is above every write of
+  // the Draft's reminder that may still land, so each write is told apart. Resolves whether another
+  // device's write won.
+  const publish = Effect.fnUntraced(function* (
+    remote: NativeSendReminderSync,
+    account: string,
+    {
+      id,
+      reminder,
+      base,
+      sent,
+    }: Readonly<
+      ReturnType<typeof pendingOf>[number] & { sent: readonly Sent[] }
+    >,
+  ) {
+    const version =
+      Math.max(
+        base?.version ?? 0,
+        ...sent.filter((item) => item.id === id).map((item) => item.version),
+      ) + 1;
+    const write = writeId();
+    const json = yield* Schema.encodeEffect(RecordJsonSchema)({
+      reminder,
+      write,
+    }).pipe(Effect.mapError(malformed));
+    yield* changed(account, (stored) => ({
+      ...stored,
+      sent: [...(stored.sent ?? []), { id, version, write }],
+    }));
+    const pushed: typeof PushedSchema.Type = yield* native(
+      () =>
+        remote.pushSendReminder(account, {
+          id,
+          version,
+          reminder: json,
+          ...(base === undefined ? {} : { expectedUpdatedAt: base.updatedAt }),
+        }),
+      PushedSchema,
+    );
+    if (pushed.owner !== account) {
+      return yield* ownerMismatch();
+    }
+    if (!pushed.committed) {
+      return true;
+    }
+    const written = {
+      id,
+      version,
+      updatedAt: pushed.updatedAt,
+      reminder,
+      write,
+    };
+    yield* changed(account, (stored) => settled(stored, written));
+    return false;
+  });
+
+  // One pass: adopts what other devices wrote, then publishes each change it can. A change to a
+  // Draft whose record does not open here waits, and one for a Draft identifier native code cannot
+  // publish stays on this device. Resolves whether another device's write won meanwhile.
+  const pass = Effect.fnUntraced(function* (remote: NativeSendReminderSync) {
+    const account = signedIn();
+    if (account === undefined) {
+      return false;
+    }
+    const { document } = yield* opened(account);
+    const pulled = yield* native(
+      () =>
+        remote.pullSendReminders(
+          account,
+          (document.synced ?? []).map(({ id }) => id),
+        ),
+      PulledSchema,
+    );
+    if (pulled.owner !== account) {
+      return yield* ownerMismatch();
+    }
+    const { records, unreadable } = readable(pulled);
+    const adopted = yield* changed(account, (stored) => adopt(stored, records));
+    const current = adopted ?? document;
+    let conflicted = false;
+    for (const change of pendingOf(current).filter(
+      ({ id }) => !unreadable.has(id) && publishable(id),
+    )) {
+      conflicted =
+        (yield* publish(remote, account, {
+          ...change,
+          sent: current.sent ?? [],
+        })) || conflicted;
+    }
+    return conflicted;
+  });
+
+  const synchronize = preferencePasses('Send Reminder', pass, sync);
+
+  // Resolves whether storage holds what `change` makes of `profile`'s Draft `draft` reminder, then
+  // publishes it: another Profile's reminder for that Draft is refused, and returning the reminders
+  // unchanged writes nothing.
+  const changing = async (
     profile: string,
     draft: string,
     change: (others: readonly SendReminder[]) => readonly SendReminder[],
   ) => {
-    const account = signedIn();
-    return runLogged(
-      Effect.gen(function* () {
-        const { owner, revision, reminders } = yield* opened(account);
-        const current = reminders.find((reminder) => reminder.draft === draft);
-        if (current !== undefined && current.profile !== profile) {
-          return false;
-        }
-        const next = change(reminders.filter((each) => each !== current));
-        if (current === undefined && next.length === reminders.length) {
-          return true;
-        }
-        const document = yield* Schema.encodeEffect(DocumentSchema)({
-          reminders: next,
-        }).pipe(Effect.mapError(malformed));
-        const committed = yield* native(
-          () => storage.commitSendReminders(owner, revision, document),
-          CommittedSchema,
+    const stored = await runLogged(
+      changed(signedIn(), (document) => {
+        const current = document.reminders.find(
+          (reminder) => reminder.draft === draft,
         );
-        if (committed.owner !== owner) {
-          return yield* ownerMismatch();
+        if (current !== undefined && current.profile !== profile) {
+          return undefined;
         }
-        return true;
+        const next = change(
+          document.reminders.filter((each) => each !== current),
+        );
+        return current === undefined &&
+          next.length === document.reminders.length
+          ? document
+          : { ...document, reminders: next };
       }).pipe(
-        semaphore.withPermit,
-        // oxlint-disable-next-line promise/prefer-await-to-callbacks -- Effect's typed error channel.
+        Effect.map((next) => next !== undefined),
         Effect.catchTag('DraftStorageFailure', (error) =>
           report(error).pipe(Effect.as(false)),
         ),
       ),
     );
+    if (stored) {
+      void synchronize();
+    }
+    return stored;
   };
 
   return {
@@ -129,8 +447,10 @@ export function createSendReminders(
     reminders: (profile: string) =>
       runLogged(
         opened(signedIn()).pipe(
-          Effect.map(({ reminders }) =>
-            reminders.filter((reminder) => reminder.profile === profile),
+          Effect.map(({ document }) =>
+            document.reminders.filter(
+              (reminder) => reminder.profile === profile,
+            ),
           ),
           // oxlint-disable-next-line promise/prefer-await-to-callbacks -- Effect's typed error channel.
           Effect.catchTag('DraftStorageFailure', (error) =>
@@ -149,6 +469,9 @@ export function createSendReminders(
     // Removes `profile`'s reminder for Draft `draft`. Resolves whether storage no longer holds it.
     cancel: (profile: string, draft: string) =>
       changing(profile, draft, (others) => others),
+    // Merges Private Sync into this device's reminders and publishes this device's changes;
+    // resolves once no pass is running.
+    synchronize,
   };
 }
 export type SendReminders = ReturnType<typeof createSendReminders>;

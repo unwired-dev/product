@@ -106,16 +106,18 @@ export function InboxProvider({
     void drafts.load();
     void mailTemplates.synchronize();
     void blockedSenders.synchronize();
+    void sendReminders.synchronize();
     void inboxPreferences.load();
     void inboxPreferences.synchronize();
-    // Returning picks up other devices' Draft, Mail Template, Blocked Sender and Inbox preference
-    // changes; leaving publishes this device's.
+    // Returning picks up other devices' Draft, Mail Template, Blocked Sender, Send Reminder and Inbox
+    // preference changes; leaving publishes this device's.
     return followOnce(drafts, () => {
       const subscription = AppState.addEventListener('change', (state) => {
         if (state === 'active' || state === 'background') {
           void drafts.syncInBackground();
           void mailTemplates.synchronize();
           void blockedSenders.synchronize();
+          void sendReminders.synchronize();
           void inboxPreferences.synchronize();
         }
       });
@@ -123,7 +125,7 @@ export function InboxProvider({
         subscription.remove();
       };
     });
-  }, [drafts, mailTemplates]);
+  }, [drafts, mailTemplates, sendReminders]);
   // Each load decrypts and opens every mailbox natively, so windows share one.
   useEffect(
     () =>
