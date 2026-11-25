@@ -7,7 +7,9 @@ import type {
   SemanticDocument,
 } from '@private-email/mail-core/semantic-document';
 import type { ChainedCommands, Editor as TiptapEditor } from '@tiptap/core';
+import type { ResolvedPos } from '@tiptap/pm/model';
 import type { EditorState, Transaction } from '@tiptap/pm/state';
+import type { EditorView } from '@tiptap/pm/view';
 
 import { formatStyleOf } from '@private-email/mail-core/body-display';
 import { vettedHref } from '@private-email/mail-core/link-inspection';
@@ -524,6 +526,91 @@ const keepReplaced = (
   }
 };
 
+// Pastes `slice` over the selection, deleted as Backspace deletes it first: the first pasted block
+// joins the line left, even when copied whole, and the line's text after the selection stays on
+// its own line unless only one line is pasted. A paste over a line's end whose last line is closed
+// splits off the empty rest of that line; it goes, and the caret goes to the paste's end.
+// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ProseMirror's transaction is a class; this edits it.
+const pasteOver = (tr: Transaction, slice: Slice) => {
+  deleteSelected(tr);
+  const { $from } = tr.selection;
+  const followed = $from.parentOffset < $from.parent.content.size;
+  const pasted = joined(slice);
+  const steps = tr.steps.length;
+  tr.replaceSelection(pasted);
+  let last = pasted.content.lastChild;
+  let depth = 1;
+  while (last !== null && !last.isTextblock) {
+    last = last.lastChild;
+    depth += 1;
+  }
+  const step = tr.steps.at(-1);
+  if (
+    followed ||
+    pasted.openEnd >= depth ||
+    tr.steps.length === steps ||
+    !(step instanceof ReplaceStep)
+  ) {
+    return;
+  }
+  const $end = tr.doc.resolve(step.from + step.slice.size);
+  let at = $end.pos;
+  if ($end.parent.isTextblock && $end.parent.content.size === 0) {
+    let line = $end.depth;
+    while (line > 1 && $end.node(line - 1).childCount === 1) {
+      line -= 1;
+    }
+    at = $end.before(line);
+    tr.delete(at, $end.after(line));
+  }
+  tr.setSelection(Selection.near(tr.doc.resolve(at), -1));
+};
+
+// The empty line a drag within the page is dropped on, outside the dragged selection, when the
+// dragged content is open at its start.
+// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ProseMirror's view, the DOM event and the slice are classes; this only reads them.
+const emptyLineAt = (view: EditorView, event: DragEvent, slice: Slice) => {
+  const target = view.posAtCoords({ left: event.clientX, top: event.clientY });
+  if (target === null || slice.openStart === 0) {
+    return null;
+  }
+  const { parent } = view.state.doc.resolve(target.pos);
+  const { from, to } = view.state.selection;
+  return parent.isTextblock &&
+    parent.content.size === 0 &&
+    (target.pos < from || target.pos > to)
+    ? target.pos
+    : null;
+};
+
+// The line a drop filled at `at` takes the first dragged block's kind, where it may, alignment
+// and list level.
+// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ProseMirror's transaction and positions are classes; this edits the transaction.
+const layOut = (tr: Transaction, at: number, $source: ResolvedPos) => {
+  const $at = tr.doc.resolve(at);
+  const { parent: line } = $source;
+  const { align }: Readonly<Record<string, unknown>> = line.attrs;
+  const index = $at.index($at.depth - 1);
+  const adopts =
+    $at.node(-1).canReplaceWith(index, index + 1, line.type) &&
+    line.type.validContent($at.parent.content);
+  tr.setNodeMarkup(
+    $at.before(),
+    adopts ? line.type : null,
+    adopts ? line.attrs : { ...$at.parent.attrs, align },
+  );
+  if (
+    $source.node(-1).type.name === 'listItem' &&
+    $at.node(-1).type.name === 'listItem'
+  ) {
+    tr.setNodeAttribute(
+      $at.before(-1),
+      'indent',
+      $source.node(-1).attrs.indent,
+    );
+  }
+};
+
 // Return in an empty list item or quote line continues it, as in the current composer; Tiptap's
 // own Return would lift it out of the list or quote.
 // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ProseMirror's transaction is a class; this edits it.
@@ -677,48 +764,14 @@ const DraftBehavior = Extension.create<unknown, { typing: boolean }>({
           },
           // A pasted image is read from the pasteboard by native code, where it can; the page
           // never reads the data, and a dropped file is refused.
-          // Pasting over a selection deletes it as Backspace does first, and the first pasted block
-          // joins the line left, even when copied whole; the line's text after the selection stays
-          // on its own line unless only one line is pasted.
+          // Pasting over a selection pastes over it as the current composer does.
           handlePaste: (view, event, slice) => {
             if (!carriesFiles(event.clipboardData)) {
               if (view.state.selection.empty || slice.size === 0) {
                 return false;
               }
               const { tr } = view.state;
-              deleteSelected(tr);
-              const { $from } = tr.selection;
-              const followed = $from.parentOffset < $from.parent.content.size;
-              const pasted = joined(slice);
-              const steps = tr.steps.length;
-              tr.replaceSelection(pasted);
-              // A paste over a line's end whose last line is closed splits off the empty rest of
-              // that line; it goes, and the caret goes to the paste's end.
-              let last = pasted.content.lastChild;
-              let lastDepth = 1;
-              while (last !== null && !last.isTextblock) {
-                last = last.lastChild;
-                lastDepth += 1;
-              }
-              const step = tr.steps.at(-1);
-              if (
-                !followed &&
-                pasted.openEnd < lastDepth &&
-                tr.steps.length > steps &&
-                step instanceof ReplaceStep
-              ) {
-                const $end = tr.doc.resolve(step.from + step.slice.size);
-                let at = $end.pos;
-                if ($end.parent.isTextblock && $end.parent.content.size === 0) {
-                  let { depth } = $end;
-                  while (depth > 1 && $end.node(depth - 1).childCount === 1) {
-                    depth -= 1;
-                  }
-                  at = $end.before(depth);
-                  tr.delete(at, $end.after(depth));
-                }
-                tr.setSelection(Selection.near(tr.doc.resolve(at), -1));
-              }
+              pasteOver(tr, slice);
               view.dispatch(
                 tr
                   .scrollIntoView()
@@ -744,49 +797,18 @@ const DraftBehavior = Extension.create<unknown, { typing: boolean }>({
               event.preventDefault();
               return true;
             }
-            const { tr } = view.state;
-            const target = view.posAtCoords({
-              left: event.clientX,
-              top: event.clientY,
-            });
-            const $target = target && tr.doc.resolve(target.pos);
-            const { $from: $source, from, to } = tr.selection;
-            if (
-              target === null ||
-              !$target?.parent.isTextblock ||
-              $target.parent.content.size > 0 ||
-              slice.openStart === 0 ||
-              (target.pos >= from && target.pos <= to)
-            ) {
+            const target = emptyLineAt(view, event, slice);
+            if (target === null) {
               return false;
             }
+            const { tr } = view.state;
+            const { $from: $source } = tr.selection;
             tr.deleteSelection();
-            const at = tr.mapping.map(target.pos);
+            const at = tr.mapping.map(target);
             const steps = tr.mapping.maps.length;
             tr.replaceRange(at, at, slice);
             const end = tr.mapping.slice(steps).map(at);
-            const $at = tr.doc.resolve(at);
-            const { parent: line } = $source;
-            const { align }: Readonly<Record<string, unknown>> = line.attrs;
-            const index = $at.index($at.depth - 1);
-            const adopts =
-              $at.node(-1).canReplaceWith(index, index + 1, line.type) &&
-              line.type.validContent($at.parent.content);
-            tr.setNodeMarkup(
-              $at.before(),
-              adopts ? line.type : null,
-              adopts ? line.attrs : { ...$at.parent.attrs, align },
-            );
-            if (
-              $source.node(-1).type.name === 'listItem' &&
-              $at.node(-1).type.name === 'listItem'
-            ) {
-              tr.setNodeAttribute(
-                $at.before(-1),
-                'indent',
-                $source.node(-1).attrs.indent,
-              );
-            }
+            layOut(tr, at, $source);
             tr.setSelection(
               TextSelection.between(tr.doc.resolve(at), tr.doc.resolve(end)),
             );
