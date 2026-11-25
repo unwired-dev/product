@@ -11,6 +11,61 @@ The [mobile bootstrap](../expo-client.md) now uses Expo 57.0.25, React Native
 are available on the development host. The maintainer's earlier native-validation
 deferral still applies to unavailable release checks. Mac host evidence follows.
 
+## iPhone and iPad composer system menus, 2026-11-25
+
+[#2787](https://github.com/unwired-dev/product/issues/2787), part of
+[#1075](https://github.com/unwired-dev/product/issues/1075), moved the Tiptap
+evaluation composer's Attach (iPhone) and Writing tools (iPhone and iPad) to
+the system menu. It also records the checks
+[#2167](https://github.com/unwired-dev/product/pull/2167) deferred for the
+regular composer's menus. Both composers ran on `2525f6afb`, and the iPhone
+Close question and the landscape iPad scroll ran again on `4f62e4732`. These
+were Release Simulator builds of `registration-draft-editor` (evaluation
+composer) and `registration-declined` (regular composer), made with Xcode 27.2
+(`27B52`) and run on the iOS 27.0 runtime (`24A434`) on macOS 27.2.1, on
+iPhone 18 Pro and iPad Pro 11-inch (M5). Checks went through `agent-device`,
+with a screenshot of each state, in Light and Dark unless noted. Host load from
+other work was 2–352.
+
+- Evaluation composer, iPhone: Add files opens the system menu above the pill
+  (Paste Image, Insert Image, Attach Photo, Attach File), also with the software
+  keyboard up, and Attach File opens Files. Writing tools opens Rewrite and
+  Translate, Translate dimmed with no selection; Rewrite opens the review, and
+  Keep leaves the body unchanged. A tap outside closes either menu and changes
+  nothing. With the Save Draft or Delete Draft question open, the first tap on
+  either button only closes the question; the next tap opens the menu.
+- Evaluation composer, iPad: Writing tools opens Rewrite and Translate on a new
+  message, and also Suggest Reply on a docked reply; Rewrite opens the review
+  and expands the card. From, Text style, More Lists and Links, More Files and
+  More Formatting open, act and close, and every menu fits above the software
+  keyboard.
+- Regular composer, iPhone: From, Compose actions (Discard asks before
+  discarding), Add files (with the Insert Template submenu) and the nine Writing
+  tools open, act and close.
+- Regular composer, iPad: From, Text style, Templates, Writing tools and the
+  docked reply's overflow menus open, act and close, and fit above the software
+  keyboard in portrait. In the expanded landscape card the keyboard leaves room
+  for six of Writing tools' nine rows: the system menu scrolls, and Make More
+  Neutral, scrolled into view, opens the review with the keyboard still up.
+- VoiceOver: focus and double-tap activated a row in every iPhone menu tried
+  (Attach File, Rewrite, the sender, Discard, New Template from This Message)
+  and Rewrite in both iPad composers, in Light and Dark. The accessibility tree
+  names the rows by their labels, such as "Rewrite the message body" and
+  "Translate the selected text". XCUITest element-detection audits of the open
+  iPad Writing tools menus reported no issues (Dark).
+- iPad hardware keyboard (Dark): Command-period closed the regular composer's
+  Writing tools with Full Keyboard Access off. With Full Keyboard Access on,
+  Command-period and Escape left the evaluation composer's open. Twenty Tabs
+  reached neither trigger, typing tabs into the body instead.
+- A docked iPad reply set to Numbered List pushes the format bar's file overflow
+  menu out of reach in both composers;
+  [#2892](https://github.com/unwired-dev/product/issues/2892) owns it.
+- **Deferred:** spoken VoiceOver output and VoiceOver activation of the other
+  iPad menu rows; the rest of the hardware-keyboard matrix, including opening a
+  menu from the keyboard and whether Full Keyboard Access changes how Escape
+  reaches an open menu; More Formatting's effects; Reduce Motion. `agent-device`
+  sends no arbitrary hardware keys and does not report spoken output.
+
 ## iPhone and iPad system sheets and popovers, 2026-11-24
 
 [#2798](https://github.com/unwired-dev/product/issues/2798), the last
