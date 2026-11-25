@@ -301,7 +301,7 @@ recording the screen in Light and Dark with Reduce Motion on and off.
   falls in about 0.3, the same with Reduce Motion on and off, as the other sheets do.
 - The system changes the iPad Folders popover's motion: without Reduce Motion it
   grows out of **Folders** into place, with it it fades in at its final size.
-  Both take about 0.15 seconds, and it fades out at its final size in both
+  Both take about 0.2 seconds, and it fades out at its final size in both
   settings, in Light and Dark.
 
 ## iPad keyboard and accessibility journey to the end, 2026-11-25
@@ -542,8 +542,7 @@ presenter; each names the appearances it ran in. Host load from other work was
   popover open (2026-11-25 entry above).
 - **Deferred** to [#2873](https://github.com/unwired-dev/product/issues/2873):
   the iPad Folders popover; VoiceOver focus when a presenter opens and its
-  return when it closes; Reduce Motion on the iPhone Move sheet (now in the
-  2026-11-25 entry above with the other presenters); a compact iPad window, where the
+  return when it closes; a compact iPad window, where the
   composer and Filters turn into sheets and the Move and Labels popovers, chosen
   by device rather than width, adapt as SwiftUI decides; a hardware keyboard,
   including Escape on the Labels popover; the software keyboard in New Label and
@@ -555,7 +554,11 @@ presenter; each names the appearances it ran in. Host load from other work was
   no journey or the synthetic mailbox has. `agent-device` cannot turn VoiceOver
   on, rotate the device or resize an iPad window. Rotation with the Gmail
   presenters and the Move picker is the 2026-11-25 entry above
-  ([#2907](https://github.com/unwired-dev/product/issues/2907)). The `registration-apple`
+  ([#2907](https://github.com/unwired-dev/product/issues/2907)). Reduce Motion on
+  every presenter, the iPhone Move sheet and iPad Folders popover included, is
+  the 2026-11-25 entry above
+  ([#2914](https://github.com/unwired-dev/product/issues/2914),
+  [#2939](https://github.com/unwired-dev/product/issues/2939)). The `registration-apple`
   journey, whose Move steps rotate to landscape before opening the picker and
   check its keyboard there, stopped under host load before them.
 
