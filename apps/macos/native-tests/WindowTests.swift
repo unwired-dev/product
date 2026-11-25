@@ -1206,6 +1206,12 @@ final class WindowTests: XCTestCase {
     let pageText = { body.staticTexts.allElementsBoundByIndex.map { $0.value as? String ?? "" } }
     let unlinked = pageText()
     let link = body.links.firstMatch
+    // The one link in the page holds the whole paragraph, not part of it.
+    let linked = {
+      body.links.count == 1
+        && link.staticTexts.allElementsBoundByIndex.map { $0.value as? String ?? "" }.joined()
+          == unlinked.joined()
+    }
     let addLink = window.buttons["Add Link"]
     let edit = window.buttons["Edit Link"]
     let destination = app.textFields["Link"]
@@ -1225,7 +1231,7 @@ final class WindowTests: XCTestCase {
     waitUntil { apply.isEnabled }
     apply.click()
     XCTAssertTrue(destination.waitForNonExistence(timeout: 10))
-    XCTAssertTrue(link.waitForExistence(timeout: 10))
+    waitUntil(linked)
     // Edit Link offers Remove Link and the saved destination; Escape changes nothing.
     let editLink = { (shot: String) in
       self.waitUntil { edit.isEnabled }
@@ -1240,12 +1246,14 @@ final class WindowTests: XCTestCase {
       XCTAssertTrue(destination.waitForNonExistence(timeout: 10))
     }
     editLink("Evaluation Edit Link")
+    waitUntil { window.buttons["Undo"].isEnabled }
     window.buttons["Undo"].click()
     waitUntil { !link.exists && pageText() == unlinked }
+    waitUntil { window.buttons["Redo"].isEnabled }
     window.buttons["Redo"].click()
-    XCTAssertTrue(link.waitForExistence(timeout: 10))
+    waitUntil(linked)
     reopenDraft(app)
-    XCTAssertTrue(link.waitForExistence(timeout: 15))
+    waitUntil(linked)
     // A click puts the caret in the reopened link, which the page never opens.
     link.click()
     editLink("Evaluation Edit Link after relaunch")

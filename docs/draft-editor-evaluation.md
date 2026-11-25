@@ -391,9 +391,10 @@ The final app build log is `artifacts/review-634-r7/native-build-final.log`.
 | ------------------------------- | ----------------------------------------- | ---------------------------------------------------------------------- | -------------------------------------------------------------- | ------------------------------------------------------------ |
 | iPhone 18 Pro Simulator         | Passed with the encrypted Draft store     | Tapping the body showed the software keyboard; typing reached the page | Landscape rotation kept the page and its text without a reload | Close removed the web view; relaunch reopened the saved body |
 | iPad Pro 11-inch (M5) Simulator | Passed with the encrypted Draft store     | Typing reached the page beside the Inbox column                        | Landscape rotation kept the page and its text without a reload | Close removed the web view; relaunch reopened the saved body |
-| Mac (AppKit)                    | Outstanding                               | Outstanding                                                            | Outstanding                                                    | Outstanding                                                  |
+| Mac (AppKit)                    | Passed on 2026-11-25 (#2876)              | Clicking the body focused the page; typing reached it                  | A narrower window kept the page and its text without a reload  | Close removed the web view; relaunch reopened the saved body |
 
-On the Mac, the corrected `registration-draft-editor` `Testing` build
+The Mac row is from the first Mac run, on 2026-11-25, recorded below. Until
+then, the history below applied. On the Mac, the corrected `registration-draft-editor` `Testing` build
 (`react-native-macos` 0.81.9, `react-native-webview` 13.16.1) succeeded with the
 scenario marker and the packaged page in its bundle
 (`artifacts/mock-mail-818/review-mac-build-retry.log`), and the corrected journey's
@@ -618,8 +619,9 @@ Discard of that copy while the other version survives. The page tests also check
 that the page refuses a replacement computed for another body revision. None of these are native evidence: native code delivers the page's messages in order, so late delivery is
 simulated at the host boundary.
 
-Outstanding for #821: the Mac two-window journey and the Command-W, window close and
-**Quit** questions natively, which need a signed mock profile; and edits lost when
+Outstanding for #821: the Mac two-window journey on one Draft and the window's close
+button natively (the Command-W and **Quit** questions passed on 2026-11-25, #2876);
+and edits lost when
 the app ends before **Save Draft**. The regular iPhone, iPad and Mac composers now
 use the same save model. On iPhone both composers cover the
 Inbox and reader, so system **Back** cannot leave them
@@ -633,15 +635,15 @@ encrypted Draft store on iPhone and iPad simulators, with networking refused, no
 renderer dependency on React DOM, and no native adapter beyond the existing WebView.
 No fundamental host failure was found there.
 
-The Mac remains **unproven**, not failed: its build and bundle checks pass, but
-its native journey needs a signed mock profile. Run it before Mac-dependent
-evaluation work treats the Mac host as feasible. This finding is not an adoption
+On the Mac, the signed journey passed on 2026-11-25
+([#2876](https://github.com/unwired-dev/product/issues/2876)), with the same open,
+type, save and reopen path, formatting, assistance and link editing. This finding is not an adoption
 recommendation; that is #823.
 
 **#819 finding.** The current block kinds and marks pass the page and host checks
-above. Mac native formatting and link editing remain unproven, and iPhone/iPad
-simulator text, history, the exercised post-assistance formatting assertions and
-link editing with **Undo** and **Redo** (#2866) have passing evidence. This does not approve adoption; #823
+above. iPhone/iPad simulator and Mac text, history, the exercised post-assistance
+formatting assertions and link editing with **Undo** and **Redo** (#2866, #2876) have
+passing evidence. This does not approve adoption; #823
 owns that decision.
 
 **#820 finding.** Inline Images and Attachments keep their Draft Asset identity
