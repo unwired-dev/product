@@ -830,7 +830,11 @@ password manager by running
 
 1. `simulator-credentials.zsh copy <udid> <variable>` puts the value on that Simulator's
    pasteboard. Keep **Automatically Sync Pasteboard** in Simulator's Edit menu off, or
-   Simulator closed, so the value does not reach the Mac's pasteboard.
+   Simulator closed, so the value does not reach the Mac's pasteboard. From this copy
+   until the software keyboard closes, take no screenshot, also when the paste fails or
+   the pasteboard has been cleared: the keyboard's suggestion bar offers **Paste from
+   CoreSimulatorBridge** with the value in plain text
+   ([#2685](https://github.com/unwired-dev/product/issues/2685)).
 2. Open the edit menu and press **Paste**: in Google's sign-in sheet, long-press the
    field; in the app, tap the focused field again. The keyboard's own Paste key pastes
    nothing into the app's fields. On iPad, scroll **Recovery Key** clear of the software
