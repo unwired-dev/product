@@ -260,7 +260,7 @@ export const assetPickers = [
   ['drafts.assets.attachFile', 'files', false, 'paperclip'],
   ['drafts.assets.attachPhoto', 'photos', false, 'photo'],
   ['drafts.assets.insertImage', 'photos', true, 'photo.on.rectangle'],
-  ['drafts.assets.pasteImage', 'paste', true, 'doc.on.clipboard'],
+  ['drafts.assets.pasteImage', 'paste', true, 'doc.on.doc'],
 ] as const;
 
 // The space the floating pill takes at the bottom of the iPhone editor.

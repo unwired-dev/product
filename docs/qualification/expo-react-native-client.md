@@ -35,28 +35,34 @@ other work was 2–352.
   nothing. With the Save Draft or Delete Draft question open, the first tap on
   either button only closes the question; the next tap opens the menu.
 - Evaluation composer, iPhone placement follow-up. An arm64 Release build of
-  `registration-draft-editor` from `6c5b944d7` with the clear UIKit preview
-  change compiled `UnwiredDesign.m` without warnings from that file. On iPhone
-  18 Pro (iOS 27.0, `24A434`), Attach and Writing tools both spanned x=136–386
-  with the software keyboard hidden in Light and Dark. Both buttons showed the
-  glass press response. In the opening and dismissal recordings, the adjacent
-  controls stayed in place without a flash, duplicate, or blank preview
-  overlay. Attach File opened Files and Rewrite opened its review in both
-  appearances. Restoring a draft in the same build opened the regular
-  composer, where Add files highlighted and opened its menu in Light. In an
-  earlier build, VoiceOver focused both evaluation buttons and double-tap
-  opened their menus in Light. Full Keyboard Access remains deferred because
-  the device tool cannot send Tab and Space. The approved keyboard-up frames
-  end at x=386 and y=532. The earlier sibling-button build ended at y=534 with
-  the keyboard up. The latest keyboard-up measurement remains deferred because
-  the software keyboard stayed hidden when the message body had focus. The
-  previous build, which differed only in the aligned buttons' preview, gave the
-  remaining results. On iPad Pro 11-inch (M5), the evaluation composer's Writing tools opened above the
-  software keyboard in Light, and choosing Rewrite opened its review. In the
-  `registration-declined` Release build in Light, the iPhone regular composer's
-  Add files button highlighted as its menu opened and Attach File opened Files.
-  The iPad regular composer's Text style menu opened and showed Heading 1
-  selected when reopened after choosing it.
+  `registration-draft-editor` from `1fc3708d3` with the working-tree changes ran on
+  iPhone 18 Pro (iOS 27.0, `24A434`) in Light and Dark. Xcode 27.2 (`27B52`)
+  compiled `UnwiredDesign.m` without warnings from that file. With the software
+  keyboard visible, both menus spanned x=136–386 and ended at screen y=536
+  (sheet y=474), level with the closed glass row. Removing the attachment-point
+  override preserved both bounds. Paste Image showed two overlapping pages.
+  Attach File opened Files. Selecting “Thursday” enabled both Rewrite and
+  Translate in both appearances. Rewrite opened one review for the selection.
+  The native grabber measured 60 × 4pt at (171, 68). With the evaluation
+  header and From insets, Close and Send started at sheet y=17, title ink at
+  y=33, and the From pill at y=67. The editor's new insets put the first body
+  ink at sheet (21.7, 121), 20pt below the From pill. Body text sampled
+  `#262626` in Light and `#DDDDDD` in Dark. The lease paragraph wrapped at the
+  same words as the frame and advanced 22pt per line, matching the frame.
+  Swiping down after edits offered Save Draft and Delete Draft in both
+  appearances. A downward swipe closed an empty Draft in Dark. VoiceOver and
+  Full Keyboard Access remain deferred for this follow-up.
+- iPhone-only scope of the sheet top. A rebuild of both scenarios moved the
+  grabber, the evaluation header and From insets, and the editor text colour
+  to iPhone only. iPad and Mac keep their earlier sheet top and editor text.
+  On iPhone the evaluation body still sampled `#262626` in Light and `#DDDDDD`
+  in Dark. The regular composer showed the same 60 × 4pt grabber and body
+  colours. At compact iPad width (about 375pt), neither composer showed a
+  grabber, and the Add files menus of both showed Paste Image with two pages.
+  No approved iPad frame shows Paste Image, so that symbol on iPad was not
+  compared with a frame. The compact evaluation header pushes Send out of
+  view, as it does on `main`
+  ([#2924](https://github.com/unwired-dev/product/issues/2924)).
 - Evaluation composer, iPad: Writing tools opens Rewrite and Translate on a new
   message, and also Suggest Reply on a docked reply; Rewrite opens the review
   and expands the card. From, Text style, More Lists and Links, More Files and

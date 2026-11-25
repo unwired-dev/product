@@ -26,7 +26,7 @@ import { Platform, StyleSheet, Text, TextInput, View } from 'react-native';
 import type { LinkEditorState } from './composer-controls.tsx';
 
 import { Action } from './action.tsx';
-import { CommandInput, usePaletteHeader } from './command-palette.tsx';
+import { CommandInput, InSheet, usePaletteHeader } from './command-palette.tsx';
 import { FormatBar, LinkEditor, OverflowMenu } from './composer-controls.tsx';
 import {
   assetPickers,
@@ -502,6 +502,8 @@ export function EditorHeader({
   const { t } = useLocalization();
   const paletteHeader = usePaletteHeader();
   const regular = use(ComposerLayoutContext).size === 'regular';
+  // The iPhone sheet keeps room above the header for its grabber, as the current composer does.
+  const sheet = use(InSheet) && Platform.OS === 'ios' && !Platform.isPad;
   const title = clip(subject) || t('drafts.newMessage');
   const titleLabel =
     title.length < subject.length
@@ -510,7 +512,11 @@ export function EditorHeader({
   return (
     <>
       <View
-        style={[s.header, regular ? styles.header : null]}
+        style={[
+          s.header,
+          regular ? styles.header : null,
+          sheet ? s.sheetHeader : null,
+        ]}
         {...paletteHeader.swipe}>
         <View
           style={[
@@ -553,7 +559,7 @@ export function EditorHeader({
         </View>
       </View>
       {regular ? null : (
-        <View style={s.fromRow}>
+        <View style={[s.fromRow, sheet ? s.sheetFromRow : null]}>
           <View style={s.bar}>{sender}</View>
         </View>
       )}

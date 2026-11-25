@@ -505,6 +505,11 @@ export function ContextMenu({
   );
 }
 
+// Shows the system grabber on the sheet it is in, which React Native's page sheet Modal leaves out.
+export const SheetGrabber = requireNativeComponent<ViewProps>(
+  'UnwiredSheetGrabber',
+);
+
 const NativeArrowKeys = requireNativeComponent<
   ViewProps & {
     readonly enabled: boolean;

@@ -149,7 +149,7 @@ describe('the Tiptap evaluation composer', () => {
       }),
     ]).toStrictEqual([false]);
     expect(page.props.injectedJavaScriptBeforeContentLoaded).toBe(
-      'window.draftEditor = {"document":[{"kind":"paragraph","spans":[]}],"attachments":[],"label":"Message body"}; true;',
+      'window.draftEditor = {"document":[{"kind":"paragraph","spans":[]}],"attachments":[],"label":"Message body"}; document.documentElement.style.cssText = \'--draft-inset-top: 4px; --draft-inset-x: 20px; --draft-line-height: calc(22 / 17); --draft-text: light-dark(rgba(0, 0, 0, 0.85), rgba(255, 255, 255, 0.85))\'; true;',
     );
 
     // Edits stay in the editor: nothing is saved, and no saving status is shown.
@@ -541,7 +541,7 @@ describe('the Tiptap evaluation composer', () => {
       [
         ['Attach Photo', 'photo', undefined],
         ['Insert Image', 'photo.on.rectangle', undefined],
-        ['Paste Image', 'doc.on.clipboard', undefined],
+        ['Paste Image', 'doc.on.doc', undefined],
       ],
     ]);
   });
@@ -909,7 +909,7 @@ describe('the Tiptap evaluation composer', () => {
         ['Attach File', 'doc', undefined],
         ['Attach Photo', 'photo', undefined],
         ['Insert Image', 'photo.on.rectangle', undefined],
-        ['Paste Image', 'doc.on.clipboard', undefined],
+        ['Paste Image', 'doc.on.doc', undefined],
       ],
     ]);
     const pick = async (label: string) => {
