@@ -2273,6 +2273,63 @@ describe('tables in the Tiptap page', () => {
     ]);
   });
 
+  it('keeps cell text when Return or text input meets a selected table or cells', async () => {
+    expect.hasAssertions();
+    const table = shaped([[{}, {}]]);
+    const page = await open([table, paragraph('after')]);
+    const { editor } = page;
+    editor.view.dispatch(
+      editor.state.tr.setSelection(NodeSelection.create(editor.state.doc, 0)),
+    );
+    press(page, 'Enter');
+    const afterNode = bodyOf(page)?.filter(({ kind }) => kind === 'table');
+    const { state, view } = editor;
+    view.dispatch(
+      state.tr.setSelection(
+        CellSelection.create(
+          state.doc,
+          nth(cellsOf(editor), 0) - 2,
+          nth(cellsOf(editor), 1) - 2,
+        ),
+      ),
+    );
+    press(page, 'Enter');
+    const input = new InputEvent('beforeinput', {
+      inputType: 'insertText',
+      data: 'X',
+      cancelable: true,
+    });
+    expect([
+      afterNode,
+      textblocks(editor).map(({ text }) => text),
+      view.dom.dispatchEvent(input),
+    ]).toStrictEqual([[table], ['', '00', '01', '', 'after'], true]);
+  });
+
+  it.each([
+    ['a kept table', shaped([[{}, {}], [{}]])],
+    ['a table', shaped([[{}, {}]])],
+  ] as const)(
+    'deletes %s inside a selection and never joins text across it',
+    async (_, table) => {
+      expect.hasAssertions();
+      const page = await open([paragraph('before'), table, paragraph('after')]);
+      const { editor } = page;
+      editor.commands.setTextSelection(nth(textblocks(editor), 0).to);
+      press(page, 'Delete');
+      const joined = [
+        bodyOf(page),
+        editor.state.selection instanceof NodeSelection,
+      ];
+      editor.commands.selectAll();
+      press(page, 'Backspace');
+      expect([joined, bodyOf(page)]).toStrictEqual([
+        [undefined, true],
+        [paragraph('')],
+      ]);
+    },
+  );
+
   it('cuts a selected kept table', async () => {
     expect.hasAssertions();
     const page = await open([shaped([[{}, {}], [{}]]), paragraph('after')]);

@@ -156,8 +156,10 @@ Replacing the production body was the owner's decision, which this plan filed ah
   #2865's production integration. Editable cells carry them too, through the
   same conversion, with each cell numbering its lists from 1; a kept table keeps
   its cells' formatting unchanged and shows their text only. Inside cells,
-  Backspace and Delete never join text across a cell's edge, and selected cells
-  are cleared, cut and pasted over by the table editing.
+  Backspace and Delete never join text across a cell's edge or a table, which
+  they select first; a deletion across lines removes whole tables inside it; and
+  selected cells or a selected table are cleared, cut, typed and pasted over by
+  the table editing.
 - **Table shapes.** `prosemirror-tables` normalizes tables as soon as they are
   edited: typing in a table whose rows have two and one cells adds a cell to the
   short row. mail-core accepts such ragged tables, so the page must define which

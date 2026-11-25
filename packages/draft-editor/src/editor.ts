@@ -646,23 +646,33 @@ const normalized = (state: EditorState) => {
 
 // Deletes `from` to `to` as the current composer deletes across lines: the textblock holding
 // `from` keeps its kind, alignment and list level and takes the rest of the last one, and every
-// textblock after it in the range goes, with any quote or list item left empty. After Select All
-// the first textblock stays, emptied; Tiptap would reset a document emptied this way.
+// other textblock and table in the range goes, with any quote or list item left empty. After
+// Select All the first textblock stays, emptied; Tiptap would reset a document emptied this way.
+// A range with only one end in a table, or with no textblock outside a table, is ProseMirror's.
 // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ProseMirror's transaction is a class; this edits it.
 const flatDelete = (tr: Transaction, from: number, to: number) => {
   const blocks: Array<Readonly<{ node: ProseMirrorNode; position: number }>> =
     [];
+  let split = false;
   tr.doc.nodesBetween(from, to, (node, position) => {
-    if (node.isTextblock) {
+    const table = ['table', 'keptTable'].includes(node.type.name);
+    if (table) {
+      split ||= position < from || position + node.nodeSize > to;
+    }
+    if (node.isTextblock || table) {
       blocks.push({ node, position });
     }
-    return !node.isTextblock;
+    return !node.isTextblock && !table;
   });
   const [first, ...rest] = blocks;
   if (from === to || first === undefined) {
     return;
   }
-  const last = rest.at(-1) ?? first;
+  if (split || !first.node.isTextblock) {
+    tr.deleteRange(from, to);
+    return;
+  }
+  const last = rest.findLast(({ node }) => node.isTextblock) ?? first;
   const start = Math.max(from, first.position + 1);
   const tail = last.node.content.cut(
     Math.min(Math.max(0, to - last.position - 1), last.node.content.size),
@@ -851,10 +861,11 @@ const paragraphAbove = (tr: Transaction) => {
 };
 
 // Return over a selection deletes it first, so both lines Return leaves keep the first selected
-// block's layout.
+// block's layout. Return over a selected table or cells is Tiptap's and the table editing's.
 // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Tiptap's editor is a class; this runs commands on it.
 const returnKey = (editor: TiptapEditor) =>
-  editor.state.selection.empty
+  editsAsText(editor.state.selection) &&
+  (editor.state.selection.empty
     ? editor.commands.command(
         ({ tr }) => continueEmpty(tr) || paragraphAbove(tr),
       )
@@ -871,7 +882,20 @@ const returnKey = (editor: TiptapEditor) =>
           () => commands.splitBlock(),
         ])
         .scrollIntoView()
-        .run();
+        .run());
+
+// Whether a table or kept table starts between positions `a` and `b`.
+// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ProseMirror's node is a class; this only reads it.
+const tableBetween = (doc: ProseMirrorNode, a: number, b: number) => {
+  const [from, to] = a < b ? [a, b] : [b, a];
+  let found = false;
+  doc.nodesBetween(from, to, (node, position) => {
+    found ||=
+      position >= from && ['table', 'keptTable'].includes(node.type.name);
+    return !found;
+  });
+  return found;
+};
 
 // Backspace and Delete delete a selection, and at a block's edge join it with the textblock
 // before or after it, as the current composer does: the first keeps its kind, alignment and list
@@ -894,9 +918,15 @@ const deleteKey = (editor: TiptapEditor, forward: boolean) => {
     : $from.parentOffset === 0 &&
       $from.node(-1).type.name !== 'listItem' &&
       Selection.findFrom(doc.resolve($from.before()), -1, true)?.$from;
-  // No join moves text into or out of a table cell.
+  // No join moves text into or out of a table cell. A table in the way is selected first, so a
+  // second key press deletes it.
   if (!$other || cellAround($from)?.pos !== cellAround($other)?.pos) {
     return false;
+  }
+  if (tableBetween(doc, $from.pos, $other.pos)) {
+    return forward
+      ? editor.commands.selectNodeForward()
+      : editor.commands.selectNodeBackward();
   }
   return editor.commands.command(({ tr }) => {
     flatDelete(
@@ -1034,6 +1064,7 @@ const DraftBehavior = Extension.create<unknown, { typing: boolean }>({
               if (
                 event.inputType !== 'insertText' ||
                 text === null ||
+                !editsAsText(view.state.selection) ||
                 ($from.sameParent($to) && $from.parent.isTextblock)
               ) {
                 return false;
