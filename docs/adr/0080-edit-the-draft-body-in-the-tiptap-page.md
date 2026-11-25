@@ -145,7 +145,8 @@ release limit:
 6. The Tiptap and ProseMirror notices in the distributed app; the licence
    inventory must list the page's packages. Met by
    [#2916](https://github.com/unwired-dev/product/issues/2916): every bundle that
-   carries the page lists its packages and ships their notices.
+   carries the page lists its packages in the licence inventory, and release builds
+   ship their notices.
 7. Outgoing mail: the body is still serialized by mail-core from the document,
    and editor HTML is never sent. Packaged-client sends to real providers
    ([#1282](https://github.com/unwired-dev/product/issues/1282)) must verify the

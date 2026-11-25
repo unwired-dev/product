@@ -277,10 +277,10 @@ its `package.json` declares (`null` when that is missing or not a string) and
 the `LICENSE`, `LICENCE`, `COPYING` or `NOTICE` files it ships. Packages without
 a declared licence are listed under `undeclared`, and packages without a
 nonempty root licence or notice file under `withoutLicenceFile`. Workspace sources are not
-listed. A bundled module that embeds a bundle of its own, the Draft editor page
-`packages/draft-editor/dist/page.js`, lists that bundle's sources beside it in
-`page.sources.json`, and the inventory lists the packages there too. An
-unreadable source map, `.sources.json` file or `package.json` fails the command. The
+listed. The Draft editor page `packages/draft-editor/dist/page.js` embeds a
+bundle of its own, whose sources its build lists beside it in
+`page.sources.json`; the inventory lists the packages there too. An unreadable
+source map, `page.sources.json` or `package.json` fails the command. The
 inventory records declarations. It does not decide licence compatibility or
 produce the notices the build owes
 ([#1949](https://github.com/unwired-dev/product/issues/1949)). CI uploads it

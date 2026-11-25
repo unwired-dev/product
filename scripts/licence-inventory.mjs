@@ -42,12 +42,11 @@ const located = (file) => (existsSync(file) ? file : path.join(cwd(), file));
 const sources = read(SourceMap, map).sources.map((source) =>
   path.resolve(path.dirname(map), source),
 );
-// A module that embeds a bundle of its own, such as the Draft editor page
-// (`packages/draft-editor/build.cjs`), lists that bundle's sources beside it.
+// The Draft editor page embeds a bundle of its own, whose sources its build
+// (`packages/draft-editor/build.cjs`) lists beside it.
 const embedded = sources
-  .filter((source) => source.endsWith('.js'))
+  .filter((source) => source.endsWith('/draft-editor/dist/page.js'))
   .map((source) => located(source.replace(/\.js$/u, '.sources.json')))
-  .filter((record) => existsSync(record))
   .flatMap((record) =>
     read(SourceMap, record).sources.map((source) =>
       path.resolve(path.dirname(record), source),

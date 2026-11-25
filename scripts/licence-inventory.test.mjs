@@ -207,6 +207,11 @@ test('licence inventory lists the packages bundled into an embedded page', () =>
         licenceFiles: ['LICENSE.md'],
       },
     ]);
+
+    rmSync(path.join(dist, 'page.sources.json'));
+    const missing = inventory(map, directory);
+    assert.equal(missing.status, 1);
+    assert.match(missing.stderr, /unreadable .*page\.sources\.json/u);
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
