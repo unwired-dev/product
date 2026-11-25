@@ -70,6 +70,9 @@ Figma file define how the maintained clients look and behave.
   for the owner's [decision](docs/agents/implementation-review.md#decisions).
 - A request for visual design, or a look the frames do not show yet, starts in
   Figma and waits for the user's [design approval](docs/agents/implementation-review.md#design-approval).
+- A UI change, or a request to align a screen with Figma, matches when the
+  [design judge](docs/agents/design-judge.md) passes it, not when you have
+  compared it yourself.
 
 ## Verify
 
