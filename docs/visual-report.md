@@ -62,9 +62,8 @@ The runner sets the status bar for this journey only. The report records the env
 the app's `UnwiredCommit` revision in `result.json` and in each capture's
 `baseline-candidate.json`. A baseline compares only with a capture from the same environment,
 Xcode version included: any other capture leaves the baseline comparison incomplete. The
-committed baselines are reviewed local captures made with Xcode 27.2, so the CI job, on Xcode
-27.0, reports Figma conformance and an incomplete baseline comparison until reviewed captures
-from its artifact replace them ([Refresh](#refresh-a-reference)).
+committed baselines come from the CI job (Xcode 27.0), so a local run with another Xcode
+version reports Figma conformance and an incomplete baseline comparison.
 
 ## References and provenance
 
