@@ -153,6 +153,7 @@ import {
   AppState,
   Image,
   Keyboard,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -260,8 +261,12 @@ export const assetPickers = [
   ['drafts.assets.attachFile', 'files', false, 'paperclip'],
   ['drafts.assets.attachPhoto', 'photos', false, 'photo'],
   ['drafts.assets.insertImage', 'photos', true, 'photo.on.rectangle'],
-  ['drafts.assets.pasteImage', 'paste', true, 'doc.on.clipboard'],
+  ['drafts.assets.pasteImage', 'paste', true, 'doc.on.doc'],
 ] as const;
+
+// iPhone's Add files and Writing tools menus end at the controls row's trailing edge and bottom,
+// as the compose frames draw them.
+const iphone = Platform.OS === 'ios' && !Platform.isPad;
 
 // The space the floating pill takes at the bottom of the iPhone editor.
 const pillReserve = 44 + 2 * spacing.xs + 2 * spacing.s;
@@ -2081,7 +2086,7 @@ export const textToolLabel = (tool: TextTool, at: Selection) =>
     ? (`assistance.${tool}DraftLabel` as const)
     : (`assistance.${tool}SelectionLabel` as const);
 
-const textToolSymbols: Readonly<Record<TextTool, string>> = {
+export const textToolSymbols: Readonly<Record<TextTool, string>> = {
   rewrite: 'pencil',
   proofread: 'text.badge.checkmark',
   paragraphs: 'text.alignleft',
@@ -2680,6 +2685,7 @@ function WritingTools({
   const menu = (
     <MenuButton
       accessibilityLabel={t('drafts.writingTools')}
+      alignMenuToRowEnd={iphone && !popover}
       disabled={sending}
       sections={[
         [
@@ -5656,6 +5662,7 @@ function Editor({
   // iPhone's Format and Attach controls in one glass pill, with Writing tools beside it.
   const pill = (
     <View
+      collapsable={!iphone}
       pointerEvents="box-none"
       style={styles.pill}>
       <GlassGroup style={[styles.pillGroup, styles.formatPill]}>
@@ -5670,6 +5677,7 @@ function Editor({
         />
         <MenuButton
           accessibilityLabel={t('drafts.assets.toolbar')}
+          alignMenuToRowEnd={iphone}
           disabled={sending}
           sections={[
             {

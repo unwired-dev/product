@@ -130,10 +130,12 @@ release limit:
 2. Native exits as [#778](https://github.com/unwired-dev/product/issues/778)
    guards them for the current composer (iPhone **Back** and edge swipes, Mac
    window close, Command-W and **Quit**), and the Mac two-window journey on one
-   Draft, run natively. The evaluation loses open edits when the app ends before
-   **Save Draft**; production must journal them to the encrypted recovery record
-   of [ADR 0077](0077-remove-friction-that-privacy-does-not-require.md) and prove
-   that they restore after a forced termination.
+   Draft, run natively. On iPhone and iPad the evaluation loses open edits when the
+   app ends before **Save Draft**; production must journal them to the encrypted
+   recovery record of [ADR 0077](0077-remove-friction-that-privacy-does-not-require.md)
+   and prove that they restore after a forced termination. On Mac the page journals
+   them and restores them after a force quit since
+   [#2933](https://github.com/unwired-dev/product/issues/2933).
 3. The Mac Inline Image journey, file drops on every host, and **Paste Image**
    and in-page paste on a device. Image paste on Mac is met by
    [#2929](https://github.com/unwired-dev/product/issues/2929): native code reads
