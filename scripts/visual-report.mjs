@@ -208,16 +208,33 @@ function compare({ id, kind, expected, actual, directory }) {
   return { status: within ? held : broken, ...measured };
 }
 
+// A capture the export names but that cannot be read or decoded fails like a missing one.
+function readCapture(capture, file) {
+  const read = (decode) => {
+    try {
+      return decode();
+    } catch (error) {
+      failures.push(
+        `${capture.id}: "${capture.attachment}" is unreadable: ${error.message}`,
+      );
+      return undefined;
+    }
+  };
+  const bytes = file && read(() => readFileSync(file));
+  return { bytes, actual: bytes && read(() => PNG.sync.read(bytes)) };
+}
+
 const captures = manifest.captures
   .filter((capture) => capture.device === values.device)
   .map((capture) => {
     const directory = path.join(values.out, capture.id);
     mkdirSync(directory, { recursive: true });
     const file = attachment(capture.attachment);
-    const bytes = file && readFileSync(file);
-    const actual = bytes && PNG.sync.read(bytes);
+    const { bytes, actual } = readCapture(capture, file);
     if (bytes) {
       writeFileSync(path.join(directory, 'actual.png'), bytes);
+    }
+    if (actual) {
       // The provenance a reviewed baseline would record; nothing is ever promoted automatically.
       writeFileSync(
         path.join(directory, 'baseline-candidate.json'),
@@ -232,12 +249,12 @@ const captures = manifest.captures
           2,
         )}\n`,
       );
-    } else {
+    } else if (!file) {
       failures.push(`${capture.id}: no "${capture.attachment}" capture`);
     }
     return {
       id: capture.id,
-      actual: file ? `${capture.id}/actual.png` : null,
+      actual: bytes ? `${capture.id}/actual.png` : null,
       figma: {
         ...compare({
           id: capture.id,
@@ -262,6 +279,10 @@ const captures = manifest.captures
   });
 if (captures.length > 0 && !environmentFile) {
   failures.push('no "Visual environment" attachment');
+}
+// A report must name the app build it captured; a run without a stamped commit is incomplete.
+if (!/^[0-9a-f]{40}$/u.test(values.revision)) {
+  incomplete.push(`no app revision: the build records ${values.revision}`);
 }
 if (captures.length === 0) {
   incomplete.push(`${values.device}: the manifest lists no captures`);

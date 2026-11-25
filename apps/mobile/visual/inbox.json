@@ -33,12 +33,12 @@
           "Status bar: the Simulator draws the overridden time as 09:41, the frame 9:41",
           "Command hint: a fresh install shows the one-time \"Swipe down on the header for commands\" hint above the list; the frame shows the list without it (docs/command-palette.md:113)",
           "Attachment glyphs: the fixture messages have no attachments, so no row shows the glyph the frame draws",
-          "Row weight: unread rows use a stronger sender and subject weight than read rows; the frame draws the same weights for both, which contradicts docs/product/organization.md:55",
           "Footer: the short fixture list ends on screen, so \"Sample messages · Encrypted on this device\" shows above the toolbar; the frame's longer list hides it",
           "New Message is dimmed: the preview Inbox has no Product Account to send from (docs/mock-mail-sessions.md:25)",
           "System controls: UIKit draws Back, Filter, the search field and New Message as navigation bar and toolbar items, so their glass, glyph size and placeholder differ from the frame's copies (DESIGN.md:500, DESIGN.md:710-713, AGENTS.md:67)"
         ],
         "outstandingDeviations": [
+          "Row weight: unread rows use a stronger sender and subject weight than read rows, as docs/product/organization.md:55 requires; the frame draws the same weights for both, and the frame wins (AGENTS.md:61-64), so the app and that requirement wait for a follow-up",
           "The header has no List/Chat toggle, which the frame draws; it waits for #810 (DESIGN.md:917)",
           "The header has no More (…) button, which the frame draws; it waits for an issue that names its menu (DESIGN.md:917-918)",
           "The list has no Mail View chips, which the frame draws; they wait for #2131 (DESIGN.md:935)"
@@ -92,12 +92,12 @@
           "Status bar: the Simulator draws the overridden time as 09:41, the frame 9:41",
           "Command hint: a fresh install shows the one-time \"Swipe down on the header for commands\" hint above the list; the frame shows the list without it (docs/command-palette.md:113)",
           "Attachment glyphs: the fixture messages have no attachments, so no row shows the glyph the frame draws",
-          "Row weight: unread rows use a stronger sender and subject weight than read rows; the frame draws the same weights for both, which contradicts docs/product/organization.md:55",
           "Footer: the short fixture list ends on screen, so \"Sample messages · Encrypted on this device\" shows above the toolbar; the frame's longer list hides it",
           "New Message is dimmed: the preview Inbox has no Product Account to send from (docs/mock-mail-sessions.md:25)",
           "System controls: UIKit draws Back, Filter, the search field and New Message as navigation bar and toolbar items, so their glass, glyph size and placeholder differ from the frame's copies (DESIGN.md:500, DESIGN.md:710-713, AGENTS.md:67)"
         ],
         "outstandingDeviations": [
+          "Row weight: unread rows use a stronger sender and subject weight than read rows, as docs/product/organization.md:55 requires; the frame draws the same weights for both, and the frame wins (AGENTS.md:61-64), so the app and that requirement wait for a follow-up",
           "The header has no List/Chat toggle, which the frame draws; it waits for #810 (DESIGN.md:917)",
           "The header has no More (…) button, which the frame draws; it waits for an issue that names its menu (DESIGN.md:917-918)",
           "The list has no Mail View chips, which the frame draws; they wait for #2131 (DESIGN.md:935)"

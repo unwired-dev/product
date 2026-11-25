@@ -133,9 +133,9 @@ are missing too. The frames also draw a More button, a List/Chat toggle and Mail
 which the app has not built yet ([DESIGN.md](../DESIGN.md#known-frame-differences)). Record each approved difference and each
 outstanding deviation in the capture's `figma.approvedDifferences` and
 `figma.outstandingDeviations`. An approved difference documents a reviewed decision; it does
-not change the computed status, so approval never hides a mismatch. Where a frame is stale
-against a product requirement, the requirement wins and the difference is recorded as
-approved with the requirement it follows. A difference caused by the capture's fixed inputs,
+not change the computed status, so approval never hides a mismatch. Where a frame contradicts a product requirement, the frame wins
+([AGENTS.md](../AGENTS.md#design)): the difference stays an outstanding deviation until the app
+follows the frame and the requirement is corrected, or the owner decides otherwise. A difference caused by the capture's fixed inputs,
 such as its locale, status bar or fixture, is approved with the input that causes it.
 
 Open [#1057](https://github.com/unwired-dev/product/issues/1057) migrates the mobile controls

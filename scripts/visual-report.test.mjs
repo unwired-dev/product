@@ -77,6 +77,22 @@ const cases = [
     'incomplete',
   ],
   [
+    'corrupt capture',
+    { actual: Buffer.from('not a png') },
+    1,
+    'incomplete',
+    'incomplete',
+    'incomplete',
+  ],
+  [
+    'unstamped build',
+    { revision: 'unstamped' },
+    1,
+    'incomplete',
+    'conforms',
+    'matches',
+  ],
+  [
     'unaligned capture',
     { actual: image(false, 24) },
     1,
@@ -180,6 +196,8 @@ for (const [name, change, exit, status, figma, baseline] of cases) {
           attachments,
           '--out',
           out,
+          '--revision',
+          change.revision ?? 'a'.repeat(40),
         ],
         { encoding: 'utf8' },
       );
