@@ -1042,6 +1042,7 @@ final class WindowTests: XCTestCase {
     XCTAssertNotNil(png)
     // Give the person their pasteboard back afterwards.
     let pasteboard = NSPasteboard.general
+    let before = pasteboard.changeCount
     let saved = (pasteboard.pasteboardItems ?? []).map { item in
       let copy = NSPasteboardItem()
       for type in item.types {
@@ -1049,6 +1050,18 @@ final class WindowTests: XCTestCase {
       }
       return copy
     }
+    // A pasted file that is not an image becomes an Attachment. The sandboxed copy may read only
+    // its run directory, beside Mock.app.
+    let appURL = URL(fileURLWithPath: ProcessInfo.processInfo.environment["UNWIRED_APP_PATH"] ?? "")
+    let file = appURL.deletingLastPathComponent().appendingPathComponent("paste-note.txt")
+    XCTAssertNoThrow(try Data("Pasted into the page".utf8).write(to: file))
+    addTeardownBlock { try? FileManager.default.removeItem(at: file) }
+    guard pasteboard.changeCount == before else {
+      XCTFail("Another app wrote to the pasteboard during the journey")
+      return
+    }
+    pasteboard.clearContents()
+    pasteboard.writeObjects([file as NSURL])
     var written = pasteboard.changeCount
     addTeardownBlock {
       guard pasteboard.changeCount == written else { return }
@@ -1058,15 +1071,6 @@ final class WindowTests: XCTestCase {
     let body = window.webViews.textViews["Message body"]
     webText("Synthetic reply to local mail.", in: window).click()
     window.typeKey(.downArrow, modifierFlags: .command)
-    // A pasted file that is not an image becomes an Attachment. The sandboxed copy may read only
-    // its run directory, beside Mock.app.
-    let appURL = URL(fileURLWithPath: ProcessInfo.processInfo.environment["UNWIRED_APP_PATH"] ?? "")
-    let file = appURL.deletingLastPathComponent().appendingPathComponent("paste-note.txt")
-    XCTAssertNoThrow(try Data("Pasted into the page".utf8).write(to: file))
-    addTeardownBlock { try? FileManager.default.removeItem(at: file) }
-    pasteboard.clearContents()
-    pasteboard.writeObjects([file as NSURL])
-    written = pasteboard.changeCount
     window.typeKey("v", modifierFlags: .command)
     let note = window.descendants(matching: .any)
       .matching(NSPredicate(format: "label BEGINSWITH %@", "paste-note.txt, ")).firstMatch
