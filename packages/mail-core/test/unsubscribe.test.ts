@@ -214,6 +214,28 @@ describe('unsubscribe offers', () => {
     }
   });
 
+  it('identifies the list only by its List-Id identifier', () => {
+    expect.hasAssertions();
+    const listUnsubscribe = '<mailto:leave@club.example>';
+    const identityOf = (headers: NonNullable<BodyDocument['headers']>) =>
+      offerOf({ listUnsubscribe, from: 'team@club.example', ...headers })
+        ?.identity;
+
+    expect(identityOf({ listId: 'Club <Weekly.Club.Example>' })).toBe(
+      'weekly.club.example',
+    );
+    // Lists that share a sender are told apart only by their List-Id.
+    expect(identityOf({})).toBeUndefined();
+    for (const listId of [
+      'Club <https://club.example/u/42>',
+      'Club <club>',
+      'Club <weekly club.example>',
+      'club.example',
+    ]) {
+      expect(identityOf({ listId })).toBeUndefined();
+    }
+  });
+
   it('names the list by its List-Id phrase, else by the sender', () => {
     expect.hasAssertions();
     const listUnsubscribe = '<mailto:leave@club.example>';
@@ -289,9 +311,14 @@ const storage = () => {
     document?: string;
     // The next commit's rejection code, as when storage refuses a write.
     refuse?: string;
+    // Runs while the request awaits its answer, as another sign-in would.
+    pending?: () => void;
   } = { account: 'account-1', outcome: 'sent', revision: 0 };
   const native: NativeUnsubscribe & NativeUnsubscribeRequests = {
-    requestUnsubscribe: async () => ({ outcome: state.outcome }),
+    requestUnsubscribe: async () => {
+      state.pending?.();
+      return { outcome: state.outcome };
+    },
     openUnsubscribeRequests: async () => ({
       owner: state.account,
       revision: state.revision,
@@ -356,7 +383,11 @@ describe('sent unsubscribe requests', () => {
       unsubscribe.sentRequest('home', oneClickOffer, later(3)),
     ).resolves.toBeUndefined();
     await expect(
-      unsubscribe.sentRequest('work', { identity: 'club.example' }, later(3)),
+      unsubscribe.sentRequest(
+        'work',
+        { ...oneClickOffer, identity: 'club.example' },
+        later(3),
+      ),
     ).resolves.toBeUndefined();
     // The record names the list, never how to leave it.
     expect(state.document).toBe(JSON.stringify({ requests: [sent] }));
@@ -386,6 +417,28 @@ describe('sent unsubscribe requests', () => {
     expect(state.document).toBe(
       JSON.stringify({ requests: [{ ...sent, sentAt: later(15) }] }),
     );
+  });
+
+  it('records nothing for an offer without a List-Id, or after another sign-in', async () => {
+    expect.hasAssertions();
+    const { state, relaunch } = storage();
+    const unsubscribe = relaunch();
+    const { identity: _, ...withoutIdentity } = oneClickOffer;
+    await expect(
+      unsubscribe.request('work', withoutIdentity, () => sentOn),
+    ).resolves.toBe('sent');
+    await expect(
+      unsubscribe.sentRequest('work', withoutIdentity, sentOn),
+    ).resolves.toBeUndefined();
+
+    // The answer arrives after another Product Account signed in: neither account records it.
+    state.pending = () => {
+      state.account = 'account-2';
+    };
+    await expect(
+      unsubscribe.request('work', oneClickOffer, () => sentOn),
+    ).resolves.toBe('sent');
+    expect(state.document).toBeUndefined();
   });
 
   it('records nothing that could show a false Sent state', async () => {

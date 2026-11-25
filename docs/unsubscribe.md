@@ -38,10 +38,13 @@ RFC 2369 asks, and a bracketed URI inside a comment is not one, even when it hol
 parentheses. Field names and
 values are percent-decoded. The offer names the list by the `List-Id` phrase,
 such as `Alza.cz newsletter` in `Alza.cz newsletter <newsletter.alza.example>`,
-else by the sender's display name or address. Its **Mailing List Identity**,
-which scopes the request's record, is the `List-Id` identifier in angle brackets,
-such as `newsletter.alza.example`, else the sender's address, both in lower
-case. With no name or identity there is no offer.
+else by the sender's display name or address. With no name there is no offer.
+Its **Mailing List Identity**, which scopes the request's record, is the
+`List-Id` identifier in angle brackets, such as `newsletter.alza.example`, in
+lower case. Only an [RFC 2919](https://www.rfc-editor.org/rfc/rfc2919) identifier
+counts: dot-separated atoms with no whitespace, which no URI with a scheme
+matches. A sender's address is not an identity, since several lists can share
+it, so an offer without a valid `List-Id` has none.
 
 The check is syntactic. It does not verify that a DKIM signature covers the
 list headers, so the confirmation names the list and the receiving address, and
@@ -80,16 +83,18 @@ native answer is `uncertain` for the same reason.
 `createUnsubscribe(native, registration)` returns the host's `unsubscribe`.
 Its `request(profile, offer)` sends the request as above and, when it ends
 `sent`, records it for `profile`, the Mail Profile that owns the receiving
-connection: the Mailing List Identity, the list's name and the time it was sent.
-The record holds no unsubscribe URI, header value or request body. A later
-request to the same list from that Profile replaces the earlier one; `failed`
-and `uncertain` record nothing.
+connection, and for the Product Account signed in when the request started: the
+Mailing List Identity, the list's name and the time it was sent. The record
+holds no unsubscribe URI, other header value or request body. A later request
+to the same list from that Profile replaces the earlier one. `failed` and
+`uncertain` record nothing, nor does an offer without a Mailing List Identity or
+an answer that arrives after another account signed in.
 
 `sentRequest(profile, offer, receivedAt)` returns the Profile's record for the
 offer's Mailing List Identity while a message the list sent at `receivedAt` is
 at most 14 days (`unsubscribeOfferReturnsAfter`) newer than the request, so the
-reader can show it as sent on that date. After that, or for another Profile, it
-returns nothing and the message offers Unsubscribe again, as
+reader can show it as sent on that date. After that, for another Profile or for
+an offer without a Mailing List Identity, it returns nothing and the message offers Unsubscribe again, as
 [ADR 0044](adr/0044-isolate-standards-based-unsubscribe-actions.md) allows.
 
 Native code keeps the records in `unsubscribe-requests.enc`, a document sealed

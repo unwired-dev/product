@@ -20,8 +20,8 @@ import { withoutComments } from './message-body.ts';
 
 // What a message offers for leaving its mailing list: an RFC 8058 one-click HTTPS request, or else
 // an RFC 2369 mailto message to one address. `list` names the list for the person, and `identity`
-// is its Mailing List Identity.
-export type UnsubscribeOffer = Readonly<{ list: string; identity: string }> &
+// is its Mailing List Identity, present only when the List-Id header conveys one.
+export type UnsubscribeOffer = Readonly<{ list: string; identity?: string }> &
   (
     | Readonly<{ kind: 'one-click'; url: string }>
     | Readonly<{
@@ -48,6 +48,10 @@ const isOneClickUrl = (uri: string) => {
 const mailtoUrl = /^mailto:(?<address>[^?,]+)(?:\?(?<query>.*))?$/iu;
 const addressPattern =
   /^[^\s@<>()[\]\\,;:"]+@(?:[A-Za-z0-9-]+\.)+[A-Za-z0-9-]{2,}$/u;
+// An RFC 2919 list identifier: dot-atom text with a label and a namespace, which no URI with a
+// scheme matches.
+const listIdentifier =
+  /^[\w!#$%&'*+/=?^`{|}~-]+(?:\.[\w!#$%&'*+/=?^`{|}~-]+)+$/u;
 
 const decoded = (value: string) => {
   try {
@@ -126,21 +130,25 @@ const bracketedOf = (header: string) =>
     .trim();
 
 // The list's name: the List-Id's phrase, else the sender's display name or address. Its identity:
-// the List-Id's identifier, else the sender's address, without case. Each read is linear in the
-// sender-controlled header.
+// the List-Id's identifier without case; a sender's address is not one, since several lists can
+// share it. Each read is linear in the sender-controlled header.
 const listOf = (headers: NonNullable<BodyDocument['headers']>) => {
   const listId = withoutComments(headers.listId ?? '', ' ');
-  const list = phraseOf(listId);
   const from = withoutComments(headers.from ?? '', ' ');
-  const sender = phraseOf(from);
   const address = bracketedOf(from);
-  const senderAddress = addressPattern.test(address) ? address : undefined;
-  const listIdentity = listId.includes('<') ? bracketedOf(listId) : '';
-  const identity = listIdentity === '' ? senderAddress : listIdentity;
-  const name = list || sender || senderAddress;
-  return name === undefined || identity === undefined
+  const name =
+    phraseOf(listId) ||
+    phraseOf(from) ||
+    (addressPattern.test(address) ? address : '');
+  const identifier = listId.includes('<') ? bracketedOf(listId) : '';
+  return name === ''
     ? undefined
-    : { list: name, identity: identity.toLowerCase() };
+    : {
+        list: name,
+        ...(listIdentifier.test(identifier)
+          ? { identity: identifier.toLowerCase() }
+          : {}),
+      };
 };
 
 // The message's unsubscribe offer, or undefined when its headers name no usable mechanism.
@@ -284,9 +292,11 @@ export function createUnsubscribe(
     });
   // Records `request`, replacing the Profile's earlier one for the list. Resolves whether storage
   // holds it.
-  const remember = (request: SentUnsubscribeRequest) => {
-    const account = signedIn();
-    return runLogged(
+  const remember = (
+    account: string | undefined,
+    request: SentUnsubscribeRequest,
+  ) =>
+    runLogged(
       Effect.gen(function* () {
         const { owner, revision, requests } = yield* opened(account);
         const document = yield* Schema.encodeEffect(DocumentSchema)({
@@ -313,15 +323,14 @@ export function createUnsubscribe(
         ),
       ),
     );
-  };
 
   return {
     // `profile`'s sent request to leave `offer`'s list that still covers a message the list sent at
     // `receivedAt`, or undefined when none does: none was sent, the message came more than 14 days
-    // after it, or storage cannot read the requests.
+    // after it, the offer has no Mailing List Identity, or storage cannot read the requests.
     sentRequest: (
       profile: string,
-      offer: Pick<UnsubscribeOffer, 'identity'>,
+      { identity }: UnsubscribeOffer,
       receivedAt: number,
     ) =>
       runLogged(
@@ -329,7 +338,8 @@ export function createUnsubscribe(
           Effect.map(({ requests }) =>
             requests.find(
               (request) =>
-                matches(profile, offer.identity)(request) &&
+                identity !== undefined &&
+                matches(profile, identity)(request) &&
                 receivedAt <= request.sentAt + unsubscribeOfferReturnsAfter,
             ),
           ),
@@ -340,16 +350,18 @@ export function createUnsubscribe(
         ),
       ),
     // Sends the one-click offer's request once for `profile`, the Mail Profile that owns the
-    // receiving connection, and records it when it ends `sent`. A record storage refuses leaves the
-    // outcome as it is.
+    // receiving connection, and records it for the Product Account signed in now when it ends
+    // `sent` and the offer has a Mailing List Identity. A record storage refuses leaves the outcome
+    // as it is.
     request: async (
       profile: string,
       offer: Extract<UnsubscribeOffer, { kind: 'one-click' }>,
       now: () => number = Date.now,
     ) => {
+      const account = signedIn();
       const outcome = await requestUnsubscribe(storage, offer);
-      if (outcome === 'sent') {
-        await remember({
+      if (outcome === 'sent' && offer.identity !== undefined) {
+        await remember(account, {
           profile,
           identity: offer.identity,
           list: offer.list,
