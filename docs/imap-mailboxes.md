@@ -830,7 +830,11 @@ password manager by running
 
 1. `simulator-credentials.zsh copy <udid> <variable>` puts the value on that Simulator's
    pasteboard. Keep **Automatically Sync Pasteboard** in Simulator's Edit menu off, or
-   Simulator closed, so the value does not reach the Mac's pasteboard.
+   Simulator closed, so the value does not reach the Mac's pasteboard. From this copy
+   until the software keyboard closes, take no screenshot, also when the paste fails or
+   the pasteboard has been cleared: the keyboard's suggestion bar offers **Paste from
+   CoreSimulatorBridge** with the value in plain text
+   ([#2685](https://github.com/unwired-dev/product/issues/2685)).
 2. Open the edit menu and press **Paste**: in Google's sign-in sheet, long-press the
    field; in the app, tap the focused field again. The keyboard's own Paste key pastes
    nothing into the app's fields. On iPad, scroll **Recovery Key** clear of the software
@@ -843,11 +847,7 @@ password manager by running
    the Mac. Take the snapshot before pasting, then press the field's action, such as
    **Unlock with Recovery Key**, at the coordinates that snapshot gave, and wait a few
    seconds. Before the next read, empty the field with `fill <x> <y> ""` at its
-   coordinates, unless the operator watching the Simulator saw the field go. After any
-   pasted credential, also into a masked field and after step 3, the software keyboard's
-   suggestion bar offers **Paste from CoreSimulatorBridge** with the value in plain text,
-   so take no screenshot while the software keyboard is shown
-   ([#2685](https://github.com/unwired-dev/product/issues/2685)).
+   coordinates, unless the operator watching the Simulator saw the field go.
 5. After the run, with the Simulator deleted,
    `simulator-credentials.zsh scan <variable>... -- <path>...` lists each file under the
    paths that holds any of the passwords or the Recovery Key, also inside compressed

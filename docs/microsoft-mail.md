@@ -586,9 +586,10 @@ mail content.
   iOS 27.0, with the development Convex deployment and the Microsoft public-client ID.
   Build: the app source of `d72ed590e934fd8cf1dfd2078d586511b7bed637`. Toolchain: Xcode
   27.2 (27B52). Operator: agent, with credentials read at run time from the approved
-  password manager. Result: pass, with the credential exposure below. A fresh Google
-  Product Sign-In with the Recovery Key, then **Microsoft 365 and Outlook**, connected the
-  personal mailbox with every address, password and the Recovery Key entered through the
+  password manager. Result: partial. Connect, read, send and reply passed; the Undo Send
+  window remains unverified, and the credential criterion failed, as a screenshot showed
+  the Recovery Key (below). A fresh Google Product Sign-In with the Recovery Key, then
+  **Microsoft 365 and Outlook**, connected the personal mailbox with every address, password and the Recovery Key entered through the
   [Simulator pasteboard](imap-mailboxes.md#certification-runs-through-the-app). Microsoft
   asked for the requested scopes again, as the 2026-11-24 run had removed the app's
   permissions, and the Inbox opened in the iPad's split layout after **Accept**, listing
