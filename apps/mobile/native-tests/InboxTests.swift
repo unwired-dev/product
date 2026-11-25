@@ -4189,6 +4189,80 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(name.waitForNonExistence(timeout: 10))
   }
 
+  // #2879: on iPad one tap outside closes the Inbox's Filters popover, the reader toolbar's
+  // Labels popover, More's system menu without choosing an action, and the Labels popover More's
+  // Move to… opens; Escape closes both Labels popovers. Each close waits for the popover to
+  // settle, then taps once.
+  func testPopoverDismissal() throws {
+    continueAfterFailure = false
+    try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .pad, "The popovers are iPad's")
+    let environment = ProcessInfo.processInfo.environment
+    XCTAssertEqual(environment["UNWIRED_TEST_SCENARIO"], "registration-declined")
+    let app = XCUIApplication(bundleIdentifier: try XCTUnwrap(environment["UNWIRED_BUNDLE_ID"]))
+    addTeardownBlock { if app.state != .notRunning { app.terminate() } }
+    app.launch()
+    XCTAssertTrue(app.staticTexts["Your mail,\non your devices."].waitForExistence(timeout: 60))
+    connectGmail(app)
+    let rowan = app.buttons["Unread. Rowan Hale. Garden plans for spring"]
+    XCTAssertTrue(rowan.waitForExistence(timeout: 30))
+    // Three taps outside, then Command-period, which UIKit delivers as Escape (#1396).
+    func closes(
+      _ name: String, outside: CGVector, escape: Bool = true, open: () -> Void,
+      shown: XCUIElement
+    ) {
+      for (index, close) in (["tap", "tap", "tap"] + (escape ? ["Escape"] : [])).enumerated() {
+        open()
+        XCTAssertTrue(shown.waitForExistence(timeout: 10))
+        _ = settledFrame(of: shown)
+        if index == 0 { attachScreen(name, of: app, to: self) }
+        XCTAssertTrue(shown.exists, "\(name) closed before the \(close)")
+        if close == "Escape" {
+          app.typeKey(".", modifierFlags: .command)
+        } else {
+          app.windows.firstMatch.coordinate(withNormalizedOffset: outside).tap()
+        }
+        XCTAssertTrue(shown.waitForNonExistence(timeout: 5), "\(name) stayed open after one \(close)")
+      }
+    }
+    // The Filters popover sits on the bar at the bottom of the window; the Inbox journey covers
+    // its Escape.
+    let filter = app.descendants(matching: .any)
+      .matching(NSPredicate(format: "label == %@", "Filter")).firstMatch
+    XCTAssertTrue(filter.waitForExistence(timeout: 10))
+    filter.tap()
+    let summary = app.buttons["Filtered by Unread"]
+    XCTAssertTrue(summary.waitForExistence(timeout: 10))
+    closes(
+      "Filters popover", outside: CGVector(dx: 0.5, dy: 0.15), escape: false,
+      open: { summary.tap() }, shown: app.buttons["Apply Filters"])
+    filter.tap()
+    XCTAssertTrue(summary.waitForNonExistence(timeout: 10))
+    rowan.tap()
+    let reader = header("rowan@example.invalid", in: app)
+    XCTAssertTrue(reader.waitForExistence(timeout: 10))
+    // The reader's toolbar is at the top; the taps land low in the window, beside the message.
+    let low = CGVector(dx: 0.5, dy: 0.9)
+    let newLabel = app.buttons["New Label…"]
+    closes("Labels popover", outside: low, open: { app.buttons["Labels"].tap() }, shown: newLabel)
+    let more = app.buttons["More"]
+    // The system menu closed at Command-period in only three of five runs; its Escape waits for a
+    // hardware keyboard (#2873).
+    closes(
+      "More menu", outside: low, escape: false, open: { more.tap() },
+      shown: app.buttons["Mark as Unread"])
+    closes(
+      "Labels popover from Move to…", outside: low,
+      open: {
+        more.tap()
+        let moveTo = app.buttons["Move to…"]
+        XCTAssertTrue(moveTo.waitForExistence(timeout: 10))
+        moveTo.tap()
+      }, shown: newLabel)
+    // No tap reached the window behind: the message is still open and still read.
+    XCTAssertTrue(reader.exists)
+    XCTAssertTrue(app.buttons["Rowan Hale. Garden plans for spring"].exists)
+  }
+
   // #2457: Send's menu offers Send Now, "No Undo", which sends without the Undo Send Window: the
   // composer closes and no Outbox row waits to send with Undo.
   func testSendNow() throws {
