@@ -25,9 +25,10 @@ on iPad Pro 11-inch (M5) in portrait. Host load from other work was 5–58.
   times in each appearance, and both Labels popovers closed at Command-period,
   which UIKit delivers as Escape. The message stayed open and read.
 - More's system menu closed at Command-period in the first Light and Dark runs
-  and in a Light rerun, but stayed open in two Dark reruns, one at 1-minute host
-  load 42 and the other at 24. Command-period reaches the app's key commands, not
-  the system menu, so the journey leaves More's Escape to a hardware keyboard.
+  and in a Light rerun, but stayed open in two Dark reruns (1-minute host load
+  41 → 58 and 43 → 25 across them). Why is not established. The journey no
+  longer presses it there, and More's Escape on a hardware keyboard stays
+  unverified with #2873.
 - Through `agent-device`, on the same build and an owned iPad, a single coordinate
   tap outside closed 35 of 36 times: Filters 6 in Light; Labels and More 6 each in
   Light; Labels 6, More 4 and Move to…'s Labels 4 in Dark; and 3 more after the

@@ -4245,8 +4245,8 @@ final class InboxTests: XCTestCase {
     let newLabel = app.buttons["New Label…"]
     closes("Labels popover", outside: low, open: { app.buttons["Labels"].tap() }, shown: newLabel)
     let more = app.buttons["More"]
-    // UIKit delivers Command-period as Escape to key commands; the system menu closed at it in
-    // three of five runs, so its Escape waits for a hardware keyboard (#2873).
+    // The system menu closed at Command-period in only three of five runs; its Escape waits for a
+    // hardware keyboard (#2873).
     closes(
       "More menu", outside: low, escape: false, open: { more.tap() },
       shown: app.buttons["Mark as Unread"])
