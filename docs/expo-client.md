@@ -153,7 +153,9 @@ provide on Expo 58.0.26 and React Native 0.88.1:
   collapses them into one navigation stack, which opens on the reader when a message
   is selected and on the Inbox otherwise.
 - Expo Router routes in the reader column: `message/[id]`, `thread/[id]` and
-  `compose/[draft]` select a message, a Thread and a Draft.
+  `compose/[draft]` select a message, a Thread and a Draft. The `(reader)` group's
+  layout draws the reader for `message/[id]` and beneath `compose/[draft]`, so a
+  composer opening or closing over a message leaves that reader mounted.
 - `ScreenStack` for iPhone Settings
   ([`registration-gate.tsx`](../apps/mobile/src/registration-gate.tsx),
   [`settings.tsx`](../apps/mobile/src/settings.tsx)) and the Welcome screen's Privacy

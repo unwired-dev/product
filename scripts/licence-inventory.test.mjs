@@ -160,3 +160,59 @@ test('text mode preserves vendor notices without counting them as a parent licen
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
+test('licence inventory lists the packages bundled into an embedded page', () => {
+  mkdirSync(path.join(root, 'scratchpad'), { recursive: true });
+  const directory = mkdtempSync(
+    path.join(root, 'scratchpad/licence-inventory-'),
+  );
+  try {
+    const dist = path.join(directory, 'packages/draft-editor/dist');
+    const kit = path.join(
+      directory,
+      'node_modules/.pnpm/@tiptap+core@3.0.0/node_modules/@tiptap/core',
+    );
+    write(
+      path.join(kit, 'package.json'),
+      JSON.stringify({
+        name: '@tiptap/core',
+        version: '3.0.0',
+        license: 'MIT',
+      }),
+    );
+    write(path.join(kit, 'LICENSE.md'), 'MIT terms');
+    write(path.join(dist, 'page.js'));
+    write(
+      path.join(dist, 'page.sources.json'),
+      JSON.stringify({
+        sources: [
+          path.relative(dist, path.join(kit, 'dist/index.js')),
+          '../src/editor.ts',
+        ],
+      }),
+    );
+    const map = path.join(directory, 'main.jsbundle.map');
+    // Listed from the Metro server root, as Expo does.
+    write(
+      map,
+      JSON.stringify({ sources: ['/packages/draft-editor/dist/page.js'] }),
+    );
+    const result = inventory(map, directory);
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(decodeJson(result.stdout).packages, [
+      {
+        name: '@tiptap/core',
+        version: '3.0.0',
+        licence: 'MIT',
+        licenceFiles: ['LICENSE.md'],
+      },
+    ]);
+
+    rmSync(path.join(dist, 'page.sources.json'));
+    const missing = inventory(map, directory);
+    assert.equal(missing.status, 1);
+    assert.match(missing.stderr, /unreadable .*page\.sources\.json/u);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});

@@ -6,9 +6,10 @@ import { createSyntheticGmail } from '@private-email/mail-core/testing/gmail-mai
 import { fireEvent, screen } from '@testing-library/react-native';
 import { renderRouter } from 'expo-router/testing-library';
 
+import ReaderLayout from '../app/(reader)/_layout.tsx';
+import MessageRoute from '../app/(reader)/message/[id].tsx';
 import RootLayout from '../app/_layout.tsx';
 import InboxWelcome from '../app/index.tsx';
-import MessageRoute from '../app/message/[id].tsx';
 
 // oxlint-disable-next-line vitest/prefer-import-in-mock -- Keep this host's installed Reanimated and linking substitutes, which support its CSS API.
 jest.mock('expo-router/build/testing-library/mocks', () => ({}));
@@ -66,7 +67,8 @@ async function openSpike() {
     await renderRouter({
       _layout: RootLayout,
       index: InboxWelcome,
-      'message/[id]': MessageRoute,
+      '(reader)/_layout': ReaderLayout,
+      '(reader)/message/[id]': MessageRoute,
     });
   } finally {
     // Router's test renderer installs fake timers; the real Effect store uses its own scheduler.
