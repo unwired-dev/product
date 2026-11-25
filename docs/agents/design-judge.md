@@ -21,10 +21,12 @@ Sol cannot open Figma, so give it files and numbers:
 - **Image:** `get_screenshot` of the frame node, or an in-plugin
   `screenshot({ scale })` through `use_figma` for 2× and 3×. Take both images
   of a pixel comparison from the same source; they differ in rounded corners.
-- **Geometry:** `get_metadata` (or a read-only `use_figma` script) for the
-  position and size of every element the change touches, with resolved colour
-  variables and text styles.
-- **Provenance:** file key, node id, frame name and the export date.
+- **Values:** a read-only `use_figma` extract of every element the change
+  touches: position and size relative to the frame, resolved colours (variable
+  name and sRGB value in the frame's mode), and text style, size, weight and
+  line height. `get_metadata` gives geometry only.
+- **Provenance:** file key, node id, frame name, export date, and the export
+  scale (image pixels per frame point, checked against the image size).
 
 The Figma seat allows about 200 calls a day, shared by every agent: put several
 reads and up to five in-plugin screenshots into each `use_figma` call.
@@ -33,15 +35,18 @@ reads and up to five in-plugin screenshots into each `use_figma` call.
 
 Capture each state with Mock Mail Sessions under
 [native validation](native-validation.md), at the frame's device size and
-appearance, on iPhone and iPad Simulators and the Mac host. Convert Display P3
+appearance (record the capture's pixels per point), on iPhone and iPad Simulators and the Mac host. Convert Display P3
 captures to sRGB before colour comparison. A capture you cannot take leaves its
 pair **not compared**, never matching.
 
 Store everything under `artifacts/design-judge/<issue>/`, named
-`<state>-<platform>-<appearance>-frame.png` and `…-app.png`, with an
-`index.md` listing each pair's node id, export scale, capture device, and the
-[Known frame differences](../../DESIGN.md#known-frame-differences) and approved
-native differences that apply.
+`<state>-<frame node id>-frame.png`, `…-app.png` and `…-values.json`, with an
+`index.md` holding one row per planned pair: state, platform, appearance,
+viewport, node id, both scales, capture device or **not compared** with the
+reason, and the differences that are intended for it: the
+[Known frame differences](../../DESIGN.md#known-frame-differences) (with the
+bounds to compare where the frame's size differs on purpose, such as the 912pt
+iPad Settings frames), the approved native differences, and owner decisions.
 
 ## 4. Run the judge
 
@@ -60,11 +65,14 @@ popovers and sheets, colours in sRGB, type size, weight and line height,
 SF Symbols, Liquid Glass and shadows, copy and truncation, and state
 (empty, loading, error, disabled). Crop and overlay; read pixel values.
 The differences listed as intended in index.md are not defects. Report every
-other difference, including ones outside the change, marked pre-existing.
-Reply:
-VERDICT: PASS or FAIL
-D1 <platform> <appearance> <state> <element>: frame <value>, app <value>. Fix: <suggestion>
+other difference, marking ones outside the change pre-existing.
+Reply with one result per index.md row, then the findings:
+R1 <row>: PASS | FAIL | NOT COMPARED — measured: <key positions, sizes, colours, type>
+VERDICT: PASS (every row PASS) or FAIL
+D1 <row> <element>: frame <value>, app <value>. [pre-existing] Fix: <suggestion>
 ```
+
+Save each round's reply as `artifacts/design-judge/<issue>/round-<n>.md`.
 
 ## 5. Fix and judge again
 
@@ -74,9 +82,13 @@ Continue while each round lowers the open count; the Mac sweep in #1838 took six
 rounds to reach zero. A difference the app cannot close (a native limit, or a
 frame that is wrong) goes to the owner as a choice: update the frame through
 [design approval](implementation-review.md#design-approval), or record it in
-Known frame differences. File pre-existing differences as issues.
+Known frame differences. Either way, add the decision to the row in index.md
+and judge again. File pre-existing differences as issues; they do not block
+this change.
 
-The judge passes when every pair is compared and the verdict is PASS, or every
-remaining difference has the owner's decision. The PR body carries the verdict,
-the rounds and the model; [PR media](pull-request-babysitting.md#implementer-pr-delivery)
+The judge passes when its verdict is PASS on the PR's head: every row compared
+and passing apart from pre-existing findings. A row left not compared needs the
+owner's acceptance in the PR. After a push or base sync that changes what a
+pair shows, judge the affected rows again. The PR body carries the per-row
+results, the rounds and the model; [PR media](pull-request-babysitting.md#implementer-pr-delivery)
 shows the pairs.

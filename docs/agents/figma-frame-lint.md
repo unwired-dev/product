@@ -11,16 +11,17 @@ read-only through `use_figma` (file `d1mHEaUNmnF7YUw6QwIs0T`); load the
 `figma-use` skill first. Ids on different pages go in separate parallel calls.
 The script returns:
 
-- `rawPaints`: solid fills and strokes with no colour variable, grouped by hex,
-  with up to five sample node ids each.
-- `looseText`: text with neither a text style nor a font-size variable.
-- `detachedCopies`: frames named like a component on the Components page but
-  not an instance of it.
+- `missing`: requested ids that did not resolve. Fix the ids and run again.
+- `rawPaints`: solid fills and strokes with no colour variable, text ranges
+  included, grouped by hex with up to five sample node ids each.
+- `looseText`: text, or a range of it, without a text style.
+- `possibleDetachedCopies`: frames named like a component on the Components
+  page but not an instance of it. Confirm each one by eye.
 
 Inside an instance only overridden fields count; lint a component's own layers
 by passing its id.
 
-A frame is clean when all three lists are empty. A finding that is deliberate
+A frame is clean when all four lists are empty. A finding that is deliberate
 (a colour no variable carries yet, such as the popover background) goes in
 the approval request with its reason.
 
@@ -47,54 +48,58 @@ const hex = (c) =>
     .join('');
 const rawPaints = new Map();
 const looseText = [];
-const detachedCopies = [];
+const possibleDetachedCopies = [];
 const missing = [];
 
-const addRaw = (node, kind, paint) => {
-  const key = `${kind} ${hex(paint.color)}${paint.opacity < 1 ? ` @${Math.round(paint.opacity * 100)}%` : ''}`;
-  const entry = rawPaints.get(key) ?? { count: 0, samples: [] };
-  entry.count += 1;
-  if (entry.samples.length < MAX_SAMPLES) entry.samples.push(node.id);
-  rawPaints.set(key, entry);
+const checkPaints = (node, kind, paints) => {
+  for (const paint of paints) {
+    if (paint.type !== 'SOLID' || paint.visible === false) continue;
+    if (paint.boundVariables?.color) continue;
+    const alpha =
+      paint.opacity < 1 ? ` @${Math.round(paint.opacity * 100)}%` : '';
+    const key = `${kind} ${hex(paint.color)}${alpha}`;
+    const entry = rawPaints.get(key) ?? { count: 0, samples: [] };
+    entry.count += 1;
+    if (entry.samples.length < MAX_SAMPLES) entry.samples.push(node.id);
+    rawPaints.set(key, entry);
+  }
 };
 
 // Inside an instance, only overrides belong to the frame; the rest is the component's.
 const overrides = new Map();
-const owns = (node, field) =>
-  !node.id.startsWith('I') || overrides.get(node.id)?.has(field);
+const owns = (node, ...fields) =>
+  !node.id.startsWith('I') ||
+  fields.some((f) => overrides.get(node.id)?.has(f));
 
 const visit = (node) => {
   if (node.visible === false) return;
   if (node.type === 'INSTANCE') {
-    for (const o of node.overrides)
-      overrides.set(o.id, new Set(o.overriddenFields));
+    for (const o of node.overrides) {
+      const fields = overrides.get(o.id) ?? new Set();
+      for (const f of o.overriddenFields) fields.add(f);
+      overrides.set(o.id, fields);
+    }
   }
-  for (const kind of ['fills', 'strokes']) {
-    const paints = node[kind];
-    if (!Array.isArray(paints) || !owns(node, kind)) continue;
-    for (const paint of paints) {
-      if (
-        paint.type === 'SOLID' &&
-        paint.visible !== false &&
-        !paint.boundVariables?.color
-      ) {
-        addRaw(node, kind, paint);
+  if (node.type === 'TEXT') {
+    const segments = node.getStyledTextSegments(['textStyleId', 'fills']);
+    if (owns(node, 'fills', 'characters')) {
+      for (const s of segments) checkPaints(node, 'text', s.fills);
+    }
+    if (owns(node, 'textStyleId', 'fontSize', 'fontName', 'characters')) {
+      for (const s of segments.filter((s) => !s.textStyleId)) {
+        looseText.push({ id: node.id, text: s.characters.slice(0, 40) });
       }
     }
   }
-  const textOwned = ['textStyleId', 'fontSize', 'fontName'].some((f) =>
-    owns(node, f),
-  );
-  if (
-    node.type === 'TEXT' &&
-    textOwned &&
-    !node.textStyleId &&
-    !node.boundVariables?.fontSize
-  ) {
-    looseText.push({ id: node.id, text: node.characters.slice(0, 40) });
+  // A text node's fills were read per range above.
+  for (const kind of node.type === 'TEXT'
+    ? ['strokes']
+    : ['fills', 'strokes']) {
+    if (Array.isArray(node[kind]) && owns(node, kind))
+      checkPaints(node, kind, node[kind]);
   }
   if (node.type === 'FRAME' && componentNames.has(node.name)) {
-    detachedCopies.push({ id: node.id, name: node.name });
+    possibleDetachedCopies.push({ id: node.id, name: node.name });
   }
   if ('children' in node) node.children.forEach(visit);
 };
@@ -112,7 +117,7 @@ return {
   ),
   looseText: looseText.slice(0, 50),
   looseTextCount: looseText.length,
-  detachedCopies: detachedCopies.slice(0, 50),
-  detachedCopyCount: detachedCopies.length,
+  possibleDetachedCopies: possibleDetachedCopies.slice(0, 50),
+  possibleDetachedCopyCount: possibleDetachedCopies.length,
 };
 ```
