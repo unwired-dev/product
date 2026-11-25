@@ -31,9 +31,10 @@ on iPad Pro 11-inch (M5) in portrait. Host load from other work was 5–58.
   about 50, and did not recur when the sequence was repeated three times.
 - An open iPad popover hides the window behind it from accessibility (#1403), so a
   press aimed at a ref or element behind it, taken before it opened, is refused
-  as `Ref … not found. Not dispatched.` and the popover stays open. That and a tap
-  lost under host load (the Sync Status journey already taps again for it) explain
-  the second taps; the app closes each popover at the first delivered tap.
+  as `Ref … not found. Not dispatched.` and the popover stays open: one way a first
+  tap can be lost, reproduced here. Why the one coordinate tap missed, and which
+  cause #2798 met, is not established; the Sync Status journey already taps again
+  for a first tap lost under load. No single tap the journey made was missed.
 - **Deferred** to [#2873](https://github.com/unwired-dev/product/issues/2873): the
   rest of its list, including VoiceOver, Reduce Motion, compact windows, rotation
   and the Folders popover.
@@ -100,8 +101,9 @@ presenter; each names the appearances it ran in. Host load from other work was
 - On iPad, a tap outside the Labels popover (from the toolbar and from More, in
   Dark) and the Filters popover (in Light) sometimes closed it only at the
   second tap. CI closes the Filters popover with one tap in Dark;
-  [#2879](https://github.com/unwired-dev/product/issues/2879) traced the second
-  taps to the tooling (2026-11-25 entry above).
+  [#2879](https://github.com/unwired-dev/product/issues/2879) found no second
+  tap needed in its journey and a refused `agent-device` press that leaves a
+  popover open (2026-11-25 entry above).
 - **Deferred** to [#2873](https://github.com/unwired-dev/product/issues/2873):
   the iPad Folders popover; VoiceOver focus when a presenter opens and its
   return when it closes; Reduce Motion; a compact iPad window, where the

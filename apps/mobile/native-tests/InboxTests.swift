@@ -4214,6 +4214,7 @@ final class InboxTests: XCTestCase {
         XCTAssertTrue(shown.waitForExistence(timeout: 10))
         _ = settledFrame(of: shown)
         if index == 0 { attachScreen(name, of: app, to: self) }
+        XCTAssertTrue(shown.exists, "\(name) closed before the \(close)")
         if close == "Escape" {
           app.typeKey(".", modifierFlags: .command)
         } else {
