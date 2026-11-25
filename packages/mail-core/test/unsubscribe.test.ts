@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict';
 
 import type { BodyDocument } from '@private-email/mail-core/message-body';
+import type { RegistrationSnapshot } from '@private-email/mail-core/registration';
+import type {
+  NativeUnsubscribe,
+  NativeUnsubscribeRequests,
+} from '@private-email/mail-core/unsubscribe';
 
 import { createImapInbox } from '@private-email/mail-core/imap-inbox';
 import { createInboxStore } from '@private-email/mail-core/inbox-store';
@@ -8,8 +13,10 @@ import { createSyntheticGmail } from '@private-email/mail-core/testing/gmail-mai
 import { createSyntheticGraph } from '@private-email/mail-core/testing/graph-mailbox';
 import { createSyntheticImap } from '@private-email/mail-core/testing/imap-mailbox';
 import {
+  createUnsubscribe,
   requestUnsubscribe,
   unsubscribeOf,
+  unsubscribeOfferReturnsAfter,
 } from '@private-email/mail-core/unsubscribe';
 
 import { present } from './draft-sync-fixture.ts';
@@ -23,6 +30,7 @@ const oneClick = {
 const offer = {
   kind: 'one-click',
   list: 'Alza.cz newsletter',
+  identity: 'newsletter.alza.example',
   url: 'https://alza.example/u/42',
 };
 
@@ -85,6 +93,7 @@ describe('unsubscribe offers', () => {
     const mailto = {
       kind: 'mailto',
       list: 'Alza.cz newsletter',
+      identity: 'newsletter.alza.example',
       address: 'leave@alza.example',
       subject: 'unsubscribe',
     };
@@ -148,6 +157,7 @@ describe('unsubscribe offers', () => {
     ).toStrictEqual({
       kind: 'mailto',
       list: 'Alza.cz newsletter',
+      identity: 'newsletter.alza.example',
       address: 'leave@alza.example',
     });
     // Parentheses inside a commented URI still open and close comments.
@@ -161,6 +171,7 @@ describe('unsubscribe offers', () => {
     ).toStrictEqual({
       kind: 'mailto',
       list: 'Alza.cz newsletter',
+      identity: 'newsletter.alza.example',
       address: 'leave@alza.example',
     });
     expect(unsubscribeOf(undefined)).toBeUndefined();
@@ -179,6 +190,7 @@ describe('unsubscribe offers', () => {
     ).toStrictEqual({
       kind: 'mailto',
       list: 'Club',
+      identity: 'club.example',
       address: 'leave+me@club.example',
       subject: 'Stop please',
       body: 'bye',
@@ -189,6 +201,7 @@ describe('unsubscribe offers', () => {
     ).toStrictEqual({
       kind: 'mailto',
       list: 'Club',
+      identity: 'club.example',
       address: 'leave@club.example',
     });
     for (const listUnsubscribe of [
@@ -237,6 +250,7 @@ describe('one-click unsubscribe requests', () => {
       requestUnsubscribe(native(answer), {
         kind: 'one-click',
         list: 'Alza.cz newsletter',
+        identity: 'newsletter.alza.example',
         url: 'https://alza.example/u/42',
       });
 
@@ -258,5 +272,155 @@ describe('one-click unsubscribe requests', () => {
     expect(urls).toStrictEqual(
       Array.from({ length: 5 }, () => 'https://alza.example/u/42'),
     );
+  });
+});
+
+// 8 Nov 2026, as the approved Sent state dates the request.
+const sentOn = Date.UTC(2026, 10, 8, 9);
+
+// Native storage as the store sees it: one document for the signed-in account, replaced only from
+// the revision read, and a one-click endpoint that answers `state.outcome`.
+const storage = () => {
+  const state: {
+    account: string;
+    outcome: string;
+    revision: number;
+    owner?: string;
+    document?: string;
+    // The next commit's rejection code, as when storage refuses a write.
+    refuse?: string;
+  } = { account: 'account-1', outcome: 'sent', revision: 0 };
+  const native: NativeUnsubscribe & NativeUnsubscribeRequests = {
+    requestUnsubscribe: async () => ({ outcome: state.outcome }),
+    openUnsubscribeRequests: async () => ({
+      owner: state.account,
+      revision: state.revision,
+      document: state.owner === state.account ? state.document : null,
+    }),
+    commitUnsubscribeRequests: async (owner, expectedRevision, document) => {
+      const code = state.refuse;
+      if (code !== undefined) {
+        throw Object.assign(new Error(code), { code });
+      }
+      Object.assign(state, { revision: expectedRevision + 1, owner, document });
+      return { owner, revision: state.revision };
+    },
+  };
+  const registration = {
+    getSnapshot: () => ({
+      snapshot: {
+        kind: 'connected',
+        productAccountId: state.account,
+        signInProvider: 'google',
+        mailboxes: '[]',
+      } satisfies RegistrationSnapshot,
+      busy: false,
+      failed: false,
+    }),
+  };
+  return {
+    state,
+    native,
+    relaunch: () => createUnsubscribe(native, registration),
+  };
+};
+
+describe('sent unsubscribe requests', () => {
+  const oneClickOffer = {
+    kind: 'one-click',
+    list: 'Alza.cz',
+    identity: 'newsletter.alza.example',
+    url: 'https://alza.example/u/42',
+  } as const;
+
+  const sent = {
+    profile: 'work',
+    identity: 'newsletter.alza.example',
+    list: 'Alza.cz',
+    sentAt: sentOn,
+  };
+  const later = (days: number) => sentOn + days * 86_400_000;
+
+  it('dates a sent request for its Profile only, without the URI', async () => {
+    expect.hasAssertions();
+    const { state, relaunch } = storage();
+    await expect(
+      relaunch().request('work', oneClickOffer, () => sentOn),
+    ).resolves.toBe('sent');
+    const unsubscribe = relaunch();
+
+    await expect(
+      unsubscribe.sentRequest('work', oneClickOffer, later(3)),
+    ).resolves.toStrictEqual(sent);
+    await expect(
+      unsubscribe.sentRequest('home', oneClickOffer, later(3)),
+    ).resolves.toBeUndefined();
+    await expect(
+      unsubscribe.sentRequest('work', { identity: 'club.example' }, later(3)),
+    ).resolves.toBeUndefined();
+    // The record names the list, never how to leave it.
+    expect(state.document).toBe(JSON.stringify({ requests: [sent] }));
+  });
+
+  it('offers Unsubscribe again after 14 days, and dates a new request', async () => {
+    expect.hasAssertions();
+    const { state, relaunch } = storage();
+    const unsubscribe = relaunch();
+    await unsubscribe.request('work', oneClickOffer, () => sentOn);
+
+    await expect(
+      unsubscribe.sentRequest(
+        'work',
+        oneClickOffer,
+        sentOn + unsubscribeOfferReturnsAfter,
+      ),
+    ).resolves.toStrictEqual(sent);
+    await expect(
+      unsubscribe.sentRequest('work', oneClickOffer, later(15)),
+    ).resolves.toBeUndefined();
+    // Sending again replaces the Profile's earlier request for the list.
+    await unsubscribe.request('work', oneClickOffer, () => later(15));
+    await expect(
+      unsubscribe.sentRequest('work', oneClickOffer, later(16)),
+    ).resolves.toStrictEqual({ ...sent, sentAt: later(15) });
+    expect(state.document).toBe(
+      JSON.stringify({ requests: [{ ...sent, sentAt: later(15) }] }),
+    );
+  });
+
+  it('records nothing that could show a false Sent state', async () => {
+    expect.hasAssertions();
+    const { state, relaunch } = storage();
+    const unsubscribe = relaunch();
+    for (const outcome of ['failed', 'uncertain']) {
+      state.outcome = outcome;
+      await expect(
+        unsubscribe.request('work', oneClickOffer, () => sentOn),
+      ).resolves.toBe(outcome);
+    }
+    expect(state.document).toBeUndefined();
+
+    // A write storage refuses leaves the outcome as it was and records nothing.
+    state.outcome = 'sent';
+    state.refuse = 'locked';
+    await expect(
+      unsubscribe.request('work', oneClickOffer, () => sentOn),
+    ).resolves.toBe('sent');
+    await expect(
+      unsubscribe.sentRequest('work', oneClickOffer, sentOn),
+    ).resolves.toBeUndefined();
+
+    // A record storage cannot read, or another account's, reads as not sent.
+    state.refuse = undefined;
+    await unsubscribe.request('work', oneClickOffer, () => sentOn);
+    state.document = '{"requests":[{"profile":"work"}]}';
+    await expect(
+      unsubscribe.sentRequest('work', oneClickOffer, sentOn),
+    ).resolves.toBeUndefined();
+    await unsubscribe.request('work', oneClickOffer, () => sentOn);
+    state.account = 'account-2';
+    await expect(
+      unsubscribe.sentRequest('work', oneClickOffer, sentOn),
+    ).resolves.toBeUndefined();
   });
 });

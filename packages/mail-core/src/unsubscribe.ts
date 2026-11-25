@@ -3,27 +3,34 @@
 
 import * as Effect from 'effect/Effect';
 import * as Schema from 'effect/Schema';
+import * as Semaphore from 'effect/Semaphore';
 
+import type { DraftStorageFailure } from './draft-native.ts';
 import type { BodyDocument } from './message-body.ts';
+import type { Registration } from './registration.ts';
 
 import {
   decodeDiagnostic,
   rejectionDiagnostic,
   runLogged,
 } from './diagnostics.ts';
+import { malformed, native as stored, ownerMismatch } from './draft-native.ts';
+import { ownerOf } from './drafts.ts';
 import { withoutComments } from './message-body.ts';
 
 // What a message offers for leaving its mailing list: an RFC 8058 one-click HTTPS request, or else
-// an RFC 2369 mailto message to one address. `list` names the list for the person.
-export type UnsubscribeOffer =
-  | Readonly<{ kind: 'one-click'; list: string; url: string }>
-  | Readonly<{
-      kind: 'mailto';
-      list: string;
-      address: string;
-      subject?: string;
-      body?: string;
-    }>;
+// an RFC 2369 mailto message to one address. `list` names the list for the person, and `identity`
+// is its Mailing List Identity.
+export type UnsubscribeOffer = Readonly<{ list: string; identity: string }> &
+  (
+    | Readonly<{ kind: 'one-click'; url: string }>
+    | Readonly<{
+        kind: 'mailto';
+        address: string;
+        subject?: string;
+        body?: string;
+      }>
+  );
 
 // An HTTPS address whose authority is a host name and an optional port; React Native has no
 // complete URL parser.
@@ -111,20 +118,29 @@ const phraseOf = (header: string) => {
   );
 };
 
-// The List-Id's phrase, else the sender's display name or address. Each read is linear in the
-// sender-controlled header.
-const listOf = (headers: NonNullable<BodyDocument['headers']>) => {
-  const list = phraseOf(withoutComments(headers.listId ?? '', ' '));
-  const from = withoutComments(headers.from ?? '', ' ');
-  const sender = phraseOf(from);
-  const address = from
-    .slice(from.lastIndexOf('<') + 1)
+// A header's last bracketed part, or the whole header without brackets.
+const bracketedOf = (header: string) =>
+  header
+    .slice(header.lastIndexOf('<') + 1)
     .replace(/>.*$/su, '')
     .trim();
-  if (list !== '' || sender !== '') {
-    return list === '' ? sender : list;
-  }
-  return addressPattern.test(address) ? address : undefined;
+
+// The list's name: the List-Id's phrase, else the sender's display name or address. Its identity:
+// the List-Id's identifier, else the sender's address, without case. Each read is linear in the
+// sender-controlled header.
+const listOf = (headers: NonNullable<BodyDocument['headers']>) => {
+  const listId = withoutComments(headers.listId ?? '', ' ');
+  const list = phraseOf(listId);
+  const from = withoutComments(headers.from ?? '', ' ');
+  const sender = phraseOf(from);
+  const address = bracketedOf(from);
+  const senderAddress = addressPattern.test(address) ? address : undefined;
+  const listIdentity = listId.includes('<') ? bracketedOf(listId) : '';
+  const identity = listIdentity === '' ? senderAddress : listIdentity;
+  const name = list || sender || senderAddress;
+  return name === undefined || identity === undefined
+    ? undefined
+    : { list: name, identity: identity.toLowerCase() };
 };
 
 // The message's unsubscribe offer, or undefined when its headers name no usable mechanism.
@@ -143,12 +159,12 @@ export function unsubscribeOf(
       ? uris.find(isOneClickUrl)
       : undefined;
   if (oneClick !== undefined) {
-    return { kind: 'one-click', list, url: oneClick };
+    return { kind: 'one-click', ...list, url: oneClick };
   }
   for (const uri of uris) {
     const mailto = mailtoOf(uri);
     if (mailto !== undefined) {
-      return { kind: 'mailto', list, ...mailto };
+      return { kind: 'mailto', ...list, ...mailto };
     }
   }
   return undefined;
@@ -190,3 +206,158 @@ export const requestUnsubscribe = (
       Effect.orElseSucceed(() => 'uncertain' as const),
     ),
   );
+
+// A request to leave a mailing list that ended `sent`: the Mail Profile that owns the receiving
+// connection, the list's Mailing List Identity and name, and when it was sent in milliseconds since
+// the epoch. It holds no unsubscribe URI, raw header or request body.
+const SentRequestSchema = Schema.Struct({
+  profile: Schema.NonEmptyString,
+  identity: Schema.NonEmptyString,
+  list: Schema.NonEmptyString,
+  sentAt: Schema.Int,
+});
+export type SentUnsubscribeRequest = typeof SentRequestSchema.Type;
+
+const DocumentSchema = Schema.fromJsonString(
+  Schema.Struct({ requests: Schema.Array(SentRequestSchema) }),
+);
+const OpenedSchema = Schema.Struct({
+  owner: Schema.NonEmptyString,
+  revision: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+  document: Schema.NullOr(DocumentSchema),
+});
+const CommittedSchema = Schema.Struct({
+  owner: Schema.NonEmptyString,
+  revision: Schema.Int.check(Schema.isGreaterThanOrEqualTo(1)),
+});
+
+// The signed-in Product Account's sent unsubscribe requests on this device: one document native
+// code keeps encrypted for the account that wrote it, like its Send Reminders. Every call rejects
+// with 'locked' while the device is locked.
+export interface NativeUnsubscribeRequests {
+  // Resolves `{ owner, revision, document }`; `document` is null when the account has none.
+  readonly openUnsubscribeRequests: () => Promise<unknown>;
+  // Replaces the document only from `expectedRevision` and resolves `{ owner, revision }`.
+  readonly commitUnsubscribeRequests: (
+    owner: string,
+    expectedRevision: number,
+    document: string,
+  ) => Promise<unknown>;
+}
+
+// ADR 0044: the offer returns only for a message the list sends this long after the request.
+export const unsubscribeOfferReturnsAfter = 14 * 86_400_000;
+
+// Whether `request` is `profile`'s request to leave the list with `identity`.
+const matches =
+  (profile: string, identity: string) => (request: SentUnsubscribeRequest) =>
+    request.profile === profile && request.identity === identity;
+
+// Locked storage is expected while the device is locked; any other failure is logged.
+const report = (
+  error: Readonly<Pick<DraftStorageFailure, 'kind' | 'diagnostic'>>,
+) =>
+  error.kind === 'locked'
+    ? Effect.void
+    : Effect.logError('Unsubscribe request storage failed:', error.diagnostic);
+
+// One-click unsubscribe requests, each recorded on this device for the Mail Profile that sent it
+// once it ends `sent`. Records are not synchronized.
+export function createUnsubscribe(
+  storage: NativeUnsubscribe & NativeUnsubscribeRequests,
+  registration: Pick<Registration, 'getSnapshot'>,
+) {
+  const semaphore = Semaphore.makeUnsafe(1);
+  const signedIn = () => ownerOf(registration.getSnapshot().snapshot);
+  // The requests of `account`, the Product Account signed in when the action was called, so an
+  // action whose read finished while another account signed in reads and writes nothing of it.
+  const opened = (account: string | undefined) =>
+    Effect.gen(function* () {
+      const { owner, revision, document } = yield* stored(
+        storage.openUnsubscribeRequests,
+        OpenedSchema,
+      );
+      if (owner !== account || signedIn() !== account) {
+        return yield* ownerMismatch();
+      }
+      return { owner, revision, requests: document?.requests ?? [] };
+    });
+  // Records `request`, replacing the Profile's earlier one for the list. Resolves whether storage
+  // holds it.
+  const remember = (request: SentUnsubscribeRequest) => {
+    const account = signedIn();
+    return runLogged(
+      Effect.gen(function* () {
+        const { owner, revision, requests } = yield* opened(account);
+        const document = yield* Schema.encodeEffect(DocumentSchema)({
+          requests: [
+            ...requests.filter(
+              (each) => !matches(request.profile, request.identity)(each),
+            ),
+            request,
+          ],
+        }).pipe(Effect.mapError(malformed));
+        const committed = yield* stored(
+          () => storage.commitUnsubscribeRequests(owner, revision, document),
+          CommittedSchema,
+        );
+        if (committed.owner !== owner) {
+          return yield* ownerMismatch();
+        }
+        return true;
+      }).pipe(
+        semaphore.withPermit,
+        // oxlint-disable-next-line promise/prefer-await-to-callbacks -- Effect's typed error channel.
+        Effect.catchTag('DraftStorageFailure', (error) =>
+          report(error).pipe(Effect.as(false)),
+        ),
+      ),
+    );
+  };
+
+  return {
+    // `profile`'s sent request to leave `offer`'s list that still covers a message the list sent at
+    // `receivedAt`, or undefined when none does: none was sent, the message came more than 14 days
+    // after it, or storage cannot read the requests.
+    sentRequest: (
+      profile: string,
+      offer: Pick<UnsubscribeOffer, 'identity'>,
+      receivedAt: number,
+    ) =>
+      runLogged(
+        opened(signedIn()).pipe(
+          Effect.map(({ requests }) =>
+            requests.find(
+              (request) =>
+                matches(profile, offer.identity)(request) &&
+                receivedAt <= request.sentAt + unsubscribeOfferReturnsAfter,
+            ),
+          ),
+          // oxlint-disable-next-line promise/prefer-await-to-callbacks -- Effect's typed error channel.
+          Effect.catchTag('DraftStorageFailure', (error) =>
+            report(error).pipe(Effect.as(undefined)),
+          ),
+        ),
+      ),
+    // Sends the one-click offer's request once for `profile`, the Mail Profile that owns the
+    // receiving connection, and records it when it ends `sent`. A record storage refuses leaves the
+    // outcome as it is.
+    request: async (
+      profile: string,
+      offer: Extract<UnsubscribeOffer, { kind: 'one-click' }>,
+      now: () => number = Date.now,
+    ) => {
+      const outcome = await requestUnsubscribe(storage, offer);
+      if (outcome === 'sent') {
+        await remember({
+          profile,
+          identity: offer.identity,
+          list: offer.list,
+          sentAt: now(),
+        });
+      }
+      return outcome;
+    },
+  };
+}
+export type Unsubscribe = ReturnType<typeof createUnsubscribe>;

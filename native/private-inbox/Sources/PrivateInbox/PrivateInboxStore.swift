@@ -76,6 +76,8 @@ public final class PrivateInboxStore: @unchecked Sendable {
   private let inboxPreferencesAssociatedData = Data(
     "dev.unwired.private-inbox.inbox-preferences.v1".utf8)
   private let pinsAssociatedData = Data("dev.unwired.private-inbox.pins.v1".utf8)
+  private let unsubscribeRequestsAssociatedData = Data(
+    "dev.unwired.private-inbox.unsubscribe-requests.v1".utf8)
   static let outgoingContentLimit = 100 * 1024 * 1024
   static let draftAssetLimit = 25 * 1024 * 1024
   // Draft assets imported by this process that no stored Draft document keeps yet: commits never
@@ -307,7 +309,7 @@ public final class PrivateInboxStore: @unchecked Sendable {
     for name in [
       "inbox.enc", "drafts.enc", "draft-assets", "composer-recovery", "mail-templates.enc",
       "send-reminders.enc", "blocked-senders.enc", "inbox-preferences.enc", "pins.enc",
-      "mailbox.enc", "mailboxes", "bodies",
+      "unsubscribe-requests.enc", "mailbox.enc", "mailboxes", "bodies",
     ] {
       guard !FileManager.default.fileExists(atPath: directory.appendingPathComponent(name).path)
       else { throw PrivateInboxError.unavailable }
@@ -446,6 +448,20 @@ public final class PrivateInboxStore: @unchecked Sendable {
   func commitPinDocument(owner: String, expectedRevision: Int, document: String) throws -> Int {
     try commitDocument(
       "pins.enc", authenticating: pinsAssociatedData, owner: owner,
+      expectedRevision: expectedRevision, document: document)
+  }
+
+  // The Product Account's sent unsubscribe requests, kept like its Mail Templates.
+  func openUnsubscribeRequestDocument(owner: String) throws -> (revision: Int, document: String?) {
+    try openDocument(
+      "unsubscribe-requests.enc", authenticating: unsubscribeRequestsAssociatedData, owner: owner)
+  }
+
+  func commitUnsubscribeRequestDocument(owner: String, expectedRevision: Int, document: String)
+    throws -> Int
+  {
+    try commitDocument(
+      "unsubscribe-requests.enc", authenticating: unsubscribeRequestsAssociatedData, owner: owner,
       expectedRevision: expectedRevision, document: document)
   }
 
@@ -703,15 +719,15 @@ public final class PrivateInboxStore: @unchecked Sendable {
 
   // Every connection's cache, bodies and Downloaded Attachments, including the cache written
   // before connections, and the account's Drafts, their assets, its composer recovery records, its
-  // Mail Templates, Send Reminders, Blocked Senders, Inbox preferences and Pins: everything an
-  // account purge removes from this store.
+  // Mail Templates, Send Reminders, Blocked Senders, Inbox preferences, Pins and sent unsubscribe
+  // requests: everything an account purge removes from this store.
   public func removeMailboxes() throws {
     try unlockedTransaction {
       try removeURLs(
         [
           "mailboxes", "mailbox.enc", "bodies", "drafts.enc", "draft-assets", "composer-recovery",
           "mail-templates.enc", "send-reminders.enc", "blocked-senders.enc",
-          "inbox-preferences.enc", "pins.enc",
+          "inbox-preferences.enc", "pins.enc", "unsubscribe-requests.enc",
         ].map { directory.appendingPathComponent($0) } + [attachments])
     }
   }
