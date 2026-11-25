@@ -22,8 +22,12 @@ on iPad Pro 11-inch (M5) in portrait. Host load from other work was 5–58.
 - The new `testPopoverDismissal` journey passed in Light and in Dark. Each of the
   Inbox's Filters popover, the reader toolbar's Labels popover, More's system menu
   and the Labels popover from More › Move to… closed at a single tap outside, three
-  times in each appearance, and the reader's three closed at Command-period, which
-  UIKit delivers as Escape. The message stayed open and read.
+  times in each appearance, and both Labels popovers closed at Command-period,
+  which UIKit delivers as Escape. The message stayed open and read.
+- More's system menu closed at Command-period in the first Light and Dark runs
+  and in a Light rerun, but stayed open in two Dark reruns, one at 1-minute host
+  load 42 and the other at 24. Command-period reaches the app's key commands, not
+  the system menu, so the journey leaves More's Escape to a hardware keyboard.
 - Through `agent-device`, on the same build and an owned iPad, a single coordinate
   tap outside closed 35 of 36 times: Filters 6 in Light; Labels and More 6 each in
   Light; Labels 6, More 4 and Move to…'s Labels 4 in Dark; and 3 more after the
@@ -36,8 +40,8 @@ on iPad Pro 11-inch (M5) in portrait. Host load from other work was 5–58.
   cause #2798 met, is not established; the Sync Status journey already taps again
   for a first tap lost under load. No single tap the journey made was missed.
 - **Deferred** to [#2873](https://github.com/unwired-dev/product/issues/2873): the
-  rest of its list, including VoiceOver, Reduce Motion, compact windows, rotation
-  and the Folders popover.
+  rest of its list, including VoiceOver, Reduce Motion, compact windows, rotation,
+  the Folders popover and a hardware keyboard's Escape on More.
 
 ## iPhone and iPad system sheets and popovers, 2026-11-24
 
