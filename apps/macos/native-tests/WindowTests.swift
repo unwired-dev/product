@@ -1089,6 +1089,64 @@ final class WindowTests: XCTestCase {
     XCTAssertTrue(remaining.buttons["Don’t Save"].waitForExistence(timeout: 10))
     remaining.buttons["Don’t Save"].click()
     waitUntil { app.state == .notRunning }
+    twoWindowJourney(app)
+  }
+
+  // #2938: two windows edit one saved Draft in the page. The window that saves second keeps its
+  // version as a conflicting copy, and its close button asks as Command-W does.
+  private func twoWindowJourney(_ app: XCUIApplication) {
+    app.launch()
+    let first = app.windows["Inbox 1"]
+    let original = NSPredicate(
+      format: "label BEGINSWITH %@ AND label CONTAINS %@", "Draft.", "Native close")
+    let copy = NSPredicate(
+      format: "label BEGINSWITH %@ AND label CONTAINS %@", "Conflicting Draft.", "Native close")
+    openDraft(first, original)
+    app.typeKey("n", modifierFlags: [.command, .option])
+    let second = app.windows["Inbox 2"]
+    XCTAssertTrue(second.waitForExistence(timeout: 15))
+    openDraft(second, original)
+    // Typing reaches the page of the window in front, at the end of its body.
+    func append(_ value: String, in window: XCUIElement) {
+      window.webViews.textViews["Message body"].click()
+      window.typeKey(.downArrow, modifierFlags: .command)
+      app.typeText(value)
+      XCTAssertTrue(webText(value, in: window).waitForExistence(timeout: 10))
+    }
+    append(" Window B", in: second)
+    app.menuBars.menuBarItems["Window"].click()
+    app.menuItems["Inbox 1"].click()
+    append(" Window A", in: first)
+    saveOnClose(first)
+    XCTAssertFalse(webText("Window A", in: second).exists)
+    // Inbox 1 overlaps the close button of the window behind it.
+    app.menuBars.menuBarItems["Window"].click()
+    app.menuItems["Inbox 2"].click()
+    let close = second.buttons[XCUIIdentifierCloseWindow]
+    close.click()
+    let sheet = second.sheets.firstMatch
+    XCTAssertTrue(sheet.buttons["Save"].waitForExistence(timeout: 10))
+    XCTAssertTrue(sheet.buttons["Don’t Save"].exists)
+    sheet.buttons["Cancel"].click()
+    XCTAssertTrue(sheet.waitForNonExistence(timeout: 10))
+    XCTAssertTrue(webText("Window B", in: second).exists)
+    close.click()
+    XCTAssertTrue(sheet.buttons["Save"].waitForExistence(timeout: 10))
+    sheet.buttons["Save"].click()
+    XCTAssertTrue(second.waitForNonExistence(timeout: 20))
+    XCTAssertTrue(first.buttons.matching(copy).firstMatch.waitForExistence(timeout: 20))
+    // Both versions survive a relaunch, each in its own Draft.
+    app.terminate()
+    app.launch()
+    openDraft(first, copy)
+    XCTAssertTrue(webText("Window B", in: first).waitForExistence(timeout: 15))
+    XCTAssertFalse(webText("Window A", in: first).exists)
+    // Unchanged since it opened, so Close needs no save choice.
+    first.buttons["Close"].click()
+    waitUntil { first.webViews.count == 0 }
+    openDraft(first, original)
+    XCTAssertTrue(webText("Window A", in: first).waitForExistence(timeout: 15))
+    XCTAssertFalse(webText("Window B", in: first).exists)
   }
 
   private func webText(_ value: String, in window: XCUIElement) -> XCUIElement {
@@ -1273,11 +1331,15 @@ final class WindowTests: XCTestCase {
     app.launch()
     // A Draft row names its subject; without a title, the only Draft so far.
     // CONTAINS never matches an empty string, so an untitled reopen matches the prefix alone.
-    let draft = window.buttons.matching(
+    openDraft(
+      window,
       title.isEmpty
         ? NSPredicate(format: "label BEGINSWITH %@", "Draft.")
-        : NSPredicate(format: "label BEGINSWITH %@ AND label CONTAINS %@", "Draft.", title)
-    ).firstMatch
+        : NSPredicate(format: "label BEGINSWITH %@ AND label CONTAINS %@", "Draft.", title))
+  }
+
+  private func openDraft(_ window: XCUIElement, _ label: NSPredicate) {
+    let draft = window.buttons.matching(label).firstMatch
     // Restoring the session after a launch can take a while on a loaded host.
     XCTAssertTrue(draft.waitForExistence(timeout: 45))
     // Rows can still move while the restored list settles; tap the row once it stays in place.

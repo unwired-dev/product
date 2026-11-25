@@ -578,7 +578,9 @@ tools; the iPad format bar; and the conversion menu and its accessibility action
 The Mac component journey substitutes the native close module and checks window
 routing, repeated requests, Cancel, failed Save and successful Save. The native
 Mac journey also covers Command-W cancellation, cancelled Quit and one Quit
-finishing two open editors; it passed on 2026-11-25 (#2876).
+finishing two open editors; it passed on 2026-11-25 (#2876). Since #2938 it also
+covers the window's close button and two windows on one Draft
+([Save ordering](#save-ordering-821)).
 
 Native execution on 2026-10-15, same Mac mini and toolchain as above (macOS 27.0.1,
 Xcode 27.0, iOS 27.0 Simulator runtime), with a Release `registration-draft-editor`
@@ -653,9 +655,17 @@ Discard of that copy while the other version survives. The page tests also check
 that the page refuses a replacement computed for another body revision. None of these are native evidence: native code delivers the page's messages in order, so late delivery is
 simulated at the host boundary.
 
-Outstanding for #821: the Mac two-window journey on one Draft and the window's close
-button natively (the Command-W and **Quit** questions passed on 2026-11-25, #2876);
-and edits lost when
+The native Mac journey ran both on 2026-11-25
+([#2938](https://github.com/unwired-dev/product/issues/2938); signed
+`registration-draft-editor` `Testing` build, macOS 27.2.1, Xcode 27.2, Mac mini M4;
+`Executed 1 test, with 0 failures`). Two windows opened the same saved Draft in the
+page, and each appended its own text. The first window saved its version. In the
+second, the window's close button asked **Save**, **Don’t Save** and **Cancel**;
+**Cancel** kept the window and its text, and **Save** closed it and kept its
+version as a conflicting copy. After a relaunch, the conflicting copy held only
+the second window's text and the original only the first's.
+
+Outstanding for #821: edits lost when
 the app ends before **Save Draft**. The regular iPhone, iPad and Mac composers now
 use the same save model. On iPhone both composers cover the
 Inbox and reader, so system **Back** cannot leave them
@@ -755,5 +765,6 @@ does not approve adoption; #823 owns that decision.
 **#821 finding.** In component journeys on both hosts, **Save Draft** stores the
 newest body the page reported even when an earlier report arrives late, conflicting
 Mac windows keep separate copies, and racing imports, failed saves and account
-changes lose no surviving content. Native Mac windows and iPhone **Back** remain outstanding. This does not
+changes lose no surviving content; natively, two Mac windows on one Draft keep both
+versions (#2938). iPhone **Back** remains outstanding. This does not
 approve adoption; #823 owns that decision.
