@@ -21,10 +21,11 @@ Xcode 27.2 (`27B52`), the iOS 27.0 runtime and macOS 27.2.1, on iPhone 18 Pro
 in portrait, in Light and Dark. Each passing run passed on its first attempt;
 the 1-minute host load was 3–15. After `main` changed the journeys' waits for
 animations (#1873), `testSheetSwipes` passed again in Dark and Light at host
-loads of 33 and 127. Three runs between those, at host loads of 90–120, stopped
-where a sheet was still moving: **Cancel** pressed while New Label rose (the
-journey now waits for it to settle), New Label kept after the swipe that
-follows the keyboard's, and Reply not reopening while New Label closed.
+loads of 33 and 127. Three runs between those, at host loads of 90–120,
+stopped at **Cancel** not closing the reopened New Label, at New Label kept
+after the swipe that follows the keyboard's, and at Reply not reopening after
+New Label closed. A sheet still moving is the suspected cause; the journey now
+waits for **Cancel** to settle and for **Reply** to be hittable.
 
 - `testSheetSwipes`: from a Gmail reader, the Reply sheet, its Labels sheet
   and that sheet's New Label sheet each stay at the same frame after a

@@ -4296,7 +4296,10 @@ final class InboxTests: XCTestCase {
     let newLabel = app.buttons["New Label…"]
     let name = app.textFields["Label name"]
     func openReply() {
-      app.buttons["Reply"].tap()
+      // A closing sheet can still cover Reply.
+      let reply = app.buttons["Reply"]
+      waitUntil { reply.isHittable }
+      reply.tap()
       XCTAssertTrue(replyAll.waitForExistence(timeout: 10))
     }
     func openLabels() {
