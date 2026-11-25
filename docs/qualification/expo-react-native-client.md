@@ -69,10 +69,20 @@ confirmation below.
   iPhone probe, tapping the link again showed it. Filed as
   [#2909](https://github.com/unwired-dev/product/issues/2909); the journey turns
   it only to Landscape until then.
+- The Move picker on IMAP mail
+  ([#2931](https://github.com/unwired-dev/product/issues/2931)): the
+  `registration-imap-folders` journey, on a Release Simulator build of
+  `cf500a39d` with the step added and the same toolchain, opens **Folders** on
+  "Welcome to IMAP" and turns the device to Landscape and back. The iPhone Move
+  sheet and the iPad Folders popover stay shown through both turns, with their
+  folders and, on iPhone, **Close** in reach; the popover stays anchored to
+  **Folders** in Landscape. It passed on both devices in both appearances, in
+  about 7 minutes each at 1-minute host load 3–131. Two iPad runs failed later, in the
+  Signatures step, where keys typed after a 60-second app-idle wait were lost
+  ([#2934](https://github.com/unwired-dev/product/issues/2934)); their rotation
+  steps had passed.
 - **Deferred** to [#2873](https://github.com/unwired-dev/product/issues/2873):
-  rotation with the Move picker, which needs IMAP mail
-  ([#2902](https://github.com/unwired-dev/product/issues/2902)), and the rest of
-  its list.
+  the rest of its list.
 
 ## iPhone and iPad system presenters with Reduce Motion, 2026-11-25
 
@@ -368,7 +378,7 @@ presenter; each names the appearances it ran in. Host load from other work was
   checks above in the other appearance; and iPhone's More, which shows only for mail without Reply, which
   no journey or the synthetic mailbox has. `agent-device` cannot turn VoiceOver
   on, rotate the device or resize an iPad window. Rotation with the Gmail
-  presenters is the 2026-11-25 entry above
+  presenters and the Move picker is the 2026-11-25 entry above
   ([#2907](https://github.com/unwired-dev/product/issues/2907)). The `registration-apple`
   journey, whose Move steps rotate to landscape before opening the picker and
   check its keyboard there, stopped under host load before them.
