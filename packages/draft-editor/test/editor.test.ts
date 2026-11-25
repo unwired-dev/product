@@ -209,10 +209,13 @@ async function open(
 
 // Exercises the page's key handlers; Tiptap's keyboardShortcut command would keep only the
 // document steps of its handler, not the caret it places.
-const press = ({ editor }: Page, key: string) =>
+const press = ({ editor }: Page, key: string, init: KeyboardEventInit = {}) =>
   editor.view.someProp('handleKeyDown', (handle) =>
-    handle(editor.view, new KeyboardEvent('keydown', { key })),
+    handle(editor.view, new KeyboardEvent('keydown', { key, ...init })),
   );
+const mod = /Mac|iP(?:hone|[ao]d)/u.test(navigator.platform)
+  ? { metaKey: true }
+  : { ctrlKey: true };
 
 // The body and Attachments the page last posted.
 const bodyOf = ({ posted }: Page) =>
@@ -806,6 +809,116 @@ describe('the Tiptap evaluation page', () => {
       },
       { kind: 'numbered', spans: [{ text: 'deep' }] },
     ]);
+  });
+
+  it('keeps the first block layout when a selection is replaced, deleted or split', async () => {
+    expect.hasAssertions();
+    const red = { color: '#c00000' };
+    const blue = { color: '#1f3864' };
+    const page = await open([
+      { kind: 'heading1', align: 'right', spans: [{ text: 'Title' }] },
+      { kind: 'numbered', indent: 2, align: 'right', spans: [{ text: 'two' }] },
+      {
+        kind: 'numbered',
+        indent: 1,
+        align: 'center',
+        spans: [{ text: 'one' }],
+      },
+      {
+        kind: 'paragraph',
+        spans: [
+          { text: 'ab', ...red },
+          { text: 'cd', ...blue },
+          { text: 'ef' },
+        ],
+      },
+      { kind: 'paragraph', align: 'right', spans: [] },
+      { kind: 'quote', align: 'center', spans: [{ text: 'Q' }] },
+      { kind: 'paragraph', align: 'right', spans: [{ text: 'left' }] },
+      { kind: 'paragraph', align: 'center', spans: [{ text: 'right' }] },
+    ]);
+    const { editor } = page;
+    const line = (index: number) => nth(textblocks(editor), index);
+    const select = (from: number, to: number) =>
+      editor.commands.setTextSelection({ from, to });
+    // Return over a selection keeps the first block's alignment and level on both lines.
+    select(line(1).from, line(2).from + 1);
+    press(page, 'Enter');
+    // Return over a heading's first character adds a paragraph above with its alignment.
+    select(line(0).from, line(0).from + 1);
+    press(page, 'Enter');
+    // Typing after a deletion takes the format before it.
+    select(line(4).from + 2, line(4).from + 4);
+    press(page, 'Backspace');
+    page.type('x');
+    // Delete in an empty block joins the next line, even a quote's, into it.
+    editor.commands.setTextSelection(line(5).from);
+    press(page, 'Delete');
+    // Block kind shortcuts keep each block's alignment.
+    select(line(6).from, line(7).to);
+    press(page, '1', { altKey: true, ...mod });
+    expect(bodyOf(page)).toStrictEqual([
+      { kind: 'paragraph', align: 'right', spans: [] },
+      { kind: 'heading1', align: 'right', spans: [{ text: 'itle' }] },
+      { kind: 'numbered', indent: 2, align: 'right', spans: [] },
+      { kind: 'numbered', indent: 2, align: 'right', spans: [{ text: 'ne' }] },
+      {
+        kind: 'paragraph',
+        spans: [{ text: 'abx', ...red }, { text: 'ef' }],
+      },
+      { kind: 'paragraph', align: 'right', spans: [{ text: 'Q' }] },
+      { kind: 'heading1', align: 'right', spans: [{ text: 'left' }] },
+      { kind: 'heading1', align: 'center', spans: [{ text: 'right' }] },
+    ]);
+  });
+
+  it('keeps the first block after Select All, moves dragged content as it is and shows one family per font name', async () => {
+    expect.hasAssertions();
+    const page = await open([
+      { kind: 'heading1', align: 'right', spans: [{ text: 'Title' }] },
+      {
+        kind: 'numbered',
+        indent: 2,
+        align: 'center',
+        spans: [{ text: 'item' }],
+      },
+    ]);
+    const { editor, command } = page;
+    // A font name is one family, even one that begins as a system family does.
+    const font = editor.schema.marks.format?.create({
+      font: '"ui-brand, Georgia", Arial',
+    });
+    ok(font);
+    expect(font.type.spec.toDOM?.(font, true)).toMatchObject([
+      'span',
+      { style: 'font-family: "ui-brand, Georgia", system-ui;' },
+      0,
+    ]);
+    const title = { kind: 'heading1', align: 'right' } as const;
+    editor.commands.selectAll();
+    page.type('x');
+    expect(bodyOf(page)).toStrictEqual([{ ...title, spans: [{ text: 'x' }] }]);
+    command({ type: 'undo' });
+    editor.commands.selectAll();
+    press(page, 'Backspace');
+    expect(bodyOf(page)).toStrictEqual([{ ...title, spans: [] }]);
+    command({ type: 'undo' });
+    // Dropping a drag from within the page keeps the list level and alignment.
+    editor.commands.setTextSelection({
+      from: 0,
+      to: editor.state.doc.content.size,
+    });
+    const slice = editor.state.doc.slice(
+      nth(textblocks(editor), 1).from - 3,
+      editor.state.doc.content.size,
+    );
+    editor.view.dragging = { slice, move: true };
+    expect(
+      editor.view.someProp('transformPasted', (transform) =>
+        transform(slice, editor.view, false),
+      ),
+    ).toBe(slice);
+    editor.view.dragging = null;
   });
 
   it('pastes supported meaning only and never stores unsupported content', async () => {

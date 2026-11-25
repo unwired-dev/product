@@ -115,11 +115,15 @@ the current composer's:
   ([#2884](https://github.com/unwired-dev/product/issues/2884)). The page shows
   them as the current composer does, Dark colors included: a nested item sits one
   level further in, numbered items count per level and an aligned item's marker
-  moves with its text. Typing, Return, joined
-  blocks, marks and block kinds keep them as [Drafts](drafts.md#composing)
-  describes; text typed at the start of a link takes its color and font but not
-  its link, and text replacing a selection takes the format before it. Pasted
-  text carries no alignment or list level. The page sets none of them.
+  moves with its text. Typing, Return, joined blocks, marks and block kinds,
+  from the Format controls or their shortcuts, keep them as
+  [Drafts](drafts.md#composing) describes: typed text takes the format of the
+  text before it, or at a block's start the text after it, even at a link's
+  start, where it stays unlinked; editing a selection, Select All included, keeps
+  the first selected block's alignment and list level; and joining an empty
+  block with the next line keeps the empty block's. Pasted text carries no
+  alignment or list level, while a drag within the page moves content as it is.
+  The page sets none of them.
 
 - **Controls.** On iPad and Mac the current composer's format bar: the text style
   menu, the four marks, lists, the Link control, **Undo** and **Redo**, **Writing
