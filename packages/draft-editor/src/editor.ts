@@ -378,6 +378,22 @@ const unlaidOut = (fragment: Fragment): Fragment =>
     ),
   );
 
+// A pasted slice opened as far as it goes at its start and, when it holds one line, at its end.
+// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ProseMirror's Slice is a class; this only reads it.
+const joined = (slice: Slice) => {
+  const open = Slice.maxOpen(slice.content);
+  let lines = 0;
+  slice.content.descendants((node) => {
+    lines += node.isTextblock ? 1 : 0;
+    return !node.isTextblock;
+  });
+  return new Slice(
+    slice.content,
+    open.openStart,
+    lines === 1 ? open.openEnd : slice.openEnd,
+  );
+};
+
 // Whether a paste or drop carries files or image data, which only native code may read.
 // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The DOM's DataTransfer is mutable by design; this only reads it.
 const carriesFiles = (data: DataTransfer | null) =>
@@ -640,20 +656,29 @@ const DraftBehavior = Extension.create<unknown, { typing: boolean }>({
     return [
       new Plugin({
         props: {
-          // A drag within the page moves its content as it is.
-          transformPasted: (slice, view) =>
-            view.dragging === null
-              ? new Slice(
-                  unlaidOut(slice.content),
-                  slice.openStart,
-                  slice.openEnd,
-                )
-              : slice,
+          // A drag within the page moves its content as it is. A paragraph copied whole, as by
+          // Select All, pastes as its text, as a partial copy does; other blocks stay blocks.
+          transformPasted: (slice, view) => {
+            if (view.dragging !== null) {
+              return slice;
+            }
+            const content = unlaidOut(slice.content);
+            const { firstChild } = content;
+            const text =
+              slice.openStart === 0 &&
+              slice.openEnd === 0 &&
+              content.childCount === 1 &&
+              firstChild?.type.name === 'paragraph' &&
+              firstChild.content.size > 0;
+            return text
+              ? new Slice(content, 1, 1)
+              : new Slice(content, slice.openStart, slice.openEnd);
+          },
           // A pasted image is read from the pasteboard by native code, where it can; the page
           // never reads the data, and a dropped file is refused.
-          // Pasting over a selection deletes it as Backspace does first, and the pasted content is
-          // opened, as ProseMirror opens pasted HTML, so its first block joins the line left, even
-          // when it was copied whole.
+          // Pasting over a selection deletes it as Backspace does first, and the first pasted block
+          // joins the line left, even when copied whole; the line's text after the selection stays
+          // on its own line unless only one line is pasted.
           handlePaste: (view, event, slice) => {
             if (!carriesFiles(event.clipboardData)) {
               if (view.state.selection.empty || slice.size === 0) {
@@ -663,7 +688,7 @@ const DraftBehavior = Extension.create<unknown, { typing: boolean }>({
               deleteSelected(tr);
               view.dispatch(
                 tr
-                  .replaceSelection(Slice.maxOpen(slice.content))
+                  .replaceSelection(joined(slice))
                   .scrollIntoView()
                   .setMeta('paste', true)
                   .setMeta('uiEvent', 'paste'),

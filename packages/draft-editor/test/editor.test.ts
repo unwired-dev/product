@@ -1133,6 +1133,40 @@ describe('the Tiptap evaluation page', () => {
     });
   });
 
+  it('pastes a paragraph copied whole at the caret as its text and keeps the line after a selection', async () => {
+    expect.hasAssertions();
+    const right = { kind: 'paragraph', align: 'right' } as const;
+    const page = await open([
+      { ...right, spans: [{ text: 'abc' }] },
+      { kind: 'paragraph', spans: [{ text: 'copied' }] },
+      { kind: 'numbered', spans: [{ text: 'one' }] },
+      { kind: 'numbered', spans: [{ text: 'two' }] },
+    ]);
+    const { editor } = page;
+    const line = (index: number) => nth(textblocks(editor), index);
+    const copy = (from: number, to: number) =>
+      editor.view.serializeForClipboard(editor.state.doc.slice(from, to)).dom
+        .innerHTML;
+    const paragraph = copy(line(1).from - 1, line(1).to + 1);
+    const list = copy(line(2).from - 3, line(3).to + 3);
+    editor.commands.setTextSelection(line(0).from + 1);
+    editor.view.pasteHTML(paragraph);
+    expect(bodyOf(page)?.[0]).toStrictEqual({
+      ...right,
+      spans: [{ text: 'acopiedbc' }],
+    });
+    editor.commands.setTextSelection({
+      from: line(0).from + 7,
+      to: line(0).from + 8,
+    });
+    editor.view.pasteHTML(list);
+    expect(bodyOf(page)?.slice(0, 3)).toStrictEqual([
+      { ...right, spans: [{ text: 'acopiedone' }] },
+      { kind: 'numbered', spans: [{ text: 'two' }] },
+      { ...right, spans: [{ text: 'c' }] },
+    ]);
+  });
+
   it('drops a heading into an empty list item with the heading alignment', async () => {
     expect.hasAssertions();
     const page = await open([
