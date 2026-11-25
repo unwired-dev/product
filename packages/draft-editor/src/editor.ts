@@ -689,10 +689,24 @@ const DraftBehavior = Extension.create<unknown, { typing: boolean }>({
               deleteSelected(tr);
               const { $from } = tr.selection;
               const followed = $from.parentOffset < $from.parent.content.size;
-              tr.replaceSelection(joined(slice));
-              // A paste over a line's end leaves no empty line after it and the caret at its end.
+              const pasted = joined(slice);
+              const steps = tr.steps.length;
+              tr.replaceSelection(pasted);
+              // A paste over a line's end whose last line is closed splits off the empty rest of
+              // that line; it goes, and the caret goes to the paste's end.
+              let last = pasted.content.lastChild;
+              let lastDepth = 1;
+              while (last !== null && !last.isTextblock) {
+                last = last.lastChild;
+                lastDepth += 1;
+              }
               const step = tr.steps.at(-1);
-              if (!followed && step instanceof ReplaceStep) {
+              if (
+                !followed &&
+                pasted.openEnd < lastDepth &&
+                tr.steps.length > steps &&
+                step instanceof ReplaceStep
+              ) {
                 const $end = tr.doc.resolve(step.from + step.slice.size);
                 let at = $end.pos;
                 if ($end.parent.isTextblock && $end.parent.content.size === 0) {

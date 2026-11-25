@@ -1211,6 +1211,37 @@ describe('the Tiptap evaluation page', () => {
     ]);
   });
 
+  it('keeps a pasted blank last line and a line a paste leaves empty', async () => {
+    expect.hasAssertions();
+    const item = { kind: 'bulleted', indent: 1, align: 'right' } as const;
+    const page = await open([
+      { kind: 'paragraph', spans: [{ text: 'abc' }] },
+      { ...item, spans: [{ text: 'item' }] },
+      { kind: 'paragraph', spans: [] },
+    ]);
+    const { editor } = page;
+    const line = (index: number) => nth(textblocks(editor), index);
+    const blank = editor.view.serializeForClipboard(
+      editor.state.doc.slice(line(2).from - 1, line(2).to + 1),
+    ).dom.innerHTML;
+    editor.commands.setTextSelection({ from: line(1).from, to: line(1).to });
+    editor.view.pasteHTML(blank);
+    editor.commands.setTextSelection({
+      from: line(0).from + 1,
+      to: line(0).to,
+    });
+    editor.view.pasteText('first\n\n');
+    expect([bodyOf(page), editor.state.selection.from]).toStrictEqual([
+      [
+        { kind: 'paragraph', spans: [{ text: 'afirst' }] },
+        { kind: 'paragraph', spans: [] },
+        { ...item, spans: [] },
+        { kind: 'paragraph', spans: [] },
+      ],
+      line(1).from,
+    ]);
+  });
+
   it('drops a heading into an empty list item with the heading alignment', async () => {
     expect.hasAssertions();
     const page = await open([
