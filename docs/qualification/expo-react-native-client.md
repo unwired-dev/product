@@ -11,6 +11,45 @@ The [mobile bootstrap](../expo-client.md) now uses Expo 57.0.25, React Native
 are available on the development host. The maintainer's earlier native-validation
 deferral still applies to unavailable release checks. Mac host evidence follows.
 
+## iPhone and iPad system presenters with Reduce Motion, 2026-11-25
+
+[#2914](https://github.com/unwired-dev/product/issues/2914), a slice of
+[#2873](https://github.com/unwired-dev/product/issues/2873), checks the
+presenters [#1056](https://github.com/unwired-dev/product/issues/1056) moved to
+the system with Reduce Motion on (Settings › Accessibility › Motion). It ran on
+a `registration-declined` Release Simulator build of `6fef500a2`, whose
+presenter sources match `ae1ee73e8`, with Xcode 27.2 (`27B52`), the iOS 27.0
+runtime and macOS 27.2.1, on owned iPhone 18 Pro and iPad Pro 11-inch (M5)
+Simulators in portrait, signed in to the synthetic Gmail mailbox.
+`agent-device` opened each presenter and closed it with its own control while
+recording the screen; the same steps in Dark with Reduce Motion off are the
+comparison. The 1-minute host load from other work was about 50.
+
+- With Reduce Motion on, in Light and Dark, each presenter opened with its
+  controls in reach and closed with its own control. On iPhone: the Reply sheet
+  (Close), Filters (Apply Filters), Labels (a tap above it), New Label
+  (Cancel), the link confirmation (Cancel) and the new-message composer
+  (Close). On iPad: the Filters popover, the toolbar's Labels popover and More's
+  system menu (a tap outside), New Label in the Labels popover (Cancel), the
+  link confirmation (Cancel), and the new-message composer card and the docked
+  reply (Close).
+- The system changes the link confirmation's motion: with Reduce Motion it
+  fades in at its final size, without it it also shrinks into place. Both take
+  about 0.2 seconds, on iPhone and iPad.
+- Sheets keep their slide: the iPhone Reply, Filters, Labels, New Label and
+  composer sheets rise and fall the same way and in the same time, about
+  0.3 seconds, with Reduce Motion on and off.
+- The iPad popovers and More's menu open and close with the system's short fade
+  in both settings; the recordings show no difference between them. The
+  composer card and the docked reply appear and leave between two frames in
+  both: none of these presenters adds motion of its own.
+- Found in both settings: on iPhone the reader's body text turns into a spinner
+  while the composer sheet opens and for about 2 seconds after it closes, and
+  on iPad while the docked reply opens
+  ([#2917](https://github.com/unwired-dev/product/issues/2917)).
+- The recordings sample 30 frames a second, so a difference within one frame is
+  not seen.
+
 ## iPad keyboard and accessibility journey to the end, 2026-11-25
 
 [#1873](https://github.com/unwired-dev/product/issues/1873): the iPad
@@ -249,7 +288,8 @@ presenter; each names the appearances it ran in. Host load from other work was
   popover open (2026-11-25 entry above).
 - **Deferred** to [#2873](https://github.com/unwired-dev/product/issues/2873):
   the iPad Folders popover; VoiceOver focus when a presenter opens and its
-  return when it closes; Reduce Motion; a compact iPad window, where the
+  return when it closes; Reduce Motion on the iPhone Move sheet (the other
+  presenters are in the 2026-11-25 entry above); a compact iPad window, where the
   composer and Filters turn into sheets and the Move and Labels popovers, chosen
   by device rather than width, adapt as SwiftUI decides; a hardware keyboard,
   including Escape on the Labels popover; the software keyboard in New Label and
