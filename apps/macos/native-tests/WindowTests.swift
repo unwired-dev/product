@@ -1072,6 +1072,11 @@ final class WindowTests: XCTestCase {
       .matching(NSPredicate(format: "label BEGINSWITH %@", "paste-note.txt, ")).firstMatch
     XCTAssertTrue(note.waitForExistence(timeout: 30))
     XCTAssertEqual(body.images.count, 0)
+    // Another app's newer copy is never overwritten.
+    guard pasteboard.changeCount == written else {
+      XCTFail("Another app wrote to the pasteboard during the journey")
+      return
+    }
     pasteboard.clearContents()
     pasteboard.setData(png, forType: .png)
     written = pasteboard.changeCount
