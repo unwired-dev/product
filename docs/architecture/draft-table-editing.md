@@ -176,7 +176,8 @@ Each slice is one pull request and a sub-issue of #1268, in blocked-by order.
 1. **[#2856](https://github.com/unwired-dev/product/issues/2856) Owner decision** (decided): the Tiptap page becomes the production Draft body, and WebKit's VoiceOver table phrasing is accepted. The production integration of the page is [#2865](https://github.com/unwired-dev/product/issues/2865), which slices 4 to 6 also wait for.
 2. **[#2857](https://github.com/unwired-dev/product/issues/2857) Draft storage of tables** (delivered): `DraftSchema.body` accepts tables with header and merged cells, and the composers keep them intact without showing them. Live provider round trips stay with the provider Draft issues, such as #1269.
 3. **[#2858](https://github.com/unwired-dev/product/issues/2858) Page tables**
-   (blocked by 1 and 2): conversion between table cells and Tiptap, the table shapes it edits unchanged, the Tab
+   (delivered; the [evaluation guide](../draft-editor-evaluation.md#formatting-and-history)
+   lists the shapes it edits): conversion between table cells and Tiptap, the table shapes it edits unchanged, the Tab
    command (including a table that ends the body), Return, Backspace after a
    table, whole-table selection as one Undo step, marks in cells and the
    focused-cell outline, tested in the page.

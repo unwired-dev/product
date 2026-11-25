@@ -3,6 +3,7 @@ import type {
   ImageWidth,
   Selection,
   SemanticDocument,
+  TableDocument,
 } from '@private-email/mail-core/semantic-document';
 
 import {
@@ -10,7 +11,7 @@ import {
   BlockKindSchema,
   imagesOf,
   MarkSchema,
-  SemanticDocumentSchema,
+  TableDocumentSchema,
   withImage,
   withoutImage,
 } from '@private-email/mail-core/semantic-document';
@@ -29,7 +30,7 @@ const PageMessageSchema = Schema.fromJsonString(
       revision: Offset,
       // The page is read-only and has flushed every preceding edit before the host finishes.
       frozen: Schema.optionalKey(Schema.Literal(true)),
-      document: Schema.optionalKey(SemanticDocumentSchema),
+      document: Schema.optionalKey(TableDocumentSchema),
       attachments: Schema.optionalKey(Schema.Array(AssetSchema)),
       // Display offsets, as the current composer counts them: blocks joined by line breaks, list
       // items after their shown marker.
@@ -63,7 +64,7 @@ export type Command =
   | Readonly<{
       type: 'replace';
       revision: number;
-      document: SemanticDocument;
+      document: TableDocument;
       selection: Selection;
     }>
   // One undoable edit: the images go inline at the selection, the rest become Attachments.
