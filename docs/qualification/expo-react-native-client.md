@@ -38,6 +38,39 @@ its first attempt; the 1-minute host load was 7–90.
 
 The other checks #2873 lists stay open there.
 
+## iPad popovers close at one tap outside and at Escape, 2026-11-25
+
+[#2879](https://github.com/unwired-dev/product/issues/2879), a slice of
+[#2873](https://github.com/unwired-dev/product/issues/2873), follows up the second
+taps #2798 saw on iPad. It ran on `d72ed590e`, on a `registration-declined` Release
+Simulator build with Xcode 27.2 (`27B52`), the iOS 27.0 runtime and macOS 27.2.1,
+on iPad Pro 11-inch (M5) in portrait. Host load from other work was 5–58.
+
+- The new `testPopoverDismissal` journey passed in Light and in Dark. Each of the
+  Inbox's Filters popover, the reader toolbar's Labels popover, More's system menu
+  and the Labels popover from More › Move to… closed at a single tap outside, three
+  times in each appearance, and both Labels popovers closed at Command-period,
+  which UIKit delivers as Escape. The message stayed open and read.
+- More's system menu closed at Command-period in the first Light and Dark runs
+  and in a Light rerun, but stayed open in two Dark reruns (1-minute host load
+  41 → 58 and 43 → 25 across them). Why is not established. The journey no
+  longer presses it there, and More's Escape on a hardware keyboard stays
+  unverified with #2873.
+- Through `agent-device`, on the same build and an owned iPad, a single coordinate
+  tap outside closed 35 of 36 times: Filters 6 in Light; Labels and More 6 each in
+  Light; Labels 6, More 4 and Move to…'s Labels 4 in Dark; and 3 more after the
+  refused press below. The one miss followed that refused press at host load
+  about 50, and did not recur when the sequence was repeated three times.
+- An open iPad popover hides the window behind it from accessibility (#1403), so a
+  press aimed at a ref or element behind it, taken before it opened, is refused
+  as `Ref … not found. Not dispatched.` and the popover stays open: one way a first
+  tap can be lost, reproduced here. Why the one coordinate tap missed, and which
+  cause #2798 met, is not established; the Sync Status journey already taps again
+  for a first tap lost under load. No single tap the journey made was missed.
+- **Deferred** to [#2873](https://github.com/unwired-dev/product/issues/2873): the
+  rest of its list, including VoiceOver, Reduce Motion, compact windows, rotation,
+  the Folders popover and a hardware keyboard's Escape on More.
+
 ## Mac native pass in Mock Mail, 2026-11-25
 
 [#2880](https://github.com/unwired-dev/product/issues/2880), a slice of
@@ -172,9 +205,10 @@ presenter; each names the appearances it ran in. Host load from other work was
   docks in the reading column, both closed by Close (Light and Dark).
 - On iPad, a tap outside the Labels popover (from the toolbar and from More, in
   Dark) and the Filters popover (in Light) sometimes closed it only at the
-  second tap. CI closes the Filters popover with one tap in Dark; the cause of
-  each observation is not established, and
-  [#2873](https://github.com/unwired-dev/product/issues/2873) keeps them open.
+  second tap. CI closes the Filters popover with one tap in Dark;
+  [#2879](https://github.com/unwired-dev/product/issues/2879) found no second
+  tap needed in its journey and a refused `agent-device` press that leaves a
+  popover open (2026-11-25 entry above).
 - **Deferred** to [#2873](https://github.com/unwired-dev/product/issues/2873):
   the iPad Folders popover; VoiceOver focus when a presenter opens and its
   return when it closes; Reduce Motion; a compact iPad window, where the
