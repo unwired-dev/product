@@ -1020,8 +1020,8 @@ when the app becomes active or goes to the background. Another device then shows
 reminder with the same instant and time zone. A removal wins over a change made
 concurrently on another device, so a stale write never restores a removed reminder;
 of two concurrent changes the one written first wins, and both devices end with it.
-Sending or discarding a Draft whose reminder has not reached this device yet removes
-it at the next pull. Each Profile's reminder for a Draft is its own record, so another
+Sending or discarding a Draft whose reminder has not reached this device yet publishes
+a removal of it, so the reminder is removed whenever it arrives. Each Profile's reminder for a Draft is its own record, so another
 Profile's reminder is never replaced or removed.
 
 On the Mac ([#2123](https://github.com/unwired-dev/product/issues/2123)) a right

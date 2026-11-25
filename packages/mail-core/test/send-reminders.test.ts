@@ -228,13 +228,13 @@ describe('stored Send Reminders', () => {
     expect(state.commits).toBe(0);
   });
 
-  it("refuses to set or cancel another Profile's Draft reminder", async () => {
+  it("refuses to set, and never cancels, another Profile's Draft reminder", async () => {
     expect.hasAssertions();
     const { state, store } = storage();
     await store.remind('work', keys);
     const { document, commits } = state;
     await expect(store.remind('home', keys)).resolves.toBe(false);
-    await expect(store.cancel('home', keys.draft)).resolves.toBe(false);
+    await expect(store.cancel('home', keys.draft)).resolves.toBe(true);
     expect(state).toMatchObject({ document, commits });
     await expect(store.reminders('home')).resolves.toStrictEqual([]);
   });
@@ -398,7 +398,7 @@ describe('synchronized Send Reminders', () => {
 
   it('removes a reminder of a Draft sent or discarded before the reminder arrived', async () => {
     expect.hasAssertions();
-    const { mac, phone } = devices();
+    const { server, mac, phone } = devices();
     await mac.remind('work', keys);
     await mac.synchronize();
     await expect(phone.cancel('work', keys.draft)).resolves.toBe(true);
@@ -406,6 +406,36 @@ describe('synchronized Send Reminders', () => {
     await mac.synchronize();
     await expect(phone.reminders('work')).resolves.toStrictEqual([]);
     await expect(mac.reminders('work')).resolves.toStrictEqual([]);
+
+    // Also before the reminder reached Product Sync.
+    const invoice = { ...keys, draft: 'invoice' };
+    server.setReachable(false);
+    await mac.remind('work', invoice);
+    await mac.synchronize();
+    await phone.cancel('work', invoice.draft);
+    await phone.synchronize();
+    server.setReachable(true);
+    await phone.synchronize();
+    await mac.synchronize();
+    await phone.synchronize();
+    await expect(phone.reminders('work')).resolves.toStrictEqual([]);
+    await expect(mac.reminders('work')).resolves.toStrictEqual([]);
+  });
+
+  it('lets a Draft reminded again after a cancellation take the first write', async () => {
+    expect.hasAssertions();
+    const { mac, phone } = devices();
+    await mac.remind('work', keys);
+    await mac.synchronize();
+    await phone.cancel('work', keys.draft);
+    await phone.remind('work', evening);
+    await phone.synchronize();
+    await mac.synchronize();
+    for (const device of [mac, phone]) {
+      await expect(device.reminders('work')).resolves.toStrictEqual([
+        { ...keys, profile: 'work' },
+      ]);
+    }
   });
 
   it('converges concurrent rescheduling on one reminder on both devices', async () => {

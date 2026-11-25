@@ -587,7 +587,8 @@ instant and time zone. The document counts toward the Outgoing Content Store's
 100 MB with the Drafts, their assets and composer recovery records, so a reminder
 that does not fit is refused and reminders leave less space for saves. Another
 account reads none, and every account purge removes it. The document also keeps each
-reminder's last Private Sync record and the writes still in flight, so a reminder set
+reminder's last Private Sync record, the writes still in flight and the removals still
+to publish, so a reminder set
 offline is published once Private Sync is reachable
 ([#2830](https://github.com/unwired-dev/product/issues/2830)).
 

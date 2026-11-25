@@ -56,8 +56,8 @@ const StoredDocumentSchema = Schema.Struct({
   // Each write sent and not yet known to have landed or lost, so reading one back after a lost
   // reply is no conflict.
   sent: Schema.optionalKey(Schema.Array(SentSchema)),
-  // The records of Drafts sent or discarded here before their reminder arrived: the next pull
-  // removes a reminder another device set.
+  // The records of Drafts sent or discarded here before their reminder arrived: each is a removal
+  // to publish until this device reads or writes the record.
   cancelled: Schema.optionalKey(Schema.Array(Schema.NonEmptyString)),
 });
 type Reminders = typeof StoredDocumentSchema.Type;
@@ -147,18 +147,21 @@ const byRecord = (reminders: readonly SendReminder[]) =>
 const byId = <T extends Readonly<{ id: string }>>(items: readonly T[] = []) =>
   new Map(items.map((item) => [item.id, item]));
 
-// Each record whose reminder differs from the record it was made from, with that record: a change,
-// or a removal, to publish.
-const pendingOf = ({ reminders, synced }: Reminders) => {
+// Each record whose reminder differs from the record it was made from, or that a cancellation
+// removes, with that record: a change, or a removal, to publish.
+const pendingOf = ({ reminders, synced, cancelled = [] }: Reminders) => {
   const live = byRecord(reminders);
   const bases = byId(synced);
-  return [...new Set([...live.keys(), ...bases.keys()])].flatMap((id) => {
-    const reminder = live.get(id) ?? null;
-    const base = bases.get(id);
-    return sameReminder(base?.reminder ?? null, reminder)
-      ? []
-      : [{ id, reminder, base }];
-  });
+  return [...new Set([...live.keys(), ...bases.keys(), ...cancelled])].flatMap(
+    (id) => {
+      const reminder = live.get(id) ?? null;
+      const base = bases.get(id);
+      return sameReminder(base?.reminder ?? null, reminder) &&
+        !cancelled.includes(id)
+        ? []
+        : [{ id, reminder, base }];
+    },
+  );
 };
 
 // A random identifier for one write, as Draft assets are named.
@@ -187,7 +190,7 @@ const adoptRecord = (
     live: Map<string, SendReminder>;
     bases: Map<string, Synced>;
     sent: Set<Sent>;
-    cancelled: ReadonlySet<string>;
+    cancelled: Set<string>;
   }>,
   record: Synced,
 ) => {
@@ -197,12 +200,14 @@ const adoptRecord = (
     ({ id, write }) => id === record.id && write === record.write,
   );
   bases.set(record.id, record);
+  // A cancelled record read is now a removal to publish from it, or already removed.
+  const removed = cancelled.delete(record.id);
   for (const item of sent) {
     if (item.id === record.id && item.version <= record.version) {
       sent.delete(item);
     }
   }
-  if (own || (pending && local === null) || cancelled.has(record.id)) {
+  if (own || (pending && local === null) || removed) {
     return;
   }
   if (record.reminder === null) {
@@ -224,11 +229,11 @@ const adopt = (document: Reminders, records: readonly Synced[]) => {
   )) {
     adoptRecord({ live, bases, sent, cancelled }, record);
   }
-  // Each cancellation is now a removal to publish, or had no reminder to remove.
   const next = {
     reminders: [...live.values()],
     synced: [...bases.values()],
     sent: [...sent],
+    cancelled: [...cancelled],
   };
   return sameDocument(document, next) ? document : next;
 };
@@ -266,6 +271,7 @@ const settled = (document: Reminders, written: Synced) => {
     sent: (document.sent ?? []).filter(
       ({ id, version }) => id !== written.id || version > written.version,
     ),
+    cancelled: (document.cancelled ?? []).filter((id) => id !== written.id),
   };
 };
 
@@ -421,9 +427,9 @@ export function createSendReminders(
   const synchronize = preferencePasses('Send Reminder', pass, sync);
 
   // Resolves whether storage holds `reminder`, or its removal when null, as `profile`'s reminder for
-  // Draft `draft`, then publishes it. Another Profile's reminder for that Draft is refused. Removing
-  // a reminder this device does not hold writes nothing, except with Private Sync, where it is kept
-  // for the next pull to remove one another device set.
+  // Draft `draft`, then publishes it. A reminder for a Draft another Profile's reminder names is
+  // refused. Removing a reminder this device does not hold writes nothing, except with Private
+  // Sync, where it is kept as a removal to publish.
   const changing = async (
     profile: string,
     draft: string,
@@ -435,18 +441,21 @@ export function createSendReminders(
         const current = document.reminders.find(
           (each) => recordId(each) === id,
         );
-        if (
-          current === undefined &&
-          document.reminders.some((each) => each.draft === draft)
-        ) {
-          return undefined;
-        }
         const others = document.reminders.filter((each) => each !== current);
-        if (reminder !== null || current !== undefined) {
-          return {
-            ...document,
-            reminders: reminder === null ? others : [...others, reminder],
-          };
+        if (reminder !== null) {
+          return current === undefined &&
+            others.some((each) => each.draft === draft)
+            ? undefined
+            : {
+                ...document,
+                reminders: [...others, reminder],
+                cancelled: (document.cancelled ?? []).filter(
+                  (each) => each !== id,
+                ),
+              };
+        }
+        if (current !== undefined) {
+          return { ...document, reminders: others };
         }
         return sync === undefined || document.cancelled?.includes(id)
           ? document

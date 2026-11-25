@@ -301,8 +301,8 @@ holding the Draft and its Profile, the due instant, the time zone and a random w
 identifier, but none of the Draft's content, with a sealed tombstone once removed. Writes
 use compare-and-set. A removal wins over a concurrent change, so a stale write never
 restores a removed reminder, and of two concurrent changes the one written first wins. A
-Draft sent or discarded before its reminder reached this device is remembered until the
-next pull, which removes the reminder. A record that does not open under its own
+Draft sent or discarded before its reminder reached this device publishes a tombstone for
+it, which removes the reminder whichever device writes first. A record that does not open under its own
 identifier is never adopted or overwritten.
 Each Mail Profile's [Blocked Senders](architecture/product/organization.md#mute-and-blocked-senders)
 synchronize as one sealed `profile-blocked-senders.` record under an identifier derived
