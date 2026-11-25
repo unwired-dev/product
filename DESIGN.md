@@ -367,8 +367,8 @@ form accessories, keyboards, status bar).
   menu, so each Profile's connections and unread count share its subtitle, the
   checkmark leads and the Profile's monogram is the item image. The Default Profile is named Primary
   Profile.
-- **Mail View Chip (Figma: Category Chip):** the `category-chip` token recipes
-  style each header chip with an icon, label and unread-Thread count badge capped
+- **Mail View Chip (Figma: Category Chip):** each header chip has an icon,
+  label and unread-Thread count badge capped
   at 99+. Selected chips are graphite with an emphasized label; others use the quiet fill.
   Details follow the
   [Mail View requirements](docs/product/organization.md#prototype-mail-views-and-interface-behavior).

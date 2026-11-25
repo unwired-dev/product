@@ -94,13 +94,17 @@ const codeOnly = new Set([
   'radiusSearchField',
 ]);
 
+// `transparent`, `#RRGGBB` or `rgba(r, g, b, a)`; any other format never matches.
 const rgba = (color: string) => {
   if (color === 'transparent') {
     return [0, 0, 0, 0];
   }
-  return color.startsWith('#')
-    ? [...channelsOf(color), 1]
-    : color.slice('rgba('.length, -1).split(',').map(Number);
+  if (/^#[\dA-F]{6}$/iu.test(color)) {
+    return [...channelsOf(color), 1];
+  }
+  return /^rgba\(.*\)$/u.test(color)
+    ? color.slice('rgba('.length, -1).split(',').map(Number)
+    : [Number.NaN];
 };
 // Figma stores numbers as 32-bit floats.
 const near = (left: number, right: number | undefined) =>
