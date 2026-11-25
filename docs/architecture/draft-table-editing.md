@@ -138,10 +138,12 @@ Replacing the production body was the owner's decision, which this plan filed ah
   parts as Other. WebKit exposes tables on the Mac; on iOS it is unverified until a
   device run.
 - **VoiceOver wording.** WebKit speaks its own table phrasing, which may differ from the approved "2 Dec, Date, row 3 of 5"; the owner accepted it in #2856.
-- **The evaluation's own gaps.** The [evaluation guide](../draft-editor-evaluation.md)
-  still lists the signed Mac native journey, physical iPhone and iPad runs,
+- **The evaluation's own gaps.** At the probes, the [evaluation guide](../draft-editor-evaluation.md)
+  listed the signed Mac native journey, physical iPhone and iPad runs,
   hardware keyboards, IME, dictation, autocorrection and VoiceOver as outstanding
-  before any adoption decision. The probe page also lacked the evaluation page's
+  before any adoption decision. The signed Mac journey passed on 25 November 2026
+  ([#2876](https://github.com/unwired-dev/product/issues/2876)); the rest are
+  [ADR 0080](../adr/0080-edit-the-draft-body-in-the-tiptap-page.md)'s rollout gates. The probe page also lacked the evaluation page's
   normalizer, conversion and save ordering.
 - **Header identity.** The probe page started from real `th` cells. Storage keeps the header flag since #2857; the page's conversion must carry it (slice 3).
 - **Keys and input.** Simulator Tab injection is not a physical keyboard; IME

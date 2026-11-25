@@ -29,15 +29,18 @@ recommendation and the decision it supports. Facts link to their evidence;
   the [evaluated packages](../draft-editor-evaluation.md#evaluated-packages)),
   built by esbuild 0.28.2 into one page, in the patched `react-native-webview`
   14.0.1 on both hosts. The table probes added `prosemirror-tables` 1.8.5 from
-  `@tiptap/pm`. No vendor package is patched; the existing WebView patch is
-  unchanged and no other native code was added.
+  `@tiptap/pm`. Tiptap and ProseMirror needed no patch; the existing
+  [WebView patch](../../patches/react-native-webview@14.0.1.patch) is unchanged,
+  and no other native code was added.
 - **Native runs.** iPhone 18 Pro and iPad Pro 11-inch (M5) Simulator journeys and
   the signed Mac `Testing` journey open, type, format, step Undo and Redo, run
   rewrites, translation and reply suggestions, edit links, save, relaunch and
   reopen a Draft through the encrypted Draft store
   ([Evidence](../draft-editor-evaluation.md#evidence); Mac on 25 November 2026,
   [#2876](https://github.com/unwired-dev/product/issues/2876)). iPhone and iPad
-  also place, convert and reopen an Inline Image. No physical device ran.
+  also place, convert and reopen an Inline Image. Assistance results came from
+  the build's synthetic model and Translation, so they prove the bridge and the
+  edit, not Apple's models. No physical device ran.
 - **Host failures.** None stopped the page on a host. Found and fixed during the
   runs: the review panel under the iPhone keyboard, a result dropped before the
   page loaded, rotation squeezing the body, the iPhone pill behind the keyboard and
@@ -66,8 +69,11 @@ recommendation and the decision it supports. Facts link to their evidence;
 
 - **Semantic Message Document.** `src/conversion.ts` is the only boundary; Drafts
   store only the document, never Tiptap JSON, HTML or Markdown, and the host
-  decodes every page message with Schema. Page tests round-trip every pair of block
-  kinds and marks.
+  decodes every page message with Schema. Page tests round-trip every ordered
+  pair of the evaluated block kinds with mixed marks. Drafts now also hold list
+  levels, alignment, colors, fonts and tables, which the evaluation conversion
+  does not keep: #2884 and #2858 make them round-trip before any existing Draft
+  opens in the page.
 - **Encrypted assets.** Native code keeps the bytes and their custody; the page
   receives only verified thumbnails and names assets by identifier, and the host
   saves only assets it gave the page.
@@ -84,13 +90,20 @@ recommendation and the decision it supports. Facts link to their evidence;
   current composer's native text view gets the system's input methods and
   VoiceOver, which the page has not shown on iOS.
   BlockNote was not built, so nothing here claims it would be faster or more
-  reliable; it would carry the same WebView host work with a block UI the product
-  does not use, and its email exporter is GPL-3.0 or paid.
-- **Lexical. Judgment:** no failure is Tiptap-specific. The open risks (iOS
-  VoiceOver, input methods in `contenteditable`, paste and drop interception) are
-  WebKit's, so a bounded Lexical comparison would test nothing new. If one of them
-  fails, investigate native editing, the split-region fallback of the table plan,
-  rather than another web engine.
+  reliable. A core-only BlockNote with a small schema would carry the same WebView
+  host work; its core is MPL-2.0, whose distribution makes its covered source, with
+  changes to those files, available, and only its optional XL email exporter is GPL-3.0 or paid
+  ([licensing](../research/blocknote.md#licensing-and-cost)).
+- **Lexical. Judgment:** the open risks (iOS VoiceOver, input methods in
+  `contenteditable`, paste and drop interception) are WebKit's, so a bounded
+  Lexical comparison would test nothing new for them. If one of them fails,
+  investigate native editing, the split-region fallback of the table plan, rather
+  than another web engine. The one Tiptap-side limitation seen is
+  `prosemirror-tables` normalizing ragged rows as soon as they are edited
+  ([table shapes](../architecture/draft-table-editing.md#what-the-evidence-does-not-show)).
+  If #2858 can neither keep nor report those shapes, a Lexical comparison would
+  test one hypothesis: ordinary typing in the same ragged-table fixture on the
+  same host keeps its geometry.
 
 ## Decision
 
@@ -105,21 +118,31 @@ first, then the composers, then table editing per host
 remains until #2865 replaces it. The owner also accepted WebKit's own VoiceOver
 table phrasing (#2856).
 
-The missing evidence makes these rollout gates, to be met or recorded as a
-release limit before the page ships outside evaluation builds:
+The missing evidence makes these rollout gates, to be met, or except for 6
+recorded as a release limit, before the page ships outside evaluation builds:
 
 1. Physical iPhone and iPad runs, with hardware keyboards, IME composition,
    dictation, autocorrection and VoiceOver, including inside table cells.
-2. The Mac two-window journey on one Draft and the window's close button, run
-   natively; edits lost when the app ends before **Save Draft**.
-3. Image paste on Mac, file drops on every host, and **Paste Image** on a device.
+2. Native exits as [#778](https://github.com/unwired-dev/product/issues/778)
+   guards them for the current composer (iPhone **Back** and edge swipes, Mac
+   window close, Command-W and **Quit**), and the Mac two-window journey on one
+   Draft, run natively. Separately, a forced app termination before **Save
+   Draft** loses the open edits; record that as the page's behaviour.
+3. The Mac Inline Image journey, image paste on Mac, file drops on every host,
+   and **Paste Image** and in-page paste on a device.
 4. WebKit website data after account removal and a network capture of a journey.
-5. Selection-change latency on large, many-block Drafts in both composers, from
-   the [#822 review note](https://github.com/unwired-dev/product/issues/822#issuecomment-6114571758).
-6. The Tiptap and ProseMirror notices in the shipped app's licence inventory.
+5. [#822](https://github.com/unwired-dev/product/issues/822)'s comparison of
+   both composers in Release builds on the same fixtures and devices, including
+   selection-change latency on large, many-block Drafts
+   ([review note](https://github.com/unwired-dev/product/issues/822#issuecomment-6114571758)),
+   and the current composer's interactions the page lacks, such as the Slash
+   Command Menu.
+6. The Tiptap and ProseMirror notices in the distributed app; the licence
+   inventory must list the page's packages.
 7. Outgoing mail: the body is still serialized by mail-core from the document,
-   and editor HTML is never sent; MIME output and recipient rendering stay with
-   the provider qualification issues, not with this editor.
+   and editor HTML is never sent. Packaged-client sends to real providers
+   ([#1282](https://github.com/unwired-dev/product/issues/1282)) must verify the
+   serialized MIME and what recipients see.
 
 ## Consequences
 
