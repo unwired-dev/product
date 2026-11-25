@@ -306,11 +306,12 @@ function EmptyDetail({ id }: { readonly id: string | undefined }) {
 
 // Starts a Draft from the reader's mailbox when it can send, or the first one that can, with a
 // copy of a Downloaded Attachment. The Draft keeps the bytes, never the mailbox they came from.
+// Without `onCompose`, as beneath an open composer, it offers nothing but keeps the reader mounted.
 function AttachToNewMessage({
   onCompose,
   children,
 }: {
-  readonly onCompose: (id: string) => void;
+  readonly onCompose: ((id: string) => void) | undefined;
   readonly children: ReactNode;
 }) {
   const store = useDraftStore();
@@ -327,6 +328,7 @@ function AttachToNewMessage({
   // message.
   const mailboxes = account?.mailboxes ?? [];
   const canSend =
+    onCompose !== undefined &&
     newMessageSender(
       mailboxes,
       profileOf(mailbox?.id, mailboxes),
@@ -354,7 +356,7 @@ function AttachToNewMessage({
         saved,
       });
       if (mounted.current && draft !== undefined) {
-        onCompose(draft);
+        onCompose?.(draft);
       }
     } catch {
       // Keep the reader usable if an unexpected host operation rejects, and say so. An undefined
@@ -454,15 +456,11 @@ export function MessageDetail({
       id={mailbox}
       fallback={<EmptyDetail id={id} />}>
       <ProfileMailAssistanceGate profile={profile}>
-        {onCompose === undefined ? (
-          message
-        ) : (
-          <AttachToNewMessage
-            key={`${mailbox}/${id}`}
-            onCompose={onCompose}>
-            {message}
-          </AttachToNewMessage>
-        )}
+        <AttachToNewMessage
+          key={`${mailbox}/${id}`}
+          onCompose={onCompose}>
+          {message}
+        </AttachToNewMessage>
       </ProfileMailAssistanceGate>
     </MailboxScope>
   );
