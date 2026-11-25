@@ -129,6 +129,42 @@
           "toolchain": "Xcode 27.2 Build version 27B52"
         }
       }
+    },
+    {
+      "id": "ipad-inbox-light",
+      "device": "com.apple.CoreSimulator.SimDeviceType.iPad-Pro-11-inch-M5-12GB",
+      "attachment": "Visual Inbox (light)",
+      "figma": {
+        "image": "figma/ipad-inbox-light.png",
+        "sha256": "8c5dd1161deed7c1dd9b84d0b8693ab76d05bb96ff4622d3932a9ee813da2cdc",
+        "fileKey": "d1mHEaUNmnF7YUw6QwIs0T",
+        "nodeId": "2454:14278",
+        "frame": "Proposal · iPad · Inbox · Light",
+        "section": "#2647 #2646 #2131 Inbox consistency review · approved 2026-11-22",
+        "fileVersion": null,
+        "scale": 2,
+        "exportedAt": "2026-11-25T09:46:53Z",
+        "approvedDifferences": [],
+        "outstandingDeviations": []
+      }
+    },
+    {
+      "id": "ipad-inbox-dark",
+      "device": "com.apple.CoreSimulator.SimDeviceType.iPad-Pro-11-inch-M5-12GB",
+      "attachment": "Visual Inbox (dark)",
+      "figma": {
+        "image": "figma/ipad-inbox-dark.png",
+        "sha256": "f62734fc49e9d57438aa9183380acd03e958a06e83c06a9adb4f8460c5b020a6",
+        "fileKey": "d1mHEaUNmnF7YUw6QwIs0T",
+        "nodeId": "2454:14380",
+        "frame": "Proposal · iPad · Inbox · Dark",
+        "section": "#2647 #2646 #2131 Inbox consistency review · approved 2026-11-22",
+        "fileVersion": null,
+        "scale": 2,
+        "exportedAt": "2026-11-25T09:46:53Z",
+        "approvedDifferences": [],
+        "outstandingDeviations": []
+      }
     }
   ]
 }
