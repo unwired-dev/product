@@ -36,6 +36,7 @@ import {
   press,
   simulatedPage,
 } from './evaluation-page.ts';
+import { choose as chooseFrom } from './system-menu.tsx';
 import { translateInto } from './translation-menu.tsx';
 import { injectedScripts } from './webview.tsx';
 import { menuGroups } from './writing-tools.ts';
@@ -333,8 +334,7 @@ describe('the Tiptap evaluation composer', () => {
     const page = simulatedPage();
     await page.report({});
     await page.typed('Keep this unsaved body');
-    await press('Writing tools');
-    await press('Rewrite the message body');
+    await chooseFrom('Writing tools', 'Rewrite the message body');
     await screen.findByText(syntheticRewrite);
     await app.rerender(view('personal'));
     expect(screen.queryByText(syntheticRewrite)).toBeNull();
@@ -422,8 +422,7 @@ describe('the Tiptap evaluation composer', () => {
 
     // Rewrite without a selection captures the whole body; the result replaces it in the page,
     // for the body revision it was captured from.
-    await press('Writing tools');
-    await press('Rewrite the message body');
+    await chooseFrom('Writing tools', 'Rewrite the message body');
     // The page stops editing so the software keyboard does not cover the review.
     expect(lastCommand()).toBe(sent({ type: 'blur' }));
     await screen.findByText(syntheticRewrite);
@@ -445,8 +444,7 @@ describe('the Tiptap evaluation composer', () => {
     expect(screen.queryByLabelText('Rewrite of your text')).toBeNull();
     // An edit retires a pending capture: its result is never offered.
     await report({ selection: { start: 9, end: 13 } });
-    await press('Writing tools');
-    await press('Translate the selected text');
+    await chooseFrom('Writing tools', 'Translate the selected text');
     await translateInto('German');
     await screen.findByText(syntheticTranslation);
     await typed('Plan B');
@@ -457,8 +455,7 @@ describe('the Tiptap evaluation composer', () => {
       { kind: 'quote', spans: [{ text: 'Hola amigos' }] },
     ];
     await report({ document: latest, selection: { start: 5, end: 11 } });
-    await press('Writing tools');
-    await press('Translate the selected text');
+    await chooseFrom('Writing tools', 'Translate the selected text');
     await translateInto('German');
     await screen.findByText(syntheticTranslation);
     await press('Replace the selected text with this translation');
@@ -504,9 +501,8 @@ describe('the Tiptap evaluation composer', () => {
     expect(screen.queryByRole('button', { name: 'Format' })).toBeNull();
     await press('Italic');
     expect(lastCommand()).toBe(commandScript({ type: 'mark', mark: 'italic' }));
-    await press('Writing tools');
     expect(expand).not.toHaveBeenCalled();
-    await press('Rewrite the message body');
+    await chooseFrom('Writing tools', 'Rewrite the message body');
     expect(lastCommand()).toBe(commandScript({ type: 'blur' }));
     // A text tool's review takes the whole window.
     expect(expand).toHaveBeenCalledWith();
@@ -790,8 +786,7 @@ describe('the Tiptap evaluation composer', () => {
       await press('New Message');
       const { typed } = simulatedPage();
       await typed('Keep this body');
-      await press('Writing tools');
-      await press('Rewrite the message body');
+      await chooseFrom('Writing tools', 'Rewrite the message body');
       await screen.findByText(syntheticRewrite);
       const apply = screen.getByRole('button', {
         name: 'Replace your text with this rewrite',
@@ -844,12 +839,10 @@ describe('the Tiptap evaluation composer', () => {
     );
     await press('New Message');
     await simulatedPage().report({});
-    await press('Writing tools');
-    expect(
-      screen.queryByRole('button', {
-        name: 'Suggest a reply to the quoted message',
-      }),
-    ).toBeNull();
+    // A new message offers no reply to suggest.
+    expect(menuGroups('Writing tools')).toStrictEqual([
+      [['Rewrite', 'pencil', true]],
+    ]);
     const [draft] = draftsOf(drafts.getSnapshot());
     ok(draft, 'Expected a Draft');
     const reply: Draft = {
@@ -874,8 +867,7 @@ describe('the Tiptap evaluation composer', () => {
     // The reopened page starts again at its first body revision.
     await press(/^Draft\./u);
     await simulatedPage().report({});
-    await press('Writing tools');
-    await press('Suggest a reply to the quoted message');
+    await chooseFrom('Writing tools', 'Suggest a reply to the quoted message');
     await screen.findByText(syntheticReply);
     await press('Replace your reply with this suggestion');
     expect(lastCommand()).toBe(
@@ -912,9 +904,16 @@ describe('the Tiptap evaluation composer', () => {
     await press('New Message');
     const { report } = simulatedPage();
     await report({});
+    expect(menuGroups('Add files')).toStrictEqual([
+      [
+        ['Attach File', 'doc', undefined],
+        ['Attach Photo', 'photo', undefined],
+        ['Insert Image', 'photo.on.rectangle', undefined],
+        ['Paste Image', 'doc.on.clipboard', undefined],
+      ],
+    ]);
     const pick = async (label: string) => {
-      await press('Add files');
-      await press(label);
+      await chooseFrom('Add files', label);
     };
     // The photo goes inline at the page's selection; native code imports it meanwhile.
     storage.holdImports();
@@ -1058,8 +1057,7 @@ describe('the Tiptap evaluation composer', () => {
       storage.pickNext('photos', [
         { uri: `file:///${name}`, name, type: 'image/png' },
       ]);
-      await press('Add files');
-      await press('Insert Image');
+      await chooseFrom('Add files', 'Insert Image');
       const [image] = lastAdded().images;
       ok(image, 'Expected the photo');
       return image;
@@ -1131,8 +1129,7 @@ describe('the Tiptap evaluation composer', () => {
     storage.pickNext('photos', [
       { uri: 'file:///chart.png', name: 'chart.png', type: 'image/png' },
     ]);
-    await press('Add files');
-    await press('Insert Image');
+    await chooseFrom('Add files', 'Insert Image');
     const [chart] = lastAdded().images;
     ok(chart, 'Expected the inline photo');
     await report({
@@ -1210,8 +1207,7 @@ describe('the Tiptap evaluation composer', () => {
     storage.pickNext('photos', [
       { uri: 'file:///chart.png', name: 'chart.png', type: 'image/png' },
     ]);
-    await press('Add files');
-    await press('Insert Image');
+    await chooseFrom('Add files', 'Insert Image');
     const [chart] = lastAdded().images;
     ok(chart, 'Expected the inline photo');
     await report({

@@ -27,12 +27,7 @@ import type { LinkEditorState } from './composer-controls.tsx';
 
 import { Action } from './action.tsx';
 import { CommandInput, usePaletteHeader } from './command-palette.tsx';
-import {
-  FormatBar,
-  LinkEditor,
-  MenuItem,
-  OverflowMenu,
-} from './composer-controls.tsx';
+import { FormatBar, LinkEditor, OverflowMenu } from './composer-controls.tsx';
 import {
   assetPickers,
   CloseButton,
@@ -43,10 +38,13 @@ import {
   Recipients,
   SendButton,
   textToolLabel,
+  textToolSymbols,
 } from './composer.tsx';
 import {
   GlassGroup,
-  GlassPanel,
+  MenuButton,
+  scaledToolbar,
+  SFSymbol,
   ToolbarButton,
   useMenuMotion,
 } from './design.tsx';
@@ -73,95 +71,91 @@ const styles = StyleSheet.create({
     marginLeft: 'auto',
   },
   sender: { flexShrink: 1 },
-  // Above the content below it, so the Writing tools menu opens over the body.
-  padBar: { zIndex: 1 },
-  padMenu: {
-    position: 'absolute',
-    top: '100%',
-    right: spacing.l,
-    minWidth: 240,
-  },
-  pillMenu: {
-    position: 'absolute',
-    zIndex: 4,
-    right: spacing.l,
-    bottom: 64,
-    minWidth: 240,
-  },
 });
 
 export type PageState = Omit<Update, 'type' | 'document' | 'attachments'>;
-// The open menu, or on iPhone the Format panel in place of the keyboard.
-export type Open = 'close' | 'attach' | 'tools' | 'format';
+// The Close question, or on iPhone the Format panel in place of the keyboard.
+export type Open = 'close' | 'format';
 type Add = (source: PickSource, inline: boolean) => void;
 type Capture = (purpose: DraftTextPurpose) => void;
 type EditLink = (link: Link, text: string, href?: string) => void;
 
-// The writing tools the Draft's body offers now: today's Rewrite, Translate and Suggest Reply.
+// The writing tools the Draft's body offers now, in the system menu: today's Rewrite, Translate and
+// Suggest Reply. They appear only where assistance or translation is available.
 function WritingTools({
   draft,
   page,
+  popover,
   onCapture,
 }: {
   readonly draft: Draft;
   readonly page: PageState;
+  readonly popover: boolean;
   readonly onCapture: Capture;
 }) {
+  const colors = usePalette();
   const { t } = useLocalization();
   const assistance = use(AssistanceContext);
   const translation = use(TranslationContext);
+  if (assistance === undefined && translation === undefined) {
+    return null;
+  }
   const { selection } = page;
-  return (
-    <>
-      {assistance === undefined ? null : (
-        <MenuItem
-          disabled={!canRewrite(draft.body, selection)}
-          label={t('assistance.rewrite')}
-          accessibilityLabel={t(textToolLabel('rewrite', selection))}
-          selected={false}
-          onPress={() => {
-            onCapture('rewrite');
-          }}
-        />
-      )}
-      {translation === undefined ? null : (
-        <MenuItem
-          disabled={
-            !hasTranslatableText(
-              selectedText(
-                textOf(draft.body),
-                selection,
-                translationInputLimit + 1,
-              ),
-            )
-          }
-          label={t('translation.translate')}
-          accessibilityLabel={t('translation.translateSelectionLabel')}
-          selected={false}
-          onPress={() => {
-            onCapture('translate');
-          }}
-        />
-      )}
-      {assistance !== undefined && canSuggestReply(draft) ? (
-        <MenuItem
-          label={t('assistance.suggestReply')}
-          accessibilityLabel={t('assistance.suggestReplyLabel')}
-          selected={false}
-          onPress={() => {
-            onCapture('reply');
-          }}
-        />
-      ) : null}
-    </>
+  const rewrite = {
+    key: 'rewrite',
+    title: t('assistance.rewrite'),
+    accessibilityLabel: t(textToolLabel('rewrite', selection)),
+    symbol: textToolSymbols.rewrite,
+    disabled: !canRewrite(draft.body, selection),
+    run: () => {
+      onCapture('rewrite');
+    },
+  };
+  const translate = {
+    key: 'translate',
+    title: t('translation.translate'),
+    accessibilityLabel: t('translation.translateSelectionLabel'),
+    symbol: 'translate',
+    disabled: !hasTranslatableText(
+      selectedText(textOf(draft.body), selection, translationInputLimit + 1),
+    ),
+    run: () => {
+      onCapture('translate');
+    },
+  };
+  const suggestReply = {
+    key: 'reply',
+    title: t('assistance.suggestReply'),
+    accessibilityLabel: t('assistance.suggestReplyLabel'),
+    symbol: '',
+    run: () => {
+      onCapture('reply');
+    },
+  };
+  const menu = (
+    <MenuButton
+      accessibilityLabel={t('drafts.writingTools')}
+      sections={[
+        {
+          items: [
+            ...(assistance === undefined ? [] : [rewrite]),
+            ...(translation === undefined ? [] : [translate]),
+            ...(assistance !== undefined && canSuggestReply(draft)
+              ? [suggestReply]
+              : []),
+          ],
+        },
+      ]}
+      style={s.menuControl}>
+      <SFSymbol
+        name="sparkles"
+        size={popover ? scaledToolbar.symbol : 20}
+        color={colors.textPrimary}
+      />
+    </MenuButton>
   );
-}
-
-// Writing tools appear only where assistance or translation is available.
-function useOffersTools() {
-  const assistance = use(AssistanceContext);
-  const translation = use(TranslationContext);
-  return assistance !== undefined || translation !== undefined;
+  // On iPhone the menu floats in its own glass beside the pill.
+  return popover ? menu : <GlassGroup style={s.pillGroup}>{menu}</GlassGroup>;
 }
 
 // Finishing retires input immediately while the controls' menus complete their exit.
@@ -212,85 +206,51 @@ export function PhoneControls({
   readonly onAdd: Add;
   readonly onCapture: Capture;
 }) {
+  const colors = usePalette();
   const { t } = useLocalization();
-  const offersTools = useOffersTools();
-  const toggle = (menu: Open) => {
-    onOpen(open === menu ? undefined : menu);
-  };
-  return (
-    <>
-      <View
-        accessibilityRole="menu"
-        accessibilityElementsHidden={open !== 'attach'}
-        pointerEvents={open === 'attach' ? 'box-none' : 'none'}
-        style={styles.pillMenu}>
-        <GlassPanel
-          open={open === 'attach'}
-          origin="bottom right">
-          {assetPickers.map(([label, from, inline]) => (
-            <MenuItem
-              key={label}
-              label={t(label)}
-              selected={false}
-              onPress={() => {
-                onAdd(from, inline);
-              }}
-            />
-          ))}
-        </GlassPanel>
-      </View>
-      <View
-        accessibilityRole="menu"
-        accessibilityElementsHidden={open !== 'tools'}
-        pointerEvents={open === 'tools' ? 'box-none' : 'none'}
-        style={styles.pillMenu}>
-        <GlassPanel
-          open={open === 'tools'}
-          origin="bottom right">
-          <WritingTools
-            draft={draft}
-            page={page}
-            onCapture={onCapture}
+  return open === 'format' ? null : (
+    <View
+      pointerEvents="box-none"
+      style={s.pill}>
+      <GlassGroup style={s.pillGroup}>
+        <ToolbarButton
+          icon="textformat"
+          label={t('drafts.format')}
+          onPress={() => {
+            run({ type: 'blur' });
+            onOpen('format');
+          }}
+        />
+        <MenuButton
+          accessibilityLabel={t('drafts.assets.toolbar')}
+          sections={[
+            {
+              items: assetPickers.map(([label, from, inline, icon]) => ({
+                key: label,
+                title: t(label),
+                // The paperclip opens this menu, so its Attach File row shows a document.
+                symbol: from === 'files' ? 'doc' : icon,
+                run: () => {
+                  onAdd(from, inline);
+                },
+              })),
+            },
+          ]}
+          style={s.menuControl}>
+          <SFSymbol
+            name="paperclip"
+            size={20}
+            color={colors.textPrimary}
           />
-        </GlassPanel>
-      </View>
-      {open === 'format' ? null : (
-        <View
-          pointerEvents="box-none"
-          style={s.pill}>
-          <GlassGroup style={s.pillGroup}>
-            <ToolbarButton
-              icon="textformat"
-              label={t('drafts.format')}
-              onPress={() => {
-                run({ type: 'blur' });
-                onOpen('format');
-              }}
-            />
-            <ToolbarButton
-              expanded={open === 'attach'}
-              icon="paperclip"
-              label={t('drafts.assets.toolbar')}
-              onPress={() => {
-                toggle('attach');
-              }}
-            />
-          </GlassGroup>
-          {offersTools ? (
-            <GlassGroup style={s.pillGroup}>
-              <ToolbarButton
-                expanded={open === 'tools'}
-                icon="sparkles"
-                label={t('drafts.writingTools')}
-                onPress={() => {
-                  toggle('tools');
-                }}
-              />
-            </GlassGroup>
-          ) : null}
-        </View>
-      )}
-    </>
+        </MenuButton>
+      </GlassGroup>
+      <WritingTools
+        draft={draft}
+        page={page}
+        popover={false}
+        onCapture={onCapture}
+      />
+    </View>
   );
 }
 
@@ -299,9 +259,7 @@ export function PhoneControls({
 export function PadFormatBar({
   draft,
   page,
-  open,
   run,
-  onOpen,
   onAdd,
   onCapture,
   onLink,
@@ -309,9 +267,7 @@ export function PadFormatBar({
 }: {
   readonly draft: Draft;
   readonly page: PageState;
-  readonly open: Open | undefined;
   readonly run: (command: Command) => void;
-  readonly onOpen: (open: Open | undefined) => void;
   readonly onAdd: Add;
   readonly onCapture: Capture;
   readonly onLink: EditLink;
@@ -319,7 +275,6 @@ export function PadFormatBar({
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
-  const offersTools = useOffersTools();
   const travels = [
     {
       key: 'undo',
@@ -349,75 +304,48 @@ export function PadFormatBar({
     },
   }));
   return (
-    <View style={styles.padBar}>
-      <FormatBar
-        active={page.marks}
-        kind={page.kind}
-        disabled={false}
-        onBlock={(kind) => {
-          run({ type: 'block', kind });
-        }}
-        onMark={(mark) => {
-          run({ type: 'mark', mark });
-        }}>
-        {(lists) => (
-          <>
-            <LinkEditor
-              state={linkEditor}
-              disabled={false}
-              link={editableLinkAt(textOf(draft.body), page.selection)}
-              popover
-              {...(lists === undefined
-                ? {}
-                : {
-                    renderMenu: (link) => (
-                      <OverflowMenu
-                        accessibilityLabel={t('drafts.moreLists')}
-                        disabled={false}
-                        sections={[
-                          { items: [...lists, link] },
-                          { items: travels },
-                        ]}
-                      />
-                    ),
-                  })}
-              onChange={onLink}
-            />
-            {lists === undefined ? (
-              <>
-                <View
-                  style={[s.divider, { backgroundColor: colors.separator }]}
-                />
-                {travels.map((item) => (
-                  <ToolbarButton
-                    key={item.key}
-                    disabled={item.disabled}
-                    icon={item.symbol}
-                    label={item.title}
-                    onPress={() => {
-                      item.run();
-                    }}
-                  />
-                ))}
-              </>
-            ) : null}
-            <View style={s.grow} />
-            {offersTools ? (
-              <ToolbarButton
-                expanded={open === 'tools'}
-                icon="sparkles"
-                label={t('drafts.writingTools')}
-                onPress={() => {
-                  onOpen(open === 'tools' ? undefined : 'tools');
-                }}
+    <FormatBar
+      active={page.marks}
+      kind={page.kind}
+      disabled={false}
+      onBlock={(kind) => {
+        run({ type: 'block', kind });
+      }}
+      onMark={(mark) => {
+        run({ type: 'mark', mark });
+      }}>
+      {(lists) => (
+        <>
+          <LinkEditor
+            state={linkEditor}
+            disabled={false}
+            link={editableLinkAt(textOf(draft.body), page.selection)}
+            popover
+            {...(lists === undefined
+              ? {}
+              : {
+                  renderMenu: (link) => (
+                    <OverflowMenu
+                      accessibilityLabel={t('drafts.moreLists')}
+                      disabled={false}
+                      sections={[
+                        { items: [...lists, link] },
+                        { items: travels },
+                      ]}
+                    />
+                  ),
+                })}
+            onChange={onLink}
+          />
+          {lists === undefined ? (
+            <>
+              <View
+                style={[s.divider, { backgroundColor: colors.separator }]}
               />
-            ) : null}
-            <View style={[s.divider, { backgroundColor: colors.separator }]} />
-            {assets
-              .slice(0, lists === undefined ? undefined : 1)
-              .map((item) => (
+              {travels.map((item) => (
                 <ToolbarButton
                   key={item.key}
+                  disabled={item.disabled}
                   icon={item.symbol}
                   label={item.title}
                   onPress={() => {
@@ -425,31 +353,36 @@ export function PadFormatBar({
                   }}
                 />
               ))}
-            {lists === undefined ? null : (
-              <OverflowMenu
-                accessibilityLabel={t('drafts.moreFileActions')}
-                disabled={false}
-                sections={[{ items: assets.slice(1) }]}
-              />
-            )}
-          </>
-        )}
-      </FormatBar>
-      {/* The bar's controls scroll and would clip the menu, so it opens below the bar. */}
-      <View
-        accessibilityRole="menu"
-        accessibilityElementsHidden={open !== 'tools'}
-        pointerEvents={open === 'tools' ? 'box-none' : 'none'}
-        style={styles.padMenu}>
-        <GlassPanel open={open === 'tools'}>
+            </>
+          ) : null}
+          <View style={s.grow} />
           <WritingTools
             draft={draft}
             page={page}
+            popover
             onCapture={onCapture}
           />
-        </GlassPanel>
-      </View>
-    </View>
+          <View style={[s.divider, { backgroundColor: colors.separator }]} />
+          {assets.slice(0, lists === undefined ? undefined : 1).map((item) => (
+            <ToolbarButton
+              key={item.key}
+              icon={item.symbol}
+              label={item.title}
+              onPress={() => {
+                item.run();
+              }}
+            />
+          ))}
+          {lists === undefined ? null : (
+            <OverflowMenu
+              accessibilityLabel={t('drafts.moreFileActions')}
+              disabled={false}
+              sections={[{ items: assets.slice(1) }]}
+            />
+          )}
+        </>
+      )}
+    </FormatBar>
   );
 }
 

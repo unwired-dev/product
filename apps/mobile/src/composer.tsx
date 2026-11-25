@@ -2080,7 +2080,7 @@ export const textToolLabel = (tool: TextTool, at: Selection) =>
     ? (`assistance.${tool}DraftLabel` as const)
     : (`assistance.${tool}SelectionLabel` as const);
 
-const textToolSymbols: Readonly<Record<TextTool, string>> = {
+export const textToolSymbols: Readonly<Record<TextTool, string>> = {
   rewrite: 'pencil',
   proofread: 'text.badge.checkmark',
   paragraphs: 'text.alignleft',
