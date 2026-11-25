@@ -378,11 +378,6 @@ const unlaidOut = (fragment: Fragment): Fragment =>
     ),
   );
 
-// Whether a block copied whole is a paragraph that a paste opens, so its text joins the line.
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ProseMirror's Node is a class; this only reads it.
-const opens = (node: ProseMirrorNode | null) =>
-  node?.type.name === 'paragraph' && node.content.size > 0;
-
 // Whether a paste or drop carries files or image data, which only native code may read.
 // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The DOM's DataTransfer is mutable by design; this only reads it.
 const carriesFiles = (data: DataTransfer | null) =>
@@ -645,27 +640,20 @@ const DraftBehavior = Extension.create<unknown, { typing: boolean }>({
     return [
       new Plugin({
         props: {
-          // A drag within the page moves its content as it is. A paragraph copied whole, as after
-          // Select All, joins the line it is pasted into, as a partial copy does; other blocks
-          // copied whole stay blocks.
-          transformPasted: (slice, view) => {
-            if (view.dragging !== null) {
-              return slice;
-            }
-            const content = unlaidOut(slice.content);
-            return new Slice(
-              content,
-              slice.openStart === 0 && opens(content.firstChild)
-                ? 1
-                : slice.openStart,
-              slice.openEnd === 0 && opens(content.lastChild)
-                ? 1
-                : slice.openEnd,
-            );
-          },
+          // A drag within the page moves its content as it is.
+          transformPasted: (slice, view) =>
+            view.dragging === null
+              ? new Slice(
+                  unlaidOut(slice.content),
+                  slice.openStart,
+                  slice.openEnd,
+                )
+              : slice,
           // A pasted image is read from the pasteboard by native code, where it can; the page
           // never reads the data, and a dropped file is refused.
-          // Pasting over a selection deletes it as Backspace does first.
+          // Pasting over a selection deletes it as Backspace does first, and the pasted content is
+          // opened, as ProseMirror opens pasted HTML, so its first block joins the line left, even
+          // when it was copied whole.
           handlePaste: (view, event, slice) => {
             if (!carriesFiles(event.clipboardData)) {
               if (view.state.selection.empty || slice.size === 0) {
@@ -675,7 +663,7 @@ const DraftBehavior = Extension.create<unknown, { typing: boolean }>({
               deleteSelected(tr);
               view.dispatch(
                 tr
-                  .replaceSelection(slice)
+                  .replaceSelection(Slice.maxOpen(slice.content))
                   .scrollIntoView()
                   .setMeta('paste', true)
                   .setMeta('uiEvent', 'paste'),
@@ -722,13 +710,16 @@ const DraftBehavior = Extension.create<unknown, { typing: boolean }>({
             const end = tr.mapping.slice(steps).map(at);
             const $at = tr.doc.resolve(at);
             const { parent: line } = $source;
+            const { align }: Readonly<Record<string, unknown>> = line.attrs;
             const index = $at.index($at.depth - 1);
-            if (
+            const adopts =
               $at.node(-1).canReplaceWith(index, index + 1, line.type) &&
-              line.type.validContent($at.parent.content)
-            ) {
-              tr.setNodeMarkup($at.before(), line.type, line.attrs);
-            }
+              line.type.validContent($at.parent.content);
+            tr.setNodeMarkup(
+              $at.before(),
+              adopts ? line.type : null,
+              adopts ? line.attrs : { ...$at.parent.attrs, align },
+            );
             if (
               $source.node(-1).type.name === 'listItem' &&
               $at.node(-1).type.name === 'listItem'

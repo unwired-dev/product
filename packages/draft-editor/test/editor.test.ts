@@ -1112,6 +1112,51 @@ describe('the Tiptap evaluation page', () => {
     ]);
   });
 
+  it('pastes a quote copied whole over a selected quote line into that line', async () => {
+    expect.hasAssertions();
+    const page = await open([
+      { kind: 'quote', align: 'justify', spans: [{ text: 'kept' }] },
+      { kind: 'paragraph', spans: [{ text: 'gap' }] },
+      { kind: 'quote', spans: [{ text: 'copied' }] },
+    ]);
+    const { editor } = page;
+    const line = (index: number) => nth(textblocks(editor), index);
+    const { dom } = editor.view.serializeForClipboard(
+      editor.state.doc.slice(line(2).from - 2, line(2).to + 2),
+    );
+    editor.commands.setTextSelection({ from: line(0).from, to: line(0).to });
+    editor.view.pasteHTML(dom.innerHTML);
+    expect(bodyOf(page)?.[0]).toStrictEqual({
+      kind: 'quote',
+      align: 'justify',
+      spans: [{ text: 'copied' }],
+    });
+  });
+
+  it('drops a heading into an empty list item with the heading alignment', async () => {
+    expect.hasAssertions();
+    const page = await open([
+      { kind: 'heading1', align: 'right', spans: [{ text: 'head' }] },
+      { kind: 'numbered', spans: [{ text: 'item' }] },
+      { kind: 'numbered', align: 'justify', spans: [] },
+    ]);
+    const { editor } = page;
+    const line = (index: number) => nth(textblocks(editor), index);
+    const [first, second, empty] = [line(0), line(1), line(2)];
+    editor.commands.setTextSelection({ from: first.from, to: second.to });
+    const slice = editor.state.doc.slice(first.from, second.to);
+    editor.view.posAtCoords = () => ({ pos: empty.from, inside: -1 });
+    const event = new DragEvent('drop', { clientX: 1, clientY: 1 });
+    editor.view.someProp('handleDrop', (drop) =>
+      drop(editor.view, event, slice, true),
+    );
+    expect(bodyOf(page)).toContainEqual({
+      kind: 'numbered',
+      align: 'right',
+      spans: [{ text: 'head' }],
+    });
+  });
+
   it('pastes supported meaning only and never stores unsupported content', async () => {
     expect.hasAssertions();
     const page = await open(paragraphs(''));
