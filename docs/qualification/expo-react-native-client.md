@@ -63,6 +63,20 @@ other work was 2–352.
   compared with a frame. The compact evaluation header pushes Send out of
   view, as it does on `main`
   ([#2924](https://github.com/unwired-dev/product/issues/2924)).
+- Regular composer, iPhone placement. The regular composer's Add files and
+  Writing tools menus now use the same alignment. A Release
+  `registration-declined` build, with Mail Assistance turned on during setup,
+  ran on iPhone 18 Pro in Light and Dark with the keyboard up. Both menus spanned x=136–386 and ended at sheet
+  y=474, level with the closed controls row, which hid while a menu was open
+  and returned after a tap outside. Attach File opened Files, and Insert
+  Template opened its submenu. The nine-row Writing tools menu reached the top
+  of the sheet and scrolled to its last row. The glass press response was not
+  verified, because holding a menu button opens its menu.
+  The closed controls first ended at x=376, because the empty host of the
+  Generate a Draft sheet took part in the row's 10pt gap. Positioned
+  absolutely, the host leaves the row ending at x=386, as in the frame. In the rebuilt app,
+  Generate a Draft still opened its sheet, and closing it left the Draft
+  unchanged.
 - Evaluation composer, iPad: Writing tools opens Rewrite and Translate on a new
   message, and also Suggest Reply on a docked reply; Rewrite opens the review
   and expands the card. From, Text style, More Lists and Links, More Files and

@@ -94,6 +94,8 @@ const overflowSlop = {
 };
 
 const styles = StyleSheet.create({
+  // The sheet's empty host stays out of the row, so its gap doesn't move the controls.
+  sheetHost: { position: 'absolute' },
   // iPad draws the Mac Link Editor popover at the iPad list scale.
   linkPopover: {
     width: 340 * ipadListScale,
@@ -1495,7 +1497,9 @@ export function GeneratePrompt({
   ) : (
     <>
       {trigger}
-      <Host matchContents>
+      <Host
+        matchContents
+        style={styles.sheetHost}>
         <BottomSheet
           isPresented={shown}
           onIsPresentedChange={dismiss}>
