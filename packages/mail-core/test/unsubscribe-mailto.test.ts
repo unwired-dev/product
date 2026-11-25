@@ -25,7 +25,8 @@ const offer = {
   kind: 'mailto',
   list: 'Alza.cz newsletter',
   address: 'leave@lists.alza.example',
-  subject: 'unsubscribe 42',
+  // A run of spaces may be part of the list's command.
+  subject: 'unsubscribe  42',
   body: 'Please remove me.\r\nList 42',
 } as const;
 
@@ -181,7 +182,7 @@ describe('a mailto unsubscribe request', () => {
           outbox: phone.drafts.getOutbox(),
           drafts: phone.list(),
           // Nothing logs the request; Convex hears only the claim's identifier.
-          logged: /leave@|unsubscribe 42|remove me/u.test(output),
+          logged: /leave@|unsubscribe\s+42|remove me/u.test(output),
           claims: [...phone.server.claimsOf(account)],
         }).toStrictEqual({
           others: [],
