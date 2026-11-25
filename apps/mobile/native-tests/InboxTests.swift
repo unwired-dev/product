@@ -4380,6 +4380,97 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(name.waitForNonExistence(timeout: 10))
   }
 
+  // #2898: on iPhone a Gmail reader's Reply, Labels and New Label sheets each stay in place at a
+  // downward swipe released early, and close at a completed one, after which they open again.
+  func testSheetSwipes() throws {
+    try XCTSkipIf(UIDevice.current.userInterfaceIdiom != .phone, "The sheets are iPhone's")
+    continueAfterFailure = false
+    let environment = ProcessInfo.processInfo.environment
+    XCTAssertEqual(environment["UNWIRED_TEST_SCENARIO"], "registration-declined")
+    let app = XCUIApplication(bundleIdentifier: try XCTUnwrap(environment["UNWIRED_BUNDLE_ID"]))
+    addTeardownBlock { if app.state != .notRunning { app.terminate() } }
+    app.launch()
+    XCTAssertTrue(app.staticTexts["Your mail,\non your devices."].waitForExistence(timeout: 60))
+    connectGmail(app)
+    let rowan = app.buttons["Unread. Rowan Hale. Garden plans for spring"]
+    XCTAssertTrue(rowan.waitForExistence(timeout: 30))
+    rowan.tap()
+    XCTAssertTrue(header("rowan@example.invalid", in: app).waitForExistence(timeout: 10))
+    let replyAll = app.buttons["Reply All"]
+    // The Labels and New Label sheets share the Labels heading.
+    let heading = app.staticTexts["Labels"].firstMatch
+    let newLabel = app.buttons["New Label…"]
+    let name = app.textFields["Label name"]
+    func openReply() {
+      // A closing sheet can still cover Reply.
+      let reply = app.buttons["Reply"]
+      waitUntil { reply.isHittable }
+      reply.tap()
+      XCTAssertTrue(replyAll.waitForExistence(timeout: 10))
+    }
+    func openLabels() {
+      if !replyAll.exists { openReply() }
+      app.buttons["Labels"].tap()
+      XCTAssertTrue(newLabel.waitForExistence(timeout: 10))
+    }
+    let keyboard = app.keyboards.firstMatch
+    func swipes(
+      _ sheet: String, from grab: XCUIElement, shown: XCUIElement, typing: Bool = false,
+      open: () -> Void
+    ) {
+      open()
+      XCTAssertTrue(shown.waitForExistence(timeout: 10))
+      if typing {
+        XCTAssertTrue(keyboard.waitForExistence(timeout: 10), "\(sheet) has no keyboard")
+      }
+      let rest = settledFrame(of: grab)
+      swipeReleasedEarly(from: grab.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)))
+      XCTAssertEqual(settledFrame(of: grab), rest, "\(sheet) moved after a swipe released early")
+      XCTAssertTrue(shown.exists, "\(sheet) closed at a swipe released early")
+      XCTAssertEqual(
+        keyboard.exists, typing, "\(sheet) changed the keyboard at a swipe released early")
+      attachScreen("\(sheet) after a swipe released early", of: app, to: self)
+      // An element swipe is too short to dismiss; drag most of the way down the screen.
+      let complete = {
+        let start = grab.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        start.press(
+          forDuration: 0.1, thenDragTo: start.withOffset(CGVector(dx: 0, dy: 400)),
+          withVelocity: .fast, thenHoldForDuration: 0)
+      }
+      // With the software keyboard up, as New Label's focused name brings it, the system sheet
+      // lowers the keyboard at the first swipe and closes at the next.
+      if typing {
+        complete()
+        XCTAssertTrue(keyboard.waitForNonExistence(timeout: 5), "\(sheet) kept the keyboard")
+        XCTAssertTrue(shown.exists, "\(sheet) closed with the keyboard up")
+        _ = settledFrame(of: grab)
+        attachScreen("\(sheet) after a swipe lowered the keyboard", of: app, to: self)
+      }
+      complete()
+      XCTAssertTrue(shown.waitForNonExistence(timeout: 5), "\(sheet) stayed after a completed swipe")
+      open()
+      XCTAssertTrue(shown.waitForExistence(timeout: 10), "\(sheet) did not open again")
+    }
+    swipes("Reply sheet", from: replyAll, shown: replyAll, open: openReply)
+    swipes("Labels sheet", from: heading, shown: newLabel, open: openLabels)
+    swipes("New Label sheet", from: heading, shown: name, typing: true) {
+      if !newLabel.exists { openLabels() }
+      newLabel.tap()
+    }
+    // The reopened sheet may still be rising.
+    let cancel = app.buttons["Cancel"]
+    _ = settledFrame(of: cancel)
+    cancel.tap()
+    XCTAssertTrue(name.waitForNonExistence(timeout: 10))
+  }
+
+  // A downward swipe on a sheet, held short and released at rest, which leaves the sheet in place.
+  private func swipeReleasedEarly(from start: XCUICoordinate) {
+    start.press(
+      forDuration: 0.1, thenDragTo: start.withOffset(CGVector(dx: 0, dy: 100)),
+      withVelocity: .slow, thenHoldForDuration: 0.5)
+  }
+
   // #2879: on iPad one tap outside closes the Inbox's Filters popover, the reader toolbar's
   // Labels popover, More's system menu without choosing an action, and the Labels popover More's
   // Move to… opens; Escape closes both Labels popovers. Each close waits for the popover to
@@ -4789,6 +4880,15 @@ final class InboxTests: XCTestCase {
       keyboard.keys.matching(NSPredicate(format: "label ==[c] %@", key)).firstMatch.tap()
     }
     waitUntil { subject.value as? String == "Venue for the offsite" }
+    // #2898: a swipe released early keeps the sheet and its Draft, and asks nothing.
+    let rest = settledFrame(of: composer)
+    swipeReleasedEarly(
+      from: composer.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0))
+        .withOffset(CGVector(dx: 0, dy: 30)))
+    XCTAssertEqual(settledFrame(of: composer), rest)
+    XCTAssertFalse(app.buttons["Save Draft"].exists)
+    XCTAssertEqual(subject.value as? String, "Venue for the offsite")
+    attachScreen("Composer sheet after a swipe released early", of: app, to: self)
     // Read before the question opens: it is modal to accessibility, which hides the composer.
     let closeFrame = app.buttons["Close"].frame
     swipeDown()

@@ -550,6 +550,23 @@ own delete and letter keys then edit it, and the name, **Cancel** and **Apply** 
 it ([#2891](https://github.com/unwired-dev/product/issues/2891)). Creating the label is covered by
 Jest; the synthetic Gmail layer does not create labels.
 
+## iPhone sheet swipes journey
+
+`testSheetSwipes` runs on a `registration-declined` Release build with
+`UNWIRED_JOURNEY=testSheetSwipes` on iPhone; iPad, whose presenters there are popovers, skips it
+([#2898](https://github.com/unwired-dev/product/issues/2898)). It connects the synthetic Gmail
+mailbox and opens a message. The Reply sheet, its **Labels** sheet and that sheet's
+**New Label…** sheet each stay in place at a downward swipe held short and released at rest,
+captured as "… after a swipe released early" with the appearance. A completed downward swipe
+then closes each one, and the same control opens it again. **New Label** opens with the software
+keyboard up: its first completed swipe lowers the keyboard and keeps the sheet, captured as
+"New Label sheet after a swipe lowered the keyboard", and the next closes it. **Cancel** then
+closes **New Label**. UIKit's sheet owns the drag, the return after an early release and the
+keyboard's lowering; the app owns the presented state, which a completed swipe must clear, so a
+sheet that does not open again points to the app.
+`testComposerSheet` makes the same early swipe on a changed Draft, which keeps the sheet and its
+Subject and asks nothing.
+
 ## iPad popover dismissal journey
 
 `testPopoverDismissal` runs on a `registration-declined` Release build with
