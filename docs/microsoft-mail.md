@@ -580,3 +580,42 @@ mail content.
   Limitations: the run did not record when Microsoft's access tokens expired or when the
   app asked for a new one, so renewal after expiry remains unverified. Microsoft's one-time sign-in codes were typed, as they expire within minutes.
   Mac, iPad and uncertain outcomes were not run and stay on #637.
+- **2026-11-25, iPad connect, read, send and reply
+  ([#2877](https://github.com/unwired-dev/product/issues/2877)).** Target: Expo client,
+  Release build without a Mock Mail Session, new iPad Pro 11-inch (M5) Simulator on
+  iOS 27.0, with the development Convex deployment and the Microsoft public-client ID.
+  Build: the app source of `d72ed590e934fd8cf1dfd2078d586511b7bed637`. Toolchain: Xcode
+  27.2 (27B52). Operator: agent, with credentials read at run time from the approved
+  password manager. Result: pass, with the credential exposure below. A fresh Google
+  Product Sign-In with the Recovery Key, then **Microsoft 365 and Outlook**, connected the
+  personal mailbox with every address, password and the Recovery Key entered through the
+  [Simulator pasteboard](imap-mailboxes.md#certification-runs-through-the-app). Microsoft
+  asked for the requested scopes again, as the 2026-11-24 run had removed the app's
+  permissions, and the Inbox opened in the iPad's split layout after **Accept**, listing
+  real messages; one opened in the reader beside the list with its body. A new message to
+  the mailbox's own address appeared once in **Sent Items** 27 seconds after **Send** and
+  arrived in the Inbox. A reply to it showed an **Outbox** row in the sidebar 7 seconds
+  after **Send**, which had left it 16 seconds after; the reply appeared once in Sent
+  Items and arrived in the Inbox with the original's subject. **Sign Out of This Device**
+  returned the app to Welcome. Credential exposure: on the first attempt to paste the
+  Recovery Key, iPadOS's **Copy and Paste** tip covered the keyboard and took the press, so
+  nothing was pasted; once it was dismissed, a screenshot taken to find the field showed
+  the Recovery Key in plain text in the software keyboard's **Paste from
+  CoreSimulatorBridge** suggestion, although the pasteboard had been cleared. The file
+  was deleted at once, but the image remains in that session's transcript on the Mac, where
+  a text scan cannot find it ([#2688](https://github.com/unwired-dev/product/issues/2688)).
+  The Recovery Key was then pasted with the field scrolled above the keyboard and nothing
+  read the screen until the field was gone. With both Simulators deleted,
+  `simulator-credentials.zsh scan`, run on each path, found no password or Recovery Key in
+  `~/.agent-device`, `~/Library/Logs`, `artifacts`, Xcode's DerivedData, the shell history,
+  the temporary directory, the scratch files or the session transcripts; one scan of all
+  paths at once ended with a read error and was repeated per path. Limitations:
+  Microsoft's one-time sign-in code was typed, as it expires within minutes. The Undo Send
+  window of the first message was not observed, and **Undo** was not pressed. A second
+  attempt on a new iPad Simulator, to watch that window, stopped at Microsoft's code step:
+  codes typed quickly lost digits, three codes entered in full were refused, and the
+  agent-device runner then hung, so the Simulator was deleted without **Sign Out of This
+  Device**. Typing the recipient opened the system's contacts access sheet, answered
+  **Don’t Allow**. Mac, iPad organizing, search,
+  attachments, renewal and revocation, and uncertain outcomes were not run and stay on
+  #637.
