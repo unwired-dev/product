@@ -11,6 +11,16 @@ The [mobile bootstrap](../expo-client.md) now uses Expo 57.0.25, React Native
 are available on the development host. The maintainer's earlier native-validation
 deferral still applies to unavailable release checks. Mac host evidence follows.
 
+## Mac Draft editor page in two windows, 2026-11-25
+
+[#2938](https://github.com/unwired-dev/product/issues/2938) ran the Mac
+`registration-draft-editor` journey on a signed `Testing` build on the Mac mini M4,
+macOS 27.2.1 and Xcode 27.2 (`27B52`): `Executed 1 test, with 0 failures`. Two
+windows on one saved Draft kept both versions, the second as a conflicting copy,
+and the window's close button asked as Command-W does
+([evidence](../draft-editor-evaluation.md#save-ordering-821)). Physical devices,
+VoiceOver and iPhone and iPad journaling were not run.
+
 ## iPhone sheet swipes, 2026-11-25
 
 [#2898](https://github.com/unwired-dev/product/issues/2898), a slice of
