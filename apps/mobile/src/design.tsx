@@ -569,6 +569,7 @@ const NativeMenuButton = requireNativeComponent<
       }>
     >;
     readonly enabled: boolean;
+    readonly alignMenuToRowEnd?: boolean | undefined;
     readonly onSelect: (event: NativeSyntheticEvent<{ id: string }>) => void;
   }
 >('UnwiredMenuButton');
@@ -585,6 +586,7 @@ export function MenuButton({
 }: ViewProps & {
   readonly sections: readonly MenuSection[];
   readonly disabled?: boolean;
+  readonly alignMenuToRowEnd?: boolean | undefined;
 }) {
   const menu = menuState(sections);
   return (

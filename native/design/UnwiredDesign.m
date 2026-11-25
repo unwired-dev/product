@@ -1535,6 +1535,7 @@ RCT_EXPORT_METHOD(retire:(nonnull NSNumber *)request)
 @interface UnwiredMenuButtonView : UIButton
 @property (nonatomic, copy) NSArray<NSDictionary *> *sections;
 @property (nonatomic, copy) RCTDirectEventBlock onSelect;
+@property (nonatomic) BOOL alignMenuToRowEnd;
 @end
 
 @implementation UnwiredMenuButtonView
@@ -1544,6 +1545,52 @@ RCT_EXPORT_METHOD(retire:(nonnull NSNumber *)request)
     self.showsMenuAsPrimaryAction = YES;
   }
   return self;
+}
+
+- (UITargetedPreview *)contextMenuInteraction:(UIContextMenuInteraction *)interaction
+                                configuration:(UIContextMenuConfiguration *)configuration
+        highlightPreviewForItemWithIdentifier:(id<NSCopying>)identifier
+{
+  UIView *glass = self.alignMenuToRowEnd ? self.superview : nil;
+  while (glass && ![glass isKindOfClass:UIVisualEffectView.class]) {
+    glass = glass.superview;
+  }
+  // The glass's host view sits in the controls row, which React Native keeps as a native view
+  // (collapsable={false} on iPhone's PhoneControls).
+  UIView *row = glass.superview.superview;
+  if (!row) {
+    // Other menu buttons keep UIKit's own highlight preview.
+    if ([UIButton instancesRespondToSelector:_cmd]) {
+      return [super contextMenuInteraction:interaction configuration:configuration
+                     highlightPreviewForItemWithIdentifier:identifier];
+    }
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+    SEL legacy = @selector(contextMenuInteraction:previewForHighlightingMenuWithConfiguration:);
+    return [UIButton instancesRespondToSelector:legacy]
+      ? [super contextMenuInteraction:interaction previewForHighlightingMenuWithConfiguration:configuration]
+      : nil;
+#pragma clang diagnostic pop
+  }
+
+  // A preview from inside the glass is confined to its bounds. Use the row
+  // for menu placement while the actual button stays inside interactive glass.
+  CGRect frame = [self convertRect:self.bounds toView:row];
+  if (self.effectiveUserInterfaceLayoutDirection == UIUserInterfaceLayoutDirectionRightToLeft) {
+    frame.size.width = CGRectGetMaxX(frame) - CGRectGetMinX(row.bounds);
+    frame.origin.x = CGRectGetMinX(row.bounds);
+  } else {
+    frame.size.width = CGRectGetMaxX(row.bounds) - CGRectGetMinX(frame);
+  }
+  // Down to the glass's bottom edge, 2pt below the button, where the frames end the menu.
+  frame.size.height += 2;
+  // A clear stand-in of that size, so the row's own controls do not move with the preview.
+  UIView *anchor = [[UIView alloc] initWithFrame:(CGRect){CGPointZero, frame.size}];
+  UIPreviewParameters *parameters = [UIPreviewParameters new];
+  parameters.backgroundColor = UIColor.clearColor;
+  UIPreviewTarget *target = [[UIPreviewTarget alloc] initWithContainer:row
+      center:CGPointMake(CGRectGetMidX(frame), CGRectGetMidY(frame))];
+  return [[UITargetedPreview alloc] initWithView:anchor parameters:parameters target:target];
 }
 
 - (void)setSections:(NSArray<NSDictionary *> *)sections
@@ -1658,6 +1705,7 @@ RCT_EXPORT_VIEW_PROPERTY(onEscape, RCTDirectEventBlock)
 
 @implementation UnwiredMenuButtonManager
 RCT_EXPORT_MODULE(UnwiredMenuButton)
+RCT_EXPORT_VIEW_PROPERTY(alignMenuToRowEnd, BOOL)
 RCT_EXPORT_VIEW_PROPERTY(sections, NSArray)
 RCT_EXPORT_VIEW_PROPERTY(enabled, BOOL)
 RCT_EXPORT_VIEW_PROPERTY(onSelect, RCTDirectEventBlock)

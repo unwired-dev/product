@@ -21,7 +21,7 @@ import {
   translationInputLimit,
 } from '@private-email/mail-core/translation';
 import { use } from 'react';
-import { StyleSheet, Text, TextInput, View } from 'react-native';
+import { Platform, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import type { LinkEditorState } from './composer-controls.tsx';
 
@@ -54,6 +54,7 @@ import { usePalette } from './theme.ts';
 import { TranslationContext } from './translation.tsx';
 
 const s = composerStyles;
+const iphone = Platform.OS === 'ios' && !Platform.isPad;
 const styles = StyleSheet.create({
   header: { flexWrap: 'wrap' },
   headerLeading: {
@@ -135,6 +136,7 @@ function WritingTools({
   const menu = (
     <MenuButton
       accessibilityLabel={t('drafts.writingTools')}
+      alignMenuToRowEnd={iphone && !popover}
       sections={[
         {
           items: [
@@ -210,9 +212,10 @@ export function PhoneControls({
   const { t } = useLocalization();
   return open === 'format' ? null : (
     <View
+      collapsable={!iphone}
       pointerEvents="box-none"
       style={s.pill}>
-      <GlassGroup style={s.pillGroup}>
+      <GlassGroup style={[s.pillGroup, iphone && s.formatPill]}>
         <ToolbarButton
           icon="textformat"
           label={t('drafts.format')}
@@ -223,6 +226,7 @@ export function PhoneControls({
         />
         <MenuButton
           accessibilityLabel={t('drafts.assets.toolbar')}
+          alignMenuToRowEnd={iphone}
           sections={[
             {
               items: assetPickers.map(([label, from, inline, icon]) => ({
