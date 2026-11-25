@@ -441,25 +441,21 @@ export function MessageDetail({
   if (mailbox === undefined || id === undefined) {
     return <EmptyDetail id={id} />;
   }
-  const message = (
-    // Each message starts with its own reader state, such as a closed toolbar panel.
-    <MailboxMessage
-      key={`${mailbox}/${id}`}
-      id={id}
-      folder={folder}
-      onClose={onClose}
-      onCompose={onCompose}
-    />
-  );
   return (
     <MailboxScope
       id={mailbox}
       fallback={<EmptyDetail id={id} />}>
       <ProfileMailAssistanceGate profile={profile}>
+        {/* Each message starts with its own reader state, such as a closed toolbar panel. */}
         <AttachToNewMessage
           key={`${mailbox}/${id}`}
           onCompose={onCompose}>
-          {message}
+          <MailboxMessage
+            id={id}
+            folder={folder}
+            onClose={onClose}
+            onCompose={onCompose}
+          />
         </AttachToNewMessage>
       </ProfileMailAssistanceGate>
     </MailboxScope>

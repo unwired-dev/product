@@ -1062,11 +1062,12 @@ describe('profile-scoped mobile routes', () => {
   );
 
   it.each([
-    { window: 'iPhone', ipad: false, width: 393 },
-    { window: 'iPad', ipad: true, width: 1180 },
+    { window: 'iPhone', ipad: false, width: 393, start: ['New Message'] },
+    // Reply offers its choices first, then docks the reply below the reader.
+    { window: 'iPad', ipad: true, width: 1180, start: ['Reply', 'Reply'] },
   ])(
     'keeps the $window reader’s laid-out body while a composer opens over it and closes',
-    async ({ ipad, width }) => {
+    async ({ ipad, width, start }) => {
       expect.hasAssertions();
       const dimensions = jest
         .spyOn(
@@ -1167,16 +1168,19 @@ describe('profile-scoped mobile routes', () => {
           same: true,
           opening: null,
         });
-        // iPhone's reader has its own New Message, after the Inbox bar's; iPad's has only the bar's.
-        const newMessage = () =>
-          screen.getAllByRole('button', { name: 'New Message' }).at(-1);
-        await waitFor(() => {
-          expect(newMessage()).toBeEnabled();
-        });
-        const action = newMessage();
-        ok(action !== undefined);
-        await fireEvent.press(action);
-        await screen.findByLabelText('Message body');
+        // iPhone's reader has its own New Message, after the Inbox bar's.
+        for (const name of start) {
+          const starter = () => screen.getAllByRole('button', { name }).at(-1);
+          // oxlint-disable-next-line no-await-in-loop -- Each press opens the next choice.
+          await waitFor(() => {
+            expect(starter()).toBeEnabled();
+          });
+          const action = starter();
+          ok(action !== undefined);
+          // oxlint-disable-next-line no-await-in-loop -- Each press opens the next choice.
+          await fireEvent.press(action);
+        }
+        await screen.findByLabelText('Message body', {}, { timeout: 8000 });
         expect(reader()).toStrictEqual({
           beneathComposer: true,
           same: true,
