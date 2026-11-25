@@ -338,6 +338,9 @@ describe('synchronized Send Reminders', () => {
     const server = createSyntheticProductSync();
     const mac = storage(server);
     const phone = storage(server);
+    if (mac.sync === undefined) {
+      throw new Error('The Mac synchronizes through `server`.');
+    }
     return { server, mac: mac.store, phone: phone.store, macSync: mac.sync };
   };
   const evening = { ...keys, dueAt: tomorrowMorning + 11 * 3_600_000 };
@@ -447,6 +450,61 @@ describe('synchronized Send Reminders', () => {
     await phone.synchronize();
     await mac.synchronize();
     await expect(neither()).resolves.toStrictEqual([[], []]);
+  });
+
+  it('removes a reminder set from a removal it read before a cancellation here', async () => {
+    expect.hasAssertions();
+    const { server, mac, phone } = devices();
+    await phone.remind('work', keys);
+    await phone.cancel('work', keys.draft);
+    await phone.synchronize();
+    server.setReachable(false);
+    await phone.remind('work', evening);
+    await phone.synchronize();
+    server.setReachable(true);
+    // The Mac reads only the earlier removal before its own cancellation lands.
+    await mac.cancel('work', keys.draft);
+    await mac.synchronize();
+    await phone.synchronize();
+    await mac.synchronize();
+    await expect(
+      Promise.all([mac.reminders('work'), phone.reminders('work')]),
+    ).resolves.toStrictEqual([[], []]);
+  });
+
+  it('keeps a cancellation made while an earlier removal still waits for its reply', async () => {
+    expect.hasAssertions();
+    const { mac, phone, macSync } = devices();
+    await mac.remind('work', keys);
+    await mac.synchronize();
+    await phone.synchronize();
+    // The Mac's removal lands, and its reply waits until `reply` resolves.
+    const landed = Promise.withResolvers<undefined>();
+    const reply = Promise.withResolvers<undefined>();
+    const push = macSync.pushSendReminder;
+    vi.spyOn(macSync, 'pushSendReminder').mockImplementationOnce(
+      async (...args) => {
+        const pushed = await push(...args);
+        landed.resolve(undefined);
+        await reply.promise;
+        return pushed;
+      },
+    );
+    await mac.cancel('work', keys.draft);
+    const held = mac.synchronize();
+    await landed.promise;
+    // The phone reads the removal, then reminds again; the Mac sends the Draft meanwhile.
+    await phone.synchronize();
+    await phone.remind('work', evening);
+    await phone.synchronize();
+    await mac.cancel('work', keys.draft);
+    reply.resolve(undefined);
+    await held;
+    await mac.synchronize();
+    await phone.synchronize();
+    await expect(
+      Promise.all([mac.reminders('work'), phone.reminders('work')]),
+    ).resolves.toStrictEqual([[], []]);
   });
 
   it('lets a Draft reminded again after a cancellation take the first write', async () => {
