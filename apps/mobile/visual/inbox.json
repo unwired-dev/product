@@ -46,10 +46,8 @@
       },
       "baseline": {
         "image": "baseline/iphone-inbox-light.png",
-        "sha256": "65929e24061410c1356a0eb7b2d188c9b23320bd18f41bbcb3b2f37e94abfc96",
-        "appRevision": "07d0ee38a50d02c2d937b55f1d6f6ed27f3b6b23 with the #1061 change",
-        "capturedIn": "Local pnpm test:visual run, iOS 27.0 Simulator (24A434)",
-        "reviewedIn": "Design review of the #1061 pull request",
+        "sha256": "03d7ff4c7ae5510d4eef5da612c4434b7447b7df89a34b263f3946d8be3c3a49",
+        "appRevision": "771a53cdea2b1af56011e2f47c306ffa9e9ffb26",
         "environment": {
           "device": "iPhone19,2",
           "launchArguments": [
@@ -68,8 +66,10 @@
           "points": [402, 874],
           "scale": 3,
           "timeZone": "UTC",
-          "toolchain": "Xcode 27.2 Build version 27B52"
-        }
+          "toolchain": "Xcode 27.0 Build version 27A266a"
+        },
+        "capturedIn": "CI Expo visual report (iPhone), run 45611165944 job 139234943653",
+        "reviewedIn": "Design review of the #1061 pull request: matches the reviewed local Xcode 27.2 capture within 0.06% of pixels"
       }
     },
     {
@@ -106,10 +106,8 @@
       },
       "baseline": {
         "image": "baseline/iphone-inbox-dark.png",
-        "sha256": "a22b5e92798eb4fc0ba9fa30fc4cdd7c8230b24f29b973c655f280eacd674941",
-        "appRevision": "07d0ee38a50d02c2d937b55f1d6f6ed27f3b6b23 with the #1061 change",
-        "capturedIn": "Local pnpm test:visual run, iOS 27.0 Simulator (24A434)",
-        "reviewedIn": "Design review of the #1061 pull request",
+        "sha256": "267d4a1ee21615155ac1d44f289f3bccdc81ccabd5cd24f3a1db7c0cc553d5e9",
+        "appRevision": "771a53cdea2b1af56011e2f47c306ffa9e9ffb26",
         "environment": {
           "device": "iPhone19,2",
           "launchArguments": [
@@ -128,8 +126,10 @@
           "points": [402, 874],
           "scale": 3,
           "timeZone": "UTC",
-          "toolchain": "Xcode 27.2 Build version 27B52"
-        }
+          "toolchain": "Xcode 27.0 Build version 27A266a"
+        },
+        "capturedIn": "CI Expo visual report (iPhone), run 45611165944 job 139234943653",
+        "reviewedIn": "Design review of the #1061 pull request: matches the reviewed local Xcode 27.2 capture within 0.06% of pixels"
       }
     },
     {
