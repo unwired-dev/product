@@ -485,8 +485,8 @@ tasks covered the window; it is not evidence.
 Mac image paste on 2026-11-25 for [#2929](https://github.com/unwired-dev/product/issues/2929),
 same Mac mini, macOS 27.2.1 (26B131), Xcode 27.2 (27B52), signed `Testing`
 `registration-draft-editor` build of `cf500a39d` with #2929's change, Light
-appearance. `testIndependentWindowsCloseReopenAndQuit` from `91c946c0e` passed with
-zero failures in 512 s (`artifacts/macos-inbox/journey.ferUfF/`). After the relaunched reply Draft
+appearance. `testIndependentWindowsCloseReopenAndQuit` from `8a1db32f1` passed with
+zero failures in 460 s (`artifacts/macos-inbox/journey.Sp0jXC/`). After the relaunched reply Draft
 reopened, the journey pressed Command-V at the end of the body twice, with a text
 file and then a PNG on the general pasteboard: each time the page asked the host to
 read the pasteboard; the file became an Attachment, and the image went inline with
