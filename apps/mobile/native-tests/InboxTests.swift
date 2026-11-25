@@ -4246,7 +4246,8 @@ final class InboxTests: XCTestCase {
       XCUIDevice.shared.appearance = appearance
       app.launch()
       XCTAssertTrue(app.staticTexts[title].firstMatch.waitForExistence(timeout: 30))
-      XCTAssertTrue(app.staticTexts["Maya Chen"].firstMatch.waitForExistence(timeout: 30))
+      let row = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Maya Chen"))
+      XCTAssertTrue(row.firstMatch.waitForExistence(timeout: 30))
       var previous = Data()
       let deadline = Date().addingTimeInterval(20)
       repeat {
