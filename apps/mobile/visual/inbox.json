@@ -62,6 +62,7 @@
             "-UnwiredNow",
             "2026-09-28T10:30:00Z"
           ],
+          "orientation": "portrait",
           "os": "27.0",
           "osBuild": "24A434",
           "points": [402, 874],
@@ -121,6 +122,7 @@
             "-UnwiredNow",
             "2026-09-28T10:30:00Z"
           ],
+          "orientation": "portrait",
           "os": "27.0",
           "osBuild": "24A434",
           "points": [402, 874],
@@ -144,8 +146,55 @@
         "fileVersion": null,
         "scale": 2,
         "exportedAt": "2026-11-25T09:46:53Z",
-        "approvedDifferences": [],
-        "outstandingDeviations": []
+        "approvedDifferences": [
+          "Mock content: the open-read-relaunch Synthetic Test Messages replace the frame's sample messages, so the subtitle (\"Preview mailbox · 2 unread\" for \"12 unread · Updated just now\"), the row count, every row's text and time, the date groups and the sidebar counts differ (docs/mock-mail-sessions.md)",
+          "One preview connection: the fixture has a single Gmail connection named \"Gmail · preview\", so the sidebar shows one section with only its Inbox, where the frame draws Gmail and iCloud sections with addresses and folders",
+          "No Product Account: the preview Inbox has none (docs/mock-mail-sessions.md:25), so the sidebar draws no Mail Profile switcher, no Edit and no Settings (apps/mobile/src/sidebar.tsx:334, :1294, :1842), and the floating bar draws no New Message (apps/mobile/src/inbox-search.tsx:197)",
+          "No selection: the fixture selects no message, so no row is highlighted and the reading pane shows its empty state (\"A little space for your mail\") instead of the frame's open Thread, summary and reader toolbar",
+          "Attachment and pin glyphs: the fixture messages have no attachments or Pins, so no row shows the glyphs the frame draws",
+          "Footer: the short fixture list ends on screen, so \"Sample messages · Encrypted on this device\" shows; the frame's longer list scrolls under the Search Bar",
+          "Time format: the capture's en_US locale draws 12-hour times (9:42 AM) where the frame draws 24-hour times; times follow the regional format (docs/localization.md:18-19)",
+          "Status bar: the Simulator draws the overridden time as 09:41 and the date as \"Thu 28 9\", with cellular bars and no battery percentage; the frame draws \"9:41 AM Mon Oct 12\", Wi-Fi and 100%",
+          "Device chrome: a Simulator screenshot has no screen corners or home indicator, which the frame draws, and shows iPadOS's window-resize grabber at the bottom-right corner, which the frame does not"
+        ],
+        "outstandingDeviations": [
+          "Row weight: unread rows use a stronger subject weight than read rows, as docs/product/organization.md:55 requires; the frame draws the subject at the read weight, and the frame wins (AGENTS.md:61-64), so the app and that requirement wait for a follow-up",
+          "Sidebar Unified Mailboxes: the frame lists Snoozed and Pins after All Inboxes; Snoozed waits for #851 and Pins for #2084 (DESIGN.md:475-477)",
+          "Sidebar Saved Searches and Drafts: the frame draws a Saved Searches row and Drafts above Settings; Saved Searches waits for #847, and no issue names the iPad Drafts sidebar row (DESIGN.md:480-482)",
+          "Sidebar section chevrons: the frame draws a collapse chevron on Favorites and on each Mailbox Connection header; #1824 built them for the Mac only, and no issue names them on iPad",
+          "The header has no Select button beside the Command Input, which the frame draws (DESIGN.md:465); no issue names it",
+          "The Command Input has no ⌘K key cap, which the frame draws; it waits for #2670 (DESIGN.md:941-942)",
+          "The header has no List/Chat toggle, which the frame draws; it waits for #810",
+          "The list has no Mail View chips, which the frame draws; they wait for #2131 (DESIGN.md:935)",
+          "Search Bar: an unfiltered Inbox shows a Filter button beside the field (apps/mobile/src/inbox-search.tsx:145); the frame draws the field alone, slightly wider and centred on the window, and DESIGN.md:705 describes only a filtered Inbox's control, so the frame wins and no issue names the change"
+        ]
+      },
+      "baseline": {
+        "image": "baseline/ipad-inbox-light.png",
+        "sha256": "9e6b9ea90090192e90a4410cffbc45f5fca02373f2e2fe1dce1eaf4848ccab32",
+        "appRevision": "95089fb15b46c88512d0335b97a904f39fd646f7",
+        "capturedIn": "Local pnpm test:visual run, iOS 27.0 Simulator (24A434)",
+        "reviewedIn": "Design review of the #1062 pull request",
+        "environment": {
+          "device": "iPad17,2",
+          "launchArguments": [
+            "-AppleLanguages",
+            "(en)",
+            "-AppleLocale",
+            "en_US",
+            "-UIPreferredContentSizeCategoryName",
+            "UICTContentSizeCategoryL",
+            "-UnwiredNow",
+            "2026-09-28T10:30:00Z"
+          ],
+          "orientation": "landscapeLeft",
+          "os": "27.0",
+          "osBuild": "24A434",
+          "points": [1210, 834],
+          "scale": 2,
+          "timeZone": "UTC",
+          "toolchain": "Xcode 27.2 Build version 27B52"
+        }
       }
     },
     {
@@ -162,8 +211,55 @@
         "fileVersion": null,
         "scale": 2,
         "exportedAt": "2026-11-25T09:46:53Z",
-        "approvedDifferences": [],
-        "outstandingDeviations": []
+        "approvedDifferences": [
+          "Mock content: the open-read-relaunch Synthetic Test Messages replace the frame's sample messages, so the subtitle (\"Preview mailbox · 2 unread\" for \"12 unread · Updated just now\"), the row count, every row's text and time, the date groups and the sidebar counts differ (docs/mock-mail-sessions.md)",
+          "One preview connection: the fixture has a single Gmail connection named \"Gmail · preview\", so the sidebar shows one section with only its Inbox, where the frame draws Gmail and iCloud sections with addresses and folders",
+          "No Product Account: the preview Inbox has none (docs/mock-mail-sessions.md:25), so the sidebar draws no Mail Profile switcher, no Edit and no Settings (apps/mobile/src/sidebar.tsx:334, :1294, :1842), and the floating bar draws no New Message (apps/mobile/src/inbox-search.tsx:197)",
+          "No selection: the fixture selects no message, so no row is highlighted and the reading pane shows its empty state (\"A little space for your mail\") instead of the frame's open Thread, summary and reader toolbar",
+          "Attachment and pin glyphs: the fixture messages have no attachments or Pins, so no row shows the glyphs the frame draws",
+          "Footer: the short fixture list ends on screen, so \"Sample messages · Encrypted on this device\" shows; the frame's longer list scrolls under the Search Bar",
+          "Time format: the capture's en_US locale draws 12-hour times (9:42 AM) where the frame draws 24-hour times; times follow the regional format (docs/localization.md:18-19)",
+          "Status bar: the Simulator draws the overridden time as 09:41 and the date as \"Thu 28 9\", with cellular bars and no battery percentage; the frame draws \"9:41 AM Mon Oct 12\", Wi-Fi and 100%",
+          "Device chrome: a Simulator screenshot has no screen corners or home indicator, which the frame draws, and shows iPadOS's window-resize grabber at the bottom-right corner, which the frame does not"
+        ],
+        "outstandingDeviations": [
+          "Row weight: unread rows use a stronger subject weight than read rows, as docs/product/organization.md:55 requires; the frame draws the subject at the read weight, and the frame wins (AGENTS.md:61-64), so the app and that requirement wait for a follow-up",
+          "Sidebar Unified Mailboxes: the frame lists Snoozed and Pins after All Inboxes; Snoozed waits for #851 and Pins for #2084 (DESIGN.md:475-477)",
+          "Sidebar Saved Searches and Drafts: the frame draws a Saved Searches row and Drafts above Settings; Saved Searches waits for #847, and no issue names the iPad Drafts sidebar row (DESIGN.md:480-482)",
+          "Sidebar section chevrons: the frame draws a collapse chevron on Favorites and on each Mailbox Connection header; #1824 built them for the Mac only, and no issue names them on iPad",
+          "The header has no Select button beside the Command Input, which the frame draws (DESIGN.md:465); no issue names it",
+          "The Command Input has no ⌘K key cap, which the frame draws; it waits for #2670 (DESIGN.md:941-942)",
+          "The header has no List/Chat toggle, which the frame draws; it waits for #810",
+          "The list has no Mail View chips, which the frame draws; they wait for #2131 (DESIGN.md:935)",
+          "Search Bar: an unfiltered Inbox shows a Filter button beside the field (apps/mobile/src/inbox-search.tsx:145); the frame draws the field alone, slightly wider and centred on the window, and DESIGN.md:705 describes only a filtered Inbox's control, so the frame wins and no issue names the change"
+        ]
+      },
+      "baseline": {
+        "image": "baseline/ipad-inbox-dark.png",
+        "sha256": "348f1b7f18f1aef76ab8e54c9594e08c132fe65a30bfc032fecb618494777a3a",
+        "appRevision": "95089fb15b46c88512d0335b97a904f39fd646f7",
+        "capturedIn": "Local pnpm test:visual run, iOS 27.0 Simulator (24A434)",
+        "reviewedIn": "Design review of the #1062 pull request",
+        "environment": {
+          "device": "iPad17,2",
+          "launchArguments": [
+            "-AppleLanguages",
+            "(en)",
+            "-AppleLocale",
+            "en_US",
+            "-UIPreferredContentSizeCategoryName",
+            "UICTContentSizeCategoryL",
+            "-UnwiredNow",
+            "2026-09-28T10:30:00Z"
+          ],
+          "orientation": "landscapeLeft",
+          "os": "27.0",
+          "osBuild": "24A434",
+          "points": [1210, 834],
+          "scale": 2,
+          "timeZone": "UTC",
+          "toolchain": "Xcode 27.2 Build version 27B52"
+        }
       }
     }
   ]
