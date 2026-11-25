@@ -313,9 +313,9 @@ content.
   `radius.card`. Its status badge, such as Cancelled, uses `radius.badgeMac`
   on Mac and `radius.badgeTouch` on iPhone and iPad.
 - The iPhone compose Format panel uses `radius.formatPanel`. Its inset
-  control groups use 22pt corners and 18pt inset selections.
+  control groups use `radius.mailboxGroup` corners and 18pt inset selections.
 - The iPhone and iPad composer Close question (Delete Draft / Save Draft) is a
-  220pt glass panel with `radius.closeQuestion`, 12pt padding and 8pt gaps
+  220pt glass panel with `radius.closeQuestion`, `spacing.m` padding and `spacing.s` gaps
   between 48pt `fill/quiet` capsules with centred Body labels;
   [Components](#components) describes how it opens.
 - Monograms and avatars are circles. A Mail Profile monogram fills the circle
@@ -331,7 +331,7 @@ content.
   only when the contact-images preference is on and a photo exists, and never
   generate initials. Catch Up bubbles and the Thread view show the contact photo
   or neutral initials.
-- iPhone Mailboxes uses 22pt rounded groups of 52pt rows, as shown in the Mailboxes frames.
+- iPhone Mailboxes uses `radius.mailboxGroup` groups of 52pt rows, as shown in the Mailboxes frames.
 
 ## Components
 

@@ -102,8 +102,12 @@ const rgba = (color: string) => {
   if (/^#[\dA-F]{6}$/iu.test(color)) {
     return [...channelsOf(color), 1];
   }
-  return /^rgba\(.*\)$/u.test(color)
-    ? color.slice('rgba('.length, -1).split(',').map(Number)
+  const channels =
+    /^rgba\((?<red>\d+), (?<green>\d+), (?<blue>\d+), (?<alpha>[\d.]+)\)$/u.exec(
+      color,
+    )?.groups;
+  return channels
+    ? [channels.red, channels.green, channels.blue, channels.alpha].map(Number)
     : [Number.NaN];
 };
 // Figma stores numbers as 32-bit floats.
