@@ -4348,7 +4348,10 @@ final class InboxTests: XCTestCase {
       if !newLabel.exists { openLabels() }
       newLabel.tap()
     }
-    app.buttons["Cancel"].tap()
+    // The reopened sheet may still be rising.
+    let cancel = app.buttons["Cancel"]
+    _ = settledFrame(of: cancel)
+    cancel.tap()
     XCTAssertTrue(name.waitForNonExistence(timeout: 10))
   }
 
