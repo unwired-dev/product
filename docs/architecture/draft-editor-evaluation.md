@@ -1,7 +1,9 @@
 # Tiptap Draft editor evaluation: architecture notes
 
 Architecture notes for [the evaluation guide](../draft-editor-evaluation.md).
-This test-only evaluation does not adopt or replace the production editor.
+This test-only evaluation does not adopt or replace the production editor;
+[ADR 0080](../adr/0080-edit-the-draft-body-in-the-tiptap-page.md) adopts the page
+through a separate integration.
 
 ## Scenario selection
 
@@ -105,6 +107,7 @@ needed configuration to stay within the document: no nesting, one textblock per 
 line, inline code combined with other marks, its own shortcuts in place of Tiptap's
 input rules, and a normalizer after each edit. Links were the gap: the document
 could not store them. #1525 adds document support and #1542 adds link preservation
-in the evaluation editor. Link authoring remains in
-[#878](https://github.com/unwired-dev/product/issues/878), which blocks #823. The Mac
-host remains unproven for formatting too.
+in the evaluation editor. Link authoring for both
+composers landed in [#878](https://github.com/unwired-dev/product/issues/878), and the
+signed Mac journey covers formatting since
+[#2876](https://github.com/unwired-dev/product/issues/2876).

@@ -18,8 +18,8 @@ changes no production behaviour; the slices at the end do.
   (`packages/mail-core/src/editor-history.ts`). A `TextInput` cannot hold cells.
 - The [Tiptap evaluation editor](draft-editor-evaluation.md) is one bundled page in
   `react-native-webview` on all three hosts, behind a validated message bridge.
-  Its adoption is decided in [#823](https://github.com/unwired-dev/product/issues/823),
-  which waits on links ([#878](https://github.com/unwired-dev/product/issues/878)).
+  Its adoption is recorded in [ADR 0080](../adr/0080-edit-the-draft-body-in-the-tiptap-page.md)
+  for [#823](https://github.com/unwired-dev/product/issues/823).
 
 ## Approved behaviour
 
@@ -130,7 +130,7 @@ An advisory council (`gpt-6.2-sol`, `gpt-6.2-astra`, `claude-fable-5-2`) chose C
 3–0, each conditional on the owner's adoption decision, with Draft storage first
 because it does not depend on the editor.
 
-Replacing the production body was the owner's decision, which this plan filed ahead of the slices. The owner also accepted WebKit's own VoiceOver table phrasing: the approved strings name what VoiceOver must convey (table size, a cell's column header and row, a merged cell's column range), not exact wording, so no custom accessibility labels are added. [#823](https://github.com/unwired-dev/product/issues/823) records the adoption. A, with the costs above, stays the fallback should the page fail in production; it needs a React Native probe of caret movement and selection across regions first, since the bare-view probe here bounds its cost from below and does not show it is feasible.
+Replacing the production body was the owner's decision, which this plan filed ahead of the slices. The owner also accepted WebKit's own VoiceOver table phrasing: the approved strings name what VoiceOver must convey (table size, a cell's column header and row, a merged cell's column range), not exact wording, so no custom accessibility labels are added. [ADR 0080](../adr/0080-edit-the-draft-body-in-the-tiptap-page.md) records the adoption for [#823](https://github.com/unwired-dev/product/issues/823). A, with the costs above, stays the fallback should the page fail in production; it needs a React Native probe of caret movement and selection across regions first, since the bare-view probe here bounds its cost from below and does not show it is feasible.
 
 ### What the evidence does not show
 
