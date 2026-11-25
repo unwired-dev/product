@@ -722,6 +722,12 @@ mise exec -- pnpm --filter @private-email/mobile test:native \
 
 Add `UNWIRED_APPEARANCE=light` to audit Light; the runner's default is Dark.
 
+On iPad, XCTest's count of the app's running animations can stay above zero
+after the keyboard or a text selection changes, and each action then waits a
+minute for the app to idle. Once that wait runs out for an app process,
+`InboxTests.swift` stops waiting on animations for it and still waits for its main
+run loop to idle ([#1873](https://github.com/unwired-dev/product/issues/1873)).
+
 On the iOS 27 simulator, XCUITest's `typeKey(.escape, modifierFlags: [])` never reaches
 the app, while letters and Command shortcuts do. UIKit delivers Command-period as Escape
 to key commands, so journeys press Command-period to check Escape, as the Inbox
@@ -736,7 +742,11 @@ Inbox leaves it, and Search Mail focuses search. It types a query into search,
 then selects, cuts and pastes it back with Command-A, Command-X and Command-V,
 and Return submits it. On iPad each audit permits the Mailboxes sidebar's
 SwiftUI Edit button to fail Dynamic Type
-([#2769](https://github.com/unwired-dev/product/issues/2769)). Reply from the palette opens a Draft. Typing extends its
+([#2769](https://github.com/unwired-dev/product/issues/2769)), and its Mailboxes
+audit permits the unlabeled message-list-row view that some runs report
+([#2843](https://github.com/unwired-dev/product/issues/2843)). The expanded
+composer is modal, but the audit still measures that Edit button's contrast
+under it, so its Composer audit permits that finding. Reply from the palette opens a Draft. Typing extends its
 subject, Tab moves focus to its recipients, and the body takes typing.
 Shift-Option-Left selects the reply's last word for the Link Editor, opened from
 iPad's format bar as a popover and from iPhone's Format panel as a sheet. It
@@ -756,7 +766,8 @@ launch each button and switch, on iPhone and in iPad's detail, scrolls into
 reach. Relaunched at
 that size ([#2230](https://github.com/unwired-dev/product/issues/2230)),
 the reopened Draft's composer passes the clipped-text audit, expanded on iPad,
-and its fields scroll into reach with **Show Cc and Bcc**, where the Dynamic Type
+whose docked reply shows its fields at that size only once expanded
+([#2882](https://github.com/unwired-dev/product/issues/2882)), and its fields scroll into reach with **Show Cc and Bcc**, where the Dynamic Type
 audit runs too. It permits the body, a React Native multiline input like the
 signature field, to fail Dynamic Type once it holds text, plain or formatted,
 although a text size change made in Settings reaches it
