@@ -616,9 +616,9 @@ cookies and other WebKit stores). No sample found any, through typing, imports,
 Outstanding for #820: the Mac native journey, which needs a signed mock profile;
 pasting image data into the page on Mac, and dropping files on the page on every
 host, which need native interception in the web view (the page refuses both unread);
-**Paste Image** and in-page paste on a device; website data after account removal,
-which this journey does not exercise; a network capture of the journey beyond the
-page's refusal of networking and navigation; and physical iPhone and iPad runs.
+**Paste Image** and in-page paste on a device; and physical iPhone and iPad runs.
+Website data after account removal and a network capture are recorded in
+[Website data and network](#website-data-and-network-2922).
 
 ### Save ordering (#821)
 
@@ -660,6 +660,71 @@ the app ends before **Save Draft**. The regular iPhone, iPad and Mac composers n
 use the same save model. On iPhone both composers cover the
 Inbox and reader, so system **Back** cannot leave them
 ([#778](https://github.com/unwired-dev/product/issues/778)).
+
+### Website data and network (#2922)
+
+[#2922](https://github.com/unwired-dev/product/issues/2922) checks
+[ADR 0080](adr/0080-edit-the-draft-body-in-the-tiptap-page.md)'s gate 4: that
+the page leaves no WebKit website data, also after the account leaves the device,
+and that a network capture of a journey shows no connection from the page's
+WebKit processes. It ran on 2026-11-25 with Xcode 27.2 (`27B52`), the iOS 27.0
+Simulator runtime and macOS 27.2.1 on the Mac mini M4, from main at
+`cf500a39d` with the journey repairs of #2923 and #2926, in
+`registration-draft-editor` builds:
+Release on iPhone and iPad, `Testing` on the Mac.
+
+Method:
+
+- A watcher listed every path in the app's data container every five seconds
+  whose name contains `WebKit`, `Cookie`, `HTTPStorages`, `LocalStorage`,
+  `IndexedDB`, `CacheStorage` or `ServiceWorker`. On the Mac it also listed the
+  app's folders in `~/Library/WebKit`, `Caches`, `HTTPStorages` and `Cookies`.
+  It recorded the process ids of the app and its WebKit WebContent, Networking
+  and GPU processes.
+- A temporary step at the end of each journey removed the mailbox in Settings ›
+  Email Accounts and chose **Sign Out of This Device**, on the installation the
+  journey used, and the watcher sampled on after it.
+- `tcpdump` on the host's `pktap` interface recorded every TCP and UDP packet,
+  including loopback, sent or received by a process named `com.apple.WebKit…`
+  or on its behalf, with the process id, through each whole run. The
+  Simulators' processes run on the host and are tagged the same way. pktap tags
+  each packet rather than sampling: a probe connection that carried no data and
+  closed after 18 ms appeared under its process. The kernel's capture
+  buffer was raised to 32 MB for the runs, and the captures report no packet
+  dropped.
+- Controls in the same captures were recorded under their own process ids: on
+  an iPhone Simulator, Safari loading `https://example.com/` (47 packets of its
+  WebKit Networking process), and on the Mac a `WKWebView` with a
+  non-persistent store loading the same page (35 and 36 packets in the two
+  captures).
+
+Results:
+
+- The journey passed, through the removal and sign-out, on iPhone 18 Pro
+  (`artifacts/expo-bootstrap/native-70kqaE/`, 141 samples) and on iPad Pro
+  11-inch (M5) (`artifacts/expo-bootstrap/native-CwnaDf/`, 132 samples), and
+  on the Mac (`artifacts/macos-inbox/journey.ZqMP9S/`, 106 samples). The iPad
+  journey first stopped at its Link Editor step
+  ([#2923](https://github.com/unwired-dev/product/issues/2923)) and the Mac
+  journey at its numbered-list and link steps
+  ([#2926](https://github.com/unwired-dev/product/issues/2926)); both are fixed.
+- No sample found website data. From the first web view on, every iPhone and
+  iPad sample (128 and 120) found only the WebKit GPU process's compiled shader
+  cache in `Library/Caches/com.apple.WebKit.GPU` and the `tmp/com.apple.WebKit.GPU`
+  and `tmp/com.apple.WebKit.Networking` folders, before and after the sign-out,
+  and the earlier samples found nothing; on the Mac no sample found anything.
+  In an earlier, shorter `agent-device` session on a fresh Simulator, no file in
+  the iPhone or iPad container held the text typed into the page after sign-out.
+- The captures hold only the controls' packets. None came from or for the
+  journeys' WebKit processes: 49 on iPhone and 49 on iPad, across the app's 13
+  launches on each, and on the Mac the 46 started during the run, across the
+  app's 15 launches.
+
+This does not show physical devices (gate 1) or real providers. The watcher reads
+only the app's own folders; WebKit data a system process keeps elsewhere for the
+app would not be seen. The capture shows only packets the host sends or receives:
+it would not see data the page passes to another process without a network
+connection.
 
 ## Finding
 

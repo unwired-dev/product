@@ -136,6 +136,13 @@ release limit:
 3. The Mac Inline Image journey, image paste on Mac, file drops on every host,
    and **Paste Image** and in-page paste on a device.
 4. WebKit website data after account removal and a network capture of a journey.
+   Met by [#2922](https://github.com/unwired-dev/product/issues/2922) on iPhone
+   and iPad Simulators and the Mac: no sample found website data during the
+   journey or after it removed the mailbox and signed the device out, and a
+   per-process packet capture of the journey holds no packet of the app's
+   WebKit processes
+   ([evidence](../draft-editor-evaluation.md#website-data-and-network-2922)).
+   Physical devices follow with gate 1.
 5. [#822](https://github.com/unwired-dev/product/issues/822)'s comparison of
    both composers in Release builds on the same fixtures and devices, including
    selection-change latency on large, many-block Drafts

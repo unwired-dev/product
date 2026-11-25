@@ -109,6 +109,37 @@ other work was 2–352.
   reaches an open menu; More Formatting's effects; Reduce Motion. `agent-device`
   sends no arbitrary hardware keys and does not report spoken output.
 
+## iPhone sheet swipes, 2026-11-25
+
+[#2898](https://github.com/unwired-dev/product/issues/2898), a slice of
+[#2873](https://github.com/unwired-dev/product/issues/2873), runs the sheet
+swipe checks the 2026-11-24 pass below deferred. It ran on `a4ce7fe80` with the
+journey changes, on a `registration-declined` Release Simulator build with
+Xcode 27.2 (`27B52`), the iOS 27.0 runtime and macOS 27.2.1, on iPhone 18 Pro
+in portrait, in Light and Dark. Each passing run passed on its first attempt;
+the 1-minute host load was 3–15. After `main` changed the journeys' waits for
+animations (#1873), `testSheetSwipes` passed again in Dark and Light at host
+loads of 33 and 127. Three runs between those, at host loads of 90–120,
+stopped at **Cancel** not closing the reopened New Label, at New Label kept
+after the swipe that follows the keyboard's, and at Reply not reopening after
+New Label closed. A sheet still moving is the suspected cause; the journey now
+waits for **Cancel** to settle and for **Reply** to be hittable, and with those
+waits it passed in Dark and Light at host loads of 34 and 260.
+
+- `testSheetSwipes`: from a Gmail reader, the Reply sheet, its Labels sheet
+  and that sheet's New Label sheet each stay at the same frame after a
+  downward swipe held short and released at rest. A completed downward swipe
+  closes the Reply and Labels sheets, and the same control opens each again.
+- New Label opens with its name focused and the software keyboard up, which
+  stays up at a swipe released early. The system sheet lowers the keyboard at
+  the first completed swipe and stays, and closes at the next. The first Dark run, which expected the sheet to
+  close at once, failed there.
+- `testComposerSheet`: a swipe released early on a changed Draft keeps the
+  sheet, its Subject and no Delete Draft or Save Draft question.
+
+The Move sheet belongs to IMAP and Microsoft accounts, which the synthetic
+mailbox lacks; it stays on #2873 with the other checks listed there.
+
 ## iPhone and iPad presenters through rotation, 2026-11-25
 
 [#2907](https://github.com/unwired-dev/product/issues/2907), a slice of
