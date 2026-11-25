@@ -27,8 +27,8 @@ body { font: -apple-system-body; -webkit-text-size-adjust: 100%; }
 .ProseMirror li p, .ProseMirror blockquote p { margin: 0; }
 .ProseMirror li[data-indent="1"] { margin-left: 1.5em; }
 .ProseMirror li[data-indent="2"] { margin-left: 3em; }
-.ProseMirror { counter-reset: level0 level1 level2; }
-.ProseMirror > :not(ul, ol), .ProseMirror ul > li { counter-set: level0 0 level1 0 level2 0; }
+.ProseMirror, .ProseMirror :is(td, th) { counter-reset: level0 level1 level2; }
+.ProseMirror > :not(ul, ol), .ProseMirror :is(td, th) > :not(ul, ol), .ProseMirror ul > li { counter-set: level0 0 level1 0 level2 0; }
 .ProseMirror ul > li[data-indent="1"] { counter-set: level1 0 level2 0; }
 .ProseMirror ul > li[data-indent="2"] { counter-set: level2 0; }
 .ProseMirror ol > li { position: relative; list-style: none; counter-increment: level0; counter-set: level1 0 level2 0; }

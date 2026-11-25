@@ -1101,8 +1101,12 @@ describe('the Tiptap evaluation page', () => {
     ]);
     const { editor } = page;
     editor.commands.selectAll();
+    const selected = editor.state.selection;
     editor.view.pasteHTML('');
-    expect(bodyOf(page)).toBeUndefined();
+    expect([bodyOf(page), editor.state.selection.eq(selected)]).toStrictEqual([
+      undefined,
+      true,
+    ]);
     // A paragraph copied whole, as after Select All, joins the line it is pasted into.
     const { from, to } = nth(textblocks(editor), 0);
     editor.commands.setTextSelection({ from, to });
@@ -1144,6 +1148,14 @@ describe('the Tiptap evaluation page', () => {
       align: 'justify',
       spans: [{ text: 'copied' }],
     });
+  });
+
+  it('keeps the text after a selection on its own line under lines pasted from elsewhere', async () => {
+    expect.hasAssertions();
+    const page = await open(paragraphs('abc'));
+    page.editor.commands.setTextSelection({ from: 2, to: 3 });
+    page.editor.view.pasteHTML('<p>one</p><p>two</p>');
+    expect(bodyOf(page)).toStrictEqual(paragraphs('aone', 'two', 'c'));
   });
 
   it('pastes a paragraph copied whole at the caret as its text and keeps the line after a selection', async () => {
@@ -2207,6 +2219,71 @@ describe('tables in the Tiptap page', () => {
         ],
       },
     ]);
+  });
+
+  it('keeps alignment, list levels, colors and fonts inside cells', async () => {
+    expect.hasAssertions();
+    const table: Table = {
+      kind: 'table',
+      rows: [
+        [
+          {
+            blocks: [
+              {
+                kind: 'paragraph',
+                align: 'center',
+                spans: [{ text: 'red', color: '#c00000', font: 'serif' }],
+              },
+              { kind: 'numbered', spans: [{ text: 'one' }] },
+              { kind: 'numbered', indent: 1, spans: [{ text: 'one.a' }] },
+            ],
+          },
+          cell('plain'),
+        ],
+      ],
+    };
+    const page = await open([table, paragraph('after')]);
+    page.editor.chain().focus('end').run();
+    page.type('!');
+    expect(bodyOf(page)).toStrictEqual([table, paragraph('after!')]);
+  });
+
+  it('keeps text in its cell at a cell edge and clears selected cells', async () => {
+    expect.hasAssertions();
+    const page = await open([shaped([[{}, {}]])]);
+    const { editor } = page;
+    editor.commands.setTextSelection(nth(cellsOf(editor), 0) + 2);
+    press(page, 'Delete');
+    editor.commands.setTextSelection(nth(cellsOf(editor), 1));
+    press(page, 'Backspace');
+    expect(bodyOf(page)).toBeUndefined();
+    const { state, view } = editor;
+    view.dispatch(
+      state.tr.setSelection(
+        CellSelection.create(
+          state.doc,
+          nth(cellsOf(editor), 0) - 2,
+          nth(cellsOf(editor), 1) - 2,
+        ),
+      ),
+    );
+    press(page, 'Delete');
+    expect(bodyOf(page)).toStrictEqual([
+      { kind: 'table', rows: [[cell(''), cell('')]] },
+    ]);
+  });
+
+  it('cuts a selected kept table', async () => {
+    expect.hasAssertions();
+    const page = await open([shaped([[{}, {}], [{}]]), paragraph('after')]);
+    const { editor } = page;
+    editor.view.dispatch(
+      editor.state.tr.setSelection(NodeSelection.create(editor.state.doc, 0)),
+    );
+    editor.view.dispatch(
+      editor.state.tr.deleteSelection().setMeta('uiEvent', 'cut'),
+    );
+    expect(bodyOf(page)).toStrictEqual([paragraph('after')]);
   });
 
   it('outlines the cell holding the caret, inside a frame that scrolls sideways', async () => {

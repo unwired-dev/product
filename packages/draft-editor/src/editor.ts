@@ -583,7 +583,7 @@ const joined = (slice: Slice) => {
   return new Slice(
     slice.content,
     open.openStart,
-    lines === 1 ? open.openEnd : slice.openEnd,
+    lines === 1 ? open.openEnd : 0,
   );
 };
 
@@ -674,6 +674,13 @@ const flatDelete = (tr: Transaction, from: number, to: number) => {
   tr.setSelection(TextSelection.create(tr.doc, start));
   tr.setMeta('preventClearDocument', true);
 };
+
+// Whether the page edits `selection` as text: selected cells and a selected table are the table
+// editing's and ProseMirror's.
+// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ProseMirror's selection is a class; this only reads it.
+const editsAsText = (selection: Selection) =>
+  !(selection instanceof CellSelection) &&
+  !(selection instanceof NodeSelection && selection.node.isBlock);
 
 // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ProseMirror's transaction is a class; this edits it.
 const deleteSelected = (tr: Transaction) => {
@@ -874,8 +881,8 @@ const returnKey = (editor: TiptapEditor) =>
 const deleteKey = (editor: TiptapEditor, forward: boolean) => {
   const { selection, doc } = editor.state;
   const { $from, empty } = selection;
-  // A selected node, as a table, is Tiptap's to delete.
-  if (selection instanceof NodeSelection) {
+  // A selected table or cells are the table editing's and Tiptap's to delete.
+  if (!editsAsText(selection)) {
     return false;
   }
   if (!empty) {
@@ -887,7 +894,8 @@ const deleteKey = (editor: TiptapEditor, forward: boolean) => {
     : $from.parentOffset === 0 &&
       $from.node(-1).type.name !== 'listItem' &&
       Selection.findFrom(doc.resolve($from.before()), -1, true)?.$from;
-  if (!$other) {
+  // No join moves text into or out of a table cell.
+  if (!$other || cellAround($from)?.pos !== cellAround($other)?.pos) {
     return false;
   }
   return editor.commands.command(({ tr }) => {
@@ -963,7 +971,12 @@ const DraftBehavior = Extension.create<unknown, { typing: boolean }>({
           // Pasting over a selection pastes over it as the current composer does.
           handlePaste: (view, event, slice) => {
             if (!carriesFiles(event.clipboardData)) {
-              if (view.state.selection.empty || slice.size === 0) {
+              const { selection } = view.state;
+              if (
+                selection.empty ||
+                !editsAsText(selection) ||
+                slice.size === 0
+              ) {
                 return false;
               }
               const { tr } = view.state;
@@ -1047,6 +1060,10 @@ const DraftBehavior = Extension.create<unknown, { typing: boolean }>({
             const kind = shortcuts.get(marker);
             const word =
               from === to && [...text].length === 1 && !/\s/u.test(text);
+            // Typing over selected cells or a node is ProseMirror's.
+            if (from !== to && !editsAsText(view.state.selection)) {
+              return false;
+            }
             // Typing over a selection deletes it as Backspace does first.
             const tr = from === to ? deflt() : view.state.tr;
             // oxlint-disable-next-line unicorn/no-array-method-this-argument -- ProseMirror Mapping.map takes an association, not an array thisArg.
@@ -1078,9 +1095,10 @@ const DraftBehavior = Extension.create<unknown, { typing: boolean }>({
     ];
   },
   dispatchTransaction({ transaction: dispatched, next }) {
-    // Cut deletes the selection as Backspace does.
+    // Cut deletes a text selection as Backspace does.
     const transaction =
-      dispatched.getMeta('uiEvent') === 'cut'
+      dispatched.getMeta('uiEvent') === 'cut' &&
+      editsAsText(this.editor.state.selection)
         ? this.editor.state.tr.setMeta('uiEvent', 'cut').scrollIntoView()
         : dispatched;
     if (transaction !== dispatched) {
