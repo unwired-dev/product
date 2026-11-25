@@ -57,7 +57,7 @@ const StoredDocumentSchema = Schema.Struct({
   // reply is no conflict.
   sent: Schema.optionalKey(Schema.Array(SentSchema)),
   // The records of Drafts sent or discarded here before their reminder arrived: each is a removal
-  // to publish until this device reads or writes the record.
+  // to publish until this device reads or writes the record again.
   cancelled: Schema.optionalKey(Schema.Array(Schema.NonEmptyString)),
 });
 type Reminders = typeof StoredDocumentSchema.Type;
@@ -428,8 +428,9 @@ export function createSendReminders(
 
   // Resolves whether storage holds `reminder`, or its removal when null, as `profile`'s reminder for
   // Draft `draft`, then publishes it. A reminder for a Draft another Profile's reminder names is
-  // refused. With Private Sync, removing one whose record this device has not read or written yet
-  // is kept as a removal to publish, so a reminder another device set is removed when it arrives.
+  // refused. With Private Sync, removing one whose record this device has not read or written yet,
+  // or last read removed, is kept as a removal to publish, so a reminder another device set is
+  // removed when it arrives.
   const changing = async (
     profile: string,
     draft: string,
@@ -456,7 +457,9 @@ export function createSendReminders(
         }
         const cancels =
           sync !== undefined &&
-          !document.synced?.some((each) => each.id === id) &&
+          !document.synced?.some(
+            (each) => each.id === id && each.reminder !== null,
+          ) &&
           !document.cancelled?.includes(id);
         return current === undefined && !cancels
           ? document

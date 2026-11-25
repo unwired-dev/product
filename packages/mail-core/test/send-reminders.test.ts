@@ -435,6 +435,19 @@ describe('synchronized Send Reminders', () => {
     await mac.synchronize();
     await expect(phone.reminders('work')).resolves.toStrictEqual([]);
     await expect(mac.reminders('work')).resolves.toStrictEqual([]);
+
+    // Also when both devices already hold the record's removal.
+    server.setReachable(false);
+    await mac.remind('work', receipt);
+    await mac.synchronize();
+    await phone.cancel('work', receipt.draft);
+    await phone.synchronize();
+    server.setReachable(true);
+    await mac.synchronize();
+    await phone.synchronize();
+    await mac.synchronize();
+    await expect(phone.reminders('work')).resolves.toStrictEqual([]);
+    await expect(mac.reminders('work')).resolves.toStrictEqual([]);
   });
 
   it('lets a Draft reminded again after a cancellation take the first write', async () => {
