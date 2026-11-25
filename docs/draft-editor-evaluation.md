@@ -327,7 +327,10 @@ links it with **Add Link** (from the Format panel on iPhone), checks that **Edit
 offers **Remove Link** and the destination, steps one **Undo**, which removes the
 link and keeps the text so the control reads **Add Link** again, and **Redo**, then
 relaunches and reopens the linked Draft, whose **Edit Link** shows the destination
-([#2866](https://github.com/unwired-dev/product/issues/2866)). The Mac journey also
+([#2866](https://github.com/unwired-dev/product/issues/2866)). The Mac journey takes
+the same step after its translation, selecting the paragraph with Command-Up Arrow
+and Shift-Command-Down Arrow and choosing **Save** before the relaunch
+([#2876](https://github.com/unwired-dev/product/issues/2876)). The Mac journey also
 uses Command-B, Command-Z and Shift-Command-Z. The
 iPhone and iPad journey then starts another **New Message**, types, places a photo
 with **Insert Image** from the system Photos picker, types after it, turns it into an
@@ -335,8 +338,8 @@ Attachment with **Attach Instead** from the row's context menu and back with
 **Show Inline**, steps **Undo** and **Redo** across the last conversion, then saves
 and relaunches and reopens the Draft with the image and its thumbnail in place. The
 runner adds `native-tests/photo.png` to each fresh Simulator's photo library for it. The mobile journey
-attaches screenshots to the XCTest results; the Mac journey records its assertions
-when signing permits execution.
+attaches screenshots to the XCTest results; the Mac journey attaches its **Edit Link**
+captures.
 
 Shared and component checks:
 
@@ -428,6 +431,19 @@ restored it, and the relaunched Draft reopened with the link and its destination
 Other attempts at loads of about 150–440 stalled waiting for the app to idle or
 lost a tap on the Format panel before the link step; they are not evidence.
 
+First Mac run on 2026-11-25 for [#2876](https://github.com/unwired-dev/product/issues/2876),
+same Mac mini, macOS 27.2.1 (26B131), Xcode 27.2 (27B52), signed `Testing`
+`registration-draft-editor` build of `d72ed590e` with the journey's new link step,
+Light appearance. `testIndependentWindowsCloseReopenAndQuit` passed with zero
+failures (`artifacts/macos-inbox/journey.vZfqPf/`), from sign-in through the
+formatting, assistance and reply round trips, the link step and the native close
+journey: **Add Link** opened with the paragraph as Text and Link empty and focused,
+without **Remove Link**, and linked the paragraph; **Edit Link** offered **Remove
+Link** and the destination; one **Undo** removed the link and kept the text, **Redo**
+restored it, and the relaunched Draft reopened with the link and its destination.
+An earlier attempt failed at its first **Close** because crash alerts left by other
+tasks covered the window; it is not evidence.
+
 ### Formatting fidelity (#819)
 
 Page tests run the real Tiptap configuration in `happy-dom`. They round-trip every
@@ -486,8 +502,7 @@ The earlier Mac `Testing` build succeeded with the page in its bundle. The updat
 journey (both rewrite scopes, translation, reply suggestions, and undone/accepted
 reopening) type-checks; it was not run, for the signing reason above.
 
-Outstanding before any adoption decision: the Mac native journey with a signed
-mock profile; physical iPhone and iPad runs; hardware keyboards, IME, dictation,
+Outstanding before any adoption decision: physical iPhone and iPad runs; hardware keyboards, IME, dictation,
 autocorrection and VoiceOver ([#822](https://github.com/unwired-dev/product/issues/822));
 the Inline Image checks that remain outstanding [below](#inline-images-820); and the
 native save-ordering checks that remain outstanding [below](#save-ordering-821).
@@ -527,9 +542,8 @@ stores the shown version; the iPhone Format panel, its keyboard hand-off and Wri
 tools; the iPad format bar; and the conversion menu and its accessibility action.
 The Mac component journey substitutes the native close module and checks window
 routing, repeated requests, Cancel, failed Save and successful Save. The native
-Mac journey now also covers Command-W cancellation, cancelled Quit and one Quit
-finishing two open editors; this added interaction coverage remains unexecuted
-without a signed mock profile.
+Mac journey also covers Command-W cancellation, cancelled Quit and one Quit
+finishing two open editors; it passed on 2026-11-25 (#2876).
 
 Native execution on 2026-10-15, same Mac mini and toolchain as above (macOS 27.0.1,
 Xcode 27.0, iOS 27.0 Simulator runtime), with a Release `registration-draft-editor`
