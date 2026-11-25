@@ -1053,6 +1053,34 @@ extension UnwiredRegistration {
     }
   }
 
+  @objc(pullSendReminders:known:resolver:rejecter:)
+  func pullSendReminders(
+    _ owner: String, known: [String],
+    resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
+  ) {
+    syncDrafts("pullSendReminders", owner: owner, resolve, reject: reject) { _, sync in
+      try await sync.pull(SendReminderRecord.self, known: known)
+    }
+  }
+
+  // `record` carries the reminder's identifier, naming its Mail Profile and Draft, the record's write
+  // count, its JSON and the revision it replaces.
+  @objc(pushSendReminder:record:resolver:rejecter:)
+  func pushSendReminder(
+    _ owner: String, record: [String: Any],
+    resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
+  ) {
+    syncDrafts("pushSendReminder", owner: owner, resolve, reject: reject) { _, sync in
+      guard let id = record["id"] as? String, !id.isEmpty, id.count <= 200,
+        let version = (record["version"] as? Double).flatMap({ Int(exactly: $0) }), version >= 1,
+        let reminder = record["reminder"] as? String
+      else { throw RegistrationError.unavailable }
+      return try await sync.push(
+        SendReminderRecord(id: id, version: version, content: reminder),
+        expected: record["expectedUpdatedAt"] as? Double)
+    }
+  }
+
   @objc(pullBlockedSenders:known:resolver:rejecter:)
   func pullBlockedSenders(
     _ owner: String, known: [String],
@@ -1924,6 +1952,29 @@ extension UnwiredRegistration {
         throw RegistrationError.unavailable
       }
       return try await $0.commitPins(owner: owner, expectedRevision: revision, document: document)
+    }
+  }
+
+  @objc(openUnsubscribeRequests:rejecter:)
+  func openUnsubscribeRequests(
+    _ resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
+  ) {
+    mailbox("openUnsubscribeRequests", resolve, reject: reject) {
+      try await $0.openUnsubscribeRequests()
+    }
+  }
+
+  @objc(commitUnsubscribeRequests:expectedRevision:document:resolver:rejecter:)
+  func commitUnsubscribeRequests(
+    _ owner: String, expectedRevision: Double, document: String,
+    resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
+  ) {
+    mailbox("commitUnsubscribeRequests", resolve, reject: reject) {
+      guard let revision = Int(exactly: expectedRevision), revision >= 0 else {
+        throw RegistrationError.unavailable
+      }
+      return try await $0.commitUnsubscribeRequests(
+        owner: owner, expectedRevision: revision, document: document)
     }
   }
 

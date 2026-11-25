@@ -13,6 +13,10 @@ the automated PR reviewers (CodeRabbit, Codex) follow under
 2. Write down the acceptance criteria and the checks that prove them. For UI,
    list every visible state you add or change with its Figma frame; that list
    feeds [design approval](#design-approval) and the [design review](#design-review).
+   Name each place a provided native component (menu, popover, sheet, alert,
+   button) will draw or anchor differently from its frame, and settle it
+   before writing that code: the app follows the frame, or the owner approves
+   a frame update or a [Known frame difference](../../DESIGN.md#known-frame-differences).
 3. Implement the smallest complete change and its tests under the
    [testing policy](testing.md). For code, run
    `mise exec -- scripts/pre-handoff.sh`; it ends with one `pre-handoff: PASS`
@@ -112,10 +116,16 @@ in Figma. Implementing existing frames needs no new approval.
    they change so the approved design stays in place, and move approved
    sections to the page of their product area, named like
    "#1673 Send and Archive · approved 2026-11-11".
-2. Ask the user to review: link each changed frame, say what changed and why,
-   and list open questions.
-3. Write design-dependent code only after the user approves; other work can
-   proceed meanwhile. Record the approved frame links in the issue and the PR.
+2. Run the [frame lint](figma-frame-lint.md) on every changed frame and fix
+   what it reports.
+3. Ask the user to review: link each changed frame, say what changed and why,
+   list open questions and any lint finding you kept deliberately.
+4. Write design-dependent code only after the user approves; other work can
+   proceed meanwhile. Approval covers the sections the user names: move each
+   one, renamed from its proposal label to "· approved <date>". Record the
+   approved frame links in the issue and the PR, and write each decision the
+   approval settles (an order, a rule, a removed control) into DESIGN.md or the
+   owning product document in the same session.
 
 Figma steps need the Figma MCP server. When the current agent lacks it, run the
 step in an agent that has it, such as a Claude subagent. Missing Figma access
@@ -132,17 +142,17 @@ components, styles, copy, icons, motion, notifications and accessibility labels.
 2. Capture the result on the Mac host and on iPhone and iPad Simulators, in
    Light and Dark and in each size class the design shows, using mock mail
    sessions under [native validation](native-validation.md).
-3. Compare layout, spacing, color tokens, typography, SF Symbols, Liquid Glass
-   placement, copy and truncation, empty/loading/error/disabled states and
-   accessibility (contrast, target size, labels). Differences the frames show
-   deliberately between platforms are intended.
-   Resize to window sizes the frame doesn't show: layouts hold, touch targets
-   stay at least 44pt and content clears floating controls. When copy or
-   accessibility labels change, update the native journey queries that find
-   them; on macOS a disclosure needs the `button` role, not `header`.
-4. Fix confirmed deviations and recapture. Where a frame differs from a product
-   requirement, follow the [frames rule](../../AGENTS.md#design). Record a
-   capture you could not take as deferred.
+3. Run the [design judge](design-judge.md) on those captures: the latest GPT
+   Sol measures each one against its frame export until it passes. Differences
+   the frames show deliberately between platforms are intended.
+4. Check what the frames cannot show: resize to window sizes the frame doesn't
+   show (layouts hold, touch targets stay at least 44pt, content clears
+   floating controls) and accessibility (contrast, target size, labels). When
+   copy or accessibility labels change, update the native journey queries that
+   find them; on macOS a disclosure needs the `button` role, not `header`.
+   Where a frame differs from a product requirement, follow the
+   [frames rule](../../AGENTS.md#design). A capture you could not take leaves
+   its state not compared: say so in the PR, never that it matches.
 
 ## Decisions
 

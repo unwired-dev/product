@@ -294,6 +294,16 @@ Each [Mail Template](drafts.md) synchronizes as a sealed `profile-template.` rec
 under an identifier derived from the template's, holding its Profile, name, subject,
 body and a random write identifier, with a sealed tombstone once removed. Writes use compare-and-set, and a
 record that does not open under its own template's identifier is never adopted.
+Each Draft's [Send Reminder](drafts.md)
+([#2830](https://github.com/unwired-dev/product/issues/2830)) synchronizes as a sealed
+`send-reminder.` record under an identifier derived from its Mail Profile's and Draft's,
+holding the Draft and its Profile, the due instant, the time zone and a random write
+identifier, but none of the Draft's content, with a sealed tombstone once removed. Writes
+use compare-and-set. A removal wins over a concurrent change, so a stale write never
+restores a removed reminder, and of two concurrent changes the one written first wins. A
+Draft sent or discarded before its reminder reached this device publishes a tombstone for
+it, which removes the reminder whichever device writes first. A record that does not open under its own
+identifier is never adopted or overwritten.
 Each Mail Profile's [Blocked Senders](architecture/product/organization.md#mute-and-blocked-senders)
 synchronize as one sealed `profile-blocked-senders.` record under an identifier derived
 from the Profile's, holding each address's latest block or unblock and when it was made,

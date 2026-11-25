@@ -572,6 +572,13 @@ TypeScript decodes each Pin's Mailbox Connection, Thread and date; another accou
 reads none, and every account purge removes the document. They are not
 synchronized yet; see [Pins](architecture/product/organization.md#pins).
 
+The account's **sent unsubscribe requests**
+([#2823](https://github.com/unwired-dev/product/issues/2823)) are kept like its
+Pins, in their own sealed document that no other document opens as. TypeScript
+decodes each request's Mail Profile, Mailing List Identity, list name and date;
+another account reads none, and every account purge removes the document. They
+are never synchronized; see [Unsubscribe](unsubscribe.md#remembering-a-sent-request).
+
 The account's **Send Reminders**
 ([#2074](https://github.com/unwired-dev/product/issues/2074)) are kept like its
 Mail Templates, in their own sealed document that neither the Drafts nor the Mail
@@ -579,8 +586,11 @@ Templates document opens as. TypeScript checks each reminder's Draft, Profile,
 instant and time zone. The document counts toward the Outgoing Content Store's
 100 MB with the Drafts, their assets and composer recovery records, so a reminder
 that does not fit is refused and reminders leave less space for saves. Another
-account reads none, and every account purge removes it. They are not synchronized
-yet.
+account reads none, and every account purge removes it. The document also keeps each
+reminder's last Private Sync record, the writes still in flight and the removals still
+to publish, so a reminder set
+offline is published once Private Sync is reachable
+([#2830](https://github.com/unwired-dev/product/issues/2830)).
 
 Picked files on iPhone and iPad are protected temporary copies removed after
 successful or failed import, an abandoned picker result, or the next launch.

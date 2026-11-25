@@ -4,10 +4,14 @@ import type {
   BlockKind,
   ImageWidth,
   Mark,
-  SemanticDocument,
+  Table,
+  TableDocument,
 } from '@private-email/mail-core/semantic-document';
 import type { JSONContent } from '@tiptap/core';
 import type { Node, ResolvedPos } from '@tiptap/pm/model';
+
+import { markersOf } from '@private-email/mail-core/body-display';
+import * as Predicate from 'effect/Predicate';
 
 // The explicit boundary between the stored Semantic Message Document and Tiptap's JSON. The
 // Draft stores only the Semantic Message Document; editor JSON never leaves the page.
@@ -16,7 +20,10 @@ import type { Node, ResolvedPos } from '@tiptap/pm/model';
 // An Inline Image is an inline node naming its Draft Asset and any display width, and the Draft's Attachments are an
 // attribute of the editor document naming theirs, so one edit and one Undo step can change both.
 // The page keeps the assets it was given by identifier. Linked text carries a `link` mark naming
-// its destination.
+// its destination, and text with a stored color, background, font or size a `format` mark. A
+// textblock carries its alignment and a list item its level. A table the page edits holds rows of
+// cells and header cells, each with its blocks and any column and row span; any other table is one
+// `keptTable` node holding it unchanged.
 
 // The character an Inline Image occupies; typed or pasted text never stores it.
 const imageCharacter = '￼';
@@ -62,11 +69,17 @@ const headingKind: Readonly<Record<number, BlockKind | undefined>> = {
 type Span = Block['spans'][number];
 
 const inlineOf = (span: Span): JSONContent => {
-  const marks: Array<{ type: string; attrs?: { href: string } }> = (
+  const marks: Array<{ type: string; attrs?: Record<string, unknown> }> = (
     span.marks ?? []
   ).map((mark) => ({ type: tiptapMarks[mark] }));
   if ('link' in span && span.link !== undefined) {
     marks.push({ type: 'link', attrs: { href: span.link } });
+  }
+  if (!('image' in span)) {
+    const { color = null, background = null, font = null, size = null } = span;
+    if ([color, background, font, size].some((value) => value !== null)) {
+      marks.push({ type: 'format', attrs: { color, background, font, size } });
+    }
   }
   return {
     ...('image' in span
@@ -79,15 +92,22 @@ const inlineOf = (span: Span): JSONContent => {
   };
 };
 
-const textblock = (type: string, { spans }: Block): JSONContent =>
-  spans.length === 0 ? { type } : { type, content: spans.map(inlineOf) };
+const textblock = (
+  type: string,
+  { spans, align }: Block,
+  attrs?: Readonly<Record<string, unknown>>,
+): JSONContent => ({
+  type,
+  attrs: { ...attrs, align: align ?? null },
+  ...(spans.length === 0 ? {} : { content: spans.map(inlineOf) }),
+});
 
 // One Tiptap node for a run of blocks of one kind; only lists and quotes have runs longer than one.
 const nodeOf = (run: readonly [Block, ...Block[]]): JSONContent => {
   const [first] = run;
   const level = headingLevel[first.kind];
   if (level !== undefined) {
-    return { ...textblock('heading', first), attrs: { level } };
+    return textblock('heading', first, { level });
   }
   const container = containerOf[first.kind];
   if (container === undefined) {
@@ -98,34 +118,104 @@ const nodeOf = (run: readonly [Block, ...Block[]]): JSONContent => {
     content: run.map((block) =>
       first.kind === 'quote'
         ? textblock('paragraph', block)
-        : { type: 'listItem', content: [textblock('paragraph', block)] },
+        : {
+            type: 'listItem',
+            attrs: { indent: block.indent ?? 0 },
+            content: [textblock('paragraph', block)],
+          },
     ),
   };
 };
 
-export const toEditor = (
-  document: SemanticDocument,
-  attachments: readonly Asset[] = [],
-): JSONContent => {
-  const runs: Array<[Block, ...Block[]]> = [];
-  for (const block of document) {
+// Whether prosemirror-tables edits `table` unchanged: every row fills the same columns, and no
+// merged cell overlaps another or reaches past the last row. It fixes any other shape on its first
+// edit, as its TableMap reports.
+export const fillsGrid = ({ rows }: Table) => {
+  const filled = rows.map((): boolean[] => []);
+  // Fills the slots of a cell placed at column `x` of row `y`, unless one is filled already or the
+  // cell reaches past the last row.
+  const fill = (
+    y: number,
+    x: number,
+    { columns = 1, rows: span = 1 }: Table['rows'][number][number],
+  ) => {
+    const lines = filled.slice(y, y + span);
+    const slots = lines.flatMap((line) =>
+      Array.from({ length: columns }, (_, at) => [line, x + at] as const),
+    );
+    const free = slots.every(([line, at]) => line[at] !== true);
+    for (const [line, at] of slots) {
+      line[at] = true;
+    }
+    return lines.length === span && free;
+  };
+  const placed = rows.every((row, y) => {
+    let x = 0;
+    return row.every((cell) => {
+      while (filled[y]?.[x] === true) {
+        x += 1;
+      }
+      x += cell.columns ?? 1;
+      return fill(y, x - (cell.columns ?? 1), cell);
+    });
+  });
+  const width = filled[0]?.length;
+  // A sparse line's holes are columns no cell fills.
+  return (
+    placed &&
+    filled.every(
+      (line) => line.length === width && line.filter(Boolean).length === width,
+    )
+  );
+};
+
+// Whether a kept table's attribute holds its table.
+export const isTable = (value: unknown): value is Table =>
+  Predicate.hasProperty(value, 'kind') && value.kind === 'table';
+
+const tableOf = (table: Table): JSONContent =>
+  fillsGrid(table)
+    ? {
+        type: 'table',
+        content: table.rows.map((row) => ({
+          type: 'tableRow',
+          content: row.map(({ blocks, header, columns = 1, rows = 1 }) => ({
+            type: header === true ? 'tableHeader' : 'tableCell',
+            attrs: { colspan: columns, rowspan: rows },
+            // oxlint-disable-next-line typescript/no-use-before-define -- A cell holds body blocks.
+            content: nodesOf(blocks),
+          })),
+        })),
+      }
+    : { type: 'keptTable', attrs: { table } };
+
+const nodesOf = (parts: TableDocument): JSONContent[] => {
+  const runs: Array<[Block, ...Block[]] | Table> = [];
+  for (const part of parts) {
     const run = runs.at(-1);
-    if (
-      run !== undefined &&
-      block.kind in containerOf &&
-      run[0].kind === block.kind
+    if (part.kind === 'table') {
+      runs.push(part);
+    } else if (
+      Array.isArray(run) &&
+      part.kind in containerOf &&
+      run[0].kind === part.kind
     ) {
-      run.push(block);
+      run.push(part);
     } else {
-      runs.push([block]);
+      runs.push([part]);
     }
   }
-  return {
-    type: 'doc',
-    attrs: { attachments: attachments.map(({ id }) => id) },
-    content: runs.map(nodeOf),
-  };
+  return runs.map((run) => (Array.isArray(run) ? nodeOf(run) : tableOf(run)));
 };
+
+export const toEditor = (
+  document: TableDocument,
+  attachments: readonly Asset[] = [],
+): JSONContent => ({
+  type: 'doc',
+  attrs: { attachments: attachments.map(({ id }) => id) },
+  content: nodesOf(document),
+});
 
 type Assets = ReadonlyMap<string, Asset>;
 
@@ -147,13 +237,30 @@ const linkOf = (node: JSONContent) => {
   return typeof href === 'string' ? { link: href } : {};
 };
 
-// Whether text `span` continues the `last` span: both text, with the same marks and link.
+// The stored color, background, font family and size a `format` mark's attributes name.
+export const formatOf = ({
+  color,
+  background,
+  font,
+  size,
+}: Readonly<Record<string, unknown>> = {}) => ({
+  ...(typeof color === 'string' ? { color } : {}),
+  ...(typeof background === 'string' ? { background } : {}),
+  ...(typeof font === 'string' ? { font } : {}),
+  ...(typeof size === 'number' ? { size } : {}),
+});
+
+const paintOf = (span: Span) =>
+  'image' in span ? [] : [span.color, span.background, span.font, span.size];
+
+// Whether text `span` continues the `last` span: both text, with the same marks, link and format.
 const continues = (last: Span | undefined, span: Span): last is Span =>
   last !== undefined &&
   !('image' in last) &&
   last.marks?.join(',') === span.marks?.join(',') &&
   ('link' in last ? last.link : undefined) ===
-    ('link' in span ? span.link : undefined);
+    ('link' in span ? span.link : undefined) &&
+  paintOf(last).every((value, index) => value === paintOf(span)[index]);
 
 // The display widths the document admits, kept here so the page bundles no schema library.
 const imageWidths: ReadonlySet<unknown> = new Set<ImageWidth>([320, 640, 1024]);
@@ -179,7 +286,12 @@ const spansOf = (nodes: readonly JSONContent[], assets: Assets) => {
         ? assets.get(String(node.attrs?.id))
         : undefined;
     const text = (node.text ?? '').replaceAll(imageCharacter, '');
-    const span: Span = { text, ...marks, ...linkOf(node) };
+    const span: Span = {
+      text,
+      ...marks,
+      ...linkOf(node),
+      ...formatOf(node.marks?.find(({ type }) => type === 'format')?.attrs),
+    };
     const last = spans.at(-1);
     if (image !== undefined) {
       spans.push({ text: imageCharacter, image, ...widthOf(node), ...marks });
@@ -192,8 +304,29 @@ const spansOf = (nodes: readonly JSONContent[], assets: Assets) => {
   return spans;
 };
 
+// The alignments and list levels the document admits.
+type Alignment = NonNullable<Block['align']>;
+const alignments: ReadonlySet<unknown> = new Set<Alignment>([
+  'center',
+  'right',
+  'justify',
+]);
+const isAlignment = (value: unknown): value is Alignment =>
+  alignments.has(value);
+type Level = NonNullable<Block['indent']>;
+const levels: ReadonlySet<unknown> = new Set<Level>([1, 2]);
+const isLevel = (value: unknown): value is Level => levels.has(value);
+
+// A textblock's alignment, when it has one.
+const alignOf = ({ align }: Readonly<Record<string, unknown>> = {}) =>
+  isAlignment(align) ? { align } : {};
+
+// A list item's level below its list's first, when it is nested.
+const indentOf = ({ indent }: Readonly<Record<string, unknown>> = {}) =>
+  isLevel(indent) ? { indent } : {};
+
 // Every block a node holds, in reading order. The schema admits no nesting: a list item or quote
-// holds only paragraphs.
+// holds only paragraphs, and a list item's level is an attribute.
 const blocksOf = (
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Tiptap's JSON type is mutable; this only reads it.
   node: JSONContent,
@@ -203,8 +336,12 @@ const blocksOf = (
   const { type = '', content = [], attrs } = node;
   const contained = containedKind[type];
   if (contained !== undefined || type === 'listItem') {
+    const level = type === 'listItem' ? indentOf(attrs) : {};
     return content.flatMap((child) =>
-      blocksOf(child, contained ?? kind, assets),
+      blocksOf(child, contained ?? kind, assets).map((block) => ({
+        ...block,
+        ...level,
+      })),
     );
   }
   let own = kind;
@@ -213,17 +350,65 @@ const blocksOf = (
   } else if (type === 'codeLine') {
     own = 'code';
   }
-  return [{ kind: own, spans: spansOf(content, assets) }];
+  return [
+    {
+      kind: own,
+      spans: spansOf(content, assets),
+      ...alignOf(attrs),
+    },
+  ];
+};
+
+// The page's schema gives every table a row, every row a cell and every cell a block.
+const nonEmpty = <T>([first, ...rest]: readonly T[]): [T, ...T[]] => {
+  if (first === undefined) {
+    throw new RangeError('Expected a table part');
+  }
+  return [first, ...rest];
+};
+
+// The blocks or table a body node holds. The page puts no Inline Image in a cell.
+const partsOf = (
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Tiptap's JSON type is mutable; this only reads it.
+  node: JSONContent,
+  assets: Assets,
+): Array<Block | Table> => {
+  if (node.type === 'keptTable') {
+    const table: unknown = node.attrs?.table;
+    return isTable(table) ? [table] : [];
+  }
+  if (node.type !== 'table') {
+    return blocksOf(node, 'paragraph', assets);
+  }
+  const rows = (node.content ?? []).map((row) =>
+    nonEmpty(
+      (row.content ?? []).map((cell) => {
+        const columns = Number(cell.attrs?.colspan);
+        const span = Number(cell.attrs?.rowspan);
+        return {
+          blocks: nonEmpty(
+            (cell.content ?? []).flatMap((child) =>
+              blocksOf(child, 'paragraph', assets),
+            ),
+          ),
+          ...(cell.type === 'tableHeader' ? { header: true as const } : {}),
+          ...(columns > 1 ? { columns } : {}),
+          ...(span > 1 ? { rows: span } : {}),
+        };
+      }),
+    ),
+  );
+  return [{ kind: 'table', rows: nonEmpty(rows) }];
 };
 
 export const fromEditor = (
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Tiptap's JSON type is mutable; this only reads it.
   editor: JSONContent,
   assets: Assets,
-): SemanticDocument => {
+): TableDocument => {
   const [first = { kind: 'paragraph', spans: [] }, ...rest] = (
     editor.content ?? []
-  ).flatMap((node) => blocksOf(node, 'paragraph', assets));
+  ).flatMap((node) => partsOf(node, assets));
   return [first, ...rest];
 };
 
@@ -248,7 +433,8 @@ export const kindAt = ($position: ResolvedPos): BlockKind => {
 
 // Where each semantic line starts in the editor and in the composer's display text, and its text
 // length. The display text joins blocks with line breaks and shows list items after their marker
-// (`displayOf` in mail-core): consecutive numbered items count from one. Offsets inside a
+// (`displayOf` in mail-core): nested items after their level's indent, numbered items counting
+// per level from one. Offsets inside a
 // textblock count code units, and an Inline Image counts one, as its character does.
 export type Line = Readonly<{
   editor: number;
@@ -257,31 +443,40 @@ export type Line = Readonly<{
   length: number;
 }>;
 
-const markerLength = (kind: BlockKind, number: number) => {
-  if (kind === 'bulleted') {
-    return '• '.length;
-  }
-  return kind === 'numbered' ? `${number}. `.length : 0;
+// A list item's level, from a position in its textblock.
+// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ProseMirror's resolved position is a class; this only reads it.
+const indentAt = ($position: ResolvedPos) => {
+  const item = $position.node(-1);
+  return item.type.name === 'listItem' ? indentOf(item.attrs) : {};
 };
 
 // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ProseMirror's node is a class; this only reads it.
 export const linesOfDocument = (doc: Node): Line[] => {
-  const lines: Line[] = [];
-  let start = 0;
-  let number = 0;
+  const blocks: Array<
+    Readonly<{ editor: number; length: number; kind: BlockKind }> &
+      Pick<Block, 'indent'>
+  > = [];
   doc.descendants((node, position) => {
     if (!node.isTextblock) {
       return true;
     }
-    const kind = kindAt(doc.resolve(position + 1));
-    number = kind === 'numbered' ? number + 1 : 0;
-    const marker = markerLength(kind, number);
-    const length = node.content.size;
-    lines.push({ editor: position + 1, start, marker, length });
-    start += marker + length + 1;
+    const $position = doc.resolve(position + 1);
+    blocks.push({
+      editor: position + 1,
+      length: node.content.size,
+      kind: kindAt($position),
+      ...indentAt($position),
+    });
     return false;
   });
-  return lines;
+  const markers = markersOf(blocks);
+  let start = 0;
+  return blocks.map(({ editor, length }, index) => {
+    const marker = markers[index]?.length ?? 0;
+    const line = { editor, start, marker, length };
+    start += marker + length + 1;
+    return line;
+  });
 };
 
 // The last line starting at or before `at`; positions before the first line belong to it.

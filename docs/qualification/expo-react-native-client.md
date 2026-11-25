@@ -89,6 +89,104 @@ other work was 2–352.
   reaches an open menu; More Formatting's effects; Reduce Motion. `agent-device`
   sends no arbitrary hardware keys and does not report spoken output.
 
+## iPad keyboard and accessibility journey to the end, 2026-11-25
+
+[#1873](https://github.com/unwired-dev/product/issues/1873): the iPad
+`registration-performance` journey, which stopped after the Inbox audit, now
+runs to the end. It passed whole on iPad Pro 11-inch (M5) on a
+`registration-performance` Release Simulator build with Xcode 27.2 (`27B52`),
+the iOS 27.0 runtime and macOS 27.2.1, in Dark, in 18 minutes on the final
+code at host load 7–16, and in 20 minutes on the code before review fixes,
+where iPhone 18 Pro passed the whole journey too.
+
+- After a keyboard or text-selection change, XCTest's count of running
+  animations stayed above zero, so each later action waited a minute for the
+  app to idle. The journey now skips that wait for a process once it has
+  timed out, and still waits for the main run loop to idle. A run sees the
+  timeout about once per launch.
+- The composer's title, which offers **Open Command Palette** to VoiceOver,
+  failed the hit-area audit at 18.5 points tall. It is now a 44-point element.
+  The Command Palette's Cancel passed the audit.
+- The Mailboxes audit permits an unlabeled view the size of a list row, which
+  some runs report ([#2843](https://github.com/unwired-dev/product/issues/2843)).
+  The Composer audit permits the Mailboxes Edit button's contrast measured
+  under the modal expanded composer. The Link Editor audit passed with the
+  "system popover" gap.
+- On a loaded host a tap or a key can be lost. The journey retries the palette
+  tap, the Link Editor's Return and its dismissal, and retypes a
+  palette query that lost a key.
+- When the Link Editor closes, the body takes focus back and the simulator
+  raises the software keyboard. The next typed keys hide it again. In some runs
+  those transitions collapsed the expanded composer, and it lost its body
+  ([#2885](https://github.com/unwired-dev/product/issues/2885)). The journey
+  closes the popover from the title row so that the tap cannot land in the
+  body, but the collapse still stops some runs until #2885 is fixed.
+- At Accessibility XXXL, the reopened Draft's docked reply has a From picker
+  706 points tall that covers its fields
+  ([#2882](https://github.com/unwired-dev/product/issues/2882)). The journey
+  expands the reply before checking the fields.
+- **Light, landscape, VoiceOver and physical devices are deferred.**
+
+## Software keyboard in New Label and the iPad composer card, 2026-11-25
+
+[#2891](https://github.com/unwired-dev/product/issues/2891), a slice of
+[#2873](https://github.com/unwired-dev/product/issues/2873), runs three of the
+checks the 2026-11-24 pass below deferred. It ran on `e20a2d516` with the
+journey changes, on a `registration-declined` Release Simulator build with
+Xcode 27.2 (`27B52`), the iOS 27.0 runtime and macOS 27.2.1, on iPhone 18 Pro
+and iPad Pro 11-inch (M5) in portrait, in Light and Dark. Each run passed on
+its first attempt; the 1-minute host load was 7–90.
+
+- New Label (`testNewLabel`, iPhone and iPad): the software keyboard is up
+  while the name is typed, and its own delete and **n** keys edit
+  `Travel/Spain`. The name, **Cancel** and **Apply** stay in reach above it: on
+  iPhone in the Labels sheet, on iPad in the Labels popover. On iPhone the
+  slash hint scrolls under **Cancel** with the rest of the sheet's content.
+- The regular-width iPad composer (`testComposerCard`): Subject and then the
+  body are typed on the software keyboard's keys, and the New Message card ends
+  above the keyboard with the field being typed in view.
+- "Above the keyboard" means above its typing predictions and shortcuts bar
+  (`SystemInputAssistantView`), which starts 55 pt above the `Keyboard`
+  element XCUITest reports on iPad.
+- Expand in the regular-width iPad composer (`testComposerCard`): **Expand**
+  takes the same Draft, Subject and body, over the whole window, and
+  **Collapse** returns the card with them.
+
+The other checks #2873 lists stay open there.
+
+## iPad popovers close at one tap outside and at Escape, 2026-11-25
+
+[#2879](https://github.com/unwired-dev/product/issues/2879), a slice of
+[#2873](https://github.com/unwired-dev/product/issues/2873), follows up the second
+taps #2798 saw on iPad. It ran on `d72ed590e`, on a `registration-declined` Release
+Simulator build with Xcode 27.2 (`27B52`), the iOS 27.0 runtime and macOS 27.2.1,
+on iPad Pro 11-inch (M5) in portrait. Host load from other work was 5–58.
+
+- The new `testPopoverDismissal` journey passed in Light and in Dark. Each of the
+  Inbox's Filters popover, the reader toolbar's Labels popover, More's system menu
+  and the Labels popover from More › Move to… closed at a single tap outside, three
+  times in each appearance, and both Labels popovers closed at Command-period,
+  which UIKit delivers as Escape. The message stayed open and read.
+- More's system menu closed at Command-period in the first Light and Dark runs
+  and in a Light rerun, but stayed open in two Dark reruns (1-minute host load
+  41 → 58 and 43 → 25 across them). Why is not established. The journey no
+  longer presses it there, and More's Escape on a hardware keyboard stays
+  unverified with #2873.
+- Through `agent-device`, on the same build and an owned iPad, a single coordinate
+  tap outside closed 35 of 36 times: Filters 6 in Light; Labels and More 6 each in
+  Light; Labels 6, More 4 and Move to…'s Labels 4 in Dark; and 3 more after the
+  refused press below. The one miss followed that refused press at host load
+  about 50, and did not recur when the sequence was repeated three times.
+- An open iPad popover hides the window behind it from accessibility (#1403), so a
+  press aimed at a ref or element behind it, taken before it opened, is refused
+  as `Ref … not found. Not dispatched.` and the popover stays open: one way a first
+  tap can be lost, reproduced here. Why the one coordinate tap missed, and which
+  cause #2798 met, is not established; the Sync Status journey already taps again
+  for a first tap lost under load. No single tap the journey made was missed.
+- **Deferred** to [#2873](https://github.com/unwired-dev/product/issues/2873): the
+  rest of its list, including VoiceOver, Reduce Motion, compact windows, rotation,
+  the Folders popover and a hardware keyboard's Escape on More.
+
 ## Mac native pass in Mock Mail, 2026-11-25
 
 [#2880](https://github.com/unwired-dev/product/issues/2880), a slice of
@@ -223,9 +321,10 @@ presenter; each names the appearances it ran in. Host load from other work was
   docks in the reading column, both closed by Close (Light and Dark).
 - On iPad, a tap outside the Labels popover (from the toolbar and from More, in
   Dark) and the Filters popover (in Light) sometimes closed it only at the
-  second tap. CI closes the Filters popover with one tap in Dark; the cause of
-  each observation is not established, and
-  [#2873](https://github.com/unwired-dev/product/issues/2873) keeps them open.
+  second tap. CI closes the Filters popover with one tap in Dark;
+  [#2879](https://github.com/unwired-dev/product/issues/2879) found no second
+  tap needed in its journey and a refused `agent-device` press that leaves a
+  popover open (2026-11-25 entry above).
 - **Deferred** to [#2873](https://github.com/unwired-dev/product/issues/2873):
   the iPad Folders popover; VoiceOver focus when a presenter opens and its
   return when it closes; Reduce Motion; a compact iPad window, where the

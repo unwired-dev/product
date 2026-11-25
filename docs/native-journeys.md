@@ -536,8 +536,24 @@ opens **New Label…** from its labels: from the Reply sheet's **Labels** on iPh
 toolbar's **Labels** on iPad ([#2441](https://github.com/unwired-dev/product/issues/2441)). It
 captures **Labels** empty, with **Apply** unavailable, and again with `Travel/Spain` typed and its
 **Create “Spain” inside “Travel”** row, each named with the appearance for comparison with the
-approved frames, then closes it with **Cancel**. Creating the label is covered by Jest; the
-synthetic Gmail layer does not create labels.
+approved frames, then closes it with **Cancel**. The name is typed on the software keyboard, whose
+own delete and letter keys then edit it, and the name, **Cancel** and **Apply** stay in reach above
+it ([#2891](https://github.com/unwired-dev/product/issues/2891)). Creating the label is covered by
+Jest; the synthetic Gmail layer does not create labels.
+
+## iPad popover dismissal journey
+
+`testPopoverDismissal` runs on a `registration-declined` Release build with
+`UNWIRED_JOURNEY=testPopoverDismissal` on iPad; iPhone skips it
+([#2879](https://github.com/unwired-dev/product/issues/2879)). It connects the synthetic Gmail
+mailbox and opens the Inbox's Filters popover, then in a reader the toolbar's **Labels**
+popover, **More**'s system menu and the **Labels** popover that **More › Move to…** opens.
+Each is opened three times and, once settled, closed by a single tap low in the window (above
+the popover for Filters) within 5 seconds. The two Labels popovers then close once more with
+Command-period, which UIKit delivers as Escape; the Inbox journey checks Filters' Escape. More's
+system menu closed at Command-period in only three of five runs, so its Escape waits for a
+hardware keyboard ([#2873](https://github.com/unwired-dev/product/issues/2873)). The message stays open
+and read. A capture of each, named with the appearance, is kept.
 
 ## iPhone and iPad Send Now journey
 
@@ -610,6 +626,18 @@ and the Outbox then offers its **Undo**. The editor's bottom, not the keyboard e
 fold: the keyboard's typing predictions sit above that element. The captures "Composer sheet", "Composer sheet asks before
 closing", "Composer body fills the sheet", "Composer Send asks for a recipient" and "Composer sheet
 with keyboard" are named with the appearance.
+
+## iPad composer card journey
+
+`testComposerCard` runs on a `registration-declined` Release build with
+`UNWIRED_JOURNEY=testComposerCard` on iPad; iPhone skips it
+([#2891](https://github.com/unwired-dev/product/issues/2891)). It connects the synthetic Gmail
+mailbox and opens New Message as the card narrower than the regular-width window. Subject and then
+the body are typed on the software keyboard's keys; the card ends above the keyboard with the field
+being typed in view. **Expand** takes the same Draft over the whole window, and **Collapse** returns the card with the same Subject and body. **Close**
+then asks, and **Delete Draft** closes it. The captures "Composer card above the keyboard",
+"Composer card body above the keyboard", "Expanded composer keeps the Draft" and "Collapsed card
+keeps the Draft" are named with the appearance.
 
 ## iPhone and iPad Apple registration journey
 
@@ -694,6 +722,12 @@ mise exec -- pnpm --filter @private-email/mobile test:native \
 
 Add `UNWIRED_APPEARANCE=light` to audit Light; the runner's default is Dark.
 
+On iPad, XCTest's count of the app's running animations can stay above zero
+after the keyboard or a text selection changes, and each action then waits a
+minute for the app to idle. Once that wait runs out for an app process,
+`InboxTests.swift` stops waiting on animations for it and still waits for its main
+run loop to idle ([#1873](https://github.com/unwired-dev/product/issues/1873)).
+
 On the iOS 27 simulator, XCUITest's `typeKey(.escape, modifierFlags: [])` never reaches
 the app, while letters and Command shortcuts do. UIKit delivers Command-period as Escape
 to key commands, so journeys press Command-period to check Escape, as the Inbox
@@ -708,7 +742,11 @@ Inbox leaves it, and Search Mail focuses search. It types a query into search,
 then selects, cuts and pastes it back with Command-A, Command-X and Command-V,
 and Return submits it. On iPad each audit permits the Mailboxes sidebar's
 SwiftUI Edit button to fail Dynamic Type
-([#2769](https://github.com/unwired-dev/product/issues/2769)). Reply from the palette opens a Draft. Typing extends its
+([#2769](https://github.com/unwired-dev/product/issues/2769)), and its Mailboxes
+audit permits the unlabeled message-list-row view that some runs report
+([#2843](https://github.com/unwired-dev/product/issues/2843)). The expanded
+composer is modal, but the audit still measures that Edit button's contrast
+under it, so its Composer audit permits that finding. Reply from the palette opens a Draft. Typing extends its
 subject, Tab moves focus to its recipients, and the body takes typing.
 Shift-Option-Left selects the reply's last word for the Link Editor, opened from
 iPad's format bar as a popover and from iPhone's Format panel as a sheet. It
@@ -728,7 +766,8 @@ launch each button and switch, on iPhone and in iPad's detail, scrolls into
 reach. Relaunched at
 that size ([#2230](https://github.com/unwired-dev/product/issues/2230)),
 the reopened Draft's composer passes the clipped-text audit, expanded on iPad,
-and its fields scroll into reach with **Show Cc and Bcc**, where the Dynamic Type
+whose docked reply shows its fields at that size only once expanded
+([#2882](https://github.com/unwired-dev/product/issues/2882)), and its fields scroll into reach with **Show Cc and Bcc**, where the Dynamic Type
 audit runs too. It permits the body, a React Native multiline input like the
 signature field, to fail Dynamic Type once it holds text, plain or formatted,
 although a text size change made in Settings reaches it

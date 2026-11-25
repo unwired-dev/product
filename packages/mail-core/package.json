@@ -43,6 +43,7 @@
     "./testing/categorization-spike": "./src/testing/categorization-spike.ts",
     "./drafts": "./src/drafts.ts",
     "./semantic-document": "./src/semantic-document.ts",
+    "./body-display": "./src/body-display.ts",
     "./mail-templates": "./src/mail-templates.ts",
     "./send-reminders": "./src/send-reminders.ts",
     "./blocked-senders": "./src/blocked-senders.ts",

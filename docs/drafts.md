@@ -443,7 +443,9 @@ table cell holds no Inline Image. The composers do not show tables yet: they edi
 the Draft's text without its tables, and each table stays between the unchanged
 blocks around it, or after the edit that replaced them, so no edit removes one.
 Editing tables in the composers follows in later #1268 slices, as the
-[table-editing plan](architecture/draft-table-editing.md) orders them.
+[table-editing plan](architecture/draft-table-editing.md) orders them; the
+[Tiptap page](draft-editor-evaluation.md#formatting-and-history) edits them since
+[#2858](https://github.com/unwired-dev/product/issues/2858).
 
 A Draft can carry a signature
 ([#2024](https://github.com/unwired-dev/product/issues/2024)): a Semantic Message
@@ -1008,6 +1010,20 @@ Templates, a write storage refuses, also when the reminders would not fit in the
 Outgoing Content Store they share with the Drafts, changes nothing and resolves
 `false`, and a listing storage cannot read resolves `undefined`.
 
+Reminders synchronize between the Product Account's Trusted Devices
+([#2830](https://github.com/unwired-dev/product/issues/2830)) as one sealed
+Private Sync record per Profile and Draft that holds the reminder and none of the Draft's content
+(see [Private Product Sync](private-product-sync.md)). Setting, changing or removing a
+reminder offline applies at once and is published by compare-and-set at the next
+`synchronize`, which the Mac and iPhone/iPad mailbox screens run when they open and
+when the app becomes active or goes to the background. Another device then shows the
+reminder with the same instant and time zone. A removal wins over a change made
+concurrently on another device, so a stale write never restores a removed reminder;
+of two concurrent changes the one written first wins, and both devices end with it.
+Sending or discarding a Draft whose reminder has not reached this device yet publishes
+a removal of it, so the reminder is removed whenever it arrives. Each Profile's reminder for a Draft is its own record, so another
+Profile's reminder is never replaced or removed.
+
 On the Mac ([#2123](https://github.com/unwired-dev/product/issues/2123)) a right
 click on Send opens the Send menu, whose **Remind Me to Send…** opens the
 reminder menu from Send: **This Evening** at 20:00 while that is still ahead and
@@ -1054,9 +1070,11 @@ right click on Send) offers Send Now after Send, subtitled "No Undo", and behave
 the same; while a file is still being added its dimmed row reads
 "Send Now — waiting for terms.pdf".
 
-Reminders are not synchronized and schedule no notification yet, and a reminder
-whose Draft is deleted elsewhere, or whose removal storage refused after Send or
-Discard, stays stored; later #658 slices add those.
+Removing a reminder on Send, Discard or an empty Close reaches the other devices
+when they synchronize. A composer already open shows another device's change once
+the Draft is opened again. Reminders schedule no notification yet, and a reminder whose
+removal storage refused after Send or Discard stays stored; later #658 slices add
+those.
 
 ## Verification
 

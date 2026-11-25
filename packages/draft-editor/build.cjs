@@ -25,6 +25,26 @@ body { font: -apple-system-body; -webkit-text-size-adjust: 100%; }
 .ProseMirror h3 { font-size: 1.15em; }
 .ProseMirror ul, .ProseMirror ol { margin: 0 0 0.75em; padding-left: 1.5em; }
 .ProseMirror li p, .ProseMirror blockquote p { margin: 0; }
+.ProseMirror li[data-indent="1"] { margin-left: 1.5em; }
+.ProseMirror li[data-indent="2"] { margin-left: 3em; }
+.ProseMirror, .ProseMirror :is(td, th) { counter-reset: level0 level1 level2; }
+.ProseMirror > :not(ul, ol), .ProseMirror :is(td, th) > :not(ul, ol), .ProseMirror ul > li { counter-set: level0 0 level1 0 level2 0; }
+.ProseMirror ul > li[data-indent="1"] { counter-set: level1 0 level2 0; }
+.ProseMirror ul > li[data-indent="2"] { counter-set: level2 0; }
+.ProseMirror ol > li { position: relative; list-style: none; counter-increment: level0; counter-set: level1 0 level2 0; }
+.ProseMirror ol > li[data-indent="1"] { counter-increment: level1; counter-set: level2 0; }
+.ProseMirror ol > li[data-indent="2"] { counter-increment: level2; counter-set: none; }
+.ProseMirror ol > li::before { position: absolute; right: 100%; padding-right: 0.4em; content: counter(level0) "."; }
+.ProseMirror ol > li[data-indent="1"]::before { content: counter(level1) "."; }
+.ProseMirror ol > li[data-indent="2"]::before { content: counter(level2) "."; }
+.ProseMirror li:has(> [style*="text-align"]) { list-style: none; }
+.ProseMirror ol > li:has(> [style*="text-align"])::before { content: none; }
+.ProseMirror ul > li > [style*="text-align"]::before { content: "• "; }
+.ProseMirror ol > li > [style*="text-align"]::before { content: counter(level0) ". "; }
+.ProseMirror ol > li[data-indent="1"] > [style*="text-align"]::before { content: counter(level1) ". "; }
+.ProseMirror ol > li[data-indent="2"] > [style*="text-align"]::before { content: counter(level2) ". "; }
+.ProseMirror [data-draft-format] { color: var(--draft-light); }
+@media (prefers-color-scheme: dark) { .ProseMirror [data-draft-format] { color: var(--draft-dark); } }
 .ProseMirror blockquote { margin: 0 0 0.75em; padding-left: 12px; border-left: 3px solid rgba(128, 128, 128, 0.5); }
 .ProseMirror pre { margin: 0; padding: 0 8px; background: rgba(128, 128, 128, 0.12); white-space: pre-wrap; }
 .ProseMirror pre + :not(pre) { margin-top: 0.75em; }
@@ -34,6 +54,14 @@ body { font: -apple-system-body; -webkit-text-size-adjust: 100%; }
 .ProseMirror img { max-width: 100%; max-height: 256px; vertical-align: bottom; border-radius: 6px; }
 .ProseMirror img:not([src]) { box-sizing: border-box; width: 44px; height: 44px; border: 1px dashed rgba(128, 128, 128, 0.6); }
 .ProseMirror img.ProseMirror-selectednode { outline: 2px solid Highlight; }
+.ProseMirror .draft-table { overflow-x: auto; margin: 0 0 0.75em; }
+.ProseMirror table { border-collapse: collapse; }
+.ProseMirror td, .ProseMirror th { border: 1px solid rgba(128, 128, 128, 0.5); padding: 4px 8px; vertical-align: top; text-align: start; font-weight: inherit; white-space: pre; }
+.ProseMirror td > *, .ProseMirror th > * { margin: 0; }
+.ProseMirror .draft-focused-cell { outline: 2px solid ${palette.light.accentFill}; outline-offset: -2px; }
+.ProseMirror .selectedCell { background: ${palette.light.accentSelectionSubtle}; }
+.ProseMirror .draft-table.ProseMirror-selectednode { outline: 2px solid Highlight; }
+@media (prefers-color-scheme: dark) { .ProseMirror .draft-focused-cell { outline-color: ${palette.dark.accentFill}; } .ProseMirror .selectedCell { background: ${palette.dark.accentSelectionSubtle}; } }
 `;
 
 function pageHtml() {

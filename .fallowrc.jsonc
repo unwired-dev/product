@@ -14,6 +14,8 @@
     "packages/mail-core/src/testing/mail-unavailable.ts",
     "packages/mail-core/src/testing/registration-mode.ts",
     "packages/mail-core/src/testing/assistance-qualification.ts",
+    // Agents run this script in Figma through use_figma.
+    "packages/mail-core/scripts/export-figma-variables.js",
   ],
   "ignorePatterns": [
     "oxfmt.config.ts",

@@ -15,6 +15,10 @@ Architecture notes for [docs/outbox.md](../outbox.md).
   returning to the Drafts. Once the mail server accepts it, the Outbox records the
   response in the mailbox's cache, and the entry leaves only after that record is
   saved.
+- A confirmed [`mailto:` unsubscribe request](../unsubscribe.md#sending-a-mailto-request)
+  is admitted the same way (#2824). Its entry is marked `unsubscribe`, takes a
+  fresh identifier for its claim and leaves the Outbox on Undo or Edit instead of
+  returning to the Drafts.
 - Before the provider sees the message, storage records it as handed over. A request
   whose answer may have been lost, an unreadable reply or an app stopped
   meanwhile reads as unknown, never as permission to send again.

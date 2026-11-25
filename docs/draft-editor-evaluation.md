@@ -12,7 +12,7 @@ Inline Images ([#820](https://github.com/unwired-dev/product/issues/820)), save
 ordering across the bridge ([#821](https://github.com/unwired-dev/product/issues/821)),
 usability and performance ([#822](https://github.com/unwired-dev/product/issues/822))
 and the adoption decision ([#823](https://github.com/unwired-dev/product/issues/823))
-are separate evaluations.
+are separate evaluations. [ADR 0080](adr/0080-edit-the-draft-body-in-the-tiptap-page.md) records the adoption and its rollout gates.
 
 The [confirmed launch requirements](product/power-user-launch.md#confirmed-scope-additions-from-2026-10-24)
 require lossless editing of provider-hosted Drafts. This evaluation's bounded
@@ -110,6 +110,23 @@ paragraphs, headings one to three, bulleted and numbered lists, quotes and code
 blocks, with bold, italic, underline, strikethrough and inline code. Its rules are
 the current composer's:
 
+- **Stored formatting.** A Draft's alignment, list levels, text colors,
+  backgrounds, font families and sizes open in the page and save back unchanged
+  ([#2884](https://github.com/unwired-dev/product/issues/2884)). The page shows
+  them as the current composer does, Dark colors included: a nested item sits one
+  level further in, numbered items count per level and an aligned item's marker
+  moves with its text. Typing, Return, joined blocks, marks and block kinds,
+  from the Format controls or their shortcuts, keep them as
+  [Drafts](drafts.md#composing) describes: typed text takes the format of the
+  text before it, or at a block's start the text after it, even at a link's
+  start, where it stays unlinked; typing, deleting, cutting or pasting over a
+  selection, or adding an image there, Select All included, keeps the first
+  selected block's kind, alignment and list level, even across a quote or list,
+  as do Backspace and Delete across a block's edge; and joining an empty block
+  with the next line keeps the empty block's. Pasted text carries no alignment
+  or list level, while a drag within the page moves content as it is, also into
+  an empty line. The page sets none of them.
+
 - **Controls.** On iPad and Mac the current composer's format bar: the text style
   menu, the four marks, lists, the Link control, **Undo** and **Redo**, **Writing
   tools** and the file controls. On iPhone a floating Liquid Glass pill with
@@ -153,10 +170,30 @@ the current composer's:
   numbered list counts from one; a link keeps its destination only when the Draft
   admits it as written (a web, mail or telephone address), and otherwise keeps only
   its text, so one **Undo** removes a pasted link with the rest of the paste;
-  images, except an Inline Image copied or cut within the page, styles, colors and
-  sizes are dropped; and multi-line code becomes one code
+  images, except an Inline Image copied or cut within the page, styles, colors,
+  fonts, sizes, alignment and list levels are dropped, also when copied within
+  the page; and multi-line code becomes one code
   line per line. Plain text becomes one paragraph per line. Nothing else reaches
   the stored document.
+- **Tables.** The page edits a Draft's tables
+  ([#2858](https://github.com/unwired-dev/product/issues/2858)) as the
+  [table-editing plan](architecture/draft-table-editing.md#approved-behaviour)
+  describes, with `prosemirror-tables` from `@tiptap/pm`; the hosts give the page
+  the Draft's text without its tables until
+  [#2865](https://github.com/unwired-dev/product/issues/2865). The caret's cell
+  has a 2 pt `accent/fill` outline. Tab moves to the next cell and selects its
+  text; Shift-Tab moves back and stays in the first cell. Tab in the last cell
+  moves to the text after the table, adding a paragraph when the table ends the
+  body, and never adds a row. Return adds a line in the cell, and marks and block
+  kinds apply there. Backspace after a table selects it, and a second deletes it as
+  one Undo step. A table scrolls sideways inside its own frame, and its cells do
+  not wrap. The page edits a table whose rows fill the same columns with no
+  overlapping merged cell and none reaching past the last row, the shapes
+  `prosemirror-tables` keeps; it shows any other table with its text and keeps it
+  unchanged, selectable and deletable but not editable. A cell never holds a table
+  or an Inline Image: a paste keeps a pasted table's text, as anywhere else, an
+  image pasted or converted into a cell is refused, and images added there become
+  Attachments. No control builds a table.
 
 ### Semantic mismatches
 
@@ -174,10 +211,6 @@ replacement of the body revision it reported, so each is one **Undo** step and a
 page that has moved on refuses it. A link or selection that the page has moved or
 changed since the editor opened stays as it is. On iPhone the Format panel stays
 open while the Link Editor is shown.
-
-The page does not keep block alignment, text color, background color or fonts:
-editing a body here drops them
-([#1267](https://github.com/unwired-dev/product/issues/1267)).
 
 Return in code always starts another code line; use **Code Block** to return the
 selected lines to paragraphs. Extra Tiptap keyboard shortcuts, such as Command-E
@@ -639,7 +672,7 @@ No fundamental host failure was found there.
 On the Mac, the signed journey passed on 2026-11-25
 ([#2876](https://github.com/unwired-dev/product/issues/2876)), with the same open,
 type, save and reopen path, formatting, assistance and link editing. This finding is not an adoption
-recommendation; that is #823.
+recommendation; that is #823, recorded in [ADR 0080](adr/0080-edit-the-draft-body-in-the-tiptap-page.md).
 
 **#819 finding.** The current block kinds and marks pass the page and host checks
 above. iPhone/iPad simulator and Mac text, history, the exercised post-assistance

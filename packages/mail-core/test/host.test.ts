@@ -194,6 +194,10 @@ function syntheticHost(reporting?: NativeErrorReporting, productSync = false) {
     setRemoteContentSettings: () => Promise.resolve(null),
     clearRemoteContent: () => Promise.resolve(null),
     requestUnsubscribe: () => Promise.resolve({ outcome: 'failed' }),
+    openUnsubscribeRequests: () =>
+      Promise.resolve({ owner: 'account', revision: 0, document: null }),
+    commitUnsubscribeRequests: (owner, expectedRevision) =>
+      Promise.resolve({ owner, revision: expectedRevision + 1 }),
     openMailTemplates: () =>
       Promise.resolve({ owner: 'account', revision: 0, document: null }),
     commitMailTemplates: (owner, expectedRevision) =>
@@ -205,6 +209,9 @@ function syntheticHost(reporting?: NativeErrorReporting, productSync = false) {
       Promise.resolve({ owner: 'account', revision: 0, document: null }),
     commitSendReminders: (owner, expectedRevision) =>
       Promise.resolve({ owner, revision: expectedRevision + 1 }),
+    pullSendReminders: (owner) =>
+      Promise.resolve({ owner, records: [], unreadable: [] }),
+    pushSendReminder: (owner) => Promise.resolve({ owner, committed: false }),
 
     openBlockedSenders: () =>
       Promise.resolve({ owner: 'account', revision: 0, document: null }),
