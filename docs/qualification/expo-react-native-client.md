@@ -11,6 +11,38 @@ The [mobile bootstrap](../expo-client.md) now uses Expo 57.0.25, React Native
 are available on the development host. The maintainer's earlier native-validation
 deferral still applies to unavailable release checks. Mac host evidence follows.
 
+## iPhone and iPad presenters through rotation, 2026-11-25
+
+[#2907](https://github.com/unwired-dev/product/issues/2907), a slice of
+[#2873](https://github.com/unwired-dev/product/issues/2873), runs the rotation
+check the 2026-11-24 pass below deferred, for every presenter the synthetic
+Gmail mailbox reaches. The new `testPresenterRotation` journey ran on
+`6fef500a2` with the journey added, on a `registration-declined` Release
+Simulator build with Xcode 27.2 (`27B52`), the iOS 27.0 runtime and macOS
+27.2.1, on iPhone 18 Pro and iPad Pro 11-inch (M5), starting in portrait, in
+Light and Dark. Each presenter was opened, the device turned to Landscape and
+back to Portrait, and after each turn the presenter's controls were in reach.
+On the final code it passed on both devices in both appearances, in 6 to 13
+minutes each at host load 5–152; an earlier iPad Dark run failed on the link
+confirmation below.
+
+- iPhone: the Filters sheet, the Reply sheet, the Labels sheet and the New Label
+  sheet (keyboard up) stay shown through both turns.
+- iPad: the New Message card, the toolbar's Labels popover, New Label in its
+  place (keyboard up) and the docked reply stay shown through both turns.
+  **More**'s system menu closes at each turn, as the system closes a menu, and
+  **More** opens it again in Landscape.
+- The link confirmation stays shown in Landscape, but the turn back to
+  Portrait closed it without a choice in 3 of 4 iPhone probe runs, including one
+  that rested about 7 seconds in Landscape, and in 1 of 4 iPad runs; in an
+  iPhone probe, tapping the link again showed it. Filed as
+  [#2909](https://github.com/unwired-dev/product/issues/2909); the journey turns
+  it only to Landscape until then.
+- **Deferred** to [#2873](https://github.com/unwired-dev/product/issues/2873):
+  rotation with the Move picker, which needs IMAP mail
+  ([#2902](https://github.com/unwired-dev/product/issues/2902)), and the rest of
+  its list.
+
 ## iPhone and iPad system presenters with Reduce Motion, 2026-11-25
 
 [#2914](https://github.com/unwired-dev/product/issues/2914), a slice of
@@ -304,7 +336,9 @@ presenter; each names the appearances it ran in. Host load from other work was
   and a swipe released early that keeps any sheet; the Dark-only and Light-only
   checks above in the other appearance; and iPhone's More, which shows only for mail without Reply, which
   no journey or the synthetic mailbox has. `agent-device` cannot turn VoiceOver
-  on, rotate the device or resize an iPad window. The `registration-apple`
+  on, rotate the device or resize an iPad window. Rotation with the Gmail
+  presenters is the 2026-11-25 entry above
+  ([#2907](https://github.com/unwired-dev/product/issues/2907)). The `registration-apple`
   journey, whose Move steps rotate to landscape before opening the picker and
   check its keyboard there, stopped under host load before them.
 
