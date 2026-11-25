@@ -486,11 +486,12 @@ Mac image paste on 2026-11-25 for [#2929](https://github.com/unwired-dev/product
 same Mac mini, macOS 27.2.1 (26B131), Xcode 27.2 (27B52), signed `Testing`
 `registration-draft-editor` build of `cf500a39d` with #2929's change, Light
 appearance. `testIndependentWindowsCloseReopenAndQuit` passed with zero failures in
-676 s (`artifacts/macos-inbox/journey.lNvKrr/`). After the relaunched reply Draft
-reopened, the journey wrote a PNG to the general pasteboard and pressed Command-V at
-the end of the body: the page asked the host to read the pasteboard, the image went
-inline with its verified thumbnail and a **Pasted image** row, and after **Save**, a
-relaunch and reopening, the image and its row were in place. Before that step the
+569 s (`artifacts/macos-inbox/journey.B4Ue3d/`). After the relaunched reply Draft
+reopened, the journey pressed Command-V at the end of the body twice, with a text
+file and then a PNG on the general pasteboard: each time the page asked the host to
+read the pasteboard; the file became an Attachment, and the image went inline with
+its verified thumbnail and a **Pasted image** row. After **Save**, a relaunch and
+reopening, both were in place. Before that step the
 journey's numbered-list checks needed repair: since #2884 the page draws the marker
 as the texts `1` and `.` ([#2932](https://github.com/unwired-dev/product/issues/2932)).
 Earlier attempts of the same build failed at those checks and are not evidence.

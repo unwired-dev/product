@@ -1049,9 +1049,7 @@ final class WindowTests: XCTestCase {
       }
       return copy
     }
-    pasteboard.clearContents()
-    pasteboard.setData(png, forType: .png)
-    let written = pasteboard.changeCount
+    var written = pasteboard.changeCount
     addTeardownBlock {
       guard pasteboard.changeCount == written else { return }
       pasteboard.clearContents()
@@ -1060,6 +1058,23 @@ final class WindowTests: XCTestCase {
     let body = window.webViews.textViews["Message body"]
     webText("Synthetic reply to local mail.", in: window).click()
     window.typeKey(.downArrow, modifierFlags: .command)
+    // A pasted file that is not an image becomes an Attachment. The sandboxed copy may read only
+    // its run directory, beside Mock.app.
+    let appURL = URL(fileURLWithPath: ProcessInfo.processInfo.environment["UNWIRED_APP_PATH"] ?? "")
+    let file = appURL.deletingLastPathComponent().appendingPathComponent("paste-note.txt")
+    XCTAssertNoThrow(try Data("Pasted into the page".utf8).write(to: file))
+    addTeardownBlock { try? FileManager.default.removeItem(at: file) }
+    pasteboard.clearContents()
+    pasteboard.writeObjects([file as NSURL])
+    written = pasteboard.changeCount
+    window.typeKey("v", modifierFlags: .command)
+    let note = window.descendants(matching: .any)
+      .matching(NSPredicate(format: "label BEGINSWITH %@", "paste-note.txt, ")).firstMatch
+    XCTAssertTrue(note.waitForExistence(timeout: 30))
+    XCTAssertEqual(body.images.count, 0)
+    pasteboard.clearContents()
+    pasteboard.setData(png, forType: .png)
+    written = pasteboard.changeCount
     window.typeKey("v", modifierFlags: .command)
     let row = window.descendants(matching: .any)
       .matching(NSPredicate(format: "label BEGINSWITH %@", "Pasted image, ")).firstMatch
@@ -1079,6 +1094,7 @@ final class WindowTests: XCTestCase {
     XCTAssertTrue(reopened.waitForExistence(timeout: 30))
     waitUntil { reopened.frame.width > 60 }
     XCTAssertTrue(row.waitForExistence(timeout: 15))
+    XCTAssertTrue(note.exists)
     let shot = XCTAttachment(screenshot: window.screenshot())
     shot.name = "Evaluation Draft with pasted image after relaunch"
     shot.lifetime = .keepAlways
