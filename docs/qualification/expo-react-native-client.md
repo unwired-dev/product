@@ -541,7 +541,8 @@ presenter; each names the appearances it ran in. Host load from other work was
   tap needed in its journey and a refused `agent-device` press that leaves a
   popover open (2026-11-25 entry above).
 - **Deferred** to [#2873](https://github.com/unwired-dev/product/issues/2873):
-  the iPad Folders popover; VoiceOver focus when a presenter opens and its
+  the iPad Folders popover beyond opening it and closing it with a tap outside,
+  in Light and Dark (2026-11-25 Reduce Motion entry above); VoiceOver focus when a presenter opens and its
   return when it closes; a compact iPad window, where the
   composer and Filters turn into sheets and the Move and Labels popovers, chosen
   by device rather than width, adapt as SwiftUI decides; a hardware keyboard,
