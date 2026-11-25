@@ -224,12 +224,14 @@ describe('unsubscribe offers', () => {
     expect(identityOf({ listId: 'Club <Weekly.Club.Example>' })).toBe(
       'weekly.club.example',
     );
+    expect(identityOf({ listId: 'Club <weekly.\r\n club.example>' })).toBe(
+      'weekly.club.example',
+    );
     // Lists that share a sender are told apart only by their List-Id.
     expect(identityOf({})).toBeUndefined();
     for (const listId of [
       'Club <https://club.example/u/42>',
       'Club <club>',
-      'Club <weekly club.example>',
       'club.example',
     ]) {
       expect(identityOf({ listId })).toBeUndefined();

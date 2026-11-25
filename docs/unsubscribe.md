@@ -42,8 +42,8 @@ else by the sender's display name or address. With no name there is no offer.
 Its **Mailing List Identity**, which scopes the request's record, is the
 `List-Id` identifier in angle brackets, such as `newsletter.alza.example`, in
 lower case. Only an [RFC 2919](https://www.rfc-editor.org/rfc/rfc2919) identifier
-counts: dot-separated atoms with no whitespace, which no URI with a scheme
-matches. A sender's address is not an identity, since several lists can share
+counts: dot-separated atoms, which no URI with a scheme matches. Whitespace inside
+the brackets is ignored. A sender's address is not an identity, since several lists can share
 it, so an offer without a valid `List-Id` has none.
 
 The check is syntactic. It does not verify that a DKIM signature covers the
