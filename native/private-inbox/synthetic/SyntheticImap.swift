@@ -14,7 +14,15 @@
     static let expired = "expired"
     // Folders as the server lists them, with their messages by UID.
     static let folders: [(folder: ImapListedFolder, messages: [ImapEnvelope])] = [
-      (listed("INBOX"), [envelope(1, "Sam Rivera", "sam@example.invalid", "Welcome to IMAP")]),
+      // The second message is larger than a message read allows, so it opens without its body.
+      (
+        listed("INBOX"),
+        [
+          envelope(1, "Sam Rivera", "sam@example.invalid", "Welcome to IMAP"),
+          envelope(
+            2, "Morgan Lee", "morgan@example.invalid", "Conference recording", size: 50_000_000),
+        ]
+      ),
       (listed("Sent Messages", "\\Sent"), []),
       (listed("Bulk Mail"), [envelope(1, "Prize Desk", "prizes@example.invalid", "Unwanted offer")]),
       (listed("Deleted Messages"), [envelope(1, "Old Shop", "shop@example.invalid", "Old receipt")]),
@@ -23,11 +31,11 @@
     private static func listed(_ name: String, _ attributes: String...) -> ImapListedFolder {
       ImapListedFolder(name: name, attributes: ["\\HasNoChildren"] + attributes, delimiter: "/")
     }
-    private static func envelope(_ uid: UInt32, _ sender: String, _ address: String, _ subject: String)
-      -> ImapEnvelope
-    {
+    private static func envelope(
+      _ uid: UInt32, _ sender: String, _ address: String, _ subject: String, size: Int = 120
+    ) -> ImapEnvelope {
       ImapEnvelope(
-        uid: uid, flags: [], received: 1_793_520_000_000, size: 120, sender: sender,
+        uid: uid, flags: [], received: 1_793_520_000_000, size: size, sender: sender,
         address: address, subject: subject)
     }
     static func messages(_ folder: String) throws -> [ImapEnvelope] {
@@ -64,6 +72,8 @@
       guard let found = try Self.messages(folder).first(where: { $0.uid == uid }) else {
         throw ImapFailure.missing
       }
+      // As the server's reported size refuses an oversized message before its download.
+      guard found.size <= limit else { throw ImapFailure.tooLarge }
       return Data(
         """
         From: \(found.sender) <\(found.address)>\r

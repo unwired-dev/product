@@ -178,7 +178,8 @@ drives them by keyboard. The Expo native journey connects the Microsoft mailbox 
 [drives it by hardware keyboard](native-journeys.md#iphone-and-ipad-keyboard-and-accessibility-journey)
 on iPhone and iPad. CI runs none of them.
 Every `registration-` session connects any IMAP and SMTP login to a synthetic server.
-It lists INBOX with Sam Rivera's Welcome to IMAP, Sent Messages, the only folder it marks
+It lists INBOX with Sam Rivera's Welcome to IMAP and Morgan Lee's Conference recording, which is
+larger than a message read allows and so opens without its body, Sent Messages, the only folder it marks
 (`\Sent`), Bulk Mail with Unwanted offer and Deleted Messages with Old receipt. It accepts
 changes and submissions and discards them. The password `unreachable` connects, then
 the server cannot be reached; `expired` connects, then the server refuses it. The

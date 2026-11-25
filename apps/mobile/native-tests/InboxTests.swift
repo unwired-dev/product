@@ -3443,6 +3443,39 @@ final class InboxTests: XCTestCase {
     XCTAssertFalse(folders.exists)
     capture("Moved to Spam")
 
+    // #2942: a message larger than a message read allows opens without its body, so the iPhone
+    // reader offers no Reply sheet and keeps More, which opens the system menu (#2158).
+    if phone {
+      row("Conference recording").tap()
+      XCTAssertTrue(
+        text("This message is too large to open on this device.", in: app)
+          .waitForExistence(timeout: 15))
+      XCTAssertFalse(app.buttons["Reply"].exists)
+      let more = app.buttons["More"]
+      XCTAssertTrue(more.exists)
+      let unread = app.buttons["Mark as Unread"]
+      more.tap()
+      XCTAssertTrue(unread.waitForExistence(timeout: 10))
+      for item in ["Pin", "Move to Spam", "Move to…", "Delete"] {
+        XCTAssertTrue(app.buttons[item].exists, "More lacks \(item)")
+      }
+      capture("More menu")
+      // A tap beside the menu closes it and runs nothing: the message stays open and read.
+      app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4)).tap()
+      XCTAssertTrue(unread.waitForNonExistence(timeout: 5), "More stayed open after a tap beside")
+      more.tap()
+      XCTAssertTrue(unread.waitForExistence(timeout: 10))
+      unread.tap()
+      more.tap()
+      let read = app.buttons["Mark as Read"]
+      XCTAssertTrue(read.waitForExistence(timeout: 10))
+      capture("More menu after Mark as Unread")
+      read.tap()
+      XCTAssertTrue(read.waitForNonExistence(timeout: 5))
+      app.navigationBars.buttons["BackButton"].tap()
+      XCTAssertTrue(more.waitForNonExistence(timeout: 10))
+    }
+
     openEmailAccounts()
     let change = settingsRow("Change…", "Spam: Bulk Mail · Trash: Deleted Messages · chosen by you")
     capture("Settings folders chosen")

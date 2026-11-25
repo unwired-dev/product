@@ -524,6 +524,15 @@ each close. **Move to Bulk Mail** then requests the move: the reader closes and 
 moves, so what the server keeps is left to the mail-core IMAP organize tests. The captures
 "Folders popover" or "Move sheet" and "Moved to Spam" are named with the appearance.
 
+On iPhone it then opens Morgan Lee's **Conference recording**, which is larger than a
+message read allows ([#2942](https://github.com/unwired-dev/product/issues/2942)). The
+reader says **This message is too large to open on this device.**, so it offers no Reply
+sheet and keeps **More**, which opens the system menu
+([#2158](https://github.com/unwired-dev/product/issues/2158)): Pin, Mark as Unread, Move to
+Spam and Move to…, then Delete. A tap beside the menu closes it without a change; **Mark as
+Unread** then makes the menu offer **Mark as Read**. The captures "More menu" and "More menu
+after Mark as Unread" are named with the appearance.
+
 Settings › Signatures then lists the IMAP Sending Identity with None
 ([#2059](https://github.com/unwired-dev/product/issues/2059)). Its signature is typed,
 made bold and stored when the editor is left; the row shows its first line, Delete
