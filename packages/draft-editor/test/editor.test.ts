@@ -8,8 +8,11 @@ import type {
   BlockKind,
   Mark,
   SemanticDocument,
+  Table,
+  TableDocument,
 } from '@private-email/mail-core/semantic-document';
 import type { Editor } from '@tiptap/core';
+import type { Schema } from '@tiptap/pm/model';
 
 import {
   createDrafts,
@@ -24,10 +27,15 @@ import {
 } from '@private-email/mail-core/semantic-document';
 import { createSyntheticDrafts } from '@private-email/mail-core/testing/drafts';
 import { Slice } from '@tiptap/pm/model';
+import { NodeSelection } from '@tiptap/pm/state';
+import { TableMap } from '@tiptap/pm/tables';
+import * as Arr from 'effect/Array';
+import * as Fn from 'effect/Function';
 
 import type { Command, Update } from '../src/messages.ts';
 
 import { pageHtml } from '../build.cjs';
+import { fillsGrid } from '../src/conversion.ts';
 import { decodeMessage } from '../src/messages.ts';
 
 const kinds: readonly BlockKind[] = [
@@ -103,7 +111,7 @@ type Page = Readonly<{
 
 // Loads a fresh page with `body` and `attachments`, as the host does.
 async function open(
-  body: SemanticDocument,
+  body: TableDocument,
   attachments: readonly Asset[] = [],
 ): Promise<Page> {
   vi.resetModules();
@@ -160,14 +168,19 @@ async function open(
 
 // Exercises the page's key handlers; Tiptap's keyboardShortcut command would keep only the
 // document steps of its handler, not the caret it places.
-const press = ({ editor }: Page, key: string) =>
+const press = ({ editor }: Page, key: string, shiftKey = false) =>
   editor.view.someProp('handleKeyDown', (handle) =>
-    handle(editor.view, new KeyboardEvent('keydown', { key })),
+    handle(editor.view, new KeyboardEvent('keydown', { key, shiftKey })),
   );
 
 // The body and Attachments the page last posted.
 const bodyOf = ({ posted }: Page) =>
   posted.findLast(({ document: body }) => body !== undefined)?.document;
+// The text of the body the page last posted, without its tables.
+const textBodyOf = (page: Page) => {
+  const body = bodyOf(page);
+  return body === undefined ? undefined : textOf(body);
+};
 const attachmentsOf = ({ posted }: Page) =>
   posted.findLast(({ attachments }) => attachments !== undefined)?.attachments;
 const kindsOf = (page: Page) => bodyOf(page)?.map(({ kind }) => kind);
@@ -233,7 +246,7 @@ describe('the Tiptap evaluation page', () => {
 
     // Display offsets match the current composer's for every textblock, including list markers
     // and numbering, code lines and empty blocks.
-    const { text } = displayOf(edited);
+    const { text } = displayOf(textOf(edited));
     const blocks = textblocks(page.editor);
     const shown = blocks.map(({ from, to }) => {
       const { start, end } = selectionOf(page, from, to);
@@ -243,7 +256,7 @@ describe('the Tiptap evaluation page', () => {
     expect(blocks).toHaveLength(edited.length);
     // A selection across blocks reads the same text as the current composer's.
     const across = selectionOf(page, nth(blocks, 2).from, nth(blocks, 40).to);
-    expect(selectedText(edited, across)).toBe(
+    expect(selectedText(textOf(edited), across)).toBe(
       blocks
         .slice(2, 41)
         .map((block) => block.text)
@@ -871,7 +884,7 @@ describe('the Tiptap evaluation page', () => {
       typed,
       deleted,
       undone,
-      pasted: bodyOf(page)?.[0]?.spans,
+      pasted: textBodyOf(page)?.[0].spans,
     }).toStrictEqual({
       offsets: [
         { start: 7, end: 7 },
@@ -963,7 +976,7 @@ describe('the Tiptap evaluation page', () => {
         ],
       },
     ]);
-    const spans = () => bodyOf(page)?.[0]?.spans;
+    const spans = () => textBodyOf(page)?.[0].spans;
     page.editor.commands.setTextSelection(1);
     page.type('X');
     const typed = spans();
@@ -1092,5 +1105,372 @@ describe('the Tiptap evaluation page', () => {
       pastes: 1,
       body: [{ kind: 'paragraph', spans: [{ text: '￼', image: photo }] }],
     });
+  });
+});
+
+type Cell = Table['rows'][number][number];
+const cell = (text: string, rest: Omit<Cell, 'blocks'> = {}): Cell => ({
+  blocks: paragraphs(text),
+  ...rest,
+});
+const heading = (text: string): Cell => ({
+  blocks: [{ kind: 'paragraph', spans: [{ text, marks: ['bold'] }] }],
+  header: true,
+});
+// The approved frames' table: a header row, three rows and a last row of one merged cell.
+const handover: Table = {
+  kind: 'table',
+  rows: [
+    [heading('Item'), heading('Date'), heading('Who')],
+    [cell('Key handover'), cell('1 Dec'), cell('Mara')],
+    [cell('Meter readings'), cell('2 Dec'), cell('Tomáš')],
+    [cell('Parking card'), cell('3 Dec'), cell('Mara')],
+    [
+      {
+        blocks: [
+          {
+            kind: 'paragraph',
+            spans: [
+              { text: 'Bring photo ID', marks: ['bold'] },
+              { text: '; the office checks it.' },
+            ],
+          },
+        ],
+        columns: 3,
+      },
+    ],
+  ],
+};
+const letter: TableDocument = [
+  paragraph('Dear Tomáš,'),
+  handover,
+  paragraph('Kind regards,'),
+];
+
+// Each table cell's first text position, in reading order.
+const cellsOf = ({ state }: Editor) => {
+  const starts: number[] = [];
+  state.doc.descendants((node, position) => {
+    const isCell = ['tableCell', 'tableHeader'].includes(node.type.name);
+    if (isCell) {
+      starts.push(position + 2);
+    }
+    return !isCell;
+  });
+  return starts;
+};
+const selected = ({ editor }: Page) => {
+  const { from, to } = editor.state.selection;
+  return editor.state.doc.textBetween(from, to);
+};
+
+// `table` as the page's table node, whatever its shape, to ask prosemirror-tables about it.
+const tableNode = (schema: Schema, { rows }: Table) =>
+  schema.nodeFromJSON({
+    type: 'table',
+    content: rows.map((row) => ({
+      type: 'tableRow',
+      content: row.map(({ columns = 1, rows: span = 1 }) => ({
+        type: 'tableCell',
+        attrs: { colspan: columns, rowspan: span },
+        content: [{ type: 'paragraph' }],
+      })),
+    })),
+  });
+
+// A table of `shape`, each cell's text naming its row and place.
+const shaped = (
+  shape: Arr.NonEmptyReadonlyArray<
+    Arr.NonEmptyReadonlyArray<Omit<Cell, 'blocks'>>
+  >,
+  suffix = '',
+): Table => ({
+  kind: 'table',
+  rows: Fn.pipe(
+    shape,
+    Arr.map((row, y) =>
+      Fn.pipe(
+        row,
+        Arr.map((rest, x) => cell(`${y}${x}${suffix}`, rest)),
+      ),
+    ),
+  ),
+});
+
+describe('tables in the Tiptap page', () => {
+  it('round-trips header cells, merged cells and marks, and keeps them through an edit', async () => {
+    expect.hasAssertions();
+    const page = await open(letter);
+    page.editor.commands.setTextSelection(nth(cellsOf(page.editor), 7) + 5);
+    page.type(' am');
+    expect(bodyOf(page)).toStrictEqual([
+      paragraph('Dear Tomáš,'),
+      {
+        ...handover,
+        rows: handover.rows.with(2, [
+          cell('Meter readings'),
+          cell('2 Dec am'),
+          cell('Tomáš'),
+        ]),
+      },
+      paragraph('Kind regards,'),
+    ]);
+  });
+
+  it.each([
+    [
+      'cells',
+      [
+        [{}, {}],
+        [{}, {}],
+      ],
+    ],
+    [
+      'a header row',
+      [
+        [{ header: true }, { header: true }],
+        [{}, {}],
+      ],
+    ],
+    ['merged columns', [[{ columns: 2 }], [{}, {}]]],
+    ['merged rows', [[{ rows: 2 }, {}], [{}]]],
+    [
+      'a block of merged cells',
+      [[{ columns: 2, rows: 2 }, {}], [{}], [{}, {}, {}]],
+    ],
+  ] as const)(
+    'edits a table of %s without changing its cells',
+    async (_, shape) => {
+      expect.hasAssertions();
+      const table = shaped(shape);
+      const page = await open([table, paragraph('after')]);
+      expect(page.editor.state.doc.child(0).type.name).toBe('table');
+      const count = cellsOf(page.editor).length;
+      for (let index = 0; index < count; index += 1) {
+        const start = nth(cellsOf(page.editor), index);
+        page.editor.commands.setTextSelection(start + 2);
+        page.type('!');
+      }
+      expect(bodyOf(page)).toStrictEqual([
+        shaped(shape, '!'),
+        paragraph('after'),
+      ]);
+      expect(fillsGrid(table)).toBe(true);
+      expect(
+        TableMap.get(tableNode(page.editor.schema, table)).problems,
+      ).toBeNull();
+    },
+  );
+
+  it.each([
+    ['a short row', [[{}, {}], [{}]]],
+    ['a merged cell past the last row', [[{ rows: 3 }, {}], [{}]]],
+    ['a longer row', [[{ rows: 2 }, {}], [{ columns: 2 }]]],
+    ['overlapping merged cells', [[{}, { rows: 2 }], [{ columns: 2 }]]],
+  ] as const)(
+    'keeps a table with %s unchanged and not editable',
+    async (_, shape) => {
+      expect.hasAssertions();
+      const table = shaped(shape);
+      const page = await open([table, paragraph('after')]);
+      // prosemirror-tables would change its shape, so the page keeps it as one node.
+      expect({
+        fills: fillsGrid(table),
+        fixed: TableMap.get(tableNode(page.editor.schema, table)).problems
+          ?.length,
+        node: page.editor.state.doc.child(0).type.name,
+        cells: cellsOf(page.editor),
+      }).toStrictEqual({
+        fills: false,
+        fixed: expect.any(Number),
+        node: 'keptTable',
+        cells: [],
+      });
+      // Shown with its cells and text, as the page cannot edit it.
+      expect(
+        [...document.querySelectorAll('.draft-table td')].map(
+          ({ textContent }) => textContent,
+        ),
+      ).toStrictEqual(
+        shape.flatMap((row, y) => row.map((_cell, x) => `${y}${x}`)),
+      );
+      page.editor.chain().focus('end').run();
+      page.type('!');
+      expect(bodyOf(page)).toStrictEqual([table, paragraph('after!')]);
+    },
+  );
+
+  it('moves between cells with Tab and Shift-Tab, and leaves the last cell without adding a row', async () => {
+    expect.hasAssertions();
+    const page = await open(letter);
+    const opened = page.editor.getJSON();
+    page.editor.commands.setTextSelection(nth(cellsOf(page.editor), 0) + 2);
+    const walked = cellsOf(page.editor)
+      .slice(1)
+      .map(() => {
+        press(page, 'Tab');
+        return selected(page);
+      });
+    expect(walked).toStrictEqual([
+      'Date',
+      'Who',
+      'Key handover',
+      '1 Dec',
+      'Mara',
+      'Meter readings',
+      '2 Dec',
+      'Tomáš',
+      'Parking card',
+      '3 Dec',
+      'Mara',
+      'Bring photo ID; the office checks it.',
+    ]);
+    // The last cell's Tab moves to the text after the table.
+    const left = press(page, 'Tab');
+    const { $head, empty } = page.editor.state.selection;
+    expect({
+      left,
+      empty,
+      text: $head.parent.textContent,
+      offset: $head.parentOffset,
+    }).toStrictEqual({
+      left: true,
+      empty: true,
+      text: 'Kind regards,',
+      offset: 0,
+    });
+    // Shift-Tab moves back a cell, and stays in the first.
+    page.editor.commands.setTextSelection(nth(cellsOf(page.editor), 1));
+    press(page, 'Tab', true);
+    const back = selected(page);
+    const handled = press(page, 'Tab', true);
+    expect({ back, handled, stayed: selected(page) }).toStrictEqual({
+      back: 'Item',
+      handled: true,
+      stayed: 'Item',
+    });
+    expect(page.editor.getJSON()).toStrictEqual(opened);
+  });
+
+  it('adds the paragraph to move to when Tab leaves a table that ends the body', async () => {
+    expect.hasAssertions();
+    const table = shaped([[{}, {}]]);
+    const page = await open([paragraph('Before'), table]);
+    page.editor.commands.setTextSelection(nth(cellsOf(page.editor), 1));
+    press(page, 'Tab');
+    expect(bodyOf(page)).toStrictEqual([
+      paragraph('Before'),
+      table,
+      paragraph(''),
+    ]);
+    page.type('After');
+    expect(bodyOf(page)).toStrictEqual([
+      paragraph('Before'),
+      table,
+      paragraph('After'),
+    ]);
+    page.command({ type: 'undo' });
+    page.command({ type: 'undo' });
+    expect(bodyOf(page)).toStrictEqual([paragraph('Before'), table]);
+  });
+
+  it('adds lines with Return and formats text inside a cell', async () => {
+    expect.hasAssertions();
+    const page = await open(letter);
+    page.editor.commands.setTextSelection(nth(cellsOf(page.editor), 4) + 5);
+    press(page, 'Enter');
+    page.command({ type: 'mark', mark: 'italic' });
+    page.type('Lobby');
+    const table = bodyOf(page)?.[1];
+    ok(table?.kind === 'table', 'Expected the table');
+    expect(table.rows[1]).toStrictEqual([
+      cell('Key handover'),
+      {
+        blocks: [
+          paragraph('1 Dec'),
+          { kind: 'paragraph', spans: [{ text: 'Lobby', marks: ['italic'] }] },
+        ],
+      },
+      cell('Mara'),
+    ]);
+    expect(table.rows).toHaveLength(handover.rows.length);
+  });
+
+  it('selects a table with Backspace after it, and deletes it as one Undo step', async () => {
+    expect.hasAssertions();
+    const page = await open(letter);
+    const after =
+      page.editor.state.doc.child(0).nodeSize +
+      page.editor.state.doc.child(1).nodeSize;
+    page.editor.commands.setTextSelection(after + 1);
+    press(page, 'Backspace');
+    const { selection } = page.editor.state;
+    // The table is selected, and no text merged into it.
+    expect({
+      node: selection instanceof NodeSelection,
+      type: selection.$from.nodeAfter?.type.name,
+      body: bodyOf(page),
+    }).toStrictEqual({ node: true, type: 'table', body: undefined });
+    press(page, 'Backspace');
+    expect(bodyOf(page)).toStrictEqual(
+      paragraphs('Dear Tomáš,', 'Kind regards,'),
+    );
+    page.command({ type: 'undo' });
+    expect(bodyOf(page)).toStrictEqual(letter);
+    page.command({ type: 'redo' });
+    expect(bodyOf(page)).toStrictEqual(
+      paragraphs('Dear Tomáš,', 'Kind regards,'),
+    );
+  });
+
+  it('outlines the cell holding the caret, inside a frame that scrolls sideways', async () => {
+    expect.hasAssertions();
+    const page = await open(letter);
+    const focused = () =>
+      document.querySelector('.draft-focused-cell')?.textContent;
+    page.editor.commands.setTextSelection(nth(cellsOf(page.editor), 7) + 1);
+    const inCell = focused();
+    press(page, 'Tab');
+    const afterTab = focused();
+    page.editor.commands.setTextSelection(2);
+    expect({ inCell, afterTab, outside: focused() }).toStrictEqual({
+      inCell: '2 Dec',
+      afterTab: 'Tomáš',
+      outside: undefined,
+    });
+    expect(document.querySelector('.draft-table > table')).not.toBeNull();
+    const html = pageHtml();
+    expect(html).toContain('.ProseMirror .draft-table { overflow-x: auto;');
+    expect(html).toMatch(
+      /\.draft-focused-cell \{ outline: 2px solid #3A3D44; outline-offset: -2px; \}/u,
+    );
+  });
+
+  it('opens no nested table or Inline Image in a cell', async () => {
+    expect.hasAssertions();
+    const sketch: Asset = { ...photo, id: 'sketch001', name: 'Sketch.png' };
+    const page = await open(letter, [photo]);
+    page.editor.commands.setTextSelection(nth(cellsOf(page.editor), 7) + 5);
+    // A pasted table keeps only its text, in a cell as anywhere else.
+    page.editor.view.pasteHTML('<table><tr><td>-nested</td></tr></table>');
+    const table = bodyOf(page)?.[1];
+    ok(table?.kind === 'table', 'Expected the table');
+    expect(table.rows[2]).toStrictEqual([
+      cell('Meter readings'),
+      cell('2 Dec-nested'),
+      cell('Tomáš'),
+    ]);
+    const before = page.posted.length;
+    // An image pasted or converted into a cell is refused; one added there becomes an Attachment.
+    page.editor.view.pasteHTML('<p>x<img data-draft-asset="photo0001"></p>');
+    page.command({ type: 'convert', id: photo.id });
+    expect(
+      page.posted
+        .slice(before)
+        .filter(({ document: body }) => body !== undefined),
+    ).toStrictEqual([]);
+    page.command({ type: 'add', images: [sketch], attachments: [] });
+    expect(attachmentsOf(page)).toStrictEqual([photo, sketch]);
+    expect(bodyOf(page)?.[1]).toStrictEqual(table);
   });
 });
