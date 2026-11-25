@@ -44,6 +44,79 @@ on iPad Pro 11-inch (M5) in portrait. Host load from other work was 5–58.
   rest of its list, including VoiceOver, Reduce Motion, compact windows, rotation,
   the Folders popover and a hardware keyboard's Escape on More.
 
+## Mac native pass in Mock Mail, 2026-11-25
+
+[#2880](https://github.com/unwired-dev/product/issues/2880), a slice of
+[#2796](https://github.com/unwired-dev/product/issues/2796), checks the result
+of [#1058](https://github.com/unwired-dev/product/issues/1058)'s slices in the
+native Mac host. It ran on `d72ed590e` with Testing builds
+(`registration-performance`, and `open-read-relaunch` for the window journey),
+Xcode 27.2 (`27B52`) and macOS 27.2.1 (`26B131`) on the Mac mini M4
+(`Mac16,10`). The checks used the [native journeys](../native-journeys.md) and a
+temporary capture journey that was not committed.
+
+- Windows: `testIndependentWindowsCloseReopenAndQuit` passed in 35.5 seconds in
+  Light, the desktop's appearance; it has no Dark variant, and the keyboard
+  journeys below cover the window commands in Dark. Two Inbox windows keep their own selection, and
+  opening a message reads it in both. Closing both windows leaves the app
+  running, opening the app again gives a new Inbox window, Quit stops its
+  work, and the read state survives relaunch.
+- Draft safety and keyboard: `testKeyboardAndAccessibility` (Light, 365.9
+  seconds) and `testKeyboardAndAccessibilityDark` (352.1 seconds) passed.
+  Command-K opens the Command Palette and Escape closes it; Command-A, -X
+  and -V edit the search field and Command-A, -C and -V the reply body; Command-Option-N,
+  Command-` and Command-0 open, cycle and show Inbox windows, and Command-W
+  closes them. A new Inbox window opens with nothing selected while the first
+  keeps its open reply Draft. The reply's Close asks before saving and the saved reply
+  survives relaunch. **Expand** (#1266) moves the Draft into its own New
+  Message window. There Command-W with an invalid recipient asks, and Save
+  Draft keeps the window open with "Correct or remove the invalid address to
+  close this Draft."; Command-Q asks too, and Cancel keeps the app running.
+  With the address removed, Save Draft closes the window and returns the Draft
+  to its Inbox window's overlay.
+- Pop-up and pull-down buttons (#1259), Light and Dark: in the same journeys,
+  Privacy & Data's remote-content pop-up closes on Escape without a change and
+  takes Never, and the reader's Folders pull-down closes on Escape and on a
+  click outside, then moves the message with Down and Return.
+- Accessibility audits: the Light run printed 48 reports and the Dark run 41;
+  every report matched a known exception of the journey, none unclassified.
+- Menus, Light and Dark: File (New Message, New Window, Close Window, Close
+  All), Edit, View (Commands…, Refresh, Enter Full Screen) and Window list the
+  same items in the Inbox and the reader. In an Inbox window Edit › Undo
+  stays available and Cut, Copy, Paste and Select All are unavailable while no
+  text field has focus; with no Undo notice, Undo does nothing, as #2188
+  specifies. The composer overlay's Send push button is unavailable without a
+  recipient and available once one is added.
+- Reader More pull-down, Light and Dark: captured at rest, open, and with
+  Mock Mail's Gmail Labels submenu (Travel, New Label…) open. These are the
+  captures #1383 deferred.
+- Resizing: at about 760 points wide the sidebar folds away and the open
+  composer overlay spans the reader's width below its header, in Light and
+  Dark. At about 905 points the sidebar, list and reader stay side by side,
+  with the overlay's format bar wrapping (Light and Dark). At about 1,435
+  points the layout was captured in Light only: the Dark capture journey
+  exceeded XCTest's two-minute allowance during that resize and its capture
+  was lost.
+- Sidebar, Light and Dark: Hide Sidebar and Show Sidebar work from the
+  toolbar. With Reduce Motion off, sampled accessibility positions show the
+  sidebar sliding out over 200 to 230
+  milliseconds and back over about 260. With Reduce Motion on, Hide went from
+  shown to gone with no position between; the journey then found Hide Sidebar
+  again after Show, and the captures show both the hidden and the shown
+  sidebar. The sampler lost the sidebar's element after Hide, so Show's
+  transition was not measured; `toggleSidebar` in `UnwiredCommands.m` sets
+  the collapsed state without animation in both directions while Reduce
+  Motion is on.
+
+Deferred: the same Labels submenu and New Label… with an attested Gmail test
+account stay on #2796 for a protected run. The Profile Switcher's focused
+state (#1265) stays deferred while
+[#849](https://github.com/unwired-dev/product/issues/849) keeps keyboard focus
+from reaching it. VoiceOver, Full Keyboard Access and real provider transport
+are not qualified by this pass. `mise exec -- pnpm verify:bundle` passed: it
+verified 873 Mac sources, the shared fixture, and host-only Mac autolinking and
+Podfile pods, so no Expo or mobile renderer package is in the Mac bundle.
+
 ## iPhone and iPad system sheets and popovers, 2026-11-24
 
 [#2798](https://github.com/unwired-dev/product/issues/2798), the last
