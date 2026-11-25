@@ -29,20 +29,23 @@ comparison. The 1-minute host load from other work was about 50.
   controls in reach and closed with its own control. On iPhone: the Reply sheet
   (Close), Filters (Apply Filters), Labels (a tap above it), New Label
   (Cancel), the link confirmation (Cancel) and the new-message composer
-  (Close). On iPad: the Filters popover, the toolbar's Labels popover and More's
-  system menu (a tap outside), New Label in the Labels popover (Cancel), the
-  link confirmation (Cancel), and the new-message composer card and the docked
-  reply (Close).
+  (Close). On iPad: the Filters popover (Apply Filters), the toolbar's Labels
+  popover and More's system menu (a tap outside), New Label in the Labels
+  popover (Cancel), the link confirmation (Cancel), and the new-message composer
+  card and the docked reply (Close).
 - The system changes the link confirmation's motion: with Reduce Motion it
   fades in at its final size, without it it also shrinks into place. Both take
-  about 0.2 seconds, on iPhone and iPad.
+  about 0.2 seconds, on iPhone and iPad. It fades out at its final size in both
+  settings.
 - Sheets keep their slide: the iPhone Reply, Filters, Labels, New Label and
   composer sheets rise and fall the same way and in the same time, about
   0.3 seconds, with Reduce Motion on and off.
 - The iPad popovers and More's menu open and close with the system's short fade
   in both settings; the recordings show no difference between them. The
   composer card and the docked reply appear and leave between two frames in
-  both: none of these presenters adds motion of its own.
+  both: none of these presenters adds motion of its own. New Label replaces the
+  Labels list in the popover between two frames, then the popover rises with
+  the keyboard over about 0.4 seconds, in both settings.
 - Found in both settings: on iPhone the reader's body text turns into a spinner
   while the composer sheet opens and for about 2 seconds after it closes, and
   on iPad while the docked reply opens
@@ -296,9 +299,8 @@ presenter; each names the appearances it ran in. Host load from other work was
   in the regular-width iPad composer; rotation while any presenter but the iPad
   Filters popover and the iPhone composer is presented; Expand on iPad; a
   downward swipe on the iPhone Labels sheet in Dark and on the New Label sheet,
-  and a swipe released early that keeps any sheet; closing iPad More without
-  choosing an action; the Dark-only and Light-only checks above in the other
-  appearance; and iPhone's More, which shows only for mail without Reply, which
+  and a swipe released early that keeps any sheet; the Dark-only and Light-only
+  checks above in the other appearance; and iPhone's More, which shows only for mail without Reply, which
   no journey or the synthetic mailbox has. `agent-device` cannot turn VoiceOver
   on, rotate the device or resize an iPad window. The `registration-apple`
   journey, whose Move steps rotate to landscape before opening the picker and
