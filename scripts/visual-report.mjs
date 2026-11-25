@@ -66,9 +66,7 @@ const Exported = Schema.Array(
   }),
 );
 const readJson = (schema, file) =>
-  Schema.decodeUnknownSync(Schema.fromJsonString(schema))(
-    readFileSync(file, 'utf8'),
-  );
+  Schema.decodeSync(Schema.fromJsonString(schema))(readFileSync(file, 'utf8'));
 const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex');
 
 const { values } = parseArgs({
@@ -105,6 +103,11 @@ const environment = {
     readJson(Schema.Record(Schema.String, Schema.Unknown), environmentFile)),
   toolchain: values.toolchain,
 };
+// The recorded environment fields a capture does not share; a baseline compares only within one.
+const drift = (recorded) =>
+  Object.keys({ ...recorded, ...environment }).filter(
+    (key) => JSON.stringify(recorded[key]) !== JSON.stringify(environment[key]),
+  );
 
 const failures = [];
 const incomplete = [];
@@ -168,6 +171,13 @@ function compare({ id, kind, expected, actual, directory }) {
   write(path.join(directory, 'overlay.png'), overlay);
   const ratio = pixels / (width * height);
   const within = ratio <= tolerance.maxDiffRatio;
+  const changed = kind === 'baseline' ? drift(expected.environment) : [];
+  if (changed.length > 0) {
+    incomplete.push(
+      `${label}: captured with a different ${changed.join(', ')}`,
+    );
+    return { status: 'incomplete', differingPixels: pixels, ratio, tolerance };
+  }
   if (!within) {
     (kind === 'figma' ? deviations : regressions).push(
       `${label}: ${(ratio * 100).toFixed(2)}% of pixels differ`,
@@ -231,6 +241,9 @@ const captures = manifest.captures
       },
     };
   });
+if (captures.length > 0 && !environmentFile) {
+  failures.push('no "Visual environment" attachment');
+}
 if (captures.length === 0) {
   incomplete.push(`${values.device}: the manifest lists no captures`);
 }

@@ -4246,6 +4246,7 @@ final class InboxTests: XCTestCase {
       XCUIDevice.shared.appearance = appearance
       app.launch()
       XCTAssertTrue(app.staticTexts[title].firstMatch.waitForExistence(timeout: 30))
+      XCTAssertTrue(app.staticTexts["Maya Chen"].firstMatch.waitForExistence(timeout: 30))
       var previous = Data()
       let deadline = Date().addingTimeInterval(20)
       repeat {

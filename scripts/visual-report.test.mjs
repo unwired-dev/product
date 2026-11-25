@@ -69,6 +69,14 @@ const cases = [
     'matches',
   ],
   [
+    'capture from another environment',
+    { environment: { device: 'other' } },
+    1,
+    'incomplete',
+    'conforms',
+    'incomplete',
+  ],
+  [
     'unaligned capture',
     { actual: image(false, 24) },
     1,
@@ -117,7 +125,7 @@ for (const [name, change, exit, status, figma, baseline] of cases) {
             appRevision: 'abc',
             capturedIn: 'test',
             reviewedIn: 'test',
-            environment: {},
+            environment: { device: 'test', toolchain: 'unknown' },
           },
         }),
       };
@@ -130,7 +138,16 @@ for (const [name, change, exit, status, figma, baseline] of cases) {
       );
       const attachments = path.join(directory, 'attachments');
       mkdirSync(attachments);
-      const exported = [];
+      writeFileSync(
+        path.join(attachments, 'environment.json'),
+        JSON.stringify(change.environment ?? { device: 'test' }),
+      );
+      const exported = [
+        {
+          exportedFileName: 'environment.json',
+          suggestedHumanReadableName: 'Visual environment_0_ABC.json',
+        },
+      ];
       if (change.actual !== null) {
         writeFileSync(
           path.join(attachments, 'shot.png'),

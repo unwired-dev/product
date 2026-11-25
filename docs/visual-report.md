@@ -21,7 +21,9 @@ appearance only, not provider integration.
 ## Run it
 
 Build a `UNWIRED_MOCK_SCENARIO=open-read-relaunch` simulator Release app as in
-[Expo validation](expo-client.md#validate), then from `apps/mobile`:
+[Expo validation](expo-client.md#validate), with `UNWIRED_COMMIT=$(git rev-parse HEAD)` set
+when generating the native project so the app records its revision (the report reads
+`unstamped` otherwise), then from `apps/mobile`:
 
 ```sh
 mise exec -- pnpm test:visual /absolute/path/to/Release-iphonesimulator/UnwiredMail.app
@@ -29,7 +31,7 @@ mise exec -- pnpm test:visual /absolute/path/to/Release-iphonesimulator/UnwiredM
 
 The second argument selects another simulator device type; the default is
 `com.apple.CoreSimulator.SimDeviceType.iPhone-18-Pro`. The command runs the
-`testInboxVisual` journey through the [native runner](native-validation.md), which owns the
+`testInboxVisual` journey through the [native runner](agents/native-validation.md), which owns the
 Simulator, exports the journey's attachments from its result bundle and writes the report to
 `artifacts/expo-bootstrap/native-<id>/visual-report/`. It exits 1 when the journey fails or the
 report is incomplete.
@@ -56,8 +58,12 @@ once two screenshots a second apart are identical. It fixes:
 | Status bar  | 9:41, Wi-Fi, four cellular bars, a full battery not charging (`simctl status_bar`)          |
 | Environment | The journey's `Visual environment` attachment, the Xcode version and the app revision       |
 
-The runner sets the status bar for every journey. The report records the environment and
-revision in `result.json` and in each capture's `baseline-candidate.json`.
+The runner sets the status bar for this journey only. The report records the environment and
+the app's `UnwiredCommit` revision in `result.json` and in each capture's
+`baseline-candidate.json`. A baseline compares only with a capture from the same environment,
+Xcode version included: any other capture leaves the baseline comparison incomplete. The
+committed baselines come from the CI job, so a local run with another Xcode reports Figma
+conformance and an incomplete baseline comparison.
 
 ## References and provenance
 
@@ -93,12 +99,12 @@ in red over a faded reference. A design reviewer, or the design judge, reads
 
 `result.json` lists, separately:
 
-| Field                 | Meaning                                                                                               |
-| --------------------- | ----------------------------------------------------------------------------------------------------- |
-| `figmaDeviations`     | Captures whose differing pixels exceed the Figma tolerance                                            |
-| `baselineRegressions` | Captures whose differing pixels exceed the baseline tolerance                                         |
-| `captureFailures`     | A missing capture, a missing or altered reference, or a capture whose size differs from its reference |
-| `incompleteCoverage`  | A capture with no reviewed reference or baseline yet, or a device with no captures                    |
+| Field                 | Meaning                                                                                                                     |
+| --------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `figmaDeviations`     | Captures whose differing pixels exceed the Figma tolerance                                                                  |
+| `baselineRegressions` | Captures whose differing pixels exceed the baseline tolerance                                                               |
+| `captureFailures`     | A missing capture or environment record, a missing or altered reference, or a capture whose size differs from its reference |
+| `incompleteCoverage`  | A capture with no reviewed reference or baseline yet, a baseline from another environment, or a device with no captures     |
 
 `status` is `complete` only when the last two are empty. Comparisons never resize an image:
 a capture that does not align with its reference fails instead.
@@ -137,8 +143,8 @@ to native components; when it lands, the baselines need a reviewed refresh.
 
 Never replace an expected image because a comparison failed.
 
-- **Native baseline**: when the app's appearance changes deliberately, run the report, have
-  the design review compare the new `actual.png` with the pinned frame, the
+- **Native baseline**: when the app's appearance changes deliberately, take the report from
+  the pull request's **Expo visual report** job artifact, have the design review compare the new `actual.png` with the pinned frame, the
   [design tokens](../DESIGN.md) and the product requirements, then copy `actual.png` to
   `apps/mobile/visual/baseline/<capture>.png` and its `baseline-candidate.json` into the
   capture's `baseline`, adding `capturedIn` (the run) and `reviewedIn` (the review). Record

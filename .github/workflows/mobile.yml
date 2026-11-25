@@ -177,6 +177,8 @@ jobs:
       CI: '1'
       EXPO_NO_TELEMETRY: '1'
       UNWIRED_MOCK_SCENARIO: open-read-relaunch
+      # The visual report records the app's revision from its Info.plist (#1061).
+      UNWIRED_COMMIT: ${{ github.sha }}
       DEVELOPER_DIR: /Applications/Xcode_27.0.app/Contents/Developer
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

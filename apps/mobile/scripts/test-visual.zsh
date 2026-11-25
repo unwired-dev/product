@@ -26,7 +26,7 @@ fi
 report_exit=0
 node "$repo_root/scripts/visual-report.mjs" --manifest "$mobile_root/visual/inbox.json" \
   --device "$device_type" --attachments "$run_dir/attachments" --out "$run_dir/visual-report" \
-  --revision "$(git -C "$repo_root" rev-parse HEAD)" \
+  --revision "$(/usr/libexec/PlistBuddy -c 'Print :UnwiredCommit' "$1/Info.plist" 2>/dev/null || print unstamped)" \
   --toolchain "$(xcodebuild -version | paste -sd ' ' -)" || report_exit=$?
 print "Visual report: $run_dir/visual-report"
 exit $(( journey_exit || report_exit ))

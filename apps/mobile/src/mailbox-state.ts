@@ -49,7 +49,8 @@ const tickMinute = () => {
 };
 const subscribeMinute = (notify: () => void) => {
   minuteListeners.add(notify);
-  if (minuteTimer === undefined) {
+  // A pinned clock never ticks.
+  if (minuteTimer === undefined && Number.isNaN(pinnedNow)) {
     tickMinute();
   }
   return () => {

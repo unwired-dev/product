@@ -60,8 +60,8 @@ for device_type in "${device_types[@]}"; do
     xcrun simctl boot "$device_id"
     xcrun simctl bootstatus "$device_id" -b
     xcrun simctl ui "$device_id" appearance "$UNWIRED_APPEARANCE"
-    # The status bar the frames draw, so screenshots compare across runs (#1061).
-    xcrun simctl status_bar "$device_id" override --time 9:41 --dataNetwork wifi --wifiMode active \
+    # The visual journey's status bar is the one the frames draw, so screenshots compare (#1061).
+    [[ $journey != testInboxVisual ]] || xcrun simctl status_bar "$device_id" override --time 9:41 --dataNetwork wifi --wifiMode active \
       --wifiBars 3 --cellularMode active --cellularBars 4 --batteryState discharging --batteryLevel 100
     # A library photo for journeys that insert an image through the system Photos picker.
     xcrun simctl addmedia "$device_id" "$mobile_root/native-tests/photo.png"
