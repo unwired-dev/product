@@ -4,10 +4,10 @@
 [#654](https://github.com/unwired-dev/product/issues/654), finds the
 [Unsubscribe Suggestion](domain/organization.md) an opened message offers, and
 [#2077](https://github.com/unwired-dev/product/issues/2077) sends its one-click
-request, and
-[#2823](https://github.com/unwired-dev/product/issues/2823) remembers each
-request that was sent. The reader banner, confirmation and outcomes and `mailto:` delivery
-through the Outbox follow in later #654 slices, under
+request, [#2823](https://github.com/unwired-dev/product/issues/2823) remembers each
+request that was sent, and [#2824](https://github.com/unwired-dev/product/issues/2824)
+sends a `mailto:` request through the Outbox. The reader banner, confirmation and
+outcomes follow in later #654 slices, under
 [ADR 0044](adr/0044-isolate-standards-based-unsubscribe-actions.md).
 
 ## Finding the offer
@@ -78,6 +78,31 @@ Nothing retries after a request was sent: a lost answer does not prove the
 request failed, so only the person can send it again. A rejected or malformed
 native answer is `uncertain` for the same reason.
 
+## Sending a mailto request
+
+`outbox.unsubscribe(connection, offer)` admits a `mailto:` offer's request once,
+after the person confirms it. `connection` is the Mailbox Connection that
+received the message. The request is an ordinary message from that connection's
+address to the offer's one address, with only the offer's `subject` and `body`:
+no Cc, Bcc, reply headers or other `mailto:` fields. Each line of the body is a
+paragraph. It is never a Draft, so it never syncs.
+
+It waits in the Outbox under the Undo Send Window and is then claimed and sent
+like any message, so it appears in the connection's Sent mailbox and an
+uncertain handoff is never sent again automatically. Undo, or Edit after a
+refusal, only takes it out of the Outbox. Nothing logs the address, subject or
+body, and Convex hears only the claim's opaque identifier.
+
+| Result                      | When                                                                                                                 |
+| --------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `{ kind: 'waiting', id }`   | The request waits in the Outbox as `id`, which Undo takes.                                                           |
+| `{ kind: 'receive-only' }`  | The connection is an IMAP connection without SMTP, which receives only. Nothing is sent.                             |
+| `{ kind: 'authorization' }` | The connection must be signed in again before it can send. Nothing is sent.                                          |
+| `{ kind: 'failed' }`        | The connection is gone or its IMAP server lists no Sent folder yet, or storage refused the request. Nothing is sent. |
+
+`receive-only` and `authorization` are not failures, so the reader can say why
+the connection cannot send.
+
 ## Remembering a sent request
 
 `createUnsubscribe(native, registration)` returns the host's `unsubscribe`.
@@ -112,7 +137,10 @@ mise exec -- pnpm --dir packages/mail-core exec vitest run test/unsubscribe.test
 
 The tests open a message from synthetic Gmail, Graph and IMAP mailboxes and
 cover each offer, refusal, list name and identity, how a native answer becomes
-an outcome, and which outcomes are recorded and for how long. The native tests cover the request bytes, redirects and every outcome,
+an outcome, and which outcomes are recorded and for how long.
+`test/unsubscribe-mailto.test.ts` sends a `mailto:` request from synthetic
+Gmail, Graph and IMAP connections and covers Undo, a refused handoff and
+connections that cannot send. The native tests cover the request bytes, redirects and every outcome,
 including a loopback HTTPS server that takes the request and never answers:
 
 ```sh

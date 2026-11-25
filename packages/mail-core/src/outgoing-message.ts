@@ -99,9 +99,11 @@ const header = (name: string, items: readonly string[], separator = ' ') => {
   }
   return lines.join(crlf) + crlf;
 };
+// A run of spaces, which folding by words would collapse, keeps its spaces in encoded words.
 const unstructured = (name: string, text: string) => {
   const value = headerText(text);
   return printable.test(value) &&
+    !value.includes('  ') &&
     value.split(' ').every((word) => word.length <= 60)
     ? header(
         name,
