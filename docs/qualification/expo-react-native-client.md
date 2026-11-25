@@ -11,6 +11,23 @@ The [mobile bootstrap](../expo-client.md) now uses Expo 57.0.25, React Native
 are available on the development host. The maintainer's earlier native-validation
 deferral still applies to unavailable release checks. Mac host evidence follows.
 
+## Link confirmation through rotation, 2026-11-25
+
+[#2909](https://github.com/unwired-dev/product/issues/2909) restores the turn
+back to Portrait for the link confirmation in `testPresenterRotation`. On
+`registration-declined` Release Simulator builds (Xcode 27.2, iOS 27.0 runtime,
+Dark, host load 5–450), the alert stayed shown after every turn back: a probe
+journey turned it to Landscape and back six times on iPhone 18 Pro, on
+`cf500a39d` and on `0240b4673`, whose app code matches the `6fef500a2` build in
+which #2907 saw it close; the full journey passed twice on iPhone at
+`0240b4673`, and once on iPhone and iPad Pro 11-inch (M5) on `cf500a39d` with
+and without the change. The probe saw no unmount of the reader or the
+confirmation and no dismissal reported by the alert, so the earlier dismissal
+was not reproduced and its cause is not established. A dismissal the person did
+not choose now discards the pending link: before, it left the link pending and
+the alert's own presentation closed, so choosing a link again in that reader
+showed nothing.
+
 ## iPhone and iPad presenters through rotation, 2026-11-25
 
 [#2907](https://github.com/unwired-dev/product/issues/2907), a slice of

@@ -574,8 +574,8 @@ frame has settled, then closes it with its own control. On iPhone: the Filters s
 confirmation alert, the Reply sheet, the Labels sheet and the New Label sheet. On iPad: the New
 Message card, the link confirmation alert, the toolbar's Labels popover, New Label in its place and
 the docked reply. iPad's **More** system menu closes at each turn, as the system closes a menu, and
-opens again from **More** in Landscape. The link confirmation turns only to Landscape: the turn
-back to Portrait can close it ([#2909](https://github.com/unwired-dev/product/issues/2909)). The
+opens again from **More** in Landscape. The link confirmation stays shown through both turns too
+([#2909](https://github.com/unwired-dev/product/issues/2909)). The
 iPad Filters popover (the `open-read-relaunch` journey) and the iPhone composer
 (`testComposerSheet`) are covered elsewhere; the Move picker needs IMAP mail. A capture of each
 presenter in Portrait and in Landscape, named with the appearance, is kept.

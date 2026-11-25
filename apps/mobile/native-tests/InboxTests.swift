@@ -4413,12 +4413,9 @@ final class InboxTests: XCTestCase {
       XCUIDevice.shared.orientation = orientation
       waitUntil { (window.frame.width > window.frame.height) == orientation.isLandscape }
     }
-    func turns(
-      _ name: String, _ controls: [XCUIElement],
-      through orientations: [UIDeviceOrientation] = [.landscapeLeft, .portrait]
-    ) {
+    func turns(_ name: String, _ controls: [XCUIElement]) {
       attachScreen(name, of: app, to: self)
-      for orientation in orientations {
+      for orientation in [UIDeviceOrientation.landscapeLeft, .portrait] {
         turn(to: orientation)
         _ = settledFrame(of: controls[0])
         for control in controls {
@@ -4462,12 +4459,9 @@ final class InboxTests: XCTestCase {
       .matching(NSPredicate(format: "label == %@", "garden plan")).firstMatch.tap()
     let alert = app.alerts["Open this link in your browser?"]
     XCTAssertTrue(alert.waitForExistence(timeout: 10))
-    turns(
-      "Link confirmation", [alert.buttons["Open Link"], alert.buttons["Cancel"]],
-      through: [.landscapeLeft])
+    turns("Link confirmation", [alert.buttons["Open Link"], alert.buttons["Cancel"]])
     alert.buttons["Cancel"].tap()
     XCTAssertTrue(alert.waitForNonExistence(timeout: 10))
-    turn(to: .portrait)
     let newLabel = app.buttons["New Label…"]
     if phone {
       app.buttons["Reply"].tap()
