@@ -3404,9 +3404,8 @@ final class InboxTests: XCTestCase {
 
     // #2902: the IMAP message's Folders lists the connection's folders, in the system popover on
     // iPad, which one tap outside and Escape (Command-period, #1396) close, and in the system Move
-    // sheet on iPhone, which Close and a downward swipe close. Bulk Mail then moves it to Spam.
-    let welcome = row("Welcome to IMAP")
-    welcome.tap()
+    // sheet on iPhone, which Close and a downward swipe close. It then asks to move it to Spam.
+    row("Welcome to IMAP").tap()
     let folders = app.buttons["Folders"]
     let spam = app.buttons["Move to Bulk Mail"]
     XCTAssertTrue(folders.waitForExistence(timeout: 10))
@@ -3414,7 +3413,14 @@ final class InboxTests: XCTestCase {
       folders.tap()
       XCTAssertTrue(spam.waitForExistence(timeout: 10))
       _ = settledFrame(of: spam)
+      XCTAssertTrue(app.buttons["Move to Sent Messages"].exists)
       XCTAssertTrue(app.buttons["Move to Deleted Messages"].exists)
+      // The message's own folder is listed, selected and unavailable.
+      let current = app.buttons.matching(
+        NSPredicate(format: "label == %@ AND selected == YES", "Inbox")
+      ).firstMatch
+      XCTAssertTrue(current.exists)
+      XCTAssertFalse(current.isEnabled)
       if close == "Close" || close == "tap" { capture(phone ? "Move sheet" : "Folders popover") }
       switch close {
       case "Close": app.buttons["Close"].tap()
@@ -3431,8 +3437,8 @@ final class InboxTests: XCTestCase {
     folders.tap()
     XCTAssertTrue(spam.waitForExistence(timeout: 10))
     spam.tap()
-    // The reader closes and the move is reported. The synthetic server discards it, so its next
-    // sync may list the message again.
+    // The reader closes and the list reports the move at once, before the server answers. The
+    // synthetic server discards moves; mail-core's imap-organize tests cover the server's side.
     XCTAssertTrue(text("Moved: “Welcome to IMAP”.", in: app).waitForExistence(timeout: 15))
     XCTAssertFalse(folders.exists)
     capture("Moved to Spam")
