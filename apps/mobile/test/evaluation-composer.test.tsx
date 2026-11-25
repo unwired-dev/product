@@ -39,7 +39,7 @@ import {
 import { choose as chooseFrom } from './system-menu.tsx';
 import { translateInto } from './translation-menu.tsx';
 import { injectedScripts } from './webview.tsx';
-import { menuGroups } from './writing-tools.ts';
+import { chooseWritingTool, menuGroups } from './writing-tools.ts';
 
 // oxlint-disable-next-line vitest/prefer-import-in-mock -- Jest requires a module name, not a dynamic import.
 jest.mock('react-native-screens/experimental', () => ({
@@ -334,7 +334,7 @@ describe('the Tiptap evaluation composer', () => {
     const page = simulatedPage();
     await page.report({});
     await page.typed('Keep this unsaved body');
-    await chooseFrom('Writing tools', 'Rewrite the message body');
+    await chooseWritingTool('Rewrite the message body');
     await screen.findByText(syntheticRewrite);
     await app.rerender(view('personal'));
     expect(screen.queryByText(syntheticRewrite)).toBeNull();
@@ -422,7 +422,7 @@ describe('the Tiptap evaluation composer', () => {
 
     // Rewrite without a selection captures the whole body; the result replaces it in the page,
     // for the body revision it was captured from.
-    await chooseFrom('Writing tools', 'Rewrite the message body');
+    await chooseWritingTool('Rewrite the message body');
     // The page stops editing so the software keyboard does not cover the review.
     expect(lastCommand()).toBe(sent({ type: 'blur' }));
     await screen.findByText(syntheticRewrite);
@@ -444,7 +444,7 @@ describe('the Tiptap evaluation composer', () => {
     expect(screen.queryByLabelText('Rewrite of your text')).toBeNull();
     // An edit retires a pending capture: its result is never offered.
     await report({ selection: { start: 9, end: 13 } });
-    await chooseFrom('Writing tools', 'Translate the selected text');
+    await chooseWritingTool('Translate the selected text');
     await translateInto('German');
     await screen.findByText(syntheticTranslation);
     await typed('Plan B');
@@ -455,7 +455,7 @@ describe('the Tiptap evaluation composer', () => {
       { kind: 'quote', spans: [{ text: 'Hola amigos' }] },
     ];
     await report({ document: latest, selection: { start: 5, end: 11 } });
-    await chooseFrom('Writing tools', 'Translate the selected text');
+    await chooseWritingTool('Translate the selected text');
     await translateInto('German');
     await screen.findByText(syntheticTranslation);
     await press('Replace the selected text with this translation');
@@ -502,7 +502,7 @@ describe('the Tiptap evaluation composer', () => {
     await press('Italic');
     expect(lastCommand()).toBe(commandScript({ type: 'mark', mark: 'italic' }));
     expect(expand).not.toHaveBeenCalled();
-    await chooseFrom('Writing tools', 'Rewrite the message body');
+    await chooseWritingTool('Rewrite the message body');
     expect(lastCommand()).toBe(commandScript({ type: 'blur' }));
     // A text tool's review takes the whole window.
     expect(expand).toHaveBeenCalledWith();
@@ -786,7 +786,7 @@ describe('the Tiptap evaluation composer', () => {
       await press('New Message');
       const { typed } = simulatedPage();
       await typed('Keep this body');
-      await chooseFrom('Writing tools', 'Rewrite the message body');
+      await chooseWritingTool('Rewrite the message body');
       await screen.findByText(syntheticRewrite);
       const apply = screen.getByRole('button', {
         name: 'Replace your text with this rewrite',
@@ -867,7 +867,7 @@ describe('the Tiptap evaluation composer', () => {
     // The reopened page starts again at its first body revision.
     await press(/^Draft\./u);
     await simulatedPage().report({});
-    await chooseFrom('Writing tools', 'Suggest a reply to the quoted message');
+    await chooseWritingTool('Suggest a reply to the quoted message');
     await screen.findByText(syntheticReply);
     await press('Replace your reply with this suggestion');
     expect(lastCommand()).toBe(

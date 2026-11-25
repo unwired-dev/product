@@ -98,7 +98,8 @@ const styles = StyleSheet.create({
   body: { flex: 1, minHeight: 160, backgroundColor: 'transparent' },
   notice: { ...textStyles.subheadline, paddingHorizontal: spacing.l },
   // Menus float over the content below or above their control.
-  controls: { zIndex: 4 },
+  // Over the body, and under the Close question, whose outside tap must reach it first.
+  controls: { zIndex: 3 },
   padControls: { zIndex: 1 },
 });
 

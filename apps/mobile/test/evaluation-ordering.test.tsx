@@ -18,6 +18,7 @@ import {
   simulatedPage,
 } from './evaluation-page.ts';
 import { choose as chooseFrom } from './system-menu.tsx';
+import { chooseWritingTool } from './writing-tools.ts';
 
 // oxlint-disable-next-line vitest/prefer-import-in-mock -- Jest requires a module name, not a dynamic import.
 jest.mock('react-native-screens/experimental', () => ({
@@ -90,7 +91,7 @@ describe('evaluation Draft save ordering', () => {
     // The selection of revision 2 arrives before its body; the editor still holds revision 1.
     await report({ revision: 2, selection: { start: 7, end: 7 } });
     const before = lastCommand();
-    await chooseFrom('Writing tools', 'Rewrite the message body');
+    await chooseWritingTool('Rewrite the message body');
     expect(lastCommand()).toBe(before);
     expect(screen.queryByText(syntheticRewrite)).toBeNull();
     // Once that body arrives, the capture describes it and replaces it at its revision.
@@ -98,7 +99,7 @@ describe('evaluation Draft save ordering', () => {
       revision: 2,
       document: [{ kind: 'paragraph', spans: [{ text: 'One two' }] }],
     });
-    await chooseFrom('Writing tools', 'Rewrite the message body');
+    await chooseWritingTool('Rewrite the message body');
     await screen.findByText(syntheticRewrite);
     await press('Replace your text with this rewrite');
     expect(lastCommand()).toContain('"type":"replace","revision":2');
@@ -116,7 +117,7 @@ describe('evaluation Draft save ordering', () => {
     await press('New Message');
     const { report, typed } = simulatedPage();
     await typed('One');
-    await chooseFrom('Writing tools', 'Rewrite the message body');
+    await chooseWritingTool('Rewrite the message body');
     await screen.findByText(syntheticRewrite);
     // The preview belongs to revision 1, but only revision 2's selection has arrived.
     await report({ revision: 2, selection: { start: 7, end: 7 } });
