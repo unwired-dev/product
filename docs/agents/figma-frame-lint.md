@@ -82,10 +82,10 @@ const visit = (node) => {
   }
   if (node.type === 'TEXT') {
     const segments = node.getStyledTextSegments(['textStyleId', 'fills']);
-    if (owns(node, 'fills', 'characters')) {
+    if (owns(node, 'fills')) {
       for (const s of segments) checkPaints(node, 'text', s.fills);
     }
-    if (owns(node, 'textStyleId', 'fontSize', 'fontName', 'characters')) {
+    if (owns(node, 'textStyleId', 'fontSize', 'fontName')) {
       for (const s of segments.filter((s) => !s.textStyleId)) {
         looseText.push({ id: node.id, text: s.characters.slice(0, 40) });
       }

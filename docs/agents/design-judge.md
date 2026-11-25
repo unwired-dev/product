@@ -68,7 +68,7 @@ The differences listed as intended in index.md are not defects. Report every
 other difference, marking ones outside the change pre-existing.
 Reply with one result per index.md row, then the findings:
 R1 <row>: PASS | FAIL | NOT COMPARED — measured: <key positions, sizes, colours, type>
-VERDICT: PASS (every row PASS) or FAIL
+VERDICT: PASS (every row PASS, or NOT COMPARED with owner acceptance in index.md) or FAIL
 D1 <row> <element>: frame <value>, app <value>. [pre-existing] Fix: <suggestion>
 ```
 
@@ -82,8 +82,9 @@ Continue while each round lowers the open count; the Mac sweep in #1838 took six
 rounds to reach zero. A difference the app cannot close (a native limit, or a
 frame that is wrong) goes to the owner as a choice: update the frame through
 [design approval](implementation-review.md#design-approval), or record it in
-Known frame differences. Either way, add the decision to the row in index.md
-and judge again. File pre-existing differences as issues; they do not block
+Known frame differences. Either way, add the decision to the row in index.md;
+after a frame update, refresh the row's node id, export and values first. Then
+judge again. File pre-existing differences as issues; they do not block
 this change.
 
 The judge passes when its verdict is PASS on the PR's head: every row compared
