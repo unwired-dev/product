@@ -536,8 +536,10 @@ opens **New Label…** from its labels: from the Reply sheet's **Labels** on iPh
 toolbar's **Labels** on iPad ([#2441](https://github.com/unwired-dev/product/issues/2441)). It
 captures **Labels** empty, with **Apply** unavailable, and again with `Travel/Spain` typed and its
 **Create “Spain” inside “Travel”** row, each named with the appearance for comparison with the
-approved frames, then closes it with **Cancel**. Creating the label is covered by Jest; the
-synthetic Gmail layer does not create labels.
+approved frames, then closes it with **Cancel**. The name is typed on the software keyboard, whose
+own delete and letter keys then edit it, and the name, **Cancel** and **Apply** stay in reach above
+it ([#2891](https://github.com/unwired-dev/product/issues/2891)). Creating the label is covered by
+Jest; the synthetic Gmail layer does not create labels.
 
 ## iPad popover dismissal journey
 
@@ -624,6 +626,18 @@ and the Outbox then offers its **Undo**. The editor's bottom, not the keyboard e
 fold: the keyboard's typing predictions sit above that element. The captures "Composer sheet", "Composer sheet asks before
 closing", "Composer body fills the sheet", "Composer Send asks for a recipient" and "Composer sheet
 with keyboard" are named with the appearance.
+
+## iPad composer card journey
+
+`testComposerCard` runs on a `registration-declined` Release build with
+`UNWIRED_JOURNEY=testComposerCard` on iPad; iPhone skips it
+([#2891](https://github.com/unwired-dev/product/issues/2891)). It connects the synthetic Gmail
+mailbox and opens New Message as the card narrower than the regular-width window. Subject and then
+the body are typed on the software keyboard's keys; the card ends above the keyboard with the field
+being typed in view. **Expand** takes the same Draft over the whole window, and **Collapse** returns the card with the same Subject and body. **Close**
+then asks, and **Delete Draft** closes it. The captures "Composer card above the keyboard",
+"Composer card body above the keyboard", "Expanded composer keeps the Draft" and "Collapsed card
+keeps the Draft" are named with the appearance.
 
 ## iPhone and iPad Apple registration journey
 

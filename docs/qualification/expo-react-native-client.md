@@ -11,6 +11,33 @@ The [mobile bootstrap](../expo-client.md) now uses Expo 57.0.25, React Native
 are available on the development host. The maintainer's earlier native-validation
 deferral still applies to unavailable release checks. Mac host evidence follows.
 
+## Software keyboard in New Label and the iPad composer card, 2026-11-25
+
+[#2891](https://github.com/unwired-dev/product/issues/2891), a slice of
+[#2873](https://github.com/unwired-dev/product/issues/2873), runs three of the
+checks the 2026-11-24 pass below deferred. It ran on `e20a2d516` with the
+journey changes, on a `registration-declined` Release Simulator build with
+Xcode 27.2 (`27B52`), the iOS 27.0 runtime and macOS 27.2.1, on iPhone 18 Pro
+and iPad Pro 11-inch (M5) in portrait, in Light and Dark. Each run passed on
+its first attempt; the 1-minute host load was 7–90.
+
+- New Label (`testNewLabel`, iPhone and iPad): the software keyboard is up
+  while the name is typed, and its own delete and **n** keys edit
+  `Travel/Spain`. The name, **Cancel** and **Apply** stay in reach above it: on
+  iPhone in the Labels sheet, on iPad in the Labels popover. On iPhone the
+  slash hint scrolls under **Cancel** with the rest of the sheet's content.
+- The regular-width iPad composer (`testComposerCard`): Subject and then the
+  body are typed on the software keyboard's keys, and the New Message card ends
+  above the keyboard with the field being typed in view.
+- "Above the keyboard" means above its typing predictions and shortcuts bar
+  (`SystemInputAssistantView`), which starts 55 pt above the `Keyboard`
+  element XCUITest reports on iPad.
+- Expand in the regular-width iPad composer (`testComposerCard`): **Expand**
+  takes the same Draft, Subject and body, over the whole window, and
+  **Collapse** returns the card with them.
+
+The other checks #2873 lists stay open there.
+
 ## iPad popovers close at one tap outside and at Escape, 2026-11-25
 
 [#2879](https://github.com/unwired-dev/product/issues/2879), a slice of

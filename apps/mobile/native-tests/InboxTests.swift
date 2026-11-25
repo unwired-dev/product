@@ -3809,6 +3809,14 @@ final class InboxTests: XCTestCase {
     element.value(forKey: "hasKeyboardFocus") as? Bool == true
   }
 
+  // The software keyboard's top edge: its typing predictions and shortcuts bar sits above the
+  // `Keyboard` element's frame (#2891).
+  private func keyboardTop(_ app: XCUIApplication) -> CGFloat {
+    let assistant = app.otherElements["SystemInputAssistantView"]
+    let keys = app.keyboards.firstMatch.frame.minY
+    return assistant.exists ? min(assistant.frame.minY, keys) : keys
+  }
+
   // Taps `element` until `taken` holds: on a loaded host a tap can land while the screen is still
   // settling and leave focus where it was (#1510).
   private func focus(_ element: XCUIElement, until taken: @escaping () -> Bool) {
@@ -4180,6 +4188,18 @@ final class InboxTests: XCTestCase {
     XCTAssertFalse(app.buttons["Apply"].isEnabled)
     attachScreen("Labels", of: app, to: self)
     type("Travel/Spain", into: name)
+    // #2891: the software keyboard's own keys type the name, which stays in view above it with
+    // Cancel and Apply.
+    let keyboard = app.keyboards.firstMatch
+    XCTAssertTrue(keyboard.waitForExistence(timeout: 10))
+    keyboard.keys["delete"].tap()
+    waitUntil { name.value as? String == "Travel/Spai" }
+    keyboard.keys.matching(NSPredicate(format: "label ==[c] %@", "n")).firstMatch.tap()
+    waitUntil { name.value as? String == "Travel/Spain" }
+    for control in [name, app.buttons["Cancel"], app.buttons["Apply"]] {
+      XCTAssertTrue(control.isHittable, "\(control) is out of reach")
+      XCTAssertLessThanOrEqual(control.frame.maxY, keyboardTop(app))
+    }
     XCTAssertTrue(
       app.buttons["Create “Spain” inside “Travel”, Created in Gmail, then applied"]
         .waitForExistence(timeout: 10))
@@ -4547,6 +4567,74 @@ final class InboxTests: XCTestCase {
     // Send admitted the message: the Outbox offers its Undo inside the Undo Send Window.
     openOutbox(app)
     XCTAssertTrue(app.buttons["Undo"].waitForExistence(timeout: 15))
+  }
+
+  // #2891: in a regular-width iPad window New Message's card rises above the software keyboard, with
+  // the field being typed in view. Expand takes the same Draft over the whole window, and Collapse
+  // returns the card.
+  func testComposerCard() throws {
+    try XCTSkipIf(UIDevice.current.userInterfaceIdiom != .pad, "The card is iPad's")
+    continueAfterFailure = false
+    let environment = ProcessInfo.processInfo.environment
+    XCTAssertEqual(environment["UNWIRED_TEST_SCENARIO"], "registration-declined")
+    let app = XCUIApplication(bundleIdentifier: try XCTUnwrap(environment["UNWIRED_BUNDLE_ID"]))
+    addTeardownBlock { if app.state != .notRunning { app.terminate() } }
+    app.launch()
+    XCTAssertTrue(app.staticTexts["Your mail,\non your devices."].waitForExistence(timeout: 60))
+    connectGmail(app)
+    XCTAssertTrue(
+      app.buttons["Unread. Rowan Hale. Garden plans for spring"].waitForExistence(timeout: 30))
+    let window = app.windows.firstMatch.frame
+    app.buttons["New Message"].tap()
+    let composer = app.otherElements["composer-overlay"]
+    let subject = app.textFields["Subject"]
+    let body = app.textViews.matching(NSPredicate(format: "label BEGINSWITH %@", "Message body"))
+      .firstMatch
+    XCTAssertTrue(subject.waitForExistence(timeout: 15))
+    XCTAssertLessThan(composer.frame.width, window.width)
+    let keyboard = app.keyboards.firstMatch
+    let typeKeys = { (letters: String) in
+      for letter in letters {
+        keyboard.keys.matching(NSPredicate(format: "label ==[c] %@", String(letter))).firstMatch
+          .tap()
+      }
+    }
+    focus(subject) { self.hasFocus(subject) }
+    XCTAssertTrue(keyboard.waitForExistence(timeout: 10))
+    typeKeys("venue")
+    waitUntil { (subject.value as? String)?.lowercased() == "venue" }
+    waitUntil { composer.frame.maxY <= self.keyboardTop(app) }
+    XCTAssertTrue(subject.isHittable)
+    XCTAssertLessThanOrEqual(subject.frame.maxY, keyboardTop(app))
+    attachScreen("Composer card above the keyboard", of: app, to: self)
+    focus(body) { self.hasFocus(body) }
+    typeKeys("seats")
+    waitUntil { (body.value as? String)?.lowercased().hasPrefix("seats") == true }
+    XCTAssertLessThanOrEqual(composer.frame.maxY, keyboardTop(app))
+    XCTAssertTrue(body.isHittable)
+    XCTAssertGreaterThanOrEqual(body.frame.minY, composer.frame.minY)
+    attachScreen("Composer card body above the keyboard", of: app, to: self)
+    let typed = (subject.value as? String, body.value as? String)
+    let keeps = {
+      XCTAssertEqual(subject.value as? String, typed.0)
+      XCTAssertEqual(body.value as? String, typed.1)
+    }
+    app.buttons["Expand"].tap()
+    let collapse = app.buttons["Collapse"]
+    XCTAssertTrue(collapse.waitForExistence(timeout: 10))
+    waitUntil { composer.frame == window }
+    keeps()
+    attachScreen("Expanded composer keeps the Draft", of: app, to: self)
+    collapse.tap()
+    XCTAssertTrue(app.buttons["Expand"].waitForExistence(timeout: 10))
+    waitUntil { composer.frame.width < window.width }
+    keeps()
+    attachScreen("Collapsed card keeps the Draft", of: app, to: self)
+    app.buttons["Close"].tap()
+    let delete = app.buttons["Delete Draft"]
+    XCTAssertTrue(delete.waitForExistence(timeout: 10))
+    delete.tap()
+    XCTAssertTrue(composer.waitForNonExistence(timeout: 10))
   }
 
   // #2465: in a list, Tab and Shift-Tab nest its items up to three levels, and Outdent and Indent,
