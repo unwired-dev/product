@@ -738,7 +738,8 @@ launch each button and switch, on iPhone and in iPad's detail, scrolls into
 reach. Relaunched at
 that size ([#2230](https://github.com/unwired-dev/product/issues/2230)),
 the reopened Draft's composer passes the clipped-text audit, expanded on iPad,
-and its fields scroll into reach with **Show Cc and Bcc**, where the Dynamic Type
+whose docked reply shows its fields at that size only once expanded
+([#2882](https://github.com/unwired-dev/product/issues/2882)), and its fields scroll into reach with **Show Cc and Bcc**, where the Dynamic Type
 audit runs too. It permits the body, a React Native multiline input like the
 signature field, to fail Dynamic Type once it holds text, plain or formatted,
 although a text size change made in Settings reaches it

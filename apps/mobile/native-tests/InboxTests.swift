@@ -45,8 +45,8 @@ private let waitPastLeakedAnimations: Void = {
   else { return }
   typealias Wait = @convention(c) (NSObject, Selector, Bool, Bool, Bool) -> Void
   let wait = unsafeBitCast(method_getImplementation(method), to: Wait.self)
-  let replacement: @convention(block) (NSObject, Bool, Bool, Bool) -> Void = {
-    process, animations, activity, preEvent in
+  typealias Replacement = @convention(block) (NSObject, Bool, Bool, Bool) -> Void
+  let replacement: Replacement = { process, animations, activity, preEvent in
     let pid = process.value(forKey: "processID") as? Int32 ?? 0
     wait(process, selector, animations && !leakedAnimations.contains(pid), activity, preEvent)
     if animations && process.value(forKey: "animationsHaveFinished") as? Bool == false {
@@ -3592,10 +3592,13 @@ final class InboxTests: XCTestCase {
         app.swipeDown()
       }
       draft.tap()
-      XCTAssertTrue(app.textFields["Subject"].waitForExistence(timeout: 15))
       if pad {
+        // At this size iPad's docked reply shows its fields only once expanded (#2882).
+        XCTAssertTrue(app.buttons["Expand"].waitForExistence(timeout: 15))
         app.buttons["Expand"].tap()
         XCTAssertTrue(app.buttons["Collapse"].waitForExistence(timeout: 10))
+      } else {
+        XCTAssertTrue(app.textFields["Subject"].waitForExistence(timeout: 15))
       }
     }
     reopen()
@@ -3722,6 +3725,8 @@ final class InboxTests: XCTestCase {
     XCTAssertEqual(text.value as? String, "reply")
     XCTAssertEqual(destination.value as? String, initialDestination)
     submit("https://example.com", into: destination, in: app)
+    // A loaded host can drop the Return (#1510); Apply does the same.
+    if !destination.waitForNonExistence(timeout: 10) { apply.tap() }
     XCTAssertTrue(destination.waitForNonExistence(timeout: 10))
     XCTAssertEqual(body.value as? String, "Keyboard reply")
     let edit = formatControl("Edit Link", in: app)
@@ -3747,11 +3752,17 @@ final class InboxTests: XCTestCase {
     }
   }
 
-  // Leaves the Link Editor without applying: iPad taps beside the popover, above the software
-  // keyboard; iPhone closes the sheet, whose Close sits below the composer's own.
+  // Leaves the Link Editor without applying: iPad taps the expanded composer's title row beside
+  // Collapse, outside the popover and away from the body, where a tap would raise the software
+  // keyboard (#2885), again when a loaded host drops the tap (#1510). iPhone closes the sheet,
+  // whose Close sits below the composer's own.
   private func dismissLinkEditor(_ app: XCUIApplication, field: XCUIElement, pad: Bool) {
     if pad {
-      app.coordinate(withNormalizedOffset: CGVector(dx: 0.05, dy: 0.15)).tap()
+      let title = app.buttons["Collapse"].coordinate(withNormalizedOffset: CGVector(dx: -2, dy: 0.5))
+      for _ in 0..<3 where field.exists {
+        title.tap()
+        _ = field.waitForNonExistence(timeout: 5)
+      }
     } else {
       app.buttons.matching(NSPredicate(format: "label == %@", "Close")).allElementsBoundByIndex
         .max { $0.frame.minY < $1.frame.minY }?.tap()

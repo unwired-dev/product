@@ -11,6 +11,43 @@ The [mobile bootstrap](../expo-client.md) now uses Expo 57.0.25, React Native
 are available on the development host. The maintainer's earlier native-validation
 deferral still applies to unavailable release checks. Mac host evidence follows.
 
+## iPad keyboard and accessibility journey to the end, 2026-11-25
+
+[#1873](https://github.com/unwired-dev/product/issues/1873): the iPad
+`registration-performance` journey, which stopped after the Inbox audit, now
+runs to the end. It passed whole on iPad Pro 11-inch (M5) on a
+`registration-performance` Release Simulator build with Xcode 27.2 (`27B52`),
+the iOS 27.0 runtime and macOS 27.2.1, in Dark, in 20 minutes. Host load was
+4–50.
+
+- After a keyboard or text-selection change, XCTest's count of running
+  animations stayed above zero, so each later action waited a minute for the
+  app to idle. The journey now skips that wait for a process once it has
+  timed out, and still waits for the main run loop to idle. A run sees the
+  timeout about once per launch.
+- The composer's title, which offers **Open Command Palette** to VoiceOver,
+  failed the hit-area audit at 18.5 points tall. It is now a 44-point element.
+  The Command Palette's Cancel passed the audit, and the journey closes the
+  palette with it.
+- The Mailboxes audit permits an unlabeled view the size of a list row, which
+  some runs report ([#2843](https://github.com/unwired-dev/product/issues/2843)).
+  The Composer audit permits the Mailboxes Edit button's contrast measured
+  under the modal expanded composer. The Link Editor audit passed with the
+  "system popover" gap.
+- On a loaded host a tap or a key can be lost. The journey retries the palette
+  tap, the Link Editor's Return (with Apply) and its dismissal, and retypes a
+  palette query that lost a key.
+- A tap beside the Link Editor popover that lands in the body raises the
+  software keyboard. Its show and hide transitions then collapsed the expanded
+  composer, which lost its body
+  ([#2885](https://github.com/unwired-dev/product/issues/2885)). The journey
+  now taps the title row instead.
+- At Accessibility XXXL, the reopened Draft's docked reply has a From picker
+  706 points tall that covers its fields
+  ([#2882](https://github.com/unwired-dev/product/issues/2882)). The journey
+  expands the reply before checking the fields.
+- **Light, landscape, VoiceOver and physical devices are deferred.**
+
 ## iPhone and iPad Settings at the largest text size, 2026-11-23
 
 [#2730](https://github.com/unwired-dev/product/issues/2730), part of
