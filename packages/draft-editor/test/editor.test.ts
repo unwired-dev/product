@@ -28,7 +28,7 @@ import {
 import { createSyntheticDrafts } from '@private-email/mail-core/testing/drafts';
 import { Slice } from '@tiptap/pm/model';
 import { NodeSelection } from '@tiptap/pm/state';
-import { TableMap } from '@tiptap/pm/tables';
+import { CellSelection, TableMap } from '@tiptap/pm/tables';
 import * as Arr from 'effect/Array';
 import * as Fn from 'effect/Function';
 
@@ -1421,6 +1421,51 @@ describe('tables in the Tiptap page', () => {
     expect(bodyOf(page)).toStrictEqual(
       paragraphs('Dear Tomáš,', 'Kind regards,'),
     );
+  });
+
+  it.each([
+    ['a kept table', shaped([[{}, {}], [{}]]), paragraph('after')],
+    ['a table before an empty paragraph', shaped([[{}, {}]]), paragraph('')],
+  ] as const)(
+    'selects %s with Backspace before deleting it',
+    async (_, table, after) => {
+      expect.hasAssertions();
+      const page = await open([table, after]);
+      page.editor.commands.setTextSelection(
+        page.editor.state.doc.child(0).nodeSize + 1,
+      );
+      press(page, 'Backspace');
+      expect({
+        node: page.editor.state.selection instanceof NodeSelection,
+        body: bodyOf(page),
+      }).toStrictEqual({ node: true, body: undefined });
+      press(page, 'Backspace');
+      expect(bodyOf(page)).toStrictEqual([after]);
+      page.command({ type: 'undo' });
+      expect(bodyOf(page)).toStrictEqual([table, after]);
+    },
+  );
+
+  it('pastes into selected cells without changing them', async () => {
+    expect.hasAssertions();
+    const page = await open([
+      shaped([[{ header: true, columns: 2 }], [{}, {}]]),
+    ]);
+    const { state, view } = page.editor;
+    const header = nth(cellsOf(page.editor), 0) - 2;
+    view.dispatch(
+      state.tr.setSelection(CellSelection.create(state.doc, header)),
+    );
+    view.pasteText('new');
+    expect(bodyOf(page)).toStrictEqual([
+      {
+        kind: 'table',
+        rows: [
+          [cell('new', { header: true, columns: 2 })],
+          [cell('10'), cell('11')],
+        ],
+      },
+    ]);
   });
 
   it('outlines the cell holding the caret, inside a frame that scrolls sideways', async () => {

@@ -31,8 +31,14 @@ import Underline from '@tiptap/extension-underline';
 import { UndoRedo } from '@tiptap/extensions';
 import { closeHistory } from '@tiptap/pm/history';
 import { Fragment, Node as ProseMirrorNode, Slice } from '@tiptap/pm/model';
-import { Plugin, Selection, TextSelection } from '@tiptap/pm/state';
 import {
+  NodeSelection,
+  Plugin,
+  Selection,
+  TextSelection,
+} from '@tiptap/pm/state';
+import {
+  CellSelection,
   cellAround,
   goToNextCell,
   isInTable,
@@ -280,6 +286,33 @@ const nextCell = ({ state, view }: TiptapEditor, direction: 1 | -1) => {
   return true;
 };
 
+// Backspace at the start of the block after a table selects the table, even when the block is
+// empty or the table is kept, so nothing merges into it or deletes it at once.
+// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Tiptap's editor is a class; this dispatches through its view.
+const selectTableBefore = ({ state, view }: TiptapEditor) => {
+  const { $head, empty } = state.selection;
+  const atStart =
+    empty &&
+    $head.parentOffset === 0 &&
+    Array.from({ length: $head.depth }, (_, at) => $head.index(at + 1)).every(
+      (index) => index === 0,
+    );
+  if (!atStart || $head.depth === 0 || isInTable(state)) {
+    return false;
+  }
+  const at = $head.before(1);
+  const before = state.doc.resolve(at).nodeBefore;
+  if (before === null || !['table', 'keptTable'].includes(before.type.name)) {
+    return false;
+  }
+  view.dispatch(
+    state.tr.setSelection(
+      NodeSelection.create(state.doc, at - before.nodeSize),
+    ),
+  );
+  return true;
+};
+
 // Table editing: Tab between cells, Backspace after a table selects it and a second deletes it as
 // one Undo step, and the cell holding the caret is outlined. No edit puts an Inline Image in a cell.
 const Tables = Extension.create({
@@ -293,12 +326,21 @@ const Tables = Extension.create({
   addKeyboardShortcuts: () => ({
     Tab: ({ editor }) => nextCell(editor, 1),
     'Shift-Tab': ({ editor }) => nextCell(editor, -1),
+    Backspace: ({ editor }) => selectTableBefore(editor),
   }),
   addProseMirrorPlugins: () => [
-    tableEditing({ allowTableNodeSelection: true }),
     new Plugin({
       filterTransaction: (tr) => !tr.docChanged || !imageInCell(tr.doc),
       props: {
+        // A paste over selected cells goes into them, as typing does, and never replaces them
+        // with cells of another kind or span.
+        handlePaste: ({ state, dispatch }, _event, slice) => {
+          if (!(state.selection instanceof CellSelection)) {
+            return false;
+          }
+          dispatch(state.tr.replaceSelection(slice).scrollIntoView());
+          return true;
+        },
         decorations: ({ doc, selection }) => {
           const $cell = cellAround(selection.$head);
           const cell = $cell?.nodeAfter ?? null;
@@ -312,6 +354,7 @@ const Tables = Extension.create({
         },
       },
     }),
+    tableEditing({ allowTableNodeSelection: true }),
   ],
 });
 
