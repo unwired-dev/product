@@ -106,3 +106,4 @@ ADRs take the next number after the highest in this index.
 | 0077   | [Remove friction that privacy does not require](0077-remove-friction-that-privacy-does-not-require.md)                                         |
 | 0078   | [Block explicit sender domains beside exact Blocked Senders](0078-block-explicit-sender-domains-beside-exact-blocked-senders.md)               |
 | 0079   | [Report a Trusted Device's kind and last activity in sealed records](0079-report-trusted-device-kind-and-activity-in-sealed-records.md)        |
+| 0080   | [Edit the Draft body in the Tiptap page](0080-edit-the-draft-body-in-the-tiptap-page.md)                                                       |

@@ -54,6 +54,14 @@ body { font: -apple-system-body; -webkit-text-size-adjust: 100%; }
 .ProseMirror img { max-width: 100%; max-height: 256px; vertical-align: bottom; border-radius: 6px; }
 .ProseMirror img:not([src]) { box-sizing: border-box; width: 44px; height: 44px; border: 1px dashed rgba(128, 128, 128, 0.6); }
 .ProseMirror img.ProseMirror-selectednode { outline: 2px solid Highlight; }
+.ProseMirror .draft-table { overflow-x: auto; margin: 0 0 0.75em; }
+.ProseMirror table { border-collapse: collapse; }
+.ProseMirror td, .ProseMirror th { border: 1px solid rgba(128, 128, 128, 0.5); padding: 4px 8px; vertical-align: top; text-align: start; font-weight: inherit; white-space: pre; }
+.ProseMirror td > *, .ProseMirror th > * { margin: 0; }
+.ProseMirror .draft-focused-cell { outline: 2px solid ${palette.light.accentFill}; outline-offset: -2px; }
+.ProseMirror .selectedCell { background: ${palette.light.accentSelectionSubtle}; }
+.ProseMirror .draft-table.ProseMirror-selectednode { outline: 2px solid Highlight; }
+@media (prefers-color-scheme: dark) { .ProseMirror .draft-focused-cell { outline-color: ${palette.dark.accentFill}; } .ProseMirror .selectedCell { background: ${palette.dark.accentSelectionSubtle}; } }
 `;
 
 function pageHtml() {

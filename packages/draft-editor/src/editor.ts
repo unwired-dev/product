@@ -4,10 +4,10 @@
 import type {
   Asset,
   BlockKind,
-  SemanticDocument,
+  TableDocument,
 } from '@private-email/mail-core/semantic-document';
 import type { ChainedCommands, Editor as TiptapEditor } from '@tiptap/core';
-import type { ResolvedPos } from '@tiptap/pm/model';
+import type { DOMOutputSpec, ResolvedPos } from '@tiptap/pm/model';
 import type { EditorState, Transaction } from '@tiptap/pm/state';
 import type { EditorView } from '@tiptap/pm/view';
 
@@ -33,8 +33,21 @@ import Underline from '@tiptap/extension-underline';
 import { UndoRedo } from '@tiptap/extensions';
 import { closeHistory } from '@tiptap/pm/history';
 import { Fragment, Node as ProseMirrorNode, Slice } from '@tiptap/pm/model';
-import { Plugin, Selection, TextSelection } from '@tiptap/pm/state';
+import {
+  NodeSelection,
+  Plugin,
+  Selection,
+  TextSelection,
+} from '@tiptap/pm/state';
+import {
+  CellSelection,
+  cellAround,
+  goToNextCell,
+  isInTable,
+  tableEditing,
+} from '@tiptap/pm/tables';
 import { ReplaceStep } from '@tiptap/pm/transform';
+import { Decoration, DecorationSet } from '@tiptap/pm/view';
 
 import type { Command, Update } from './messages.ts';
 
@@ -44,6 +57,7 @@ import {
   formatOf,
   fromEditor,
   isImageWidth,
+  isTable,
   kindAt,
   linesOfDocument,
   markOrder,
@@ -54,7 +68,7 @@ import {
 declare global {
   var draftEditor:
     | Readonly<{
-        document: SemanticDocument;
+        document: TableDocument;
         attachments: readonly Asset[];
         label: string;
       }>
@@ -280,6 +294,182 @@ const textblocksIn = ({ doc, selection: { from, to } }: Transaction) => {
   });
   return found;
 };
+
+// Tables, edited as prosemirror-tables edits them. A cell holds the body's blocks but no table,
+// and no paste builds a table: a pasted table keeps only its text.
+const cellContent =
+  '(paragraph | heading | bulletList | orderedList | blockquote | codeLine)+';
+const tableCell = (name: string, tag: 'td' | 'th') =>
+  Node.create({
+    name,
+    content: cellContent,
+    isolating: true,
+    addAttributes: () => ({ colspan: { default: 1 }, rowspan: { default: 1 } }),
+    renderHTML: ({ HTMLAttributes }) => [tag, HTMLAttributes, 0],
+  });
+// The wrapper scrolls a table sideways inside its own frame.
+const TableNode = Node.create({
+  name: 'table',
+  group: 'block',
+  content: 'tableRow+',
+  isolating: true,
+  renderHTML: () => ['div', { class: 'draft-table' }, ['table', ['tbody', 0]]],
+});
+const TableRow = Node.create({
+  name: 'tableRow',
+  content: '(tableCell | tableHeader)+',
+  renderHTML: () => ['tr', 0],
+});
+const tableRoles: Readonly<Record<string, string | undefined>> = {
+  table: 'table',
+  tableRow: 'row',
+  tableCell: 'cell',
+  tableHeader: 'header_cell',
+};
+
+// A table whose shape prosemirror-tables would change on its first edit, shown with its text and
+// kept as it is: it can be selected and deleted, not edited.
+const KeptTable = Node.create({
+  name: 'keptTable',
+  group: 'block',
+  atom: true,
+  addAttributes: () => ({ table: { default: null, rendered: false } }),
+  renderHTML: ({ node }) => {
+    const table: unknown = node.attrs.table;
+    const body = (isTable(table) ? table.rows : []).map((row) => [
+      'tr',
+      ...row.map(({ blocks, header, columns, rows: span }) => [
+        header === true ? 'th' : 'td',
+        { colspan: columns, rowspan: span },
+        ...blocks.map(({ spans }) => [
+          'p',
+          spans.map(({ text }) => text).join(''),
+        ]),
+      ]),
+    ]);
+    return [
+      'div',
+      { class: 'draft-table' },
+      ['table', ['tbody', ...body]],
+    ] as DOMOutputSpec;
+  },
+});
+
+// Whether a table cell in `doc` holds an Inline Image, which a Draft's table cannot store.
+// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ProseMirror's node is a class; this only reads it.
+const imageInCell = (doc: ProseMirrorNode) => {
+  let found = false;
+  doc.forEach((node) => {
+    if (node.type.name === 'table') {
+      node.descendants((child) => {
+        found ||= child.type.name === 'inlineImage';
+        return !found;
+      });
+    }
+  });
+  return found;
+};
+
+// Tab moves to the next cell and selects its text; from the last cell it moves to the text after
+// the table, adding a paragraph there when the table ends the body, and never adds a row.
+// Shift-Tab moves to the previous cell and stays in the first.
+// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Tiptap's editor is a class; this dispatches through its view.
+const nextCell = ({ state, view }: TiptapEditor, direction: 1 | -1) => {
+  if (!isInTable(state)) {
+    return false;
+  }
+  const $cell = cellAround(state.selection.$head);
+  if (
+    goToNextCell(direction)(state, view.dispatch) ||
+    direction < 0 ||
+    $cell === null
+  ) {
+    return true;
+  }
+  const after = $cell.after(-1);
+  const { tr } = state;
+  let next = Selection.findFrom(tr.doc.resolve(after), 1, true);
+  if (next === null) {
+    tr.insert(after, state.schema.node('paragraph'));
+    next = TextSelection.create(tr.doc, after + 1);
+  }
+  view.dispatch(tr.setSelection(next).scrollIntoView());
+  return true;
+};
+
+// Backspace at the start of the block after a table selects the table, even when the block is
+// empty or the table is kept, so nothing merges into it or deletes it at once.
+// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Tiptap's editor is a class; this dispatches through its view.
+const selectTableBefore = ({ state, view }: TiptapEditor) => {
+  const { $head, empty } = state.selection;
+  const atStart =
+    empty &&
+    $head.parentOffset === 0 &&
+    Array.from({ length: $head.depth }, (_, at) => $head.index(at + 1)).every(
+      (index) => index === 0,
+    );
+  if (!atStart || $head.depth === 0 || isInTable(state)) {
+    return false;
+  }
+  const at = $head.before(1);
+  const before = state.doc.resolve(at).nodeBefore;
+  if (before === null || !['table', 'keptTable'].includes(before.type.name)) {
+    return false;
+  }
+  view.dispatch(
+    state.tr.setSelection(
+      NodeSelection.create(state.doc, at - before.nodeSize),
+    ),
+  );
+  return true;
+};
+
+// Table editing: Tab between cells, Backspace after a table selects it and a second deletes it as
+// one Undo step, and the cell holding the caret is outlined. No edit puts an Inline Image in a cell.
+const Tables = Extension.create({
+  name: 'draftTables',
+  // Ahead of the list item's own Tab.
+  priority: 1000,
+  extendNodeSchema: (extension) => {
+    const tableRole = tableRoles[extension.name];
+    return tableRole === undefined ? {} : { tableRole };
+  },
+  addKeyboardShortcuts: () => ({
+    Tab: ({ editor }) => nextCell(editor, 1),
+    'Shift-Tab': ({ editor }) => nextCell(editor, -1),
+    Backspace: ({ editor }) => selectTableBefore(editor),
+  }),
+  addProseMirrorPlugins: () => [
+    new Plugin({
+      filterTransaction: (tr) => !tr.docChanged || !imageInCell(tr.doc),
+      props: {
+        // A paste over selected cells goes into them, as typing does, and never replaces them
+        // with cells of another kind or span; a paste with nothing the page keeps leaves them.
+        handlePaste: ({ state, dispatch }, _event, slice) => {
+          if (!(state.selection instanceof CellSelection)) {
+            return false;
+          }
+          if (slice.size > 0) {
+            dispatch(state.tr.replaceSelection(slice).scrollIntoView());
+          }
+          return true;
+        },
+        decorations: ({ doc, selection }) => {
+          const $cell = cellAround(selection.$head);
+          const cell = $cell?.nodeAfter ?? null;
+          return $cell === null || cell === null
+            ? null
+            : DecorationSet.create(doc, [
+                Decoration.node($cell.pos, $cell.pos + cell.nodeSize, {
+                  class: 'draft-focused-cell',
+                }),
+              ]);
+        },
+      },
+    }),
+    tableEditing({ allowTableNodeSelection: true }),
+  ],
+});
 
 // Sets every selected block to `kind`, from a paragraph: no block nests in another. As in the
 // current composer, each keeps its alignment, and a list item its level while it stays one.
@@ -684,6 +874,10 @@ const returnKey = (editor: TiptapEditor) =>
 const deleteKey = (editor: TiptapEditor, forward: boolean) => {
   const { selection, doc } = editor.state;
   const { $from, empty } = selection;
+  // A selected node, as a table, is Tiptap's to delete.
+  if (selection instanceof NodeSelection) {
+    return false;
+  }
   if (!empty) {
     return editor.commands.command(({ tr }) => deleteSelected(tr));
   }
@@ -727,7 +921,9 @@ const DraftBehavior = Extension.create<unknown, { typing: boolean }>({
           'Mod-Delete',
         ].map((key) => [
           key,
-          () => deleteKey(this.editor, key.endsWith('Delete')),
+          () =>
+            (key.endsWith('Backspace') && selectTableBefore(this.editor)) ||
+            deleteKey(this.editor, key.endsWith('Delete')),
         ]),
       ),
       // Block kind shortcuts set kinds as the Format menu does.
@@ -914,8 +1110,13 @@ const { draftEditor, ReactNativeWebView } = globalThis;
 const element = document.querySelector('#editor');
 if (draftEditor !== undefined && element !== null) {
   learn(draftEditor.attachments);
-  for (const { spans } of draftEditor.document) {
-    learn(spans.flatMap((span) => ('image' in span ? [span.image] : [])));
+  // A table cell holds no Inline Image.
+  for (const part of draftEditor.document) {
+    if (part.kind !== 'table') {
+      learn(
+        part.spans.flatMap((span) => ('image' in span ? [span.image] : [])),
+      );
+    }
   }
   let revision = 0;
   const post = (
@@ -1006,6 +1207,12 @@ if (draftEditor !== undefined && element !== null) {
       Link,
       Format,
       Layout,
+      TableNode,
+      TableRow,
+      tableCell('tableCell', 'td'),
+      tableCell('tableHeader', 'th'),
+      KeptTable,
+      Tables,
       UndoRedo.configure({ newGroupDelay: Number.MAX_SAFE_INTEGER }),
       DraftBehavior,
     ],
@@ -1103,9 +1310,15 @@ if (draftEditor !== undefined && element !== null) {
     });
     editor.view.dispatch(tr);
   };
-  // Images go inline at the selection and the rest become Attachments, as one edit.
-  const add = ({ images, attachments }: Extract<Command, { type: 'add' }>) => {
-    learn([...images, ...attachments]);
+  // Images go inline at the selection and the rest become Attachments, as one edit. A table cell
+  // holds no Inline Image, so there every file becomes an Attachment.
+  const add = (command: Extract<Command, { type: 'add' }>) => {
+    const inCell = isInTable(editor.state);
+    const images = inCell ? [] : command.images;
+    const attachments = inCell
+      ? [...command.images, ...command.attachments]
+      : command.attachments;
+    learn([...attachments, ...images]);
     const { tr } = editor.state;
     if (images.length > 0) {
       deleteSelected(tr);

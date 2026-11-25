@@ -4,12 +4,14 @@ import type {
   BlockKind,
   ImageWidth,
   Mark,
-  SemanticDocument,
+  Table,
+  TableDocument,
 } from '@private-email/mail-core/semantic-document';
 import type { JSONContent } from '@tiptap/core';
 import type { Node, ResolvedPos } from '@tiptap/pm/model';
 
 import { markersOf } from '@private-email/mail-core/body-display';
+import * as Predicate from 'effect/Predicate';
 
 // The explicit boundary between the stored Semantic Message Document and Tiptap's JSON. The
 // Draft stores only the Semantic Message Document; editor JSON never leaves the page.
@@ -19,7 +21,9 @@ import { markersOf } from '@private-email/mail-core/body-display';
 // attribute of the editor document naming theirs, so one edit and one Undo step can change both.
 // The page keeps the assets it was given by identifier. Linked text carries a `link` mark naming
 // its destination, and text with a stored color, background, font or size a `format` mark. A
-// textblock carries its alignment and a list item its level.
+// textblock carries its alignment and a list item its level. A table the page edits holds rows of
+// cells and header cells, each with its blocks and any column and row span; any other table is one
+// `keptTable` node holding it unchanged.
 
 // The character an Inline Image occupies; typed or pasted text never stores it.
 const imageCharacter = '￼';
@@ -123,29 +127,95 @@ const nodeOf = (run: readonly [Block, ...Block[]]): JSONContent => {
   };
 };
 
-export const toEditor = (
-  document: SemanticDocument,
-  attachments: readonly Asset[] = [],
-): JSONContent => {
-  const runs: Array<[Block, ...Block[]]> = [];
-  for (const block of document) {
+// Whether prosemirror-tables edits `table` unchanged: every row fills the same columns, and no
+// merged cell overlaps another or reaches past the last row. It fixes any other shape on its first
+// edit, as its TableMap reports.
+export const fillsGrid = ({ rows }: Table) => {
+  const filled = rows.map((): boolean[] => []);
+  // Fills the slots of a cell placed at column `x` of row `y`, unless one is filled already or the
+  // cell reaches past the last row.
+  const fill = (
+    y: number,
+    x: number,
+    { columns = 1, rows: span = 1 }: Table['rows'][number][number],
+  ) => {
+    const lines = filled.slice(y, y + span);
+    const slots = lines.flatMap((line) =>
+      Array.from({ length: columns }, (_, at) => [line, x + at] as const),
+    );
+    const free = slots.every(([line, at]) => line[at] !== true);
+    for (const [line, at] of slots) {
+      line[at] = true;
+    }
+    return lines.length === span && free;
+  };
+  const placed = rows.every((row, y) => {
+    let x = 0;
+    return row.every((cell) => {
+      while (filled[y]?.[x] === true) {
+        x += 1;
+      }
+      x += cell.columns ?? 1;
+      return fill(y, x - (cell.columns ?? 1), cell);
+    });
+  });
+  const width = filled[0]?.length;
+  // A sparse line's holes are columns no cell fills.
+  return (
+    placed &&
+    filled.every(
+      (line) => line.length === width && line.filter(Boolean).length === width,
+    )
+  );
+};
+
+// Whether a kept table's attribute holds its table.
+export const isTable = (value: unknown): value is Table =>
+  Predicate.hasProperty(value, 'kind') && value.kind === 'table';
+
+const tableOf = (table: Table): JSONContent =>
+  fillsGrid(table)
+    ? {
+        type: 'table',
+        content: table.rows.map((row) => ({
+          type: 'tableRow',
+          content: row.map(({ blocks, header, columns = 1, rows = 1 }) => ({
+            type: header === true ? 'tableHeader' : 'tableCell',
+            attrs: { colspan: columns, rowspan: rows },
+            // oxlint-disable-next-line typescript/no-use-before-define -- A cell holds body blocks.
+            content: nodesOf(blocks),
+          })),
+        })),
+      }
+    : { type: 'keptTable', attrs: { table } };
+
+const nodesOf = (parts: TableDocument): JSONContent[] => {
+  const runs: Array<[Block, ...Block[]] | Table> = [];
+  for (const part of parts) {
     const run = runs.at(-1);
-    if (
-      run !== undefined &&
-      block.kind in containerOf &&
-      run[0].kind === block.kind
+    if (part.kind === 'table') {
+      runs.push(part);
+    } else if (
+      Array.isArray(run) &&
+      part.kind in containerOf &&
+      run[0].kind === part.kind
     ) {
-      run.push(block);
+      run.push(part);
     } else {
-      runs.push([block]);
+      runs.push([part]);
     }
   }
-  return {
-    type: 'doc',
-    attrs: { attachments: attachments.map(({ id }) => id) },
-    content: runs.map(nodeOf),
-  };
+  return runs.map((run) => (Array.isArray(run) ? nodeOf(run) : tableOf(run)));
 };
+
+export const toEditor = (
+  document: TableDocument,
+  attachments: readonly Asset[] = [],
+): JSONContent => ({
+  type: 'doc',
+  attrs: { attachments: attachments.map(({ id }) => id) },
+  content: nodesOf(document),
+});
 
 type Assets = ReadonlyMap<string, Asset>;
 
@@ -289,14 +359,56 @@ const blocksOf = (
   ];
 };
 
+// The page's schema gives every table a row, every row a cell and every cell a block.
+const nonEmpty = <T>([first, ...rest]: readonly T[]): [T, ...T[]] => {
+  if (first === undefined) {
+    throw new RangeError('Expected a table part');
+  }
+  return [first, ...rest];
+};
+
+// The blocks or table a body node holds. The page puts no Inline Image in a cell.
+const partsOf = (
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Tiptap's JSON type is mutable; this only reads it.
+  node: JSONContent,
+  assets: Assets,
+): Array<Block | Table> => {
+  if (node.type === 'keptTable') {
+    const table: unknown = node.attrs?.table;
+    return isTable(table) ? [table] : [];
+  }
+  if (node.type !== 'table') {
+    return blocksOf(node, 'paragraph', assets);
+  }
+  const rows = (node.content ?? []).map((row) =>
+    nonEmpty(
+      (row.content ?? []).map((cell) => {
+        const columns = Number(cell.attrs?.colspan);
+        const span = Number(cell.attrs?.rowspan);
+        return {
+          blocks: nonEmpty(
+            (cell.content ?? []).flatMap((child) =>
+              blocksOf(child, 'paragraph', assets),
+            ),
+          ),
+          ...(cell.type === 'tableHeader' ? { header: true as const } : {}),
+          ...(columns > 1 ? { columns } : {}),
+          ...(span > 1 ? { rows: span } : {}),
+        };
+      }),
+    ),
+  );
+  return [{ kind: 'table', rows: nonEmpty(rows) }];
+};
+
 export const fromEditor = (
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Tiptap's JSON type is mutable; this only reads it.
   editor: JSONContent,
   assets: Assets,
-): SemanticDocument => {
+): TableDocument => {
   const [first = { kind: 'paragraph', spans: [] }, ...rest] = (
     editor.content ?? []
-  ).flatMap((node) => blocksOf(node, 'paragraph', assets));
+  ).flatMap((node) => partsOf(node, assets));
   return [first, ...rest];
 };
 

@@ -830,7 +830,11 @@ password manager by running
 
 1. `simulator-credentials.zsh copy <udid> <variable>` puts the value on that Simulator's
    pasteboard. Keep **Automatically Sync Pasteboard** in Simulator's Edit menu off, or
-   Simulator closed, so the value does not reach the Mac's pasteboard.
+   Simulator closed, so the value does not reach the Mac's pasteboard. From this copy
+   until the software keyboard closes, take no screenshot, also when the paste fails or
+   the pasteboard has been cleared: the keyboard's suggestion bar offers **Paste from
+   CoreSimulatorBridge** with the value in plain text
+   ([#2685](https://github.com/unwired-dev/product/issues/2685)).
 2. Open the edit menu and press **Paste**: in Google's sign-in sheet, long-press the
    field; in the app, tap the focused field again. The keyboard's own Paste key pastes
    nothing into the app's fields. On iPad, scroll **Recovery Key** clear of the software
@@ -2260,6 +2264,66 @@ password manager by running
   sign-in prompt for **Gmail**, which the operator cancelled. As on the other hosts, Sync
   Status closes with the capsule, so completion comes from the capsule fading and the
   relaunch downloading nothing.
+- **2026-11-24, iPad iCloud Mail folder recreated during a history download
+  ([#2872](https://github.com/unwired-dev/product/issues/2872)).** The iPhone record
+  above, on iPad. Target, toolchain and operator as in the first record, on an iPad Pro
+  11-inch (M5) Simulator on iOS 27.0 created for this run, with Simulator closed. Build:
+  the app source of `8dbd5578251d7f57757e36a41305e3cb9e731cf2`. Every credential was
+  entered with pasteboard steps 1 to 3 above, and the Recovery Key also with step 4, with
+  its field scrolled clear of the software keyboard. Before each credential was copied, the
+  edit menu's **Paste** was located with a placeholder on the pasteboard. Google Product
+  Sign-In found the certification Product Account, the Recovery Key unlocked the device,
+  and only iCloud Mail was connected. Before the app connected, the iCloud Mail
+  certification mailbox held 1 message across its six selectable folders. The operator's
+  script opened Sync Status from the capsule whenever the capsule showed and read it about
+  once a second. Times are from launch. Result: pass for the restart and the relaunch; the
+  completed count was not on screen. **Counted attempt:** iCloud Mail was already connected
+  from the attempts below, so this history download began at launch, not at **Connect**.
+  With the app terminated, a run folder of 6,000 small synthetic messages was added over IMAP, and the
+  server counted 6,001 across seven selectable folders. After launch, Sync Status read
+  **Downloading history · 1 messages** at 14 seconds. The operator stopped the app's process
+  (`SIGSTOP`) at 15 seconds, but that reading did not show the run folder had begun, so the
+  process was continued at 28 seconds. Sync Status read **501 of 6,001 messages** at 34
+  seconds, and the operator stopped the process again. 10 seconds later the run folder was
+  deleted over IMAP and created again under the same name, then filled with 1,500 new
+  messages (10 appended, the rest copied within the folder). The recreated folder reported
+  a UIDVALIDITY other than the first one, and 28 seconds after the deletion the server
+  counted 1,501 messages across its seven selectable folders. The operator continued the
+  process 43 seconds after stopping it. **Restarted, not reused:** Sync Status read **501
+  of 6,001 messages** for a second, **1 messages** 2 seconds after the process continued,
+  then **501 of 1,501** and **1,001 of 1,501 messages**. The total matched the server's
+  count after the recreation, and the capsule faded 10 seconds after the process continued.
+  No reading showed **1,501 of 1,501**.
+  No reading showed **Offline** or an account needing attention. **Complete after
+  relaunch:** about 2 minutes later the app was terminated and launched again. Sync Status
+  read **Checking the mail server…** 15 seconds after launch, and the check ended with
+  **Updated just now** 2 seconds later. No history download followed in the 73 seconds
+  sampled after that. Afterwards the server still counted 1,501, the run folder was
+  deleted, an IMAP count found the mailbox's original six folders and 1 message, **Sign
+  Out of This Device** returned the app to Welcome, and the Simulator was deleted. The scan
+  of step 5 above covered the 46,010 files written since the run began under
+  `~/.agent-device`, T3 Code's data directory, `~/Library/Logs`, Xcode's DerivedData, the
+  shell history, the temporary directories, the repository's `artifacts`, the operator's
+  scratch files and this run's session transcript; no file held a password or the
+  Recovery Key. Limitations: two earlier attempts on this Simulator are not counted. In
+  the first, Sync Status was not open while the run folder downloaded. Before the second,
+  the operator removed the iCloud Mail connection with **Remove…** in Email Accounts and
+  connected it again. The capsule first showed 7 seconds after **Connect**, and Sync Status
+  read **Checking the mail server…** and then nothing. Opened again 55 seconds after
+  **Connect**, Sync Status read
+  **Downloading history · 5,501 messages**, and the operator stopped the process there and
+  recreated the folder with 1,500 messages, under a new UIDVALIDITY. Once continued, Sync
+  Status read **6,001 messages** and closed. One batch of 500 remained in the displayed
+  count, and the operator could not tell whether the app had already read it before the
+  recreation, so this attempt is not counted. Deleting that folder and creating it again
+  at once then left iCloud Mail reporting the name as existing while LIST and STATUS did
+  not find it. It was listed again, empty, about 4 minutes later and deleted, so the counted
+  attempt used a run folder under another name. With the software keyboard hidden but a field
+  still focused, the first tap on **Connect** did nothing
+  ([#2571](https://github.com/unwired-dev/product/issues/2571)). As on the other hosts, Sync
+  Status closes with the capsule, so the final count was not on screen. Completion is inferred
+  from the total of 1,501, the capsule fading and the relaunch downloading nothing; the
+  final downloaded count is unverified.
 
 Real iCloud Mail and Seznam Email organizing, IDLE and Sent filing qualification, through
 the app on both hosts, remains required before release
