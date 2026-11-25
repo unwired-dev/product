@@ -57,9 +57,11 @@ recommendation and the decision it supports. Facts link to their evidence;
   extra keyboard shortcuts and **Attach Instead** and **Show Inline**.
 - **Licensing.** Tiptap, ProseMirror and esbuild are MIT and need no paid service
   or licence key; MIT requires their copyright and licence notices in distributed
-  copies. The page is minified into a string module, so
-  `scripts/licence-inventory.mjs`, which reads the host bundle's source map, does
-  not list the page's packages.
+  copies. The page is minified into a string module, which the host bundle's
+  source map lists alone; since
+  [#2916](https://github.com/unwired-dev/product/issues/2916) the page build lists
+  the files it bundles beside that module, so `scripts/licence-inventory.mjs` and
+  the archive's `ThirdPartyNotices.txt` include the page's packages.
 - **Measurements.** The packaged page is about 351 KB. No latency, memory or
   battery comparison with the current composer was measured:
   [#822](https://github.com/unwired-dev/product/issues/822) closed without a native
@@ -141,7 +143,9 @@ release limit:
    and the current composer's interactions the page lacks, such as the Slash
    Command Menu.
 6. The Tiptap and ProseMirror notices in the distributed app; the licence
-   inventory must list the page's packages.
+   inventory must list the page's packages. Met by
+   [#2916](https://github.com/unwired-dev/product/issues/2916): every bundle that
+   carries the page lists its packages and ships their notices.
 7. Outgoing mail: the body is still serialized by mail-core from the document,
    and editor HTML is never sent. Packaged-client sends to real providers
    ([#1282](https://github.com/unwired-dev/product/issues/1282)) must verify the
