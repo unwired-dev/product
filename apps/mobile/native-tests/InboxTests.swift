@@ -32,7 +32,36 @@ private func attachScreen(
   test.add(shot)
 }
 
+// #1873: on iPad, XCTest's count of the app's running animations can stay above zero after a
+// keyboard or text-selection change, so every later action waits a minute for animations to end.
+// Once that wait runs out for an app process, later waits for the same process skip the animations
+// and still wait for its main run loop to idle.
+private var leakedAnimations = Set<Int32>()
+private let waitPastLeakedAnimations: Void = {
+  let selector = NSSelectorFromString(
+    "waitForQuiescenceIncludingAnimationsIdle:usingActivity:isPreEvent:")
+  guard let process = NSClassFromString("XCUIApplicationProcess"),
+    let method = class_getInstanceMethod(process, selector)
+  else { return }
+  typealias Wait = @convention(c) (NSObject, Selector, Bool, Bool, Bool) -> Void
+  let wait = unsafeBitCast(method_getImplementation(method), to: Wait.self)
+  let replacement: @convention(block) (NSObject, Bool, Bool, Bool) -> Void = {
+    process, animations, activity, preEvent in
+    let pid = process.value(forKey: "processID") as? Int32 ?? 0
+    wait(process, selector, animations && !leakedAnimations.contains(pid), activity, preEvent)
+    if animations && process.value(forKey: "animationsHaveFinished") as? Bool == false {
+      leakedAnimations.insert(pid)
+    }
+  }
+  method_setImplementation(method, imp_implementationWithBlock(replacement))
+}()
+
 final class InboxTests: XCTestCase {
+  override static func setUp() {
+    super.setUp()
+    _ = waitPastLeakedAnimations
+  }
+
   // A new Product Account connects the synthetic Gmail mailbox and confirms its Recovery Key.
   private func connectGmail(_ app: XCUIApplication) {
     app.buttons["Continue"].tap()
@@ -3736,9 +3765,17 @@ final class InboxTests: XCTestCase {
   }
 
   // Presses Return only once `field` shows `text`, so Return never runs before a loaded host has
-  // delivered the keys before it (#1510).
+  // delivered the keys before it (#1510). On iPad the simulator can drop a key, or carry a Shift to
+  // the next key as the software keyboard rises, so a field still without `text` is retyped once
+  // (#1873).
   private func submit(_ text: String, into field: XCUIElement, in app: XCUIApplication) {
     press(text, in: app)
+    let typed = NSPredicate { _, _ in field.value as? String == text }
+    let wait = XCTNSPredicateExpectation(predicate: typed, object: nil)
+    if XCTWaiter.wait(for: [wait], timeout: 20) != .completed {
+      app.typeKey("a", modifierFlags: .command)
+      press(text, in: app)
+    }
     waitUntil { field.value as? String == text }
     press("\n", in: app)
   }
@@ -3788,10 +3825,15 @@ final class InboxTests: XCTestCase {
     }
   }
 
-  // iPad taps the command input; iPhone swipes down on the screen's header.
+  // iPad taps the command input; iPhone swipes down on the screen's header. On iPad a tap soon after
+  // launch can reach the command input before its handler, so it taps again (#1873).
   private func openPalette(_ app: XCUIApplication, header: XCUIElement) {
     if UIDevice.current.userInterfaceIdiom == .pad {
-      app.buttons["Open Command Palette"].firstMatch.tap()
+      let query = app.textFields["Type a command"]
+      for _ in 0..<3 where !query.exists {
+        app.buttons["Open Command Palette"].firstMatch.tap()
+        _ = query.waitForExistence(timeout: 5)
+      }
     } else {
       XCTAssertTrue(header.waitForExistence(timeout: 10))
       let start = header.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
@@ -3864,9 +3906,21 @@ final class InboxTests: XCTestCase {
     where UIDevice.current.userInterfaceIdiom == .pad
       && issue.element?.identifier == "mailboxes-edit":
       return "Mailboxes Edit button (#2769)"
+    // Some iPad runs report an unlabeled view the size of a message list row beside the Mailboxes
+    // sidebar (#2843).
+    case .sufficientElementDescription
+    where UIDevice.current.userInterfaceIdiom == .pad && screen == "Mailboxes"
+      && issue.element?.elementType == .other && label.isEmpty:
+      return "unlabeled list row view (#2843)"
     // WCAG sets no contrast for an inactive control, such as the Link Editor's Apply before a link.
     case .contrast where issue.element?.elementType == .button && issue.element?.isEnabled == false:
       return "inactive control"
+    // iPad's expanded composer is modal over the window, yet the audit still finds the Mailboxes
+    // sidebar's Edit button under it and measures that button against the composer drawn above.
+    case .contrast
+    where UIDevice.current.userInterfaceIdiom == .pad && screen == "Composer"
+      && issue.element?.identifier == "mailboxes-edit":
+      return "Mailboxes Edit button under the expanded composer"
     // An open iPad popover or form sheet hides the window behind it from accessibility, as a modal
     // should, and the audit reports the text it can still see there, such as the Mailboxes
     // sidebar's rows, as text it locates no element for. A plain UIKit split view behind a SwiftUI
