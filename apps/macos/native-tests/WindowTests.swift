@@ -409,6 +409,67 @@ final class WindowTests: XCTestCase {
     XCTAssertEqual(titles, ["Restore", "Discard"])
   }
 
+  // #2933: a force quit keeps the Draft editor page's unsaved edits, which Restore reopens in the
+  // page after the relaunch; Discard removes them, so the next launch offers nothing.
+  func testDraftEditorRecoveryAfterForceQuit() throws {
+    continueAfterFailure = false
+    let environment = ProcessInfo.processInfo.environment
+    XCTAssertEqual(environment["UNWIRED_TEST_SCENARIO"], "registration-draft-editor")
+    let appURL = URL(fileURLWithPath: try XCTUnwrap(environment["UNWIRED_APP_PATH"]))
+    let app = XCUIApplication(url: appURL)
+    app.launchArguments += ["-ApplePersistenceIgnoreState", "YES", "-interfaceLanguage", "en"]
+    app.launch()
+    addTeardownBlock { if app.state != .notRunning { app.terminate() } }
+    let window = app.windows["Inbox 1"]
+    XCTAssertTrue(window.waitForExistence(timeout: 30))
+    draftEditorSignIn(window)
+
+    window.buttons["New Message"].click()
+    let body = window.webViews.textViews["Message body"]
+    XCTAssertTrue(body.waitForExistence(timeout: 15))
+    // The toolbar appears once the page is ready and moves the page down; focus it after that.
+    XCTAssertTrue(window.buttons["Undo"].waitForExistence(timeout: 30))
+    let subject = window.textFields["Subject"]
+    subject.click()
+    subject.typeText("Recovered in the page")
+    body.click()
+    body.typeText("Typed just before the app ended")
+    let typed = webText("Typed just before the app ended", in: window)
+    XCTAssertTrue(typed.waitForExistence(timeout: 10))
+    // The editor journals 2 s after the last edit; nothing on screen shows the write.
+    Thread.sleep(forTimeInterval: 5)
+
+    // Restore opens the page, not the current composer, on the recovered edits.
+    let offer = window.sheets.firstMatch
+    forceQuitAndRelaunch(app, at: appURL)
+    XCTAssertTrue(offer.buttons["Restore"].waitForExistence(timeout: 45))
+    assertRecoveryOffer(offer)
+    offer.buttons["Restore"].click()
+    XCTAssertTrue(offer.waitForNonExistence(timeout: 10))
+    XCTAssertTrue(typed.waitForExistence(timeout: 30))
+    XCTAssertEqual(subject.value as? String, "Recovered in the page")
+    let restored = XCTAttachment(screenshot: window.screenshot())
+    restored.name = "Restored Draft editor page"
+    restored.lifetime = .keepAlways
+    add(restored)
+
+    // The restored editor leaves the record until a Save, Send or Discard; Discard removes it.
+    forceQuitAndRelaunch(app, at: appURL)
+    XCTAssertTrue(offer.buttons["Discard"].waitForExistence(timeout: 45))
+    assertRecoveryOffer(offer)
+    offer.buttons["Discard"].click()
+    XCTAssertTrue(offer.waitForNonExistence(timeout: 10))
+    XCTAssertFalse(body.exists)
+    // The record's removal follows the answer; nothing on screen shows it.
+    Thread.sleep(forTimeInterval: 5)
+    forceQuitAndRelaunch(app, at: appURL)
+    let newMessage = window.buttons["New Message"]
+    XCTAssertTrue(newMessage.waitForExistence(timeout: 45))
+    waitUntil { newMessage.isEnabled }
+    // The offer above came once the Drafts opened; give this launch as long.
+    XCTAssertFalse(offer.waitForExistence(timeout: 45))
+  }
+
   // Moving the entry into the reader must keep the open query and command rows in the window.
   func testCommandPaletteWindowBounds() throws {
     continueAfterFailure = false
@@ -940,9 +1001,9 @@ final class WindowTests: XCTestCase {
   }
 
 
-  // The Tiptap evaluation editor (#818): a new Draft is typed into the packaged page, saved through
-  // the encrypted Draft store, and reopened after relaunch. Focus, resize and teardown are recorded.
-  private func draftEditorJourney(_ app: XCUIApplication, first: XCUIElement) {
+  // Signs the registration-draft-editor build in with Google and confirms the Recovery Key, which
+  // opens the Inbox.
+  private func draftEditorSignIn(_ first: XCUIElement) {
     XCTAssertTrue(first.buttons["Continue"].waitForExistence(timeout: 20))
     first.buttons["Continue"].click()
     XCTAssertTrue(first.buttons["Sign in with Google"].waitForExistence(timeout: 20))
@@ -967,6 +1028,12 @@ final class WindowTests: XCTestCase {
     first.buttons["Confirm Recovery Key"].click()
     XCTAssertTrue(
       first.buttons["Unread. Rowan Hale. Garden plans for spring"].waitForExistence(timeout: 20))
+  }
+
+  // The Tiptap evaluation editor (#818): a new Draft is typed into the packaged page, saved through
+  // the encrypted Draft store, and reopened after relaunch. Focus, resize and teardown are recorded.
+  private func draftEditorJourney(_ app: XCUIApplication, first: XCUIElement) {
+    draftEditorSignIn(first)
     // Assistance in the editor needs Mail Assistance Enablement; this build's model is synthetic.
     first.buttons["Settings"].click()
     let settings = app.windows["settings-window"]

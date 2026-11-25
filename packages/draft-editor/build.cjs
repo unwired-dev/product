@@ -17,7 +17,7 @@ const style = `
 :root { color-scheme: light dark; }
 html, body { margin: 0; min-height: 100%; background: transparent; }
 body { font: -apple-system-body; -webkit-text-size-adjust: 100%; }
-.ProseMirror { min-height: 100vh; box-sizing: border-box; padding: 12px 16px; outline: none; white-space: pre-wrap; overflow-wrap: anywhere; }
+.ProseMirror { min-height: 100vh; box-sizing: border-box; padding: var(--draft-inset-top, 12px) var(--draft-inset-x, 16px); line-height: var(--draft-line-height, normal); color: var(--draft-text, CanvasText); outline: none; white-space: pre-wrap; overflow-wrap: anywhere; }
 .ProseMirror p { margin: 0 0 0.75em; }
 .ProseMirror h1, .ProseMirror h2, .ProseMirror h3 { margin: 0 0 0.5em; line-height: 1.25; }
 .ProseMirror h1 { font-size: 1.6em; }

@@ -464,6 +464,23 @@ same there. Neither covers the record's removal on sign-out, account removal or 
 Product Account change, which [#1989](https://github.com/unwired-dev/product/issues/1989)
 still needs.
 
+The `testDraftEditorRecoveryAfterForceQuit` journey checks the same for the Draft
+editor page ([#2933](https://github.com/unwired-dev/product/issues/2933)) in the
+`registration-draft-editor` `Testing` build that the
+[Draft editor evaluation](draft-editor-evaluation.md) describes:
+
+```sh
+mise exec -- pnpm --filter @private-email/macos test:native \
+  "$PWD/artifacts/macos-inbox/DerivedData/Build/Products/Testing/UnwiredMail.app" \
+  testDraftEditorRecoveryAfterForceQuit
+```
+
+After signing in, a New Message gets a subject and body text typed into the page.
+Five seconds later the journey force quits and relaunches the app, and **Restore**
+reopens the page with the same subject and body. A second force quit offers the
+record again, Discard removes it, and a third launch offers nothing. The restored
+page is kept as an attachment.
+
 ## Mac list indent journey
 
 The `testListIndent` journey and its `Dark` variant use the same

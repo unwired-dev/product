@@ -92,8 +92,11 @@ their controls stop accepting input and leave VoiceOver immediately.
 - **Ordering.** The page numbers its body edits. The editor keeps the newest body it
   has received and ignores a late report of an earlier edit, also while Close,
   Save Draft or Send waits for the page.
-- **Durability.** Edits live only in the open editor until **Save Draft** or **Send**
-  stores them; ending the app loses them, and reopening shows the stored version.
+- **Durability.** Edits reach the Drafts only when **Save Draft** or **Send** stores
+  them, and reopening shows the stored version. On iPhone and iPad ending the app
+  before that loses them. On Mac the editor also journals them, about 2 seconds after
+  an edit, to a device-local composer recovery record, which the next launch offers to
+  restore in the page (ADR 0077, #2933).
 - **Failures.** If the page stops, the editor says so and clears assistance previews.
   Callbacks from a stopped or closed page cannot submit edits or accept results.
   **Save Draft** still stores the body the page last reported; reopen the Draft to
@@ -665,8 +668,11 @@ second, the window's close button asked **Save**, **Don’t Save** and **Cancel*
 version as a conflicting copy. After a relaunch, the conflicting copy held only
 the second window's text and the original only the first's.
 
-Outstanding for #821: edits lost when
-the app ends before **Save Draft**. The regular iPhone, iPad and Mac composers now
+Outstanding for #821: on iPhone and iPad, edits lost when the app ends before **Save Draft**. On Mac
+the page journals its unsaved edits to a composer recovery record as the current
+composer does, and **Restore** reopens them in the page; `testDraftEditorRecoveryAfterForceQuit`
+proves it after a force quit ([#2933](https://github.com/unwired-dev/product/issues/2933),
+[Mac composer recovery journey](native-journeys.md#mac-composer-recovery-journey)). The regular iPhone, iPad and Mac composers now
 use the same save model. On iPhone both composers cover the
 Inbox and reader, so system **Back** cannot leave them
 ([#778](https://github.com/unwired-dev/product/issues/778)).

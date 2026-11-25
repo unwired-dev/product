@@ -83,8 +83,9 @@ recommendation and the decision it supports. Facts link to their evidence;
   and conflicting copies. Component journeys cover late page reports,
   two Mac windows, racing imports, refused saves and another Product Account;
   the native Mac two-window run passed
-  ([#2938](https://github.com/unwired-dev/product/issues/2938)), and native
-  app-termination runs are outstanding.
+  ([#2938](https://github.com/unwired-dev/product/issues/2938)), as did Mac
+  force-quit recovery ([#2933](https://github.com/unwired-dev/product/issues/2933));
+  native iPhone and iPad app-termination runs are outstanding.
 - **Assistance.** Rewrites, translation and reply suggestions run through the
   current on-device capture and review, and the page refuses a result for another
   body revision. No vendor AI, Yjs or CRDT collaboration is enabled or adopted.
@@ -134,10 +135,12 @@ release limit:
    Draft, run natively. On Mac, Command-W and **Quit** passed in
    [#2876](https://github.com/unwired-dev/product/issues/2876), and the window's
    close button and two windows on one Draft in #2938
-   ([evidence](../draft-editor-evaluation.md#save-ordering-821)). The evaluation loses open edits when the app ends before
-   **Save Draft**; production must journal them to the encrypted recovery record
-   of [ADR 0077](0077-remove-friction-that-privacy-does-not-require.md) and prove
-   that they restore after a forced termination.
+   ([evidence](../draft-editor-evaluation.md#save-ordering-821)). On iPhone and iPad the evaluation loses open edits when the
+   app ends before **Save Draft**; production must journal them to the encrypted
+   recovery record of [ADR 0077](0077-remove-friction-that-privacy-does-not-require.md)
+   and prove that they restore after a forced termination. On Mac the page journals
+   them and restores them after a force quit since
+   [#2933](https://github.com/unwired-dev/product/issues/2933).
 3. The Mac Inline Image journey, image paste on Mac, file drops on every host,
    and **Paste Image** and in-page paste on a device.
 4. WebKit website data after account removal and a network capture of a journey.
