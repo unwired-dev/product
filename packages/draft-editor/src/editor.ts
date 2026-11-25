@@ -473,8 +473,8 @@ const deleteSelected = (tr: Transaction) => {
 };
 
 // Text typed over `from` to `to`, now at `start` to `end`, takes the format of the text before
-// it, and at a block's start the text after it, as in the current composer. Replacing text also
-// keeps the first replaced character's link: including for Select All and, unlike marksAcross,
+// it, and at a block's start the text after it, as in the current composer. Replacing text takes
+// the first replaced character's link, or none: including for Select All and, unlike marksAcross,
 // when the selection crosses the link's end.
 const keepReplaced = (
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ProseMirror's transaction is a class; this marks the text it inserted.
@@ -492,12 +492,17 @@ const keepReplaced = (
   } else {
     tr.addMark(start, end, format);
   }
-  let node = from === to ? null : doc.nodeAt(from);
+  if (from === to) {
+    return;
+  }
+  let node = doc.nodeAt(from);
   while (node !== null && !node.isInline) {
     node = node.firstChild;
   }
   const link = node?.marks.find((mark) => mark.type.name === 'link');
-  if (link !== undefined) {
+  if (link === undefined) {
+    tr.removeMark(start, end, doc.type.schema.marks.link);
+  } else {
     tr.addMark(start, end, link);
   }
 };
@@ -635,21 +640,18 @@ const DraftBehavior = Extension.create<unknown, { typing: boolean }>({
     return [
       new Plugin({
         props: {
-          // A drag within the page moves its content as it is.
+          // A drag within the page moves its content as it is. A paste is opened, as ProseMirror
+          // opens pasted HTML, so its first block joins the destination line, as a partial copy does.
           transformPasted: (slice, view) =>
             view.dragging === null
-              ? new Slice(
-                  unlaidOut(slice.content),
-                  slice.openStart,
-                  slice.openEnd,
-                )
+              ? Slice.maxOpen(unlaidOut(slice.content))
               : slice,
           // A pasted image is read from the pasteboard by native code, where it can; the page
           // never reads the data, and a dropped file is refused.
           // Pasting over a selection deletes it as Backspace does first.
           handlePaste: (view, event, slice) => {
             if (!carriesFiles(event.clipboardData)) {
-              if (view.state.selection.empty) {
+              if (view.state.selection.empty || slice.size === 0) {
                 return false;
               }
               const { tr } = view.state;
@@ -669,8 +671,8 @@ const DraftBehavior = Extension.create<unknown, { typing: boolean }>({
             );
             return true;
           },
-          // A drag within the page into an empty line fills it with the content as it is, the
-          // first block's layout included; ProseMirror would give that block the line's layout.
+          // A drag within the page into an empty line fills it with the content as it is: the line
+          // takes the first dragged block's alignment and list level, not its own.
           // oxlint-disable-next-line max-params -- ProseMirror's handleDrop signature.
           handleDrop: (view, event, slice, moved) => {
             if (!moved) {
@@ -686,31 +688,68 @@ const DraftBehavior = Extension.create<unknown, { typing: boolean }>({
               top: event.clientY,
             });
             const $target = target && tr.doc.resolve(target.pos);
+            const { $from: $source, from, to } = tr.selection;
             if (
               target === null ||
               !$target?.parent.isTextblock ||
               $target.parent.content.size > 0 ||
               slice.openStart === 0 ||
-              (target.pos >= tr.selection.from && target.pos <= tr.selection.to)
+              (target.pos >= from && target.pos <= to)
             ) {
               return false;
             }
             tr.deleteSelection();
-            const from = tr.mapping.map($target.before());
-            const to = tr.mapping.map($target.after());
+            // oxlint-disable-next-line unicorn/no-array-method-this-argument -- ProseMirror Mapping.map takes an association, not an array thisArg.
+            const at = tr.mapping.map(target.pos);
             const steps = tr.mapping.maps.length;
-            tr.replaceRange(
-              from,
-              to,
-              new Slice(slice.content, 0, slice.openEnd),
+            tr.replaceRange(at, at, slice);
+            // oxlint-disable-next-line unicorn/no-array-method-this-argument -- ProseMirror Mapping.map takes an association, not an array thisArg.
+            const end = tr.mapping.slice(steps).map(at);
+            const $at = tr.doc.resolve(at);
+            tr.setNodeAttribute(
+              $at.before(),
+              'align',
+              $source.parent.attrs.align,
             );
-            const end = tr.mapping.slice(steps).map(to);
+            if (
+              $source.node(-1).type.name === 'listItem' &&
+              $at.node(-1).type.name === 'listItem'
+            ) {
+              tr.setNodeAttribute(
+                $at.before(-1),
+                'indent',
+                $source.node(-1).attrs.indent,
+              );
+            }
             tr.setSelection(
-              TextSelection.between(tr.doc.resolve(from), tr.doc.resolve(end)),
+              TextSelection.between(tr.doc.resolve(at), tr.doc.resolve(end)),
             );
             view.focus();
             view.dispatch(tr.setMeta('uiEvent', 'drop'));
             return true;
+          },
+          // Text inserted over a selection across lines without a key press, as by dictation or a
+          // suggestion, goes through handleTextInput too; ProseMirror would read it from the DOM.
+          handleDOMEvents: {
+            beforeinput: (view, event) => {
+              const { from, to, $from, $to } = view.state.selection;
+              const text = event.data;
+              if (
+                event.inputType !== 'insertText' ||
+                text === null ||
+                ($from.sameParent($to) && $from.parent.isTextblock)
+              ) {
+                return false;
+              }
+              event.preventDefault();
+              return (
+                view.someProp('handleTextInput', (input) =>
+                  input(view, from, to, text, () =>
+                    view.state.tr.insertText(text, from, to),
+                  ),
+                ) ?? false
+              );
+            },
           },
           // oxlint-disable-next-line max-params -- ProseMirror's handleTextInput signature.
           handleTextInput: (view, from, to, text, deflt) => {

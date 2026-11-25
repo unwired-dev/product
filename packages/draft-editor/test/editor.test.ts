@@ -949,6 +949,49 @@ describe('the Tiptap evaluation page', () => {
     ]);
   });
 
+  it('drops list items into an empty item of the same list as they are', async () => {
+    expect.hasAssertions();
+    const nested = { kind: 'numbered', indent: 1, align: 'right' } as const;
+    const page = await open([
+      { ...nested, spans: [{ text: 'one' }] },
+      { ...nested, spans: [{ text: 'two' }] },
+      { kind: 'numbered', spans: [] },
+    ]);
+    const { editor } = page;
+    const line = (index: number) => nth(textblocks(editor), index);
+    const [first, second, empty] = [line(0), line(1), line(2)];
+    editor.commands.setTextSelection({ from: first.from, to: second.to });
+    const slice = editor.state.doc.slice(first.from, second.to);
+    editor.view.posAtCoords = () => ({ pos: empty.from, inside: -1 });
+    const event = new DragEvent('drop', { clientX: 1, clientY: 1 });
+    editor.view.someProp('handleDrop', (drop) =>
+      drop(editor.view, event, slice, true),
+    );
+    expect(bodyOf(page)).toStrictEqual([
+      { ...nested, spans: [] },
+      { ...nested, spans: [{ text: 'one' }] },
+      { ...nested, spans: [{ text: 'two' }] },
+    ]);
+  });
+
+  it('types over unlinked text between two runs of one link without linking it', async () => {
+    expect.hasAssertions();
+    const link = 'https://example.com';
+    const page = await open([
+      {
+        kind: 'paragraph',
+        spans: [{ text: 'ab', link }, { text: 'x' }, { text: 'cd', link }],
+      },
+    ]);
+    page.editor.commands.setTextSelection({ from: 3, to: 4 });
+    page.type('y');
+    expect(bodyOf(page)?.[0]?.spans).toStrictEqual([
+      { text: 'ab', link },
+      { text: 'y' },
+      { text: 'cd', link },
+    ]);
+  });
+
   it('deletes, splits and cuts across blocks as the current composer does', async () => {
     expect.hasAssertions();
     const item = { kind: 'numbered', indent: 2, align: 'right' } as const;
@@ -1016,11 +1059,44 @@ describe('the Tiptap evaluation page', () => {
     expect(
       replaced(() => editor.view.pasteHTML('<p>pasted</p>')),
     ).toStrictEqual([{ ...item, spans: [{ text: 'pasted' }] }]);
+    // Text inserted without a key press, as by dictation, and an empty pasteboard.
+    expect(
+      replaced(() =>
+        editor.view.dom.dispatchEvent(
+          new InputEvent('beforeinput', {
+            inputType: 'insertText',
+            data: 'said',
+            cancelable: true,
+          }),
+        ),
+      ),
+    ).toStrictEqual([{ ...item, spans: [{ text: 'said' }] }]);
     expect(
       replaced(() =>
         command({ type: 'add', images: [photo], attachments: [] }),
       )?.[0],
     ).toMatchObject({ ...item, spans: [{ image: photo }] });
+  });
+
+  it('leaves a selection for an empty pasteboard and joins a paragraph copied whole', async () => {
+    expect.hasAssertions();
+    const item = { kind: 'numbered', indent: 2, align: 'right' } as const;
+    const page = await open([
+      { ...item, spans: [{ text: 'item' }] },
+      { kind: 'quote', spans: [{ text: 'quote' }] },
+    ]);
+    const { editor } = page;
+    editor.commands.selectAll();
+    editor.view.pasteHTML('');
+    expect(bodyOf(page)).toBeUndefined();
+    // A paragraph copied whole, as after Select All, joins the line it is pasted into.
+    const { from, to } = nth(textblocks(editor), 0);
+    editor.commands.setTextSelection({ from, to });
+    editor.view.pasteHTML('<p data-pm-slice="0 0 []">copied</p>');
+    expect(bodyOf(page)?.[0]).toStrictEqual({
+      ...item,
+      spans: [{ text: 'copied' }],
+    });
   });
 
   it('pastes supported meaning only and never stores unsupported content', async () => {
