@@ -1063,8 +1063,8 @@ extension UnwiredRegistration {
     }
   }
 
-  // `record` carries the Draft's identifier, the record's write count, its JSON and the revision it
-  // replaces.
+  // `record` carries the reminder's identifier, naming its Mail Profile and Draft, the record's write
+  // count, its JSON and the revision it replaces.
   @objc(pushSendReminder:record:resolver:rejecter:)
   func pushSendReminder(
     _ owner: String, record: [String: Any],

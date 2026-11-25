@@ -341,6 +341,9 @@ describe('synchronized Send Reminders', () => {
     return { server, mac: mac.store, phone: phone.store, macSync: mac.sync };
   };
   const evening = { ...keys, dueAt: tomorrowMorning + 11 * 3_600_000 };
+  // The stored record of `profile`'s reminder for `draft`.
+  const recordOf = (profile: string, draft: string) =>
+    `send-reminder.${JSON.stringify([profile, draft])}`;
   // Each reminder as a device shows it: its day after `now`'s and its time zone's city.
   const shownAs =
     (now: number) => (reminders: readonly SendReminder[] | undefined) =>
@@ -391,6 +394,18 @@ describe('synchronized Send Reminders', () => {
     await mac.synchronize();
     await phone.synchronize();
     await expect(phone.reminders('work')).resolves.toStrictEqual([]);
+  });
+
+  it('removes a reminder of a Draft sent or discarded before the reminder arrived', async () => {
+    expect.hasAssertions();
+    const { mac, phone } = devices();
+    await mac.remind('work', keys);
+    await mac.synchronize();
+    await expect(phone.cancel('work', keys.draft)).resolves.toBe(true);
+    await phone.synchronize();
+    await mac.synchronize();
+    await expect(phone.reminders('work')).resolves.toStrictEqual([]);
+    await expect(mac.reminders('work')).resolves.toStrictEqual([]);
   });
 
   it('converges concurrent rescheduling on one reminder on both devices', async () => {
@@ -447,12 +462,19 @@ describe('synchronized Send Reminders', () => {
       dueAt: tomorrowMorning,
       timeZone: 'America/New_York',
     };
+    const moved = { ...keys, dueAt: tomorrowMorning + 60_000 };
     await mac.remind('work', keys);
     await phone.remind('home', home);
+    // The same Draft under another Profile, as after its connection moved between Profiles.
+    await phone.remind('home', moved);
     await mac.synchronize();
     await phone.synchronize();
     await mac.synchronize();
-    await expect(phone.cancel('home', keys.draft)).resolves.toBe(false);
+    await expect(mac.reminders('home')).resolves.toStrictEqual([
+      { ...home, profile: 'home' },
+      { ...moved, profile: 'home' },
+    ]);
+    await expect(phone.cancel('home', keys.draft)).resolves.toBe(true);
     await phone.synchronize();
     await mac.synchronize();
 
@@ -464,7 +486,8 @@ describe('synchronized Send Reminders', () => {
         { ...home, profile: 'home' },
       ]);
     }
-    // Each record seals the reminder and a write identifier, and nothing of the Draft.
+    // Each record seals the reminder, or its removal, and a write identifier, and nothing of the
+    // Draft.
     expect(
       server
         .list('account-1', 'send-reminder.')
@@ -475,6 +498,7 @@ describe('synchronized Send Reminders', () => {
     ).toStrictEqual([
       { reminder: { ...keys, profile: 'work' }, write: expect.any(String) },
       { reminder: { ...home, profile: 'home' }, write: expect.any(String) },
+      { reminder: null, write: expect.any(String) },
     ]);
   });
 
@@ -486,29 +510,23 @@ describe('synchronized Send Reminders', () => {
     await mac.remind('work', invoice);
     await mac.synchronize();
     await phone.synchronize();
-    const first = server.get(
-      'account-1',
-      `send-reminder.${keys.draft}`,
-    )?.sealed;
+    const first = server.get('account-1', recordOf('work', keys.draft))?.sealed;
     await mac.remind('work', evening);
     await mac.synchronize();
     await phone.synchronize();
     const current = await phone.reminders('work');
 
-    server.replace('account-1', `send-reminder.${keys.draft}`, String(first));
-    const moved = server.get(
-      'account-1',
-      `send-reminder.${keys.draft}`,
-    )?.sealed;
-    server.replace('account-1', 'send-reminder.invoice', String(moved));
+    server.replace('account-1', recordOf('work', keys.draft), String(first));
+    const moved = server.get('account-1', recordOf('work', keys.draft))?.sealed;
+    server.replace('account-1', recordOf('work', 'invoice'), String(moved));
     await phone.synchronize();
     await expect(phone.reminders('work')).resolves.toStrictEqual(current);
 
     // A record that does not open is never taken for a removal, nor overwritten.
-    server.replace('account-1', 'send-reminder.invoice', 'damaged');
+    server.replace('account-1', recordOf('work', 'invoice'), 'damaged');
     await phone.cancel('work', 'invoice');
     await phone.synchronize();
-    expect(server.get('account-1', 'send-reminder.invoice')?.sealed).toBe(
+    expect(server.get('account-1', recordOf('work', 'invoice'))?.sealed).toBe(
       'damaged',
     );
   });

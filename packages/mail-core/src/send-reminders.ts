@@ -32,9 +32,9 @@ const isReminder = Schema.is(SendReminderSchema);
 const Version = Schema.Int.check(Schema.isGreaterThanOrEqualTo(1));
 const NullableReminder = Schema.NullOr(SendReminderSchema);
 const sameReminder = Schema.toEquivalence(NullableReminder);
-// A Draft's Private Sync record as this device last read or wrote it: the record's write count, its
-// Convex revision, the reminder, null once removed, and the random identifier of the write that
-// made it.
+// A reminder's Private Sync record as this device last read or wrote it: the record's identifier,
+// naming the Mail Profile and Draft, its write count, its Convex revision, the reminder, null once
+// removed, and the random identifier of the write that made it.
 const SyncedSchema = Schema.Struct({
   id: Schema.NonEmptyString,
   version: Version,
@@ -51,11 +51,14 @@ const SentSchema = Schema.Struct({
 type Sent = typeof SentSchema.Type;
 const StoredDocumentSchema = Schema.Struct({
   reminders: Schema.Array(SendReminderSchema),
-  // Each Draft's base: a reminder that differs from it has a change to publish.
+  // Each record's base: a reminder that differs from it has a change to publish.
   synced: Schema.optionalKey(Schema.Array(SyncedSchema)),
   // Each write sent and not yet known to have landed or lost, so reading one back after a lost
   // reply is no conflict.
   sent: Schema.optionalKey(Schema.Array(SentSchema)),
+  // The records of Drafts sent or discarded here before their reminder arrived: the next pull
+  // removes a reminder another device set.
+  cancelled: Schema.optionalKey(Schema.Array(Schema.NonEmptyString)),
 });
 type Reminders = typeof StoredDocumentSchema.Type;
 const DocumentSchema = Schema.fromJsonString(StoredDocumentSchema);
@@ -105,19 +108,19 @@ export interface NativeSendReminders {
   ) => Promise<unknown>;
 }
 
-// The account's Send Reminders in Private Sync, one record per Draft. Native code seals each record
-// to the account and an opaque identifier derived from the Draft's, so Convex holds only
-// ciphertext. Every call rejects with 'unavailable' while this device holds no keys or Product
+// The account's Send Reminders in Private Sync, one record per Mail Profile and Draft. Native code
+// seals each record to the account and an opaque identifier derived from the record's, so Convex
+// holds only ciphertext. Every call rejects with 'unavailable' while this device holds no keys or Product
 // Sign-In session.
 export interface NativeSendReminderSync {
   // Resolves `{ owner, records: [{ id, version, updatedAt, reminder }], unreadable }`, `reminder`
-  // being the JSON the record seals. `unreadable` names the Drafts of `known` whose record exists
-  // but does not open here.
+  // being the JSON the record seals. `unreadable` names the records of `known` that exist but do not
+  // open here.
   readonly pullSendReminders: (
     owner: string,
     known: readonly string[],
   ) => Promise<unknown>;
-  // Writes Draft `id`'s record, sealing `reminder` (the reminder or its removal, as JSON), only
+  // Writes record `id`, sealing `reminder` (the reminder or its removal, as JSON), only
   // while it is still at `expectedUpdatedAt` (absent: while there is none). Resolves
   // `{ owner, committed, updatedAt? }`.
   readonly pushSendReminder: (
@@ -133,15 +136,21 @@ export interface NativeSendReminderSync {
 
 const report = reportPreference('Send Reminder');
 
-const byDraft = (reminders: readonly SendReminder[]) =>
-  new Map(reminders.map((reminder) => [reminder.draft, reminder]));
+// A reminder's record identifier: its Mail Profile and Draft, so another Profile's reminder for the
+// same Draft is a record of its own.
+const recordId = ({
+  profile,
+  draft,
+}: Pick<SendReminder, 'profile' | 'draft'>) => JSON.stringify([profile, draft]);
+const byRecord = (reminders: readonly SendReminder[]) =>
+  new Map(reminders.map((reminder) => [recordId(reminder), reminder]));
 const byId = <T extends Readonly<{ id: string }>>(items: readonly T[] = []) =>
   new Map(items.map((item) => [item.id, item]));
 
-// Each Draft whose reminder differs from the record it was made from, with that record: a change,
+// Each record whose reminder differs from the record it was made from, with that record: a change,
 // or a removal, to publish.
 const pendingOf = ({ reminders, synced }: Reminders) => {
-  const live = byDraft(reminders);
+  const live = byRecord(reminders);
   const bases = byId(synced);
   return [...new Set([...live.keys(), ...bases.keys()])].flatMap((id) => {
     const reminder = live.get(id) ?? null;
@@ -162,9 +171,10 @@ const writeId = () => {
 };
 
 // Takes one record newer than the one this device read. This device's own write read back, as after
-// a lost reply, changes nothing. A Draft without a change to publish takes the record. A removal
-// wins either way, so a stale write never restores a removed reminder: a pending removal outlives
-// the record, and a removal record ends a pending change. Of two changes, the one written first
+// a lost reply, changes nothing. A reminder without a change to publish takes the record. A removal
+// wins either way, so a stale write never restores a removed reminder: a pending removal, also of a
+// Draft sent or discarded here before its reminder arrived, outlives the record, and a removal
+// record ends a pending change. Of two changes, the one written first
 // wins, so both devices end with one reminder.
 // fallow-ignore-next-line complexity -- Each condition is one merge rule above.
 const adoptRecord = (
@@ -172,10 +182,12 @@ const adoptRecord = (
     live,
     bases,
     sent,
+    cancelled,
   }: Readonly<{
     live: Map<string, SendReminder>;
     bases: Map<string, Synced>;
     sent: Set<Sent>;
+    cancelled: ReadonlySet<string>;
   }>,
   record: Synced,
 ) => {
@@ -190,7 +202,7 @@ const adoptRecord = (
       sent.delete(item);
     }
   }
-  if (own || (pending && local === null)) {
+  if (own || (pending && local === null) || cancelled.has(record.id)) {
     return;
   }
   if (record.reminder === null) {
@@ -203,14 +215,16 @@ const adoptRecord = (
 // Merges records another device wrote. A version authenticates one immutable record, so an older or
 // replayed one changes nothing.
 const adopt = (document: Reminders, records: readonly Synced[]) => {
-  const live = byDraft(document.reminders);
+  const live = byRecord(document.reminders);
   const bases = byId(document.synced);
   const sent = new Set(document.sent);
+  const cancelled = new Set(document.cancelled);
   for (const record of records.filter(
     ({ id, version }) => version > (bases.get(id)?.version ?? 0),
   )) {
-    adoptRecord({ live, bases, sent }, record);
+    adoptRecord({ live, bases, sent, cancelled }, record);
   }
+  // Each cancellation is now a removal to publish, or had no reminder to remove.
   const next = {
     reminders: [...live.values()],
     synced: [...bases.values()],
@@ -227,7 +241,7 @@ const readable = (pulled: typeof PulledSchema.Type) => {
     const sealed = Option.getOrUndefined(decodeRecord(json ?? ''));
     if (
       sealed === undefined ||
-      (sealed.reminder !== null && sealed.reminder.draft !== record.id)
+      (sealed.reminder !== null && recordId(sealed.reminder) !== record.id)
     ) {
       unreadable.add(record.id);
       return [];
@@ -406,29 +420,37 @@ export function createSendReminders(
 
   const synchronize = preferencePasses('Send Reminder', pass, sync);
 
-  // Resolves whether storage holds what `change` makes of `profile`'s Draft `draft` reminder, then
-  // publishes it: another Profile's reminder for that Draft is refused, and returning the reminders
-  // unchanged writes nothing.
+  // Resolves whether storage holds `reminder`, or its removal when null, as `profile`'s reminder for
+  // Draft `draft`, then publishes it. Another Profile's reminder for that Draft is refused. Removing
+  // a reminder this device does not hold writes nothing, except with Private Sync, where it is kept
+  // for the next pull to remove one another device set.
   const changing = async (
     profile: string,
     draft: string,
-    change: (others: readonly SendReminder[]) => readonly SendReminder[],
+    reminder: SendReminder | null,
   ) => {
+    const id = recordId({ profile, draft });
     const stored = await runLogged(
       changed(signedIn(), (document) => {
         const current = document.reminders.find(
-          (reminder) => reminder.draft === draft,
+          (each) => recordId(each) === id,
         );
-        if (current !== undefined && current.profile !== profile) {
+        if (
+          current === undefined &&
+          document.reminders.some((each) => each.draft === draft)
+        ) {
           return undefined;
         }
-        const next = change(
-          document.reminders.filter((each) => each !== current),
-        );
-        return current === undefined &&
-          next.length === document.reminders.length
+        const others = document.reminders.filter((each) => each !== current);
+        if (reminder !== null || current !== undefined) {
+          return {
+            ...document,
+            reminders: reminder === null ? others : [...others, reminder],
+          };
+        }
+        return sync === undefined || document.cancelled?.includes(id)
           ? document
-          : { ...document, reminders: next };
+          : { ...document, cancelled: [...(document.cancelled ?? []), id] };
       }).pipe(
         Effect.map((next) => next !== undefined),
         Effect.catchTag('DraftStorageFailure', (error) =>
@@ -463,12 +485,11 @@ export function createSendReminders(
     remind: (profile: string, reminder: Omit<SendReminder, 'profile'>) => {
       const stored = { ...reminder, profile };
       return isReminder(stored)
-        ? changing(profile, stored.draft, (others) => [...others, stored])
+        ? changing(profile, stored.draft, stored)
         : Promise.resolve(false);
     },
     // Removes `profile`'s reminder for Draft `draft`. Resolves whether storage no longer holds it.
-    cancel: (profile: string, draft: string) =>
-      changing(profile, draft, (others) => others),
+    cancel: (profile: string, draft: string) => changing(profile, draft, null),
     // Merges Private Sync into this device's reminders and publishes this device's changes;
     // resolves once no pass is running.
     synchronize,
