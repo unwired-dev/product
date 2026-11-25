@@ -91,8 +91,8 @@ recommendation and the decision it supports. Facts link to their evidence;
   VoiceOver, which the page has not shown on iOS.
   BlockNote was not built, so nothing here claims it would be faster or more
   reliable. A core-only BlockNote with a small schema would carry the same WebView
-  host work; its core is MPL-2.0, whose distribution makes its covered source, with
-  changes to those files, available, and only its optional XL email exporter is GPL-3.0 or paid
+  host work; its core is MPL-2.0, whose distribution requires making its covered
+  source, with changes to those files, available; only its optional XL email exporter is GPL-3.0 or paid
   ([licensing](../research/blocknote.md#licensing-and-cost)).
 - **Lexical. Judgment:** the open risks (iOS VoiceOver, input methods in
   `contenteditable`, paste and drop interception) are WebKit's, so a bounded
