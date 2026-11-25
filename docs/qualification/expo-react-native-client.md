@@ -70,7 +70,10 @@ temporary capture journey that was not committed.
   milliseconds and back over about 260. With Reduce Motion on, Hide went from
   shown to gone with no position between; the journey then found Hide Sidebar
   again after Show, and the captures show both the hidden and the shown
-  sidebar.
+  sidebar. The sampler lost the sidebar's element after Hide, so Show's
+  transition was not measured; `toggleSidebar` in `UnwiredCommands.m` sets
+  the collapsed state without animation in both directions while Reduce
+  Motion is on.
 
 Deferred: the same Labels submenu and New Label… with an attested Gmail test
 account stay on #2796 for a protected run. The Profile Switcher's focused
