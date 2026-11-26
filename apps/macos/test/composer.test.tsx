@@ -2772,7 +2772,6 @@ describe('composing Drafts', () => {
     }
   });
 
-
   it('puts only the name for @ in written text and lists people already on the Draft with their role', async () => {
     expect.hasAssertions();
     const registration = account(connected(['alex@example.invalid']));
