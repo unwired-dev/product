@@ -1408,6 +1408,44 @@ describe('recording a mailto unsubscribe request', () => {
     }
   });
 
+  it('admits no fresh request for a refused retry whose latest retried request was confirmed within the 14 days, though an earlier one was confirmed before them', async () => {
+    expect.hasAssertions();
+    const phone = await receiver('gmail');
+    try {
+      const original = await lose(phone);
+      const second = await lose(phone);
+      const last = await start(phone);
+      phone.become('authorization');
+      later(undoSendWindow);
+      await phone.outbox.process();
+      expect(pending(phone)).toMatchObject({
+        id: last,
+        state: 'failed',
+        unsubscribe: { retries: [original, second] },
+      });
+      phone.become('connected');
+      await phone.outbox.check(original);
+      later(unsubscribeOfferReturnsAfter + 1);
+      await phone.outbox.check(second);
+      await vi.waitFor(() => {
+        expect(phone.outbox.getSnapshot().map(({ id }) => id)).toStrictEqual([
+          last,
+        ]);
+      });
+
+      expect(heldFor(phone, '9.INBOX', clock.now)?.id).toBe(last);
+      await expect(
+        phone.outbox.unsubscribe(receiving.gmail.id, listed, {
+          message: '9.INBOX',
+          receivedAt: clock.now,
+        }),
+      ).resolves.toStrictEqual({ kind: 'waiting', id: second });
+      expect(phone.gmail.sends).toHaveLength(2);
+    } finally {
+      phone.outbox.dispose();
+    }
+  });
+
   it('records an unknown request Check Again found sent, though storage keeps the retry it took out of the Outbox unsent', async () => {
     expect.hasAssertions();
     const phone = await receiver('gmail');

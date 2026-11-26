@@ -121,7 +121,7 @@ export const unsendable = (
 // longer stands for it, though its mark may not hold yet, and one from before the connection was
 // added again never does. A request confirmed for another message stands for one the list sent at
 // `receivedAt` only within the list's 14 days, as a recorded request does, and not while that time
-// is unknown, as does a request whose retried request was confirmed; one confirmed for `message`
+// is unknown, as does a request whose retried requests were confirmed, from the latest; one confirmed for `message`
 // itself stands for it before a newer one for the list. `delivered` tells when a request was
 // confirmed though storage does not hold that time yet.
 export const pendingUnsubscribe = <
@@ -152,11 +152,13 @@ export const pendingUnsubscribe = <
   );
   const held = Arr.reverse(outbox).filter((each) => {
     const { id, draft, unsubscribe, epoch: incarnation } = each;
+    const confirmed = (unsubscribe?.retries ?? []).flatMap((retried) => {
+      const at = delivered?.(retried)?.at;
+      return at === undefined ? [] : [at];
+    });
     const sentAt =
       sentAtOf(each) ??
-      (unsubscribe?.retries ?? [])
-        .map((retried) => delivered?.(retried)?.at)
-        .find((at) => at !== undefined);
+      (confirmed.length === 0 ? undefined : Math.max(...confirmed));
     return (
       unsubscribe !== undefined &&
       unsubscribe.answered !== true &&
