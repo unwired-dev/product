@@ -584,14 +584,16 @@ final class WindowTests: XCTestCase {
     XCTAssertFalse(window.sheets.firstMatch.exists)
   }
 
-  // The image splits "Before after" into two texts, one on each side of it.
+  // The image splits "Before after" at the caret into two texts, one on each side of it.
   private func assertBetweenWords(_ image: XCUIElement, in window: XCUIElement) {
     let texts = window.webViews.staticTexts
     let before = texts.matching(NSPredicate(format: "value BEGINSWITH %@", "Before")).firstMatch
     let after = texts.matching(NSPredicate(format: "value ENDSWITH %@", "after")).firstMatch
     XCTAssertTrue(before.waitForExistence(timeout: 15))
     XCTAssertTrue(after.waitForExistence(timeout: 15))
-    XCTAssertNotEqual(before.value as? String, after.value as? String)
+    // Exactly at the caret: the space stays with "after".
+    XCTAssertEqual(before.value as? String, "Before")
+    XCTAssertEqual(after.value as? String, " after")
     XCTAssertLessThanOrEqual(before.frame.maxX, image.frame.minX + 1)
     // The text after the image follows it on its line, or wraps below it.
     XCTAssertTrue(
