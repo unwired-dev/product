@@ -1092,7 +1092,88 @@ final class WindowTests: XCTestCase {
     // The accepted reply body reopens as it was saved.
     XCTAssertTrue(
       webText("Synthetic reply to local mail.", in: relaunched).waitForExistence(timeout: 15))
+    pastedImageJourney(app, window: relaunched)
     nativeCloseJourney(app, window: relaunched)
+  }
+
+  // #2929: an image pasted into the page is read from the pasteboard by native code, goes inline
+  // with its verified thumbnail, and keeps its place through Save, relaunch and reopening.
+  private func pastedImageJourney(_ app: XCUIApplication, window: XCUIElement) {
+    let image = NSImage(size: NSSize(width: 120, height: 80), flipped: false) { rect in
+      NSColor.systemTeal.setFill()
+      rect.fill()
+      return true
+    }
+    let png = image.tiffRepresentation.flatMap { NSBitmapImageRep(data: $0) }?
+      .representation(using: .png, properties: [:])
+    XCTAssertNotNil(png)
+    // Give the person their pasteboard back afterwards.
+    let pasteboard = NSPasteboard.general
+    let before = pasteboard.changeCount
+    let saved = (pasteboard.pasteboardItems ?? []).map { item in
+      let copy = NSPasteboardItem()
+      for type in item.types {
+        if let data = item.data(forType: type) { copy.setData(data, forType: type) }
+      }
+      return copy
+    }
+    // A pasted file that is not an image becomes an Attachment. The sandboxed copy may read only
+    // its run directory, beside Mock.app.
+    let appURL = URL(fileURLWithPath: ProcessInfo.processInfo.environment["UNWIRED_APP_PATH"] ?? "")
+    let file = appURL.deletingLastPathComponent().appendingPathComponent("paste-note.txt")
+    XCTAssertNoThrow(try Data("Pasted into the page".utf8).write(to: file))
+    addTeardownBlock { try? FileManager.default.removeItem(at: file) }
+    guard pasteboard.changeCount == before else {
+      XCTFail("Another app wrote to the pasteboard during the journey")
+      return
+    }
+    // The count clearContents returns is ours: a later copy by another app changes it.
+    var written = pasteboard.clearContents()
+    pasteboard.writeObjects([file as NSURL])
+    addTeardownBlock {
+      guard pasteboard.changeCount == written else { return }
+      pasteboard.clearContents()
+      pasteboard.writeObjects(saved)
+    }
+    let body = window.webViews.textViews["Message body"]
+    webText("Synthetic reply to local mail.", in: window).click()
+    window.typeKey(.downArrow, modifierFlags: .command)
+    window.typeKey("v", modifierFlags: .command)
+    let note = window.descendants(matching: .any)
+      .matching(NSPredicate(format: "label BEGINSWITH %@", "paste-note.txt, ")).firstMatch
+    XCTAssertTrue(note.waitForExistence(timeout: 30))
+    XCTAssertEqual(body.images.count, 0)
+    // Another app's newer copy is never overwritten.
+    guard pasteboard.changeCount == written else {
+      XCTFail("Another app wrote to the pasteboard during the journey")
+      return
+    }
+    written = pasteboard.clearContents()
+    pasteboard.setData(png, forType: .png)
+    window.typeKey("v", modifierFlags: .command)
+    let row = window.descendants(matching: .any)
+      .matching(NSPredicate(format: "label BEGINSWITH %@", "Pasted image, ")).firstMatch
+    XCTAssertTrue(row.waitForExistence(timeout: 30))
+    let inline = body.images.firstMatch
+    XCTAssertTrue(inline.waitForExistence(timeout: 30))
+    // The placeholder gives way to the native thumbnail once the bytes verify.
+    waitUntil { inline.frame.width > 60 }
+    let pasted = XCTAttachment(screenshot: window.screenshot())
+    pasted.name = "Evaluation editor pasted image"
+    pasted.lifetime = .keepAlways
+    add(pasted)
+    reopenDraft(app)
+    XCTAssertTrue(
+      webText("Synthetic reply to local mail.", in: window).waitForExistence(timeout: 15))
+    let reopened = window.webViews.textViews["Message body"].images.firstMatch
+    XCTAssertTrue(reopened.waitForExistence(timeout: 30))
+    waitUntil { reopened.frame.width > 60 }
+    XCTAssertTrue(row.waitForExistence(timeout: 15))
+    XCTAssertTrue(note.exists)
+    let shot = XCTAttachment(screenshot: window.screenshot())
+    shot.name = "Evaluation Draft with pasted image after relaunch"
+    shot.lifetime = .keepAlways
+    add(shot)
   }
 
   private func nativeCloseJourney(_ app: XCUIApplication, window: XCUIElement) {
@@ -2004,6 +2085,91 @@ final class WindowTests: XCTestCase {
     // The running app keeps appending probe records; read them only after it quits.
     app.terminate()
     try reportPerformance(groups, evidence: evidence, overhead: overhead)
+  }
+
+  // #2955: opening a new message and a saved Draft, in the current composer
+  // (registration-performance) or the Draft editor page (registration-draft-editor). A sample runs
+  // from the click release the app records to the first accessibility query that finds the body
+  // ready: the body and the format bar's Undo, which the page shows once it is ready, and for the
+  // Draft the body's saved paragraph. Samples include XCUITest's queries, so they are upper bounds.
+  func testComposerOpening() throws {
+    continueAfterFailure = false
+    executionTimeAllowance = 600
+    let environment = ProcessInfo.processInfo.environment
+    let page = environment["UNWIRED_TEST_SCENARIO"] == "registration-draft-editor"
+    XCTAssertTrue(page || environment["UNWIRED_TEST_SCENARIO"] == "registration-performance")
+    let appURL = URL(fileURLWithPath: try XCTUnwrap(environment["UNWIRED_APP_PATH"]))
+    let evidence = appURL.deletingLastPathComponent().appendingPathComponent("lifecycle.jsonl")
+    let app = XCUIApplication(url: appURL)
+    app.launchArguments += ["-ApplePersistenceIgnoreState", "YES", "-interfaceLanguage", "en"]
+    app.launchEnvironment["UNWIRED_LIFECYCLE_PATH"] = evidence.path
+    app.launch()
+    addTeardownBlock { if app.state != .notRunning { app.terminate() } }
+    let window = app.windows["Inbox 1"]
+    if page {
+      XCTAssertTrue(window.waitForExistence(timeout: 30))
+      draftEditorSignIn(window)
+    } else {
+      performanceSetup(app, window: window)
+      // The Draft's row is listed with both mailboxes' Threads.
+      window.buttons["All Inboxes"].click()
+    }
+    let body =
+      page
+      ? window.webViews.textViews["Message body"]
+      : window.textViews.matching(NSPredicate(format: "label == %@", "Message")).firstMatch
+    let undo = window.buttons["Undo"]
+    let paragraph = "Warm composer paragraph"
+    // The current composer's body is labelled Message only while it is empty.
+    let saved =
+      page
+      ? webText(paragraph, in: window)
+      : window.textViews.matching(NSPredicate(format: "value CONTAINS %@", paragraph)).firstMatch
+    // The page hides Undo when Close begins; the composer is gone once Subject is.
+    let subject = window.textFields["Subject"]
+    func close() {
+      window.buttons["Close"].click()
+      XCTAssertTrue(subject.waitForNonExistence(timeout: 10))
+      XCTAssertFalse(undo.exists)
+    }
+
+    var groups: [PerformanceGroup] = []
+    func measure(_ name: String, budget: Double, _ open: () -> Void, ready: XCUIElement) {
+      let before = firstQueryResults
+      let windows = (0..<10).map { _ -> (start: Double, end: Double) in
+        let start = uptime()
+        open()
+        let end = until(ready, from: start, and: undo)
+        close()
+        return (start, end)
+      }
+      groups.append((name, budget, windows, firstQueryResults - before, []))
+    }
+    XCTAssertFalse(subject.exists)
+    measure("empty-composer", budget: 300, { window.buttons["New Message"].click() }, ready: body)
+    // Close asks to save the edit, and the Inbox lists the Draft once Save stores it.
+    window.buttons["New Message"].click()
+    XCTAssertTrue(undo.waitForExistence(timeout: 30))
+    subject.click()
+    subject.typeText("Warm composer")
+    body.click()
+    body.typeText(paragraph)
+    XCTAssertTrue(saved.waitForExistence(timeout: 10))
+    window.buttons["Close"].click()
+    let save = window.sheets.firstMatch.buttons["Save"]
+    XCTAssertTrue(save.waitForExistence(timeout: 10))
+    save.click()
+    XCTAssertTrue(subject.waitForNonExistence(timeout: 10))
+    let draft = window.buttons.matching(
+      NSPredicate(format: "label CONTAINS %@", "Draft. Warm composer")
+    ).firstMatch
+    XCTAssertTrue(draft.waitForExistence(timeout: 10))
+    measure("warm-composer", budget: 200, { draft.click() }, ready: saved)
+    let overhead = queryOverhead(window.buttons["New Message"])
+    // The running app keeps appending probe records; read them only after it quits.
+    app.terminate()
+    try reportPerformance(
+      groups, evidence: evidence, overhead: overhead, composer: page ? "page" : "current")
   }
 
   // #626: the core mail loop by keyboard where the Mac app offers a keyboard path, over the
@@ -3913,7 +4079,7 @@ final class WindowTests: XCTestCase {
 
   private func reportPerformance(
     _ groups: [PerformanceGroup],
-    evidence: URL, overhead: Double
+    evidence: URL, overhead: Double, composer: String? = nil
   ) throws {
     struct Record: Decodable {
       let event: String
@@ -3936,7 +4102,9 @@ final class WindowTests: XCTestCase {
     let releases = try times("mouse-up")
     // Body requests the synthetic providers answered; priming the cache must have made some.
     let providerBodies = try times("provider-body")
-    XCTAssertFalse(providerBodies.isEmpty, "The probe recorded no provider body request")
+    if groups.contains(where: { $0.name.hasPrefix("cached-body") }) {
+      XCTAssertFalse(providerBodies.isEmpty, "The probe recorded no provider body request")
+    }
     let stalls = try records.filter { $0.event == "stall" }.map {
       (uptime: try XCTUnwrap($0.uptime), milliseconds: try XCTUnwrap($0.milliseconds))
     }
@@ -4016,6 +4184,7 @@ final class WindowTests: XCTestCase {
         "maxMs": samples.last ?? 0, "withinBudget": percentile(samples, 0.95) <= group.budget,
         "stallsMs": during, "resultsOnFirstQuery": group.firstQuery,
       ]
+      if let composer { record["composer"] = composer }
       if !framesLate.isEmpty {
         framesLate.sort()
         record["drawnMs"] = drawn.sorted()
@@ -4035,7 +4204,8 @@ final class WindowTests: XCTestCase {
     print(lines.map { "PERFORMANCE \($0)" }.joined(separator: "\n"))
     let attachment = XCTAttachment(
       data: Data((lines.joined(separator: "\n") + "\n").utf8), uniformTypeIdentifier: "public.json")
-    attachment.name = "Warm-cache performance"
+    attachment.name =
+      composer.map { "Composer opening (\($0) composer)" } ?? "Warm-cache performance"
     attachment.lifetime = .keepAlways
     add(attachment)
   }

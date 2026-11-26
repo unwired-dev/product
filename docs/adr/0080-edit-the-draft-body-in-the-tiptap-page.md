@@ -44,8 +44,9 @@ recommendation and the decision it supports. Facts link to their evidence;
 - **Host failures.** None stopped the page on a host. Found and fixed during the
   runs: the review panel under the iPhone keyboard, a result dropped before the
   page loaded, rotation squeezing the body, the iPhone pill behind the keyboard and
-  the iPad format bar clipping its menu. Still open: the page cannot read image
-  paste on Mac or file drops on any host without native web-view interception, the
+  the iPad format bar clipping its menu. Still open: the page cannot read file
+  drops on any host without native web-view interception (Mac image paste reads the
+  pasteboard natively since [#2929](https://github.com/unwired-dev/product/issues/2929)), the
   first tap on iPhone only focuses the page, and WebKit adds its own iPhone form
   accessory bar and iPad shortcut group ([probes](../architecture/draft-table-editing.md#probes)).
 - **Semantic differences** from the current composer
@@ -139,8 +140,10 @@ release limit:
    cannot reach it; its downward swipe closes it as **Close** does, run natively on
    the iPhone Simulator by [#2961](https://github.com/unwired-dev/product/issues/2961).
    A compact iPad window has not run it.
-3. The Mac Inline Image journey, image paste on Mac, file drops on every host,
-   and **Paste Image** and in-page paste on a device.
+3. The Mac Inline Image journey, file drops on every host, and **Paste Image**
+   and in-page paste on a device. Image paste on Mac is met by
+   [#2929](https://github.com/unwired-dev/product/issues/2929): native code reads
+   the pasteboard, and the Mac journey pastes an image that reopens in place.
 4. WebKit website data after account removal and a network capture of a journey.
    Met by [#2922](https://github.com/unwired-dev/product/issues/2922) on iPhone
    and iPad Simulators and the Mac: no sample found website data during the
@@ -154,7 +157,10 @@ release limit:
    selection-change latency on large, many-block Drafts
    ([review note](https://github.com/unwired-dev/product/issues/822#issuecomment-6114571758)),
    and the current composer's interactions the page lacks, such as the Slash
-   Command Menu.
+   Command Menu. On Mac, [#2955](https://github.com/unwired-dev/product/issues/2955)
+   timed opening a new message and a saved Draft in both composers on a loaded
+   host; repeat it on an idle one
+   ([results](../draft-editor-evaluation.md#composer-opening-2955)).
 6. The Tiptap and ProseMirror notices in the distributed app; the licence
    inventory must list the page's packages. Met by
    [#2916](https://github.com/unwired-dev/product/issues/2916): every bundle that
