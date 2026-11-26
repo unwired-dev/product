@@ -163,8 +163,10 @@ function Banner({
               ...each,
               checked: true,
               // A stored request supersedes a Failed or uncertain one, such as one sent from another
-              // message of the list.
-              ...(request === undefined || each.outcome?.kind === 'sent'
+              // message of the list, and an older Sent one.
+              ...(request === undefined ||
+              (each.outcome?.kind === 'sent' &&
+                each.outcome.at >= request.sentAt)
                 ? {}
                 : { outcome: { kind: 'sent', at: request.sentAt } }),
             }
@@ -229,8 +231,17 @@ function Banner({
         return at;
       })
       .catch((): UnsubscribeOutcome => 'uncertain');
-    const outcome: Entry['outcome'] = kind === 'sent' ? { kind, at } : { kind };
-    update(key, (each) => ({ ...each, sending: false, outcome }));
+    const ended: Entry['outcome'] = kind === 'sent' ? { kind, at } : { kind };
+    // A Sent request the lookup found meanwhile stays over a failure.
+    update(key, (each) => ({
+      ...each,
+      sending: false,
+      outcome:
+        ended.kind === 'sent' || each.outcome?.kind !== 'sent'
+          ? ended
+          : each.outcome,
+    }));
+    const outcome = entries.get(key)?.outcome;
     if (visible.has(key)) {
       AccessibilityInfo.announceForAccessibility(
         `${marker(outcome)}. ${summary(outcome)}`,
