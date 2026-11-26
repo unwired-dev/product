@@ -400,6 +400,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   slashGlyph: { fontSize: 10, lineHeight: 16, fontWeight: '600' },
+  slashSection: { lineHeight: 16, paddingVertical: 3 },
   // The Body Recipient Shortcut's suggestions open under the query's @, over what follows.
   bodySuggestions: {
     position: 'absolute',
@@ -3101,14 +3102,20 @@ const slashIcons: Readonly<Record<BlockKind, string>> = {
   code: 'curlybraces',
 };
 const slashGlyphs = new Set(['H1', 'H2', 'H3', '”']);
+// The frames draw Text's and Code Block's symbols smaller than the list symbols.
+const slashSymbolSizes: Readonly<Partial<Record<BlockKind, number>>> = {
+  paragraph: 10.5,
+  code: 10,
+};
 const isSlashBlock = (command: SlashCommand): command is BlockKind =>
   Object.hasOwn(slashMarkers, command);
 // The menu's padding and section title, then 28pt rows.
 const slashMenuHeight = (rows: number) => 12 + 22 + 28 * rows;
 // How far the menu stays from the top and bottom of the composer's scrolling area.
 const slashMenuMargin = 28;
-// The frames hang the menu this far right of the /.
+// The frames hang the menu this far right of the / and this far from its line.
 const slashMenuInset = 7;
+const slashMenuGap = 3;
 
 // The Slash Command Menu in an editor's body. Typing / as the first non-whitespace character of a
 // body block outside code opens its Basic Blocks under the caret's line, or over it when more room
@@ -3258,7 +3265,11 @@ function useSlashMenu(
             {
               height,
               left: body.x + anchor.left + slashMenuInset,
-              top: body.y + (over ? anchor.top - height : anchor.bottom),
+              top:
+                body.y +
+                (over
+                  ? anchor.top - height - slashMenuGap
+                  : anchor.bottom + slashMenuGap),
             },
           ],
         };
@@ -3392,7 +3403,11 @@ function BodySlashMenu({
         }}
         scrollEventThrottle={16}>
         <Text
-          style={[styles.suggestionSection, { color: colors.textSecondary }]}>
+          style={[
+            styles.suggestionSection,
+            styles.slashSection,
+            { color: colors.textSecondary },
+          ]}>
           {t('drafts.slashMenu.basicBlocks')}
         </Text>
         {shown.kinds.map((kind) => {
@@ -3427,7 +3442,7 @@ function BodySlashMenu({
                   <SFSymbol
                     name={icon}
                     color={secondary}
-                    size={13}
+                    size={slashSymbolSizes[kind] ?? 13}
                   />
                 )}
               </View>
@@ -5048,6 +5063,8 @@ function Editor({
         )}
         <TextInput
           accessibilityLabel={t('drafts.body')}
+          // The focus ring would draw across the Slash Command Menu.
+          enableFocusRing={slashMenu.shown === undefined}
           editable={!paused}
           accessibilityState={{ disabled: paused }}
           // Pasted images go inline at the caret; other pasted files are attached. Text pastes as
