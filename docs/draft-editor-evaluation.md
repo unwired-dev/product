@@ -246,10 +246,13 @@ again, and **Remove**.
   current composer's system pickers and native import. Images placed inline go at
   the page's selection, replacing any selected text; other files become Attachments.
   Each pick is one edit in the page.
-- **Pasting and dropping.** On iPhone and iPad, pasting images into the page imports
-  them from the pasteboard through native code, as **Paste Image** does. The page
-  never reads pasted or dropped file data: on Mac a paste carrying images adds
-  nothing, and files dropped on the page are refused on every host. A paste that
+- **Pasting and dropping.** Pasting images into the page imports them from the
+  pasteboard through native code: on iPhone and iPad as **Paste Image** does, and on
+  Mac as the current composer's body pastes, so pasted image data goes inline and a
+  pasted file goes inline when it is an image and otherwise becomes an Attachment
+  ([#2929](https://github.com/unwired-dev/product/issues/2929)). The page never reads
+  pasted or dropped file data, and files dropped on the page are refused on every
+  host. A paste that
   carries an image beside text is treated as an image paste, so its text is not
   pasted; paste the text separately. Text and supported formatting without images
   paste as before. A copied or cut Inline Image pastes back
@@ -495,6 +498,20 @@ restored it, and the relaunched Draft reopened with the link and its destination
 An earlier attempt failed at its first **Close** because crash alerts left by other
 tasks covered the window; it is not evidence.
 
+Mac image paste on 2026-11-25 for [#2929](https://github.com/unwired-dev/product/issues/2929),
+same Mac mini, macOS 27.2.1 (26B131), Xcode 27.2 (27B52), signed `Testing`
+`registration-draft-editor` build of `cf500a39d` with #2929's change, Light
+appearance. `testIndependentWindowsCloseReopenAndQuit` from `8a1db32f1` passed with
+zero failures in 460 s (`artifacts/macos-inbox/journey.Sp0jXC/`). After the relaunched reply Draft
+reopened, the journey pressed Command-V at the end of the body twice, with a text
+file and then a PNG on the general pasteboard: each time the page asked the host to
+read the pasteboard; the file became an Attachment, and the image went inline with
+its verified thumbnail and a **Pasted image** row. After **Save**, a relaunch and
+reopening, both were in place. Before that step the
+journey's numbered-list checks needed repair: since #2884 the page draws the marker
+as the texts `1` and `.` ([#2926](https://github.com/unwired-dev/product/issues/2926)).
+Earlier attempts of the same build failed at those checks and are not evidence.
+
 ### Formatting fidelity (#819)
 
 Page tests run the real Tiptap configuration in `happy-dom`. They round-trip every
@@ -579,9 +596,9 @@ of an asset cannot undo its completion. They also check the thumbnail sent after
 bytes verify, Attachments, conversion and removal, that an asset the page was never
 given is not saved, and that reopening gives the page the same asset identities.
 Cancelling an import, an import completing after **Close** into the stored Draft, and
-damaged bytes listed as damaged with no thumbnail sent are covered too. On iPhone and
-iPad a paste request from the page runs the native pasteboard import; on Mac it adds
-nothing. The saved body uses the same Inline Image spans as the current composer, so
+damaged bytes listed as damaged with no thumbnail sent are covered too. On every host a
+paste request from the page runs the native pasteboard import; on Mac a pasted image
+without a name of its own is named as in the current composer (#2929). The saved body uses the same Inline Image spans as the current composer, so
 the existing outgoing-format boundary applies unchanged; this evaluation sends nothing.
 These are not native evidence.
 
