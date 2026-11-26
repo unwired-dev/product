@@ -920,6 +920,74 @@ them on an idle host before reading them as a comparison. Physical iPhone and
 iPad, and #822's startup and memory measurements, are still
 outstanding.
 
+### Inline predictions (#2966)
+
+[#2966](https://github.com/unwired-dev/product/issues/2966) asked whether the
+system's inline predictions delay typing in the page. In a Mac typing journey
+([#2962](https://github.com/unwired-dev/product/issues/2962)), XCUITest's
+`typeKey` took about 5 s for "a" and "c" after "feedb", and the app's key
+monitor recorded none of "a", "c" and "k". **For keys posted at the HID event
+tap, the page showed no delay; the slow calls were XCUITest's.** No person typed
+on a physical keyboard, so that remains unverified.
+
+Method, on 2026-11-26 on the Mac reference host: a Mac mini M4 (`Mac16,10`) on
+macOS 27.2.1 (`26B131`), Xcode 27.2 (`27B52`), with `Testing` builds of
+`01c50416b`: `registration-draft-editor` for the page and
+`registration-performance` for the current composer. Inline predictions and
+automatic capitalization were at their defaults (on) unless a run turned one
+off with its launch argument. A temporary journey opened an empty New Message
+and typed "typing feedback test" with XCUITest's `typeKey`. Then a host tool
+posted the same keys at the HID event tap, which a hardware keyboard's events
+also pass, 200 ms and 1 s apart, and read the body's accessibility value every
+2 ms. Each pass paused after "feedb" for a window capture, so "a" followed "b"
+after about 750 ms in the 200 ms passes and 1.55 s in the 1 s passes. The app's
+key monitor recorded which presses reached it.
+
+"Slow" counts the 20 XCUITest calls of a run that took over 1 s; "shown" is the
+time from a key posted at the HID tap to its text in the body, the first key of
+each pass including the app's activation.
+
+| Composer                | Runs | Slow           | Shown   |
+| ----------------------- | ---- | -------------- | ------- |
+| Page, predictions on    | 4    | 0, 2, 3 and 10 | 6–77 ms |
+| Page, predictions off   | 1    | 0              | 7–40 ms |
+| Current, predictions on | 2    | 0              | 8–51 ms |
+
+One current composer run stopped after its XCUITest pass, so its shown times come
+from the other.
+
+- In the page with predictions on, 6 of the 8 captures after "feedb" showed the
+  system's prediction, inline or as a bubble; the other two followed the
+  capitalization defect below. Seven presses at the HID tap never reached the
+  app's key monitor; their text appeared within 35 ms all the same.
+- In three of the page's XCUITest passes, calls for letters of "feedbac" took
+  5.1 to 5.5 s, some for keys the monitor recorded within 90 ms. Eleven presses
+  never reached the monitor. In each of those 5 s calls, the text had appeared
+  within 210 ms of the call starting, so the time went to XCUITest's synthesis,
+  not to the page.
+- In one of those passes, text also appeared late from "k" on: "k" appeared
+  2.97 s after its call started, without a monitor record, and the next five
+  keys reached the monitor 0.8 to 3.5 s after their calls started, each shown
+  in the page within 35 ms of that record.
+- The current composer offered no inline prediction in either run, and every
+  press reached its key monitor.
+
+Two other page defects appeared, both at one key a second; neither is a delay:
+
+- With automatic capitalization on, Space after a pause made the first word
+  `T yping`, with the caret after `T ` (3 of 3 runs, predictions on or off; 0
+  of 2 with capitalization off):
+  [#2971](https://github.com/unwired-dev/product/issues/2971).
+- Typing "c" and "k" through the prediction left `feedbackck` (2 of 2 runs with
+  capitalization off): [#2972](https://github.com/unwired-dev/product/issues/2972).
+
+The current composer had neither. Evidence is in `artifacts/macos-inbox/` on
+the host, with the tool, its logs and captures in each run's `inline-probe/`:
+`journey.prFl1z/`, `journey.6bbqN3/`, `journey.7OhwUE/` and `journey.XZGpRp/`
+(page, predictions on), `journey.X3sUtb/` (page, predictions off), and
+`journey.FcdgP3/` and `journey.BomZT3/` (current composer). These runs do not
+cover a physical keyboard, other input sources or iPhone and iPad.
+
 ### Packaged size (#2953)
 
 [#2953](https://github.com/unwired-dev/product/issues/2953) measures the packaged

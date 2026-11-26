@@ -140,7 +140,16 @@ outside evaluation builds; only gates 1, 3 and 5 may instead be recorded as a
 release limit:
 
 1. Physical iPhone and iPad runs, with hardware keyboards, IME composition,
-   dictation, autocorrection and VoiceOver, including inside table cells.
+   dictation, autocorrection and VoiceOver, including inside table cells. On the
+   Mac, keys posted at the HID event tap with the system's inline predictions on
+   reached the page without delay
+   ([#2966](https://github.com/unwired-dev/product/issues/2966),
+   [evidence](../draft-editor-evaluation.md#inline-predictions-2966)); a
+   physical keyboard is still to be tried. Two text defects need fixing:
+   automatic capitalization moves the caret
+   ([#2971](https://github.com/unwired-dev/product/issues/2971)), and typing
+   through an inline prediction repeats its last letters
+   ([#2972](https://github.com/unwired-dev/product/issues/2972)).
 2. Native exits as [#778](https://github.com/unwired-dev/product/issues/778)
    guards them for the current composer (iPhone **Back** and edge swipes, Mac
    window close, Command-W and **Quit**), and the Mac two-window journey on one
