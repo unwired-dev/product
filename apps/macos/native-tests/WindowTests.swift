@@ -1,6 +1,10 @@
 import AppKit
 import XCTest
 
+// The process macOS holds responsible for `pid`, as Activity Monitor groups an app's helpers.
+@_silgen_name("responsibility_get_pid_responsible_for_pid")
+private func responsiblePID(_ pid: pid_t) -> pid_t
+
 // Synthetic completion proxy: reject failed writes and unfinished saves/syncs at each action.
 // Optimistic rows and the encrypted cache alone cannot prove that a provider accepted a change.
 private func assertProviderActionsSettled(_ window: XCUIElement, provider: String = "Gmail") {
@@ -2297,6 +2301,140 @@ final class WindowTests: XCTestCase {
     restored.click()
     XCTAssertTrue(app.windows["Inbox 1"].buttons["Mark as Unread"].waitForExistence(timeout: 10))
 
+  }
+
+  // #2957: the memory of the app and of each process macOS holds it responsible for, WebKit's
+  // among them, with no composer, one and four, each body holding the same pasted paragraph. The
+  // registration-performance build has the current composer, the registration-draft-editor build
+  // the Draft editor page. No budget applies, so the readings are reported, not judged.
+  func testComposerMemory() throws {
+    continueAfterFailure = false
+    let environment = ProcessInfo.processInfo.environment
+    let page = environment["UNWIRED_TEST_SCENARIO"] == "registration-draft-editor"
+    if !page { XCTAssertEqual(environment["UNWIRED_TEST_SCENARIO"], "registration-performance") }
+    let appURL = URL(fileURLWithPath: try XCTUnwrap(environment["UNWIRED_APP_PATH"]))
+    let app = XCUIApplication(url: appURL)
+    app.launchArguments += ["-ApplePersistenceIgnoreState", "YES", "-interfaceLanguage", "en"]
+    app.launch()
+    addTeardownBlock { if app.state != .notRunning { app.terminate() } }
+    let first = app.windows["Inbox 1"]
+    if page {
+      XCTAssertTrue(first.waitForExistence(timeout: 30))
+      draftEditorSignIn(first)
+    } else {
+      performanceSetup(app, window: first)
+    }
+    // One paragraph of 50,007 characters.
+    let paragraph =
+      String(repeating: "Memory paragraph text for both composers. ", count: 1190)
+      + "End of the memory paragraph"
+    // Give the person their pasteboard back unless something else has written it since.
+    let pasteboard = NSPasteboard.general
+    let saved = (pasteboard.pasteboardItems ?? []).map { item in
+      let copy = NSPasteboardItem()
+      for type in item.types {
+        if let data = item.data(forType: type) { copy.setData(data, forType: type) }
+      }
+      return copy
+    }
+    pasteboard.clearContents()
+    pasteboard.setString(paragraph, forType: .string)
+    let written = pasteboard.changeCount
+    addTeardownBlock {
+      guard pasteboard.changeCount == written else { return }
+      pasteboard.clearContents()
+      pasteboard.writeObjects(saved)
+    }
+    func compose(in window: XCUIElement) {
+      window.buttons["New Message"].click()
+      let message = NSPredicate(format: "label == %@", page ? "Message body" : "Message")
+      let body = (page ? window.webViews.textViews : window.textViews).matching(message).firstMatch
+      XCTAssertTrue(body.waitForExistence(timeout: 15))
+      // The page's toolbar appears once the page is ready and moves the page down.
+      XCTAssertTrue(window.buttons["Undo"].waitForExistence(timeout: 30))
+      body.click()
+      app.typeKey("v", modifierFlags: .command)
+      // The whole paragraph must arrive. The current composer's body drops its "Message" label
+      // once it holds text.
+      let shown =
+        page
+        ? webText(paragraph, in: window)
+        : window.textViews.matching(NSPredicate(format: "value == %@", paragraph)).firstMatch
+      XCTAssertTrue(shown.waitForExistence(timeout: 30))
+    }
+    // Each state is read three times, a second apart; its increase compares the median totals.
+    var states: [[String: Any]] = []
+    func read(_ state: String) throws {
+      var readings: [[String: Any]] = []
+      var totals: [UInt64] = []
+      for index in 0..<3 {
+        if index > 0 { Thread.sleep(forTimeInterval: 1) }
+        let processes = try footprints(of: appURL)
+        // The page draws in WebKit's content process, which must be among those read.
+        if page && state != "no-composer" {
+          XCTAssertTrue(
+            processes.contains { $0.name == "com.apple.WebKit.WebContent" },
+            "No WebKit content process for \(state)")
+        }
+        let total = processes.map(\.bytes).reduce(0, +)
+        totals.append(total)
+        readings.append([
+          "totalBytes": total,
+          "processes": processes.map { ["name": $0.name, "pid": $0.pid, "bytes": $0.bytes] },
+        ])
+      }
+      let median = totals.sorted()[1]
+      let baseline = states.first?["medianTotalBytes"] as? UInt64 ?? median
+      states.append([
+        "state": state, "readings": readings, "medianTotalBytes": median,
+        "increaseBytes": Int64(median) - Int64(baseline),
+      ])
+    }
+    try read("no-composer")
+    compose(in: first)
+    try read("one-composer")
+    for number in 2...4 {
+      app.typeKey("n", modifierFlags: [.command, .option])
+      let window = app.windows["Inbox \(number)"]
+      XCTAssertTrue(window.buttons["New Message"].waitForExistence(timeout: 15))
+      compose(in: window)
+    }
+    try read("four-composers")
+    let lines = states.map { state in
+      json(state.merging(["composer": page ? "page" : "current"]) { $1 })
+    }
+    print(lines.map { "PERFORMANCE \($0)" }.joined(separator: "\n"))
+    let attachment = XCTAttachment(
+      data: Data("[\(lines.joined(separator: ","))]".utf8), uniformTypeIdentifier: "public.json")
+    attachment.name = "Composer memory"
+    attachment.lifetime = .keepAlways
+    add(attachment)
+  }
+
+  // The physical footprint, as `footprint` reports it, of the app at `appURL` and of each process
+  // macOS holds the app responsible for, such as its WebKit processes.
+  private func footprints(of appURL: URL) throws -> [(name: String, pid: Int32, bytes: UInt64)] {
+    var pids = [pid_t](repeating: 0, count: 16_384)
+    let count = proc_listallpids(&pids, Int32(pids.count * MemoryLayout<pid_t>.size))
+    func path(_ pid: pid_t) -> String? {
+      var buffer = [CChar](repeating: 0, count: 4 * Int(MAXPATHLEN))
+      return proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 ? String(cString: buffer) : nil
+    }
+    let executables = appURL.resolvingSymlinksInPath().path + "/Contents/MacOS/"
+    let running = pids.prefix(Int(max(count, 0))).filter { $0 > 0 }
+    let app = try XCTUnwrap(
+      running.first { path($0)?.hasPrefix(executables) == true }, "The app is not running")
+    return try running.filter { $0 == app || responsiblePID($0) == app }.map { pid in
+      var usage = rusage_info_v4()
+      let result = withUnsafeMutablePointer(to: &usage) {
+        $0.withMemoryRebound(to: rusage_info_t?.self, capacity: 1) {
+          proc_pid_rusage(pid, RUSAGE_INFO_V4, $0)
+        }
+      }
+      let name = try XCTUnwrap(path(pid), "Process \(pid) ended while it was read")
+      XCTAssertEqual(result, 0, "No footprint for \(name)")
+      return (URL(fileURLWithPath: name).lastPathComponent, pid, usage.ri_phys_footprint)
+    }
   }
 
   // #626: warm encrypted-cache timings on this Mac for the local-mail budgets, over the
