@@ -12,6 +12,7 @@ import {
   use,
   useEffect,
   useMemo,
+  useState,
   useSyncExternalStore,
 } from 'react';
 import { StyleSheet, View } from 'react-native';
@@ -23,6 +24,7 @@ import { Button, Popover } from './design.tsx';
 import { Label } from './label.tsx';
 import { useLocalization } from './localization.ts';
 import { useMailbox, useProfile } from './mailbox.tsx';
+import { AccountContext } from './registration-gate.tsx';
 import { unsubscribe } from './registration.ts';
 import { textStyles, usePalette } from './theme.ts';
 
@@ -51,21 +53,20 @@ const styles = StyleSheet.create({
 
 type OneClick = Extract<UnsubscribeOffer, { kind: 'one-click' }>;
 
-// What one message's Unsubscribe shows: how its last request ended, with when a sent one was sent,
-// whether a request is under way, and which opening of the confirmation is asked for. It lives
-// outside the reader, keyed by Mail Profile, connection and message, so a result arriving after
-// the reader moved on changes only the message it was sent from.
+// One message's Unsubscribe: whether its stored request was looked up, whether a request is under
+// way, and how the last one ended, with when a sent one was sent. It lives outside the reader,
+// keyed by Product Account, Mail Profile, connection and message, so a result arriving after the
+// reader moved on changes only the message it was sent from.
 type Entry = Readonly<{
+  checked?: boolean;
+  sending?: boolean;
   outcome?:
     | Readonly<{ kind: 'sent'; at: number }>
     | Readonly<{ kind: Exclude<UnsubscribeOutcome, 'sent'> }>;
-  sending?: boolean;
-  asking?: number | undefined;
 }>;
 const entries = new Map<string, Entry>();
 const listeners = new Set<() => void>();
 const nothing: Entry = {};
-let openings = 0;
 const subscribe = (listener: () => void) => {
   listeners.add(listener);
   return () => {
@@ -79,15 +80,22 @@ const update = (key: string, change: (entry: Entry) => Entry) => {
   }
 };
 
+// Each confirmation opening is its own popover, so a late close of the last one cannot close it.
+let openings = 0;
+const nextOpening = () => {
+  openings += 1;
+  return openings;
+};
+
 // The opened message's store; one without bodies, such as the preview fixture, offers nothing.
 type Source = Pick<GmailInbox, 'subscribe'> &
   Partial<Pick<GmailInbox, 'responseSource'>>;
 
 // The opened message's one-click offer in the scoped mailbox and Profile, and its Unsubscribe
-// state. A `mailto:` offer shows nothing yet. With `receivedAt`, a request the Profile sent to the
-// list in the 14 days before the message arrived shows as sent.
-function useOneClick(inbox: Source, id: string, receivedAt?: number) {
+// state. A `mailto:` offer shows nothing yet.
+function useOneClick(inbox: Source, id: string) {
   const store = use(UnsubscribeContext);
+  const account = use(AccountContext)?.account;
   const profile = useProfile();
   const mailbox = useMailbox();
   const document = useSyncExternalStore(inbox.subscribe, () =>
@@ -97,83 +105,150 @@ function useOneClick(inbox: Source, id: string, receivedAt?: number) {
     const found = unsubscribeOf(document);
     return found?.kind === 'one-click' ? found : undefined;
   }, [document]);
-  const key = `${profile}\n${mailbox?.id}\n${id}`;
+  const key = `${account}\n${profile}\n${mailbox?.id}\n${id}`;
   const entry =
     useSyncExternalStore(subscribe, () => entries.get(key)) ?? nothing;
-  useEffect(() => {
-    if (offer === undefined || receivedAt === undefined) {
-      return;
-    }
-    const recall = async () => {
-      const request = await store.sentRequest(profile, offer, receivedAt);
-      if (request !== undefined) {
-        update(key, (each) =>
-          each.outcome === undefined && each.sending !== true
-            ? { ...each, outcome: { kind: 'sent', at: request.sentAt } }
-            : each,
-        );
-      }
-    };
-    void recall();
-  }, [store, profile, offer, receivedAt, key]);
   // Sends the request once; a press while one is under way sends nothing.
   const send = async (sending: OneClick) => {
     if (entries.get(key)?.sending === true) {
       return;
     }
     update(key, (each) => ({ ...each, sending: true }));
+    let at = Date.now();
     const outcome = await store
-      .request(profile, sending)
+      .request(profile, sending, () => {
+        at = Date.now();
+        return at;
+      })
       .catch((): UnsubscribeOutcome => 'uncertain');
     update(key, (each) => ({
       ...each,
       sending: false,
-      outcome:
-        outcome === 'sent'
-          ? { kind: 'sent', at: Date.now() }
-          : { kind: outcome },
+      outcome: outcome === 'sent' ? { kind: 'sent', at } : { kind: outcome },
     }));
   };
   return {
+    store,
+    profile,
     offer: mailbox === undefined ? undefined : offer,
     address: mailbox?.address,
     connection: mailbox?.id ?? '',
     key,
     entry,
     send,
+  };
+}
+
+// Whether Unsubscribe… is offered: the stored request was looked up, none is under way and none has
+// ended, when the banner offers what comes next.
+const offered = (entry: Entry) =>
+  entry.checked === true &&
+  entry.sending !== true &&
+  entry.outcome === undefined;
+
+// The confirmation for `opening`, from the view it is placed in; Unsubscribe sends the request.
+function Confirmation({
+  offer,
+  sender,
+  address,
+  opening,
+  onClose,
+  onConfirm,
+}: {
+  readonly offer: OneClick;
+  readonly sender: string;
+  readonly address: string;
+  readonly opening: number | undefined;
+  readonly onClose: () => void;
+  readonly onConfirm: () => void;
+}) {
+  const colors = usePalette();
+  const { t } = useLocalization();
+  const title = t('unsubscribe.confirmTitle', { list: offer.list });
+  return (
+    <Popover
+      key={opening}
+      below
+      title={title}
+      shown={opening !== undefined}
+      onClose={onClose}>
+      <View style={styles.panel}>
+        <Label
+          accessibilityRole="header"
+          style={[textStyles.title3Emphasized, { color: colors.textPrimary }]}>
+          {title}
+        </Label>
+        <Label style={[textStyles.body, { color: colors.textSecondary }]}>
+          {t('unsubscribe.confirm', { sender, address })}
+        </Label>
+        <View style={styles.buttons}>
+          <Button
+            label={t('common.cancel')}
+            isCancel
+            onPress={onClose}
+          />
+          <Button
+            label={t('unsubscribe.confirmAction')}
+            fill="accent"
+            isDefault
+            onPress={onConfirm}
+          />
+        </View>
+      </View>
+    </Popover>
+  );
+}
+
+// A confirmation that opens on request and closes on Cancel, Unsubscribe or a click outside.
+function useAsking() {
+  const [asking, setAsking] = useState<number>();
+  return {
+    asking,
     ask: () => {
-      openings += 1;
-      const opening = openings;
-      update(key, (each) => ({ ...each, asking: opening }));
+      setAsking(nextOpening());
+    },
+    close: () => {
+      setAsking(undefined);
     },
   };
 }
 
-// The More menu's Unsubscribe… for the opened message, which opens the banner's confirmation; none
-// while a request is under way or once one has ended, when the banner offers what comes next.
-export function useUnsubscribeItems(
-  inbox: Source,
-  id: string,
-): readonly PopUpItem[] {
+// The More menu's Unsubscribe… for the opened message, with its confirmation, which opens below the
+// group of More since the banner may be scrolled out of view. `confirmation` takes the sender's
+// name.
+export function useUnsubscribeMenu(inbox: Source, id: string) {
   const { t } = useLocalization();
-  const { offer, key, entry, ask } = useOneClick(inbox, id);
-  return offer === undefined ||
-    entry.sending === true ||
-    entry.outcome !== undefined
-    ? []
-    : [
-        {
-          key: `${key}\nunsubscribe`,
-          title: t('unsubscribe.action'),
-          run: ask,
-        },
-      ];
+  const { offer, address, key, entry, send } = useOneClick(inbox, id);
+  const { asking, ask, close } = useAsking();
+  if (offer === undefined || address === undefined) {
+    return { items: [], confirmation: () => null };
+  }
+  const items: readonly PopUpItem[] = offered(entry)
+    ? [{ key: `${key}\nunsubscribe`, title: t('unsubscribe.action'), run: ask }]
+    : [];
+  return {
+    items,
+    confirmation: (sender: string) => (
+      <Confirmation
+        offer={offer}
+        sender={sender}
+        address={address}
+        opening={asking}
+        onClose={close}
+        onConfirm={() => {
+          close();
+          void send(offer);
+        }}
+      />
+    ),
+  };
 }
 
 // The reader's Unsubscribe banner for a message with a one-click offer: the list and
 // Unsubscribe…, which asks before sending, then the request's outcome. Sent is dated and offers
 // nothing more; Failed and uncertain offer Try Again, which sends without asking again, and Block
-// Sender….
+// Sender…. A request the Profile sent to the list in the 14 days before the message arrived shows
+// as sent, and nothing is offered until that is known.
 export function UnsubscribeBanner({
   inbox,
   id,
@@ -189,19 +264,30 @@ export function UnsubscribeBanner({
 }) {
   const colors = usePalette();
   const { t, settings } = useLocalization();
-  const { offer, address, connection, key, entry, send, ask } = useOneClick(
-    inbox,
-    id,
-    receivedAt,
-  );
+  const { store, profile, offer, address, connection, key, entry, send } =
+    useOneClick(inbox, id);
+  const { asking, ask, close } = useAsking();
   const { anchor, items } = useBlockSender();
-  // Leaving the message closes a confirmation asked in it.
-  useEffect(
-    () => () => {
-      update(key, (each) => ({ ...each, asking: undefined }));
-    },
-    [key],
-  );
+  useEffect(() => {
+    if (offer === undefined) {
+      return;
+    }
+    const recall = async () => {
+      try {
+        const request = await store.sentRequest(profile, offer, receivedAt);
+        update(key, (each) => ({
+          ...each,
+          checked: true,
+          ...(request === undefined || each.outcome !== undefined
+            ? {}
+            : { outcome: { kind: 'sent', at: request.sentAt } }),
+        }));
+      } catch {
+        update(key, (each) => ({ ...each, checked: true }));
+      }
+    };
+    void recall();
+  }, [store, profile, offer, receivedAt, key]);
   const day = useMemo(
     () =>
       new Intl.DateTimeFormat(settings.locale, {
@@ -215,7 +301,7 @@ export function UnsubscribeBanner({
     return null;
   }
   const primary = { color: colors.textPrimary };
-  const { outcome, sending = false, asking } = entry;
+  const { outcome, sending = false } = entry;
   const block = items(sender.address, connection, id).find(
     (item) => 'run' in item,
   );
@@ -250,53 +336,20 @@ export function UnsubscribeBanner({
             <View collapsable={false}>
               <Button
                 label={t('unsubscribe.action')}
-                disabled={sending}
+                disabled={!offered(entry)}
                 onPress={ask}
               />
-              <Popover
-                // Each opening is its own popover, so the last one's close, arriving late, cannot
-                // close it.
-                key={asking}
-                below
-                title={t('unsubscribe.confirmTitle', { list: offer.list })}
-                shown={asking !== undefined}
-                onClose={() => {
-                  update(key, (each) =>
-                    each.asking === asking
-                      ? { ...each, asking: undefined }
-                      : each,
-                  );
-                }}>
-                <View style={styles.panel}>
-                  <Label
-                    accessibilityRole="header"
-                    style={[textStyles.title3Emphasized, primary]}>
-                    {t('unsubscribe.confirmTitle', { list: offer.list })}
-                  </Label>
-                  <Label
-                    style={[textStyles.body, { color: colors.textSecondary }]}>
-                    {t('unsubscribe.confirm', { sender: sender.name, address })}
-                  </Label>
-                  <View style={styles.buttons}>
-                    <Button
-                      label={t('common.cancel')}
-                      isCancel
-                      onPress={() => {
-                        update(key, (each) => ({ ...each, asking: undefined }));
-                      }}
-                    />
-                    <Button
-                      label={t('unsubscribe.confirmAction')}
-                      fill="accent"
-                      isDefault
-                      onPress={() => {
-                        update(key, (each) => ({ ...each, asking: undefined }));
-                        void send(offer);
-                      }}
-                    />
-                  </View>
-                </View>
-              </Popover>
+              <Confirmation
+                offer={offer}
+                sender={sender.name}
+                address={address}
+                opening={asking}
+                onClose={close}
+                onConfirm={() => {
+                  close();
+                  void send(offer);
+                }}
+              />
             </View>
           ) : (
             <>
