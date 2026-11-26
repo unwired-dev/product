@@ -3902,7 +3902,7 @@ final class WindowTests: XCTestCase {
   )
 
   // Typing and formatting feedback: each sample runs from the key press or format bar button
-  // release the app recorded to its first recorded edit of the body that begins with the
+  // release the app recorded to its first recorded edit of the body that shows exactly the
   // expected text and marks (bold 1, italic 2, underline 4 per character), so a later input
   // cannot hide a late result. The budget is the frame interval the app recorded.
   private func typingSamples(
@@ -4020,8 +4020,7 @@ final class WindowTests: XCTestCase {
           let editIndex = try XCTUnwrap(
             edits.first {
               $0 > lastEdit && (records[$0].uptime ?? 0) >= start
-                && records[$0].text?.hasPrefix(shown.text) == true
-                && records[$0].marks?.hasPrefix(shown.marks) == true
+                && records[$0].text == shown.text && records[$0].marks == shown.marks
             }, "No edit showed \(shown) for \(group.name)")
           lastEdit = editIndex
           let edit = records[editIndex]

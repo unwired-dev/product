@@ -50,9 +50,10 @@ stalls overlapping sample windows and in the whole session. Missing or malformed
 probe evidence, including a click sample without its mouse events, fails the journey.
 
 A key sample runs from the key press the app records to the first edit of the
-focused body's text storage that begins with the expected text and the bold,
-italic and underline marks of each of its characters, so a later key press
-cannot hide a late result. A format bar sample runs the same way from the mouse
+focused body's text storage that shows exactly the expected text and the bold,
+italic and underline marks of each of its characters. Each sample needs its own
+edit, after the previous sample's, and a draw after it that no later edit
+replaced, so a later key press cannot hide a late or missing result. A format bar sample runs the same way from the mouse
 release the app records. Both times come from the app, so these samples exclude
 XCUITest. It compares that duration to `1000 / maximumFramesPerSecond`
 of the key window's display, the interval at the display's maximum supported refresh
