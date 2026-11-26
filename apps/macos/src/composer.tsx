@@ -3105,7 +3105,7 @@ const slashGlyphs = new Set(['H1', 'H2', 'H3', '”']);
 // The frames draw Text's and Code Block's symbols smaller than the list symbols.
 const slashSymbolSizes: Readonly<Partial<Record<BlockKind, number>>> = {
   paragraph: 10.5,
-  code: 10,
+  code: 11,
 };
 const isSlashBlock = (command: SlashCommand): command is BlockKind =>
   Object.hasOwn(slashMarkers, command);
