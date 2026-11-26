@@ -725,9 +725,10 @@ with the reason. On iPhone and iPad the composer warns that files not added are 
 sent. On the Mac the row names the reason ("Couldn’t be downloaded"), or says
 **Wasn’t added** when the reason is unknown, and offers **Try Again**
 ([#2991](https://github.com/unwired-dev/product/issues/2991)): a failed import keeps
-its picked or dropped copy on the device while it can be retried, and Try Again
+its source on the device while it can be retried, and Try Again
 (`retryImport`, listed by `getRetries`) reads the same file, pasted image or
-Downloaded Attachment again without a picker. Each received attachment's file stays on the
+Downloaded Attachment again without a picker. A picked or dropped file is read again at
+its original location, so a file replaced there meanwhile is the one Try Again adds. Each received attachment's file stays on the
 device while it can be retried; Try Again downloads a forwarded one again, from its
 mailbox's current Inbox, when it wasn't downloaded or went missing, and only while the
 message lists it alone in its place: another file, or several alike in name, type and
