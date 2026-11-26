@@ -46,7 +46,7 @@ import {
   isInTable,
   tableEditing,
 } from '@tiptap/pm/tables';
-import { ReplaceStep } from '@tiptap/pm/transform';
+import { ReplaceStep, StepMap } from '@tiptap/pm/transform';
 import { Decoration, DecorationSet } from '@tiptap/pm/view';
 
 import type { Command, Update } from './messages.ts';
@@ -1161,6 +1161,7 @@ const DraftBehavior = Extension.create<unknown, { typing: boolean }>({
               return false;
             }
             // Typing over a selection deletes it as Backspace does first.
+            const { selection } = view.state;
             const tr = from === to ? deflt() : view.state.tr;
             // oxlint-disable-next-line unicorn/no-array-method-this-argument -- ProseMirror Mapping.map takes an association, not an array thisArg.
             let start = tr.mapping.map(from, -1);
@@ -1168,6 +1169,18 @@ const DraftBehavior = Extension.create<unknown, { typing: boolean }>({
               flatDelete(tr, from, to);
               start = tr.selection.from;
               tr.insertText(text);
+              // Text the system replaces in a line before the caret, as automatic capitalization
+              // and correction do, leaves the caret where it was.
+              if (
+                selection.empty &&
+                from < selection.head &&
+                $from.sameParent(view.state.doc.resolve(to))
+              ) {
+                const replaced = new StepMap([from, to - from, text.length]);
+                tr.setSelection(
+                  TextSelection.create(tr.doc, replaced.map(selection.head)),
+                );
+              }
             }
             keepReplaced(tr, [from, to], [start, start + text.length]);
             view.dispatch(word ? tr.setMeta(typing, true) : tr);

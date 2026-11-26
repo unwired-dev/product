@@ -1,6 +1,5 @@
 import type { RegistrationSnapshot } from '@private-email/mail-core/registration';
 import type {
-  NativeSendReminderSync,
   NativeSendReminders,
   SendReminder,
 } from '@private-email/mail-core/send-reminders';
@@ -12,12 +11,14 @@ import {
   mobileReminderTimes,
   reminderTimes,
 } from '@private-email/mail-core/send-reminders';
-import * as Option from 'effect/Option';
 import * as Schema from 'effect/Schema';
 
 import type { SyntheticProductSync } from '../src/testing/drafts.ts';
 
-import { createSyntheticProductSync } from '../src/testing/drafts.ts';
+import {
+  createSyntheticProductSync,
+  syntheticSendReminderSync,
+} from '../src/testing/drafts.ts';
 
 // Tomorrow, 09:00 in Prague, as the approved banner shows it.
 const tomorrowMorning = Date.UTC(2026, 10, 13, 8);
@@ -45,71 +46,6 @@ const splitOffset = (
     { type: 'literal', value: `:${minutes}` },
   ];
 };
-
-const openRecord = Schema.decodeUnknownOption(
-  Schema.fromJsonString(
-    Schema.Struct({
-      id: Schema.String,
-      version: Schema.Finite,
-      reminder: Schema.String,
-    }),
-  ),
-);
-
-// Product Sync as native code moves reminder records for `owner`: one record per Draft under an
-// identifier derived from the Draft's.
-const remote = (server: SyntheticProductSync): NativeSendReminderSync => ({
-  pullSendReminders: (owner, known) => {
-    const refused = server.reach();
-    if (refused !== undefined) {
-      return Promise.reject(refused);
-    }
-    const opened = server
-      .list(owner, 'send-reminder.')
-      .map(({ identifier, sealed, updatedAt }) => {
-        const record = Option.getOrUndefined(
-          openRecord(server.open(sealed, owner, identifier) ?? ''),
-        );
-        return record === undefined ||
-          identifier !== `send-reminder.${record.id}`
-          ? { identifier }
-          : { identifier, record: { ...record, updatedAt } };
-      });
-    return Promise.resolve({
-      owner,
-      records: opened.flatMap(({ record }) =>
-        record === undefined ? [] : [record],
-      ),
-      unreadable: known.filter((id) =>
-        opened.some(
-          ({ identifier, record }) =>
-            identifier === `send-reminder.${id}` && record === undefined,
-        ),
-      ),
-    });
-  },
-  pushSendReminder: async (
-    owner,
-    { id, version, reminder, expectedUpdatedAt },
-  ) => {
-    const refused = server.reach();
-    if (refused !== undefined) {
-      throw refused;
-    }
-    const identifier = `send-reminder.${id}`;
-    return {
-      owner,
-      ...server.put(owner, identifier, {
-        sealed: server.seal(
-          owner,
-          identifier,
-          JSON.stringify({ id, version, reminder }),
-        ),
-        expected: expectedUpdatedAt,
-      }),
-    };
-  },
-});
 
 // Native Send Reminder storage as the store sees it: one document for the signed-in account,
 // replaced only from the revision read. With `server`, the store also synchronizes through it.
@@ -173,7 +109,8 @@ const storage = (server?: SyntheticProductSync) => {
       failed: false,
     }),
   };
-  const sync = server === undefined ? undefined : remote(server);
+  const sync =
+    server === undefined ? undefined : syntheticSendReminderSync(server);
   const relaunch = () =>
     createSendReminders(
       native,
@@ -397,6 +334,31 @@ describe('synchronized Send Reminders', () => {
     await mac.synchronize();
     await phone.synchronize();
     await expect(phone.reminders('work')).resolves.toStrictEqual([]);
+  });
+
+  it('tells subscribers when a pull stores another device’s reminder and after each pass, and stops when removed', async () => {
+    expect.hasAssertions();
+    const { mac, phone } = devices();
+    await mac.remind('work', keys);
+    await mac.synchronize();
+    const told = vi.fn<() => void>();
+    const unsubscribe = phone.subscribe(told);
+    await phone.synchronize();
+    expect(told).toHaveBeenCalledWith();
+    await expect(phone.reminders('work')).resolves.toStrictEqual([
+      { ...keys, profile: 'work' },
+    ]);
+    // A pass with nothing new still tells it, so a read that failed meanwhile is made again.
+    told.mockClear();
+    await phone.synchronize();
+    expect(told).toHaveBeenCalledWith();
+
+    unsubscribe();
+    told.mockClear();
+    await mac.cancel('work', keys.draft);
+    await mac.synchronize();
+    await phone.synchronize();
+    expect(told).not.toHaveBeenCalled();
   });
 
   it('removes a reminder of a Draft sent or discarded before the reminder arrived', async () => {
