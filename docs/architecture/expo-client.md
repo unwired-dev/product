@@ -51,14 +51,14 @@ the Mac retains its AppKit glass view manager without importing Expo. Native
 visual, Dynamic Type and accessibility qualification remains required;
 JavaScript tests and bundle checks do not establish that evidence.
 
-The pinned `expo-glass-effect@58.0.5` patch keeps its internal effect/content views
+The pinned `expo-glass-effect@58.0.6` patch keeps its internal effect/content views
 from claiming empty-space hits. React Native can then apply `pointerEvents` to
 the enclosing Expo view, so the reader's `box-none` toolbar padding reaches the
 menu dismissal beneath while control children stay inside interactive glass.
 Remove the patch when the supported upstream version preserves that hit-testing
 contract. A JavaScript component mock cannot validate this native behavior.
 
-The pinned `@expo/ui@58.0.28` patch keeps `BottomSheet` children mounted after
+The pinned `@expo/ui@58.0.30` patch keeps `BottomSheet` children mounted after
 their first presentation. On an interactive swipe, SwiftUI reports dismissal
 when the swipe commits, while the sheet still slides away. Unmounting the React
 children then leaves the bare sheet covering the Inbox floating bar. SwiftUI
