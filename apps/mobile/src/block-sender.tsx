@@ -154,6 +154,7 @@ export function useBlockSender() {
             key: `block\n${address}`,
             title: t('blockedSenders.block'),
             symbol: 'hand.raised.slash',
+            destructive: true,
             run: () => {
               // The Profile's loaded Inbox mail from the address and the open message, which
               // blocking leaves in place.
@@ -179,6 +180,7 @@ export function useBlockSender() {
                   key: `block-domain\n${offered}`,
                   title: t('blockedSenders.blockDomain'),
                   symbol: 'hand.raised.slash',
+                  destructive: true,
                   run: () => {
                     setDomain({
                       sender: name,
