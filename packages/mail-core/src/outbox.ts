@@ -505,14 +505,20 @@ export function createOutbox({
   // and message that offered them.
   const confirmedRequests = new Map<string, { at: number; to?: string }>();
   const confirmedMessages = new Map<string, { at: number; to?: string }>();
-  // When the message `id` left the Outbox confirmed as sent, and to whom for an unsubscribe request
-  // confirmed this session; otherwise only among the latest sends.
+  // When the message `id` was confirmed as sent, and to whom for an unsubscribe request confirmed
+  // this session or still waiting for its record; otherwise only among the latest sends.
   const deliveredOf = (
     id: string,
   ): Readonly<{ at: number; to?: string }> | undefined => {
     const known = confirmedRequests.get(id);
+    const held = entryOf(id);
+    const kept = held?.unsubscribe?.sentAt;
+    const to = held?.draft.to[0]?.address;
     const at = drafts.getSent().find((sent) => sent.id === id)?.sentAt;
-    return known ?? (at === undefined ? undefined : { at });
+    if (known !== undefined || kept !== undefined) {
+      return known ?? { at: kept ?? 0, ...(to === undefined ? {} : { to }) };
+    }
+    return at === undefined ? undefined : { at };
   };
   // The first of the unknown requests an unsubscribe request tries again that was confirmed since,
   // with its identifier.
@@ -939,7 +945,16 @@ export function createOutbox({
     entry: OutboxEntry,
     current: () => boolean,
   ) {
-    if (!(yield* Effect.promise(() => openSender(entry.draft))) || !current()) {
+    // A confirmed request whose record storage refused filed its copy already, which this session
+    // may know before storage does; filing again could put back a copy the person moved or deleted
+    // since, so only its record is saved again, without opening its mailbox.
+    const filed =
+      entry.unsubscribe?.sentAt !== undefined ||
+      confirmedRequests.has(entry.id);
+    if (
+      (!filed && !(yield* Effect.promise(() => openSender(entry.draft)))) ||
+      !current()
+    ) {
       return;
     }
     const mailbox = connectionOf(entry.draft.connection);
@@ -949,9 +964,7 @@ export function createOutbox({
       mailboxesOf(registration.getSnapshot().snapshot),
     );
     let problem: DeliveryProblem | undefined = 'offline';
-    // A confirmed request whose record storage refused filed its copy already; filing again could
-    // put back a copy the person moved or deleted since.
-    if (sending === 'removed' || entry.unsubscribe?.sentAt !== undefined) {
+    if (sending === 'removed' || filed) {
       problem = undefined;
     } else if (sending === 'password') {
       problem = 'authorization';

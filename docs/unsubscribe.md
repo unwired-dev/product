@@ -266,6 +266,13 @@ receive-only banner:
 mise exec -- pnpm --dir apps/macos exec jest test/unsubscribe.test.tsx test/unsubscribe-mailto.test.tsx
 ```
 
+A Mac native journey of the `mailto:` confirmation and waiting state is
+deferred: the synthetic native mailboxes offer no `mailto:` Unsubscribe, and
+adding one changes fixtures that other suites count. For #2968 a local capture
+journey over temporary fixtures took the confirmation, waiting, sent,
+needs-sign-in and receive-only states in Light and Dark on macOS 27.2 for the
+design judge; it is not part of the committed suite.
+
 The native tests cover the request bytes, redirects and every outcome,
 including a loopback HTTPS server that takes the request and never answers:
 

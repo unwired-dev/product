@@ -124,24 +124,27 @@ async function receiver(provider: Provider, state = 'connected', smtp = true) {
     ) => undefined as unknown,
     restoring: async (_id: string) => undefined as unknown,
   };
-  const outbox = createOutbox({
-    // Each Outbox step waits for `stepping` first, as a competing writer would delay it.
-    drafts: {
-      ...phone.drafts,
-      deliver: async (id, step) =>
-        (await stepping.before(id, step)) === 'refuse'
-          ? false
-          : phone.drafts.deliver(id, step),
-      restore: async (id, only) =>
-        (await stepping.restoring(id)) === 'refuse'
-          ? false
-          : phone.drafts.restore(id, only),
-    },
-    mailboxes,
-    registration: phone.registration,
-    claims: phone.storage.delivery,
-    requests: unsubscribe,
-  });
+  // The device's Outbox; `relaunch` opens it again over the same storage, as a new launch would.
+  const relaunch = () =>
+    createOutbox({
+      // Each Outbox step waits for `stepping` first, as a competing writer would delay it.
+      drafts: {
+        ...phone.drafts,
+        deliver: async (id, step) =>
+          (await stepping.before(id, step)) === 'refuse'
+            ? false
+            : phone.drafts.deliver(id, step),
+        restore: async (id, only) =>
+          (await stepping.restoring(id)) === 'refuse'
+            ? false
+            : phone.drafts.restore(id, only),
+      },
+      mailboxes,
+      registration: phone.registration,
+      claims: phone.storage.delivery,
+      requests: unsubscribe,
+    });
+  const outbox = relaunch();
   // Every message the provider took, as raw text, and the copies its Sent mailbox holds.
   const sent = () =>
     ({
@@ -172,6 +175,7 @@ async function receiver(provider: Provider, state = 'connected', smtp = true) {
     kept,
     unsubscribe,
     stepping,
+    relaunch,
   };
 }
 
@@ -801,6 +805,76 @@ describe('recording a mailto unsubscribe request', () => {
       expect([phone.sent().length, phone.filed()]).toStrictEqual([1, 1]);
     } finally {
       phone.outbox.dispose();
+    }
+  });
+
+  // Storage refuses once the step that would take a request out of the Outbox as sent.
+  const refuseLeavingOnce = (phone: Awaited<ReturnType<typeof receiver>>) => {
+    const refused = { done: false };
+    phone.stepping.before = async (id, step) => {
+      const entry = phone.drafts.getOutbox().find((each) => each.id === id);
+      const next = entry === undefined ? undefined : step(entry);
+      if (refused.done || next === undefined || 'state' in next) {
+        return undefined;
+      }
+      refused.done = true;
+      return 'refuse';
+    };
+    return refused;
+  };
+
+  it('never files the Sent copy again for a confirmed IMAP request whose leaving storage refused, though the copy was deleted meanwhile', async () => {
+    expect.hasAssertions();
+    const phone = await receiver('imap');
+    try {
+      const id = await start(phone, 'imap');
+      const refused = refuseLeavingOnce(phone);
+      later(undoSendWindow);
+      await phone.outbox.process();
+      await vi.waitFor(() => {
+        expect(refused.done).toBe(true);
+      });
+      expect(phone.outbox.getSnapshot()).toMatchObject([{ id }]);
+      phone.imap.expunge('Sent', 1);
+
+      await phone.outbox.process();
+      await vi.waitFor(() => {
+        expect(phone.outbox.getSnapshot()).toStrictEqual([]);
+      });
+      expect([phone.sent().length, phone.filed()]).toStrictEqual([1, 1]);
+    } finally {
+      phone.outbox.dispose();
+    }
+  });
+
+  it('records a confirmed IMAP request whose record waited after a relaunch that cannot reach its mailbox, and answers for it with its recipient', async () => {
+    expect.hasAssertions();
+    const phone = await receiver('imap');
+    const id = await start(phone, 'imap');
+    phone.kept.owner = 'another-product-account';
+    later(undoSendWindow);
+    await phone.outbox.process();
+    const confirmedAt = clock.now;
+    await vi.waitFor(() => {
+      expect(pending(phone, 'imap')?.unsubscribe?.sentAt).toBe(confirmedAt);
+    });
+    phone.outbox.dispose();
+
+    phone.become('cached');
+    const relaunched = phone.relaunch();
+    try {
+      expect(relaunched.delivered(id)).toStrictEqual({
+        at: confirmedAt,
+        to: offer.address,
+      });
+      phone.kept.owner = account;
+      await relaunched.process();
+      await vi.waitFor(() => {
+        expect(relaunched.getSnapshot()).toStrictEqual([]);
+      });
+      expect([phone.sent().length, phone.filed()]).toStrictEqual([1, 1]);
+    } finally {
+      relaunched.dispose();
     }
   });
 
