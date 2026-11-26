@@ -185,7 +185,9 @@ the server cannot be reached; `expired` connects, then the server refuses it. Th
 [Mac IMAP Spam and Trash folder journey](native-journeys.md#mac-imap-spam-and-trash-folder-journey)
 connects it in `registration-performance`, and the
 [iPhone and iPad journey](native-journeys.md#iphone-and-ipad-imap-spam-and-trash-folder-journey)
-in `registration-imap-folders`, which adds nothing else.
+in `registration-imap-folders`, whose INBOX also lists Morgan Lee's Conference recording,
+larger than a message read allows, so it opens without its body
+([#2942](https://github.com/unwired-dev/product/issues/2942)).
 In `registration-sync-status`, the synthetic Gmail mailbox downloads its history
 slowly: Gmail reports the mailbox's message count, lists two messages, then holds
 the next page for two minutes and fails it once with a server error before listing
