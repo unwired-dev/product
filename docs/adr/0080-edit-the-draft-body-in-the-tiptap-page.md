@@ -156,7 +156,10 @@ release limit:
    selection-change latency on large, many-block Drafts
    ([review note](https://github.com/unwired-dev/product/issues/822#issuecomment-6114571758)),
    and the current composer's interactions the page lacks, such as the Slash
-   Command Menu.
+   Command Menu. On Mac, [#2955](https://github.com/unwired-dev/product/issues/2955)
+   timed opening a new message and a saved Draft in both composers on a loaded
+   host; repeat it on an idle one
+   ([results](../draft-editor-evaluation.md#composer-opening-2955)).
 6. The Tiptap and ProseMirror notices in the distributed app; the licence
    inventory must list the page's packages. Met by
    [#2916](https://github.com/unwired-dev/product/issues/2916): every bundle that
