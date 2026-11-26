@@ -87,12 +87,13 @@ function useOneClick(id: string) {
   const document = useSyncExternalStore(inbox.subscribe, () =>
     'responseSource' in inbox ? inbox.responseSource(id) : undefined,
   );
+  // Only the document and whether a mailbox is scoped change the offer, so a sync's new mailbox
+  // snapshot leaves an open confirmation in place.
+  const scoped = mailbox !== undefined;
   const offer = useMemo(() => {
     const found = unsubscribeOf(document);
-    return found?.kind === 'one-click' && mailbox !== undefined
-      ? found
-      : undefined;
-  }, [document, mailbox]);
+    return found?.kind === 'one-click' && scoped ? found : undefined;
+  }, [document, scoped]);
   const key = `${account}\n${profile}\n${mailbox?.id}\n${id}`;
   const entry =
     useSyncExternalStore(subscribe, () => entries.get(key)) ?? nothing;
