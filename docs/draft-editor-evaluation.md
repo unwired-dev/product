@@ -770,6 +770,65 @@ them on an idle host before reading them as a comparison. Physical iPhone and
 iPad, and #822's startup, typing response and memory measurements, are still
 outstanding.
 
+### Inline predictions (#2966)
+
+[#2966](https://github.com/unwired-dev/product/issues/2966) asked whether the
+system's inline predictions delay typing in the page. A Mac typing journey
+([#2962](https://github.com/unwired-dev/product/issues/2962)) had seen XCUITest
+take about 5 s for each of the key presses after "feedb", which never reached
+the app's key monitor. **They do not delay the page.**
+
+Method, on 2026-11-26 on the Mac reference host: a Mac mini M4 (`Mac16,10`) on
+macOS 27.2.1 (`26B131`), Xcode 27.2 (`27B52`), with `Testing` builds of
+`01c50416b`: `registration-draft-editor` for the page and
+`registration-performance` for the current composer. Inline predictions and
+automatic capitalization were at their defaults (on) unless a run turned one
+off with its launch argument. A temporary journey opened an empty New Message
+and typed "typing feedback test" with XCUITest's `typeKey`. Then a host tool
+posted the same keys at the HID event tap, which a hardware keyboard's events
+also pass, 200 ms and 1 s apart, and read the body's accessibility value every
+2 ms. The app's key monitor recorded which presses reached it. No person typed
+on a physical keyboard.
+
+"Slow" counts the 20 XCUITest presses of a run that took over 1 s; "shown" is
+the time from a key posted at the HID tap to its text in the body, the first key
+of each pass including the app's activation.
+
+| Composer                | Runs | Slow           | Shown   |
+| ----------------------- | ---- | -------------- | ------- |
+| Page, predictions on    | 4    | 0, 2, 3 and 10 | 6–77 ms |
+| Page, predictions off   | 1    | 0              | 7–40 ms |
+| Current, predictions on | 2    | 0              | 8–51 ms |
+
+One current composer run stopped after its XCUITest pass, so its shown times come
+from the other.
+
+- In the page, 7 presses at the HID tap and 11 from XCUITest went to the
+  system's prediction and never reached the app's key monitor. Their text still
+  appeared as fast as the rest: within 35 ms at the HID tap, and, but for one
+  press in the late pass below, within 210 ms of XCUITest starting it, while
+  XCUITest waited about 5 s for its own synthesized event. The delay #2962 saw is XCUITest's, not the page's.
+- In one XCUITest pass, presses from "k" on reached the app's key monitor, or
+  the page, 0.8 to 3.5 s after XCUITest started them; the page then showed each
+  within 35 ms of the app receiving it.
+- The current composer offered no inline prediction in either run, and every
+  press reached its key monitor.
+
+Two other page defects appeared, both at one key a second; neither is a delay:
+
+- With automatic capitalization on, Space after a pause made the first word
+  `T yping`, with the caret after `T ` (3 of 3 runs, predictions on or off; 0
+  of 2 with capitalization off):
+  [#2971](https://github.com/unwired-dev/product/issues/2971).
+- Typing "c" and "k" through the prediction left `feedbackck` (2 of 2 runs with
+  capitalization off): [#2972](https://github.com/unwired-dev/product/issues/2972).
+
+The current composer had neither. Evidence is in `artifacts/macos-inbox/`:
+`journey.prFl1z/`, `journey.6bbqN3/`, `journey.7OhwUE/` and `journey.XZGpRp/`
+(page, predictions on), `journey.X3sUtb/` (page, predictions off), and
+`journey.FcdgP3/` and `journey.BomZT3/` (current composer). These runs do not
+cover a physical keyboard, other input sources or iPhone and iPad.
+
 ## Finding
 
 **Proceed** to the dependent evaluations (#819–#822) on iPhone and iPad. A
