@@ -11,6 +11,10 @@ const parseLine = Schema.decodeSync(
 const rejection = (code: string) =>
   Object.assign(new Error(`Synthetic ${code}`), { code });
 
+// The corpus text a clarifying tool cannot edit without guessing.
+const unclear =
+  /Do not send|no, at 5|yes but no|auf keinen Fall|Do not invite|do not come|asdf|not approved yet|n'est pas/u;
+
 // A native binding whose answers take a second, with the cancellation behavior under test.
 function binding({
   availability = 'available',
@@ -36,6 +40,9 @@ function binding({
       return Promise.reject(rejection(nativeCancelCode));
     }
     const { body, quotedText, authoredText } = parseLine(input);
+    if (availability === 'available' && unclear.test(String(authoredText))) {
+      return Promise.reject(rejection('needs-clarification'));
+    }
     return availability === 'available'
       ? answer(
           request,
@@ -112,9 +119,9 @@ describe('assistance qualification corpus run', () => {
 
     const { byKind, complete } = await run(binding());
 
-    expect(complete).toMatchObject({ pass: 23, limited: 0, fail: 0 });
+    expect(complete).toMatchObject({ pass: 56, limited: 0, fail: 0 });
     expect(byKind('device')[0]).toMatchObject({
-      corpusVersion: 4,
+      corpusVersion: 5,
       hardware: 'Mac16,10',
       availability: 'available',
       translationLanguages: ['en', 'de'],
@@ -149,7 +156,7 @@ describe('assistance qualification corpus run', () => {
       result: 'fail',
     });
     expect(byKind('summary-cancel')[0]).toMatchObject({ result: 'pass' });
-    expect(complete).toMatchObject({ pass: 22, fail: 1 });
+    expect(complete).toMatchObject({ pass: 55, fail: 1 });
   });
 
   it('an older summary completed before replacement does not qualify in-flight rejection', async () => {
@@ -249,6 +256,43 @@ describe('assistance qualification corpus run', () => {
     );
   });
 
+  it('asking for clarification passes only the cases that cannot be edited without guessing', async () => {
+    expect.hasAssertions();
+
+    const asking = binding();
+    asking.assistance.rewrite = () =>
+      Promise.reject(rejection('needs-clarification'));
+    const askingRun = await run(asking);
+    const asked = askingRun.byKind('rewrite');
+    const answering = binding();
+    answering.assistance.rewrite = () => Promise.resolve('A plain rewrite.');
+    const answeringRun = await run(answering);
+    const answered = answeringRun.byKind('rewrite');
+
+    expect(asked).toContainEqual(
+      expect.objectContaining({
+        id: 'fragments',
+        tool: 'shorten',
+        state: 'clarification',
+        result: 'pass',
+      }),
+    );
+    expect(asked).toContainEqual(
+      expect.objectContaining({
+        id: 'open-questions',
+        state: 'clarification',
+        result: 'fail',
+      }),
+    );
+    expect(answered).toContainEqual(
+      expect.objectContaining({
+        id: 'contradiction',
+        state: 'ready',
+        result: 'fail',
+      }),
+    );
+  });
+
   it('a model that cannot write a case language is a limitation', async () => {
     expect.hasAssertions();
 
@@ -265,7 +309,7 @@ describe('assistance qualification corpus run', () => {
         result: 'limited',
       }),
     );
-    expect(complete).toMatchObject({ pass: 17, limited: 6, fail: 0 });
+    expect(complete).toMatchObject({ pass: 17, limited: 39, fail: 0 });
   });
 
   it('unexpected native cancellation rejections fail instead of qualifying as capability limits', async () => {
@@ -279,7 +323,7 @@ describe('assistance qualification corpus run', () => {
       code: 'unavailable',
       result: 'fail',
     });
-    expect(complete).toMatchObject({ pass: 22, limited: 0, fail: 1 });
+    expect(complete).toMatchObject({ pass: 55, limited: 0, fail: 1 });
   });
 
   it('recorded device metadata excludes native filesystem paths and local account names', async () => {

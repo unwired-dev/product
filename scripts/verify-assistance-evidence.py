@@ -1,4 +1,4 @@
-"""Refuse incomplete or failed corpus-v4 qualification while retaining its evidence."""
+"""Refuse incomplete or failed corpus-v5 qualification while retaining its evidence."""
 import json
 from pathlib import Path
 import sys
@@ -7,7 +7,16 @@ expected = {
     'summary': ['lease-deadline', 'instruction-in-body', 'long-newsletter',
                 'committee-meeting', 'delivery-address'],
     'rewrite': ['rough-note', 'long-draft', 'czech-note', 'german-note',
-                'instruction-like-note', 'short-czech-note'],
+                'instruction-like-note', 'short-czech-note', 'open-questions',
+                'unclear-pronoun', 'two-reading-date', 'short-thanks', 'transfer-request',
+                'expand-note', 'shorten-note', 'friendly-note', 'neutral-note',
+                'expand-question-french', 'expand-question-german', 'expand-invoice-spanish',
+                'expand-invoice', 'shorten-appointment', 'friendly-paragraphs', 'neutral-french',
+                'money-amounts', 'link-note', 'quote-note', 'todo-list', 'self-correction',
+                'build-server', 'contradiction', 'contradicting-times', 'fragments',
+                'contradiction-german', 'expand-contradiction', 'friendly-contradiction',
+                'neutral-garbled', 'held-out-reschedule', 'held-out-german-thanks',
+                'held-out-budget', 'held-out-french-times'],
     'reply': ['confirm-meeting', 'long-quoted-message', 'answer-in-german'],
     'translation': ['german-to-english', 'czech-to-english', 'english-to-german',
                     'same-language', 'unidentified-language'],
@@ -63,11 +72,11 @@ cases = rows[1:-1]
 counts = {result: sum(row.get('result') == result for row in cases)
           for result in ('pass', 'limited', 'fail')}
 if (not rows or rows[0].get('kind') != 'device'
-        or any(row.get('corpusVersion') != 4 for row in rows)
+        or any(row.get('corpusVersion') != 5 for row in rows)
         or len(cases) != len(identities)
         or {(row.get('kind'), row.get('id')) for row in cases} != identities
         or sum(counts.values()) != len(cases)
-        or rows[-1] != {'corpusVersion': 4, 'kind': 'complete', **counts}
+        or rows[-1] != {'corpusVersion': 5, 'kind': 'complete', **counts}
         or not all(described(row) for row in rows[:-1])):
     raise SystemExit('Incomplete or malformed assistance qualification evidence')
 if counts['fail']:
