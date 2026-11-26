@@ -470,6 +470,102 @@ final class WindowTests: XCTestCase {
     XCTAssertFalse(offer.waitForExistence(timeout: 45))
   }
 
+  // #2950: a file dragged from Finder onto the Draft editor page is attached, as on the current
+  // composer, and stays attached through Save, a relaunch and reopening the Draft.
+  func testDraftEditorFileDrop() throws {
+    continueAfterFailure = false
+    let environment = ProcessInfo.processInfo.environment
+    XCTAssertEqual(environment["UNWIRED_TEST_SCENARIO"], "registration-draft-editor")
+    let app = XCUIApplication(
+      url: URL(fileURLWithPath: try XCTUnwrap(environment["UNWIRED_APP_PATH"])))
+    app.launchArguments += ["-ApplePersistenceIgnoreState", "YES", "-interfaceLanguage", "en"]
+    app.launch()
+    addTeardownBlock { if app.state != .notRunning { app.terminate() } }
+    let window = app.windows["Inbox 1"]
+    XCTAssertTrue(window.waitForExistence(timeout: 30))
+    draftEditorSignIn(window)
+    window.buttons["New Message"].click()
+    let body = window.webViews.textViews["Message body"]
+    XCTAssertTrue(body.waitForExistence(timeout: 15))
+    // The toolbar appears once the page is ready and moves the page down; focus it after that.
+    XCTAssertTrue(window.buttons["Undo"].waitForExistence(timeout: 30))
+    body.click()
+    body.typeText("Dropped below this line")
+    let typed = webText("Dropped below this line", in: window)
+    XCTAssertTrue(typed.waitForExistence(timeout: 10))
+
+    // A folder of the runner's own, outside the app's container: the app can read the file only
+    // through the access the drop grants it.
+    let folder = FileManager.default.temporaryDirectory
+      .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    let file = folder.appendingPathComponent("drop-note.txt")
+    XCTAssertNoThrow(
+      try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true))
+    XCTAssertNoThrow(try Data("Dropped on the page".utf8).write(to: file))
+    addTeardownBlock { try? FileManager.default.removeItem(at: folder) }
+    NSWorkspace.shared.activateFileViewerSelecting([file])
+    let finder = XCUIApplication(bundleIdentifier: "com.apple.finder")
+    let shown = finder.windows[folder.lastPathComponent]
+    XCTAssertTrue(shown.waitForExistence(timeout: 15))
+    addTeardownBlock { if shown.exists { shown.typeKey("w", modifierFlags: .command) } }
+    // The file's row, not the preview's title below it.
+    let names = shown.descendants(matching: .any)
+      .matching(NSPredicate(format: "label == %@ OR value == %@", "drop-note.txt", "drop-note.txt"))
+    XCTAssertTrue(names.firstMatch.waitForExistence(timeout: 10))
+    let item = try XCTUnwrap(names.allElementsBoundByIndex.min { $0.frame.minY < $1.frame.minY })
+    // Finder's window moves down until the row sits above the Dock, clear of the page's drop
+    // point.
+    let screen = try XCTUnwrap(NSScreen.main).frame
+    let bar = shown.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0))
+      .withOffset(CGVector(dx: 0, dy: 12))
+    bar.click(
+      forDuration: 0.2,
+      thenDragTo: bar.withOffset(CGVector(dx: 0, dy: screen.height - 200 - item.frame.midY)))
+    waitUntil { abs(item.frame.midY - (screen.height - 200)) < 20 }
+    let target = CGPoint(x: body.frame.midX, y: body.frame.midY)
+    XCTAssertFalse(shown.frame.contains(target))
+    // Both apps' frames are in screen points, so one coordinate reaches the other app.
+    let start = item.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+    start.click(
+      forDuration: 0.5,
+      thenDragTo: start.withOffset(
+        CGVector(dx: target.x - item.frame.midX, dy: target.y - item.frame.midY)),
+      withVelocity: .slow, thenHoldForDuration: 1)
+
+    let row = window.descendants(matching: .any)
+      .matching(NSPredicate(format: "label BEGINSWITH %@", "drop-note.txt, ")).firstMatch
+    XCTAssertTrue(row.waitForExistence(timeout: 30))
+    // The import reads the bytes, which fails for a file the app was given no access to.
+    waitUntil { !row.label.contains("…") }
+    XCTAssertFalse(row.label.contains("Not added"), row.label)
+    XCTAssertTrue(typed.exists)
+    XCTAssertEqual(body.images.count, 0)
+    let dropped = XCTAttachment(screenshot: window.screenshot())
+    dropped.name = "Draft editor page with a dropped file"
+    dropped.lifetime = .keepAlways
+    add(dropped)
+    shown.typeKey("w", modifierFlags: .command)
+
+    saveOnClose(window)
+    app.terminate()
+    app.launch()
+    let relaunched = app.windows["Inbox 1"]
+    let draft = relaunched.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Draft."))
+      .firstMatch
+    XCTAssertTrue(draft.waitForExistence(timeout: 20))
+    draft.click()
+    XCTAssertTrue(
+      webText("Dropped below this line", in: relaunched).waitForExistence(timeout: 15))
+    XCTAssertTrue(
+      relaunched.descendants(matching: .any)
+        .matching(NSPredicate(format: "label BEGINSWITH %@", "drop-note.txt, ")).firstMatch
+        .waitForExistence(timeout: 15))
+    let reopened = XCTAttachment(screenshot: relaunched.screenshot())
+    reopened.name = "Reopened Draft with the dropped file"
+    reopened.lifetime = .keepAlways
+    add(reopened)
+  }
+
   // Moving the entry into the reader must keep the open query and command rows in the window.
   func testCommandPaletteWindowBounds() throws {
     continueAfterFailure = false

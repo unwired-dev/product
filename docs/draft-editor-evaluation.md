@@ -236,7 +236,10 @@ again, and **Remove**.
 - **Pasting and dropping.** On iPhone and iPad, pasting images into the page imports
   them from the pasteboard through native code, as **Paste Image** does. The page
   never reads pasted or dropped file data: on Mac a paste carrying images adds
-  nothing, and files dropped on the page are refused on every host. A paste that
+  nothing. Files dropped on the page are attached on Mac, where native code reads
+  them from the drag pasteboard as the current composer attaches files dropped on
+  it ([#2950](https://github.com/unwired-dev/product/issues/2950)); iPhone and iPad
+  refuse them. A paste that
   carries an image beside text is treated as an image paste, so its text is not
   pasted; paste the text separately. Text and supported formatting without images
   paste as before. A copied or cut Inline Image pastes back
@@ -617,11 +620,33 @@ cookies and other WebKit stores). No sample found any, through typing, imports,
 **Save Draft**, relaunch and reopening, on iPhone and on iPad.
 
 Outstanding for #820: the Mac native journey, which needs a signed mock profile;
-pasting image data into the page on Mac, and dropping files on the page on every
-host, which need native interception in the web view (the page refuses both unread);
+pasting image data into the page on Mac, and dropping files on the page on iPhone
+and iPad, which need native interception in the web view (the page refuses both
+unread; Mac drops are recorded in [Mac file drops](#mac-file-drops-2950));
 **Paste Image** and in-page paste on a device; and physical iPhone and iPad runs.
 Website data after account removal and a network capture are recorded in
 [Website data and network](#website-data-and-network-2922).
+
+### Mac file drops (#2950)
+
+[#2950](https://github.com/unwired-dev/product/issues/2950) attaches files dropped on
+the page on Mac, as the current composer attaches files dropped anywhere on it. The
+page still never reads the dropped data: it refuses the drop and asks the host, and
+native code reads the file URLs of the drag from the drag pasteboard and imports them
+as Attachments, images included, through the same import as **Attach Files…**.
+iPhone and iPad ignore the request, since native code there cannot read a drop on
+the page.
+
+The `testDraftEditorFileDrop` journey
+([Mac composer recovery journey](native-journeys.md#mac-composer-recovery-journey))
+ran on 2026-11-26 with Xcode 27.2 and macOS 27.2.1 on the Mac mini M4, in a
+`registration-draft-editor` `Testing` build. It drags a text file from a Finder window
+onto the page: the file, kept in the test runner's own temporary folder outside the
+app's container, becomes an Attachment whose bytes the import reads and verifies, so
+the drop grants the sandboxed app access to it. The page's text and images are
+unchanged. After **Save**, a relaunch and reopening the Draft, the Attachment is
+still there. XCUITest's drag starts a drag session in Finder only from the file's
+row in the column, not from the preview's title.
 
 ### Save ordering (#821)
 

@@ -152,7 +152,8 @@ type Page = Readonly<{
   editor: Editor;
   posted: Update[];
   // Pastes the page asked the host to read from the pasteboard.
-  pastes: () => number;
+  // The page's requests that the host read a paste or drop natively, in order.
+  requests: () => ReadonlyArray<'paste' | 'drop'>;
   command: (command: Command) => void;
   // Each character arrives as text input does in WebKit.
   type: (text: string) => void;
@@ -165,13 +166,13 @@ async function open(
 ): Promise<Page> {
   vi.resetModules();
   const posted: Update[] = [];
-  let pastes = 0;
+  const requests: Array<'paste' | 'drop'> = [];
   globalThis.ReactNativeWebView = {
     postMessage: (message) => {
       const decoded = decodeMessage(message);
       ok(decoded, `Expected a valid page message: ${message}`);
-      if (decoded.type === 'paste') {
-        pastes += 1;
+      if (decoded.type === 'paste' || decoded.type === 'drop') {
+        requests.push(decoded.type);
       } else {
         posted.push(decoded);
       }
@@ -200,7 +201,7 @@ async function open(
   return {
     editor,
     posted,
-    pastes: () => pastes,
+    requests: () => requests,
     command: draftCommand,
     type: (text) => {
       for (const character of text) {
@@ -1840,7 +1841,7 @@ describe('the Tiptap evaluation page', () => {
       prevented: [paste, drop, move].map(
         ({ defaultPrevented }) => defaultPrevented,
       ),
-      pastes: page.pastes(),
+      requests: page.requests(),
       body: bodyOf(page),
     }).toStrictEqual({
       before: null,
@@ -1851,7 +1852,7 @@ describe('the Tiptap evaluation page', () => {
       rechecked: thumbnail,
       handled: [true, true, undefined],
       prevented: [true, true, false],
-      pastes: 1,
+      requests: ['paste', 'drop'],
       body: [{ kind: 'paragraph', spans: [{ text: '￼', image: photo }] }],
     });
   });

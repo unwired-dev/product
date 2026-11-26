@@ -1051,8 +1051,8 @@ const DraftBehavior = Extension.create<unknown, { typing: boolean }>({
               ? new Slice(content, 1, 1)
               : new Slice(content, slice.openStart, slice.openEnd);
           },
-          // A pasted image is read from the pasteboard by native code, where it can; the page
-          // never reads the data, and a dropped file is refused.
+          // Pasted images and dropped files are read by native code, where it can; the page never
+          // reads the data.
           // Pasting over a selection pastes over it as the current composer does.
           handlePaste: (view, event, slice) => {
             if (!carriesFiles(event.clipboardData)) {
@@ -1089,6 +1089,9 @@ const DraftBehavior = Extension.create<unknown, { typing: boolean }>({
                 return false;
               }
               event.preventDefault();
+              globalThis.ReactNativeWebView?.postMessage(
+                JSON.stringify({ type: 'drop' }),
+              );
               return true;
             }
             const target = emptyLineAt(view, event, slice);

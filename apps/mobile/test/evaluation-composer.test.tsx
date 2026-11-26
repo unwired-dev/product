@@ -992,6 +992,14 @@ describe('the Tiptap evaluation composer', () => {
       });
     });
     const pasted = lastAdded();
+    // Native code cannot read files dropped on the page here, so a drop adds nothing.
+    const beforeDrop = lastSent();
+    await act(async () => {
+      await fireEvent(screen.getByTestId('message-webview'), 'message', {
+        nativeEvent: { data: '{"type":"drop"}' },
+      });
+    });
+    expect(lastSent()).toStrictEqual(beforeDrop);
     // The page can name only assets the host gave it.
     const forged = {
       id: 'forged000001',

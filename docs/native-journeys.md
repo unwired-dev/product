@@ -481,6 +481,23 @@ reopens the page with the same subject and body. A second force quit offers the
 record again, Discard removes it, and a third launch offers nothing. The restored
 page is kept as an attachment.
 
+The `testDraftEditorFileDrop` journey uses the same build
+([#2950](https://github.com/unwired-dev/product/issues/2950)):
+
+```sh
+mise exec -- pnpm --filter @private-email/macos test:native \
+  "$PWD/artifacts/macos-inbox/DerivedData/Build/Products/Testing/UnwiredMail.app" \
+  testDraftEditorFileDrop
+```
+
+After signing in, a New Message gets body text. The journey writes `drop-note.txt`
+to a new folder in the test runner's temporary folder, shows it in Finder, moves
+Finder's window below the page and drags the file's row onto the body. The file
+becomes an Attachment whose bytes verify, and the body keeps its text and no image.
+After **Save**, a relaunch and reopening the Draft, the Attachment is still listed.
+The dropped and reopened page are kept as attachments; the journey closes its Finder
+window and removes the folder.
+
 ## Mac list indent journey
 
 The `testListIndent` journey and its `Dark` variant use the same

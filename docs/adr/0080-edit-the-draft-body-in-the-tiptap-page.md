@@ -45,7 +45,9 @@ recommendation and the decision it supports. Facts link to their evidence;
   runs: the review panel under the iPhone keyboard, a result dropped before the
   page loaded, rotation squeezing the body, the iPhone pill behind the keyboard and
   the iPad format bar clipping its menu. Still open: the page cannot read image
-  paste on Mac or file drops on any host without native web-view interception, the
+  paste on Mac or file drops on iPhone and iPad without native web-view interception
+  (Mac drops read the drag pasteboard natively since
+  [#2950](https://github.com/unwired-dev/product/issues/2950)), the
   first tap on iPhone only focuses the page, and WebKit adds its own iPhone form
   accessory bar and iPad shortcut group ([probes](../architecture/draft-table-editing.md#probes)).
 - **Semantic differences** from the current composer
@@ -135,8 +137,11 @@ release limit:
    and prove that they restore after a forced termination. On Mac the page journals
    them and restores them after a force quit since
    [#2933](https://github.com/unwired-dev/product/issues/2933).
-3. The Mac Inline Image journey, image paste on Mac, file drops on every host,
-   and **Paste Image** and in-page paste on a device.
+3. The Mac Inline Image journey, image paste on Mac, file drops on iPhone and
+   iPad, and **Paste Image** and in-page paste on a device. File drops on Mac are
+   met by [#2950](https://github.com/unwired-dev/product/issues/2950): native code
+   reads the drag pasteboard, and the Mac journey drops a file from Finder that
+   reopens as an Attachment.
 4. WebKit website data after account removal and a network capture of a journey.
    Met by [#2922](https://github.com/unwired-dev/product/issues/2922) on iPhone
    and iPad Simulators and the Mac: no sample found website data during the

@@ -834,6 +834,12 @@ function EvaluationEditor({
               if (message === undefined || message.type === 'paste') {
                 return;
               }
+              // Files dropped on the page, which native code reads from the drag pasteboard, are
+              // attached, as files dropped on the current composer are.
+              if (message.type === 'drop') {
+                void add('drop', false);
+                return;
+              }
               // A delayed report of an earlier body revision never replaces a newer one.
               if (message.revision < (pageNow.current?.revision ?? 0)) {
                 return;
