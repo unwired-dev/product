@@ -39,6 +39,65 @@ checked the menu's order, both passed again on their first attempt at host loads
   message unread: the Back button counts one unread message, and the menu then
   offers **Mark as Read**.
 
+## iPhone and iPad presenter checks in the other appearance, 2026-11-26
+
+[#2943](https://github.com/unwired-dev/product/issues/2943), a slice of
+[#2873](https://github.com/unwired-dev/product/issues/2873), runs the checks the
+2026-11-24 pass below recorded in Dark only, and that no later entry ran in Light. It
+ran on `e6cd8cb16` with the journey step added, on `open-read-relaunch` and
+`registration-imap-folders` Release Simulator builds with Xcode 27.2 (`27B52`), the
+iOS 27.0 runtime and macOS 27.2.1, on iPhone 18 Pro and iPad Pro 11-inch (M5)
+starting in portrait. Each run passed on its first attempt; the 1-minute host load
+from other work was 30–180.
+
+- Filters, in Light: the `open-read-relaunch` Inbox journey (`verifyFilters`) passed
+  on iPhone and iPad. On iPhone a downward swipe on the sheet discards a cleared
+  Unread; on iPad a tap outside and Command-period, UIKit's Escape, each discard it,
+  and the popover stays shown while the iPad turns to Landscape and back. CI runs
+  the same journey in Dark.
+- Move sheet search, in Light and Dark: the `registration-imap-folders` journey now
+  types "bulk" into the iPhone Move sheet's search on IMAP mail. The other
+  folders, the selected Inbox among them, leave the list, and the search field and
+  **Move to Bulk Mail** stay above the software keyboard, which the 2026-11-24 pass
+  had checked by hand in Dark. Bulk Mail
+  then takes the move from the search's result. It passed on iPhone in both
+  appearances.
+- Already run in both appearances by later entries: the Reply sheet's Close
+  ([#2914](https://github.com/unwired-dev/product/issues/2914)) and swipe
+  ([#2898](https://github.com/unwired-dev/product/issues/2898)), Apply Filters
+  (#2914), `testNewLabel`
+  ([#2891](https://github.com/unwired-dev/product/issues/2891)), the Labels sheet's
+  swipe and `testComposerSheet`, with the composer's question and its fields above
+  the keyboard (#2898).
+
+## Link confirmation through rotation, 2026-11-25
+
+[#2909](https://github.com/unwired-dev/product/issues/2909) restores the turn
+back to Portrait for the link confirmation in `testPresenterRotation`. On
+`registration-declined` Release Simulator builds (Xcode 27.2, iOS 27.0 runtime,
+Dark, host load 5–450), the alert stayed shown after every turn back: a probe
+journey turned it to Landscape and back six times on iPhone 18 Pro, on
+`cf500a39d` and on `0240b4673`, whose reader and link confirmation code
+matches the `6fef500a2` build in which #2907 saw it close (the app differs only
+in Send Reminder sync); the full journey passed twice on iPhone at
+`0240b4673`, and once on iPhone and iPad Pro 11-inch (M5) on `cf500a39d` with
+and without the change. The probe saw no unmount of the reader or the
+confirmation and no dismissal reported by the alert, so the earlier dismissal
+was not reproduced and its cause is not established. A dismissal the person did
+not choose now discards the pending link: before, it left the link pending and
+the alert's own presentation closed, so choosing a link again in that reader
+showed nothing.
+
+## Mac Draft editor page in two windows, 2026-11-25
+
+[#2938](https://github.com/unwired-dev/product/issues/2938) ran the Mac
+`registration-draft-editor` journey on a signed `Testing` build on the Mac mini M4,
+macOS 27.2.1 and Xcode 27.2 (`27B52`): `Executed 1 test, with 0 failures`. Two
+windows on one saved Draft kept both versions, the second as a conflicting copy,
+and the window's close button asked as Command-W does
+([evidence](../draft-editor-evaluation.md#save-ordering-821)). Physical devices,
+VoiceOver and iPhone and iPad journaling were not run.
+
 ## iPhone and iPad composer system menus, 2026-11-25
 
 [#2787](https://github.com/unwired-dev/product/issues/2787), part of
@@ -195,10 +254,20 @@ confirmation below.
   iPhone probe, tapping the link again showed it. Filed as
   [#2909](https://github.com/unwired-dev/product/issues/2909); the journey turns
   it only to Landscape until then.
+- The Move picker on IMAP mail
+  ([#2931](https://github.com/unwired-dev/product/issues/2931)): the
+  `registration-imap-folders` journey, on a Release Simulator build of
+  `cf500a39d` with the step added and the same toolchain, opens **Folders** on
+  "Welcome to IMAP" and turns the device to Landscape and back. The iPhone Move
+  sheet and the iPad Folders popover stay shown through both turns, with their
+  folders and, on iPhone, **Close** in reach; the popover stays anchored to
+  **Folders** in Landscape. It passed on both devices in both appearances, in
+  about 7 minutes each at 1-minute host load 3–131. Two iPad runs failed later, in the
+  Signatures step, where keys typed after a 60-second app-idle wait were lost
+  ([#2934](https://github.com/unwired-dev/product/issues/2934)); their rotation
+  steps had passed.
 - **Deferred** to [#2873](https://github.com/unwired-dev/product/issues/2873):
-  rotation with the Move picker, which needs IMAP mail
-  ([#2902](https://github.com/unwired-dev/product/issues/2902)), and the rest of
-  its list.
+  the rest of its list.
 
 ## iPhone and iPad system presenters with Reduce Motion, 2026-11-25
 
@@ -494,7 +563,7 @@ presenter; each names the appearances it ran in. Host load from other work was
   checks above in the other appearance; and iPhone's More, which shows only for mail without Reply
   (the 2026-11-26 entry above, [#2942](https://github.com/unwired-dev/product/issues/2942)). `agent-device` cannot turn VoiceOver
   on, rotate the device or resize an iPad window. Rotation with the Gmail
-  presenters is the 2026-11-25 entry above
+  presenters and the Move picker is the 2026-11-25 entry above
   ([#2907](https://github.com/unwired-dev/product/issues/2907)). The `registration-apple`
   journey, whose Move steps rotate to landscape before opening the picker and
   check its keyboard there, stopped under host load before them.
