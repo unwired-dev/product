@@ -978,6 +978,18 @@ describe('the Tiptap evaluation composer', () => {
       });
     });
     const pasted = lastAdded();
+    // Files dropped on the page are read from the drag pasteboard and attached, images too, as on
+    // the current composer.
+    storage.addFile('file:///scan.png', 'scan');
+    storage.pickNext('drop', [
+      { uri: 'file:///scan.png', name: 'scan.png', type: 'image/png' },
+    ]);
+    await act(async () => {
+      await fireEvent(screen.getByTestId('message-webview'), 'message', {
+        nativeEvent: { data: '{"type":"drop"}' },
+      });
+    });
+    const dropped = lastAdded();
     // The page can name only assets the host gave it.
     const forged = {
       id: 'forged000001',
@@ -1000,6 +1012,10 @@ describe('the Tiptap evaluation composer', () => {
       converted,
       resized,
       pasted: pasted.images.map(({ name }) => name),
+      dropped: {
+        images: dropped.images,
+        attachments: dropped.attachments.map(({ name }) => name),
+      },
       removed,
       stored: draftsOf(drafts.getSnapshot())[0],
     }).toMatchObject({
@@ -1007,6 +1023,7 @@ describe('the Tiptap evaluation composer', () => {
       converted: { type: 'convert', id: chart.id },
       resized: commandScript({ type: 'resize', id: chart.id, width: 1024 }),
       pasted: ['Pasted image'],
+      dropped: { images: [], attachments: ['scan.png'] },
       removed: { type: 'remove', id: plan.id },
       stored: {
         body: body({ text: 'Hi ' }),

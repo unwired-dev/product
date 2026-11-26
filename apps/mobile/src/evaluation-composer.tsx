@@ -762,6 +762,16 @@ function EvaluationEditor({
       slashMenu.move(key, textOf(authored.current.body), reported.selection);
     }
   };
+  // The page's requests other than edit reports: a paste carrying images, which native code reads
+  // from the pasteboard, and the menu's keys. iPhone and iPad give native code no access to files
+  // dropped on the page.
+  const request = (message: Exclude<PageMessage, { type: 'update' }>) => {
+    if (message.type === 'paste') {
+      void add('paste', true);
+    } else if (message.type === 'key') {
+      slashKey(message.key);
+    }
+  };
   // The page loads once with the opened body; later edits never reload it.
   // oxlint-disable-next-line react/hook-use-state -- The mounted page keeps its original source.
   const [source] = useState(() => ({ html: page }));
@@ -1108,13 +1118,8 @@ function EvaluationEditor({
                       if (message === undefined) {
                         return;
                       }
-                      // A paste carrying images, which native code reads from the pasteboard.
-                      if (message.type === 'paste') {
-                        void add('paste', true);
-                        return;
-                      }
-                      if (message.type === 'key') {
-                        slashKey(message.key);
+                      if (message.type !== 'update') {
+                        request(message);
                         return;
                       }
                       // A delayed report of an earlier body revision never replaces a newer one.

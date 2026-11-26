@@ -16,10 +16,11 @@ import type {
 import { vettedHref } from '@private-email/mail-core/link-inspection';
 import { isLinkText } from '@private-email/mail-core/semantic-document';
 import { radius, spacing } from '@private-email/mail-core/theme';
-import { useLayoutEffect, useRef, useState } from 'react';
+import { useContext, useLayoutEffect, useRef, useState } from 'react';
 import {
   processColor,
   requireNativeComponent,
+  RootTagContext,
   StyleSheet,
   Text,
   TextInput,
@@ -35,6 +36,7 @@ import {
 } from './design.tsx';
 import { Label } from './label.tsx';
 import { useLocalization } from './localization.ts';
+import { windowHost } from './settings-window-client.ts';
 import { textStyles, usePalette } from './theme.ts';
 
 const styles = StyleSheet.create({
@@ -702,6 +704,14 @@ export function LinkEditor({
     shown && invalid ? t('drafts.link.invalid') : undefined,
     false,
   );
+  // Each commit of the format bar has computed its selection-dependent state, as this control's.
+  const rootTag = useContext(RootTagContext);
+  useLayoutEffect(() => {
+    windowHost()?.recordSelectionShown?.(
+      !disabled && link !== undefined,
+      rootTag,
+    );
+  });
   return (
     <View>
       <ToolbarButton

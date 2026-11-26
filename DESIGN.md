@@ -93,6 +93,7 @@ Graphite neutrals with a single warm seal.
 | Bubble surface    | `surface/bubble`           | Received Catch Up bubbles                                            |
 | Quiet fill        | `fill/quiet`               | Secondary buttons, search field, banners, chips                      |
 | Control fill      | `fill/control`             | Pop-up button disc within a grouped row                              |
+| Banner fill       | `fillBanner` (no variable) | Mac reader's Unsubscribe banner (`#F2F2F5` Light, `#2B2B2E` Dark)    |
 | Track             | `fill/track`               | Off switch track                                                     |
 | Separator         | `separator`                | Hairlines between rows and panes                                     |
 | Scrim             | `scrim/touch`              | iPad composer and setup sheet; link alert backdrops on touch         |
@@ -657,6 +658,9 @@ app follows under the issue named:
 - **Reader More menu:** on iPad More lists Move to Spam after Mark as Unread
   (#2662), and the iPhone Reply sheet lists it; in Spam it reads Not Spam. The
   Mac menu waits for #2132.
+- **Unsubscribe banner:** the Mac banner leaves out the line under the list
+  name that counts the list's messages and how many were opened ("17 since
+  August, opened 2."), so it is one line shorter, until #2978 defines it.
 - **Compact iPad window:** the reader's navigation bar holds Back and the
   Command input (#2133); the frame's Previous and Next wait for an issue that
   names them. The input there and on the composer's From row has no ⌘K key cap

@@ -97,6 +97,8 @@ export const palette = {
     // surface renders the frames' glass fill: #F8F8F8 in Light, #1A1A1A in Dark.
     glassTint: '#C6C6C6',
     fillQuiet: 'rgba(0, 0, 0, 0.05)',
+    // The Mac reader's Unsubscribe banner, opaque as its frames draw it.
+    fillBanner: '#F2F2F5',
     // A pop-up button's disc within a grouped row.
     fillControl: 'rgba(0, 0, 0, 0.08)',
     fillTrack: 'rgba(0, 0, 0, 0.09)',
@@ -160,6 +162,7 @@ export const palette = {
     macPanelGlassFill: 'rgba(14, 14, 14, 0.7)',
     glassTint: '#3B3B3B',
     fillQuiet: 'rgba(255, 255, 255, 0.06)',
+    fillBanner: '#2B2B2E',
     fillControl: 'rgba(255, 255, 255, 0.07)',
     fillTrack: 'rgba(255, 255, 255, 0.16)',
     separator: 'rgba(255, 255, 255, 0.1)',
