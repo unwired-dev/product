@@ -5,6 +5,7 @@ import type {
   AssistanceState,
   DraftAssistanceState,
   SummaryInput,
+  TextTool,
 } from '../assistance.ts';
 import type { TranslationState } from '../translation.ts';
 
@@ -26,7 +27,7 @@ import {
 // The synthetic corpus the assistance qualification build runs through Apple's on-device model
 // and Translation (#625). Raise the version with any change to its cases, so runs on different
 // corpora are never compared as one. It contains no real mail.
-export const corpusVersion = 4;
+export const corpusVersion = 5;
 
 const longBody = Array.from(
   { length: 80 },
@@ -119,7 +120,246 @@ const rewrites = [
     text: 'test\nposílám ti podklady, podívej se na ně prosím do pátku',
     facts: ['pát'],
   },
-] as const;
+  // Ordinary text each clarifying tool must still edit: questions, an unclear pronoun, a date
+  // with two readings and a short note are kept as written, never a reason to ask (#806).
+  {
+    id: 'open-questions',
+    language: 'en',
+    text: 'can you send me the report by friday? and is sam joining?',
+    facts: ['Friday', 'Sam'],
+  },
+  {
+    id: 'unclear-pronoun',
+    language: 'en',
+    text: "tell him i'll call her after the meeting about it",
+    facts: ['meeting'],
+  },
+  {
+    id: 'two-reading-date',
+    language: 'en',
+    text: 'lets meet on 03/04 at the usual place',
+    facts: ['03/04'],
+  },
+  { id: 'short-thanks', language: 'en', text: 'thanks!', facts: ['thank'] },
+  // Ordinary text the clarification check's guardrails reject; the edit still answers.
+  {
+    id: 'transfer-request',
+    language: 'en',
+    text: 'can you transfer the 2,400 CZK for the tickets to my account today? thanks',
+    facts: ['2,400', 'tickets'],
+  },
+  {
+    id: 'expand-note',
+    tool: 'expand',
+    language: 'en',
+    text: 'can we move the thursday call to friday morning at 10?',
+    facts: ['Friday', '10'],
+  },
+  {
+    id: 'shorten-note',
+    tool: 'shorten',
+    language: 'en',
+    text: 'hey so i think we cant make the thursday call, can we move it to friday morning maybe 10? also i still need the slides from you',
+    facts: ['Friday', 'slides'],
+  },
+  {
+    id: 'friendly-note',
+    tool: 'friendly',
+    language: 'en',
+    text: 'Send me the slides by Friday.',
+    facts: ['slides', 'Friday'],
+  },
+  {
+    id: 'neutral-note',
+    tool: 'neutral',
+    language: 'en',
+    text: 'ugh this is the third time, just send me the slides already!!',
+    facts: ['slides'],
+  },
+  // Questions, requests, lists, links, quotes and a corrected detail each tool must still edit,
+  // in each language the model writes.
+  {
+    id: 'expand-question-french',
+    tool: 'expand',
+    language: 'fr',
+    text: 'On peut décaler la réunion à lundi ?',
+    facts: ['lundi'],
+  },
+  {
+    id: 'expand-question-german',
+    tool: 'expand',
+    language: 'de',
+    text: 'Kommst du morgen zum Meeting?',
+    facts: ['morgen'],
+  },
+  {
+    id: 'expand-invoice-spanish',
+    tool: 'expand',
+    language: 'es',
+    text: 'Por favor, envíame la factura.',
+    facts: ['factura'],
+  },
+  {
+    id: 'expand-invoice',
+    tool: 'expand',
+    language: 'en',
+    text: 'Please send me the invoice.',
+    facts: ['invoice'],
+  },
+  {
+    id: 'shorten-appointment',
+    tool: 'shorten',
+    language: 'en',
+    text: 'Hi, just a reminder that your appointment with Dr. Novak has been moved from Monday to Tuesday 18 November at 8:15. Please arrive ten minutes early, bring your insurance card and the list of medicines you take, and let us know by phone if you cannot come.',
+    facts: ['Tuesday', '8:15'],
+  },
+  {
+    id: 'friendly-paragraphs',
+    tool: 'friendly',
+    language: 'en',
+    text: 'The report is late again.\n\nI need it by Thursday noon, with the budget table filled in.\n\nCall me if something blocks you.',
+    facts: ['Thursday', 'budget'],
+  },
+  {
+    id: 'neutral-french',
+    tool: 'neutral',
+    language: 'fr',
+    text: "C'est la troisième fois que je demande, envoyez-moi enfin le devis !",
+    facts: ['devis'],
+  },
+  {
+    id: 'money-amounts',
+    tool: 'neutral',
+    language: 'en',
+    text: 'you still owe me 120 EUR for the concert and 35 for the taxi, pay it this week!!',
+    facts: ['120', '35'],
+  },
+  {
+    id: 'link-note',
+    language: 'en',
+    text: 'here is the plan https://example.com/plan, comments by wed pls',
+    facts: ['https://example.com/plan'],
+  },
+  {
+    id: 'quote-note',
+    language: 'en',
+    text: 'she said "we ship on the 12th" so plan the launch mail for that',
+    facts: ['12th'],
+  },
+  {
+    id: 'todo-list',
+    language: 'en',
+    text: '- buy tape\n- book the van for sat\n- call Petra about the keys',
+    facts: ['van', 'Petra'],
+  },
+  {
+    id: 'self-correction',
+    language: 'en',
+    text: 'the call is on monday, sorry, i meant tuesday at 2',
+    facts: ['Tuesday'],
+  },
+  // Ordinary text the clarification check's guardrails may reject; the edit still answers.
+  {
+    id: 'build-server',
+    language: 'en',
+    text: 'kill the old build server tonight and move the jobs to the new one',
+    facts: ['build server'],
+  },
+  // Text no edit can keep without guessing which version the writer meant: the tool asks for
+  // clarification and returns no text.
+  {
+    id: 'contradiction',
+    language: 'en',
+    text: 'Please send the contract to Anna. Do not send the contract to Anna.',
+    facts: [],
+    clarification: true,
+  },
+  {
+    id: 'contradicting-times',
+    language: 'en',
+    text: 'we meet at 3. no, at 5. actually 3, or 5, whichever, see you then',
+    facts: [],
+    clarification: true,
+  },
+  {
+    id: 'fragments',
+    tool: 'shorten',
+    language: 'en',
+    text: 're that thing w/ the x — yes but no, the other one, like before but not that, u know',
+    facts: [],
+    clarification: true,
+  },
+  {
+    id: 'contradiction-german',
+    language: 'de',
+    text: 'Bitte schick Anna den Vertrag. Schick Anna den Vertrag auf keinen Fall.',
+    facts: [],
+    clarification: true,
+  },
+  {
+    id: 'expand-contradiction',
+    tool: 'expand',
+    language: 'en',
+    text: 'Invite Tom to the dinner on Friday. Do not invite Tom to the dinner.',
+    facts: [],
+    clarification: true,
+  },
+  {
+    id: 'friendly-contradiction',
+    tool: 'friendly',
+    language: 'en',
+    text: 'Come to the party on Saturday. The party is cancelled, do not come. See you Saturday!',
+    facts: [],
+    clarification: true,
+  },
+  {
+    id: 'neutral-garbled',
+    tool: 'neutral',
+    language: 'en',
+    text: 'asdf the qwer thing ok?? no. ye. idk the 2 ones from b4 or not',
+    facts: [],
+    clarification: true,
+  },
+  // Held out: written after the check's prompt was tuned and before the first build ran it.
+  {
+    id: 'held-out-reschedule',
+    tool: 'shorten',
+    language: 'en',
+    text: "Could you please move our Wednesday sync to 4 pm? The client call before it usually runs late and I'd rather not rush it.",
+    facts: ['Wednesday', '4'],
+  },
+  {
+    id: 'held-out-german-thanks',
+    tool: 'friendly',
+    language: 'de',
+    text: 'Danke für die Unterlagen. Ich melde mich bis Donnerstag.',
+    facts: ['Donnerstag'],
+  },
+  {
+    id: 'held-out-budget',
+    language: 'en',
+    text: "The budget is approved, please start. The budget is not approved yet, so don't start.",
+    facts: [],
+    clarification: true,
+  },
+  {
+    id: 'held-out-french-times',
+    tool: 'neutral',
+    language: 'fr',
+    text: "Le rendez-vous est à 9 h. Le rendez-vous n'est pas à 9 h, il est à 11 h. Il est à 9 h.",
+    facts: [],
+    clarification: true,
+  },
+] satisfies ReadonlyArray<
+  Readonly<{
+    id: string;
+    tool?: TextTool;
+    language: string;
+    text: string;
+    facts: readonly string[];
+    clarification?: boolean;
+  }>
+>;
 
 // Common words of each corpus language that the others lack. A ready result switched language when
 // it contains another language's words and none of its own; a short answer with neither stays for
@@ -143,6 +383,8 @@ const commonWords: Readonly<Record<string, readonly string[]>> = {
   ],
   cs: ['je', 'na', 've', 'se', 'že', 'pro', 'prosím', 'jsou', 'ti', 'vás'],
   de: ['der', 'die', 'und', 'ist', 'bis', 'bitte', 'wird', 'sie', 'dir', 'zu'],
+  fr: ['le', 'les', 'et', 'est', 'vous', 'nous', 'pour', 'une', 'des', 'pas'],
+  es: ['el', 'los', 'por', 'favor', 'que', 'para', 'una', 'del', 'muy', 'con'],
 };
 
 const keepsLanguage = (text: string, language: string) => {
@@ -328,16 +570,29 @@ async function qualifySummaries(assistance: Native, record: Recorder) {
 
 async function qualifyDrafts(assistance: Native, record: Recorder) {
   for (const entry of rewrites) {
+    const tool = 'tool' in entry ? entry.tool : 'rewrite';
     const rewrite = createDraftAssistance(assistance);
-    const evidence = await generation(rewrite, rewriteInput(entry.text), entry);
+    const evidence = await generation(
+      rewrite,
+      rewriteInput(entry.text, tool),
+      entry,
+    );
     const text = 'text' in evidence ? evidence.text : undefined;
     const added = text !== undefined && addedContent.test(text);
+    // A case that must ask for clarification fails when it answers; any other case fails when it
+    // asks.
+    const state = 'state' in evidence ? evidence.state : 'failed';
+    let result: Result = added ? 'fail' : evidence.result;
+    if ('clarification' in entry && entry.clarification) {
+      result = outcome(state === 'clarification', state);
+    }
     await record('rewrite', {
       id: entry.id,
+      tool,
       language: entry.language,
       ...evidence,
       ...(text !== undefined && { added }),
-      result: added ? 'fail' : evidence.result,
+      result,
     });
   }
   for (const entry of replies) {
