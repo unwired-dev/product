@@ -779,7 +779,7 @@ describe('meeting invitations', () => {
     expect(invitationOf(documentOf(undefined), me)).toBeUndefined();
   });
 
-  it('replies with the invitation identity and only the chosen status', () => {
+  it('replies with the invitation identity, times and only the chosen status', () => {
     expect.hasAssertions();
 
     expect(
@@ -798,6 +798,9 @@ describe('meeting invitations', () => {
         'UID:roadmap-42@northwind.example',
         'SEQUENCE:2',
         'DTSTAMP:20261102T095200Z',
+        // Exchange empties a reply without them (#3024).
+        'DTSTART:20261106T130000Z',
+        'DTEND:20261106T140000Z',
         'ORGANIZER;CN="Fischer, Lena":mailto:lena@northwind.example',
         'ATTENDEE;CN=Alex;PARTSTAT=TENTATIVE:mailto:Alex@example.invalid',
         String.raw`SUMMARY:Q4 roadmap review\, final`,
