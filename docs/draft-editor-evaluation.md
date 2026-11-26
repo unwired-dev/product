@@ -758,8 +758,9 @@ so each sample is an upper bound, and it leaves out the display frame that draws
 the body. Both composers' p95 upper bounds exceeded the budgets of 300 ms for an
 empty composer and 200 ms for a warm one, so these runs do not prove either budget.
 
-The host was shared with other agents' builds and journeys: the load average was
-51 to 114 during the current composer's run and 44 to 263 during the page's. Both
+The host was shared with other agents' builds and journeys: the one-minute load
+average read 114 before and 51 after the current composer's run, and 263 before
+and 44 after the page's. Both
 runs recorded main-queue stalls of 100 ms or longer during new-message samples
 (the current composer: 381, 111 and 127 ms; the page: 169 ms) and none during
 saved-Draft samples, so the saved-Draft tails may come from other processes under

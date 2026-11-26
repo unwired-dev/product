@@ -95,13 +95,13 @@ in a `registration-draft-editor` `Testing` build, with the signed
 path, so the loop stops at the first failure:
 
 ```sh
-for scenario in registration-performance registration-draft-editor; do
+(for scenario in registration-performance registration-draft-editor; do
   UNWIRED_MOCK_SCENARIO=$scenario \
-  mise exec -- pnpm --filter @private-email/macos native:build Testing || break
+  mise exec -- pnpm --filter @private-email/macos native:build Testing || exit
   mise exec -- pnpm --filter @private-email/macos test:native \
     "$PWD/artifacts/macos-inbox/DerivedData/Build/Products/Testing/UnwiredMail.app" \
-    testComposerOpening || break
-done
+    testComposerOpening || exit
+done)
 ```
 
 It opens a new message 10 times, then saves a Draft whose body holds one
