@@ -378,6 +378,119 @@ final class WindowTests: XCTestCase {
     attach(window.screenshot(), "After Send Now")
   }
 
+  // #2980: Choose Date and Time… opens AppKit's calendar and time field in a popover from Send and
+  // from the banner's Change. It starts at tomorrow's Tomorrow Morning time and then at the stored
+  // reminder; Return sets the reminder, Escape keeps it, and a time that has passed dims Set
+  // Reminder.
+  func testSendReminderChooseDateAndTime() throws {
+    try sendReminderChooseDateAndTime(appearance: "Light")
+  }
+
+  func testSendReminderChooseDateAndTimeDark() throws {
+    try sendReminderChooseDateAndTime(appearance: "Dark")
+  }
+
+  private func sendReminderChooseDateAndTime(appearance: String) throws {
+    continueAfterFailure = false
+    let environment = ProcessInfo.processInfo.environment
+    XCTAssertEqual(environment["UNWIRED_TEST_SCENARIO"], "registration-performance")
+    let app = XCUIApplication(url: URL(fileURLWithPath: try XCTUnwrap(environment["UNWIRED_APP_PATH"])))
+    app.launchArguments += [
+      "-ApplePersistenceIgnoreState", "YES", "-interfaceLanguage", "en",
+      "-UnwiredAppearance", appearance.lowercased(),
+    ]
+    app.launch()
+    addTeardownBlock { if app.state != .notRunning { app.terminate() } }
+    let window = app.windows["Inbox 1"]
+    performanceSetup(app, window: window)
+    func attach(_ screenshot: XCUIScreenshot, _ name: String) {
+      let attachment = XCTAttachment(screenshot: screenshot)
+      attachment.name = "\(name) (\(appearance))"
+      attachment.lifetime = .keepAlways
+      add(attachment)
+    }
+    window.buttons["New Message"].click()
+    XCTAssertTrue(window.buttons["Undo"].waitForExistence(timeout: 30))
+    let subject = window.textFields["Subject"]
+    subject.click()
+    subject.typeText("Keys for the flat")
+    let popover = app.popovers.firstMatch
+    let time = popover.datePickers["Time"]
+    let set = popover.buttons["Set Reminder"]
+    func choose(from anchor: XCUIElement, menu: String?) {
+      if let menu {
+        anchor.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).rightClick()
+        app.menuItems[menu].click()
+      } else {
+        anchor.click()
+      }
+      let item = app.menuItems["Choose Date and Time…"]
+      XCTAssertTrue(item.waitForExistence(timeout: 5))
+      item.click()
+      XCTAssertTrue(set.waitForExistence(timeout: 10))
+    }
+
+    // From Send it starts tomorrow at 9:00. In the inline composer Send sits at the window's bottom,
+    // so the popover opens above it; Escape closes it without a reminder.
+    let clocks = Calendar.current
+    let today = clocks.startOfDay(for: Date())
+    let tomorrow = try XCTUnwrap(
+      clocks.date(bySettingHour: 9, minute: 0, second: 0, of: clocks.date(byAdding: .day, value: 1, to: today)!))
+    // XCUITest passes the field's date only as its description, such as "2026-11-27 08:00:00 +0000".
+    func shows(_ date: Date) -> Bool { String(describing: time.value ?? "").contains(date.description) }
+    let inlineSend = window.buttons["Send"].firstMatch
+    choose(from: inlineSend, menu: "Remind Me to Send…")
+    // The popover keeps a point of its edge on its anchor.
+    XCTAssertLessThanOrEqual(popover.frame.maxY, inlineSend.frame.minY + 1, "\(popover.frame) covers Send")
+    XCTAssertTrue(window.frame.contains(popover.frame), "\(popover.frame) leaves \(window.frame)")
+    XCTAssertTrue(shows(tomorrow), "\(String(describing: time.value))")
+    attach(window.screenshot(), "Choose Date and Time above Send")
+    app.typeKey(.escape, modifierFlags: [])
+    XCTAssertTrue(set.waitForNonExistence(timeout: 10))
+
+    // In its own window Send sits in the toolbar, and the popover opens below it. Return sets the
+    // reminder, and the banner shows it.
+    window.buttons["Expand"].click()
+    let composer = app.windows["composer-window-1"]
+    XCTAssertTrue(composer.waitForExistence(timeout: 15))
+    let send = composer.buttons["Send"].firstMatch
+    XCTAssertTrue(send.waitForExistence(timeout: 10))
+    choose(from: send, menu: "Remind Me to Send…")
+    XCTAssertGreaterThanOrEqual(popover.frame.minY, send.frame.maxY - 1, "\(popover.frame) covers Send")
+    XCTAssertTrue(composer.frame.contains(popover.frame), "\(popover.frame) leaves \(composer.frame)")
+    XCTAssertTrue(shows(tomorrow), "\(String(describing: time.value))")
+    XCTAssertTrue(set.isEnabled)
+    attach(composer.screenshot(), "Choose Date and Time from Send")
+    attach(popover.screenshot(), "Choose Date and Time popover")
+    composer.typeKey(.return, modifierFlags: [])
+    XCTAssertTrue(set.waitForNonExistence(timeout: 10))
+    // The banner's clock follows the host's locale; Change below checks the stored 9:00.
+    let banner = text("Reminder for tomorrow,", in: composer)
+    XCTAssertTrue(banner.waitForExistence(timeout: 10))
+
+    // From Change it starts at the stored reminder. The calendar has the keyboard focus, and Left
+    // Arrow chooses today; an hour earlier than now says the time has passed and dims Set Reminder.
+    // Escape keeps the reminder.
+    choose(from: composer.buttons["Change"], menu: nil)
+    XCTAssertTrue(shows(tomorrow), "\(String(describing: time.value))")
+    let passed = text("That time has passed. Choose a later time.", in: popover)
+    XCTAssertFalse(passed.exists)
+    app.typeKey(.leftArrow, modifierFlags: [])
+    let todayAtNine = try XCTUnwrap(clocks.date(bySettingHour: 9, minute: 0, second: 0, of: today))
+    waitUntil { shows(todayAtNine) }
+    time.coordinate(withNormalizedOffset: CGVector(dx: 0.15, dy: 0.5)).click()
+    for _ in 0..<24 where !passed.exists {
+      app.typeKey(.downArrow, modifierFlags: [])
+    }
+    XCTAssertTrue(passed.waitForExistence(timeout: 5))
+    XCTAssertFalse(set.isEnabled)
+    attach(composer.screenshot(), "Time has passed")
+    attach(popover.screenshot(), "Time has passed popover")
+    app.typeKey(.escape, modifierFlags: [])
+    XCTAssertTrue(set.waitForNonExistence(timeout: 10))
+    XCTAssertTrue(banner.exists)
+  }
+
   // #2406: a force quit mid-typing keeps the New Message's unsaved edits, which Restore recovers
   // after the relaunch; Discard removes them, so the next launch offers nothing.
   func testComposerRecoveryAfterForceQuit() throws {

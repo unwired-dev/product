@@ -14,6 +14,7 @@ export {
   sendReminders,
   blockedSenders,
   pins,
+  unsubscribe,
   inboxPreferences,
   outbox,
   freshness,

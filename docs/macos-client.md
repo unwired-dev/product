@@ -42,7 +42,7 @@ native dependency requires an explicit update to `scripts/verify-native.ts`.
 The generated project currently also compiles `native/design`, the first-party
 SF Symbol and Liquid Glass views shared with the iPhone/iPad host, the Mac-only
 `UnwiredMenu` and `UnwiredAlert` presenters, `UnwiredAppleIDButton`,
-`UnwiredPushButton`, `UnwiredPopUpButton`, `UnwiredSplitButton`, `UnwiredPopover` and `UnwiredSidebar`. Pop-up controls are AppKit `NSPopUpButton`s through
+`UnwiredPushButton`, `UnwiredPopUpButton`, `UnwiredSplitButton`, `UnwiredPopover`, `UnwiredDatePicker` and `UnwiredSidebar`. Pop-up controls are AppKit `NSPopUpButton`s through
 `UnwiredPopUpButton`. Settings rows, the IMAP security field and the composer's From
 and Text style show their current choice and open their menu over it, with the choice
 checked. The reader's Folders and More and the composer's actions and Writing tools are

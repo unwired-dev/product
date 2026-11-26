@@ -439,6 +439,21 @@ chooses **Send Now**. Within 8 seconds of the click, before a plain Send's
 Light; `testSendNowDark` runs it in Dark. The dimmed state while a file is still
 being added is covered by Jest.
 
+`testSendReminderChooseDateAndTime` uses the same build and sign-in
+([#2980](https://github.com/unwired-dev/product/issues/2980)). It writes a New
+Message's subject, opens Send's menu with a right click and chooses **Remind Me to
+Send… › Choose Date and Time…**. The popover opens above Send with the time field
+at 09:00, and Escape closes it. **Expand** moves the Draft to its own window,
+where the popover opens below the toolbar's Send and inside the window, and
+Return sets the reminder, which the banner shows for tomorrow. The banner's
+**Change › Choose Date and Time…**
+opens it again at the stored time; choosing today in the calendar and an earlier
+hour shows "That time has passed. Choose a later time." and dims **Set
+Reminder**, and Escape closes it, keeping the reminder. Both popovers are kept as
+attachments. It sets Light; `testSendReminderChooseDateAndTimeDark` runs it in
+Dark. Choosing a day and a later time, Cancel and the check when Set Reminder is
+pressed are covered by Jest.
+
 `testPinThread` uses the same build and sign-in
 ([#2280](https://github.com/unwired-dev/product/issues/2280)). It opens Gmail
 update 001 and chooses **Pin** in the reader's toolbar; the row then reads
@@ -738,6 +753,20 @@ opens the saved Draft in two windows and appends different text in each. The fir
 window saves. The second window's close button asks; **Cancel** keeps the window
 and its text, and **Save** closes it and keeps its version as a conflicting copy.
 After a relaunch, each Draft holds the saved body and only its own window's text.
+
+## iPhone and iPad Unsubscribe journey
+
+The Expo native journey for a `registration-unsubscribe` Release build connects the
+synthetic Gmail mailbox ([#2985](https://github.com/unwired-dev/product/issues/2985)).
+Build it as in [Mock Mail Sessions](mock-mail-sessions.md) with
+`UNWIRED_MOCK_SCENARIO=registration-unsubscribe` and run it once per appearance
+(`UNWIRED_APPEARANCE=light`, then `dark`), as the
+[IMAP folder journey](#iphone-and-ipad-imap-spam-and-trash-folder-journey) does.
+It opens each newsletter, presses the banner's **Unsubscribe…**, confirms in the
+system alert and waits for the outcome: sent for Trail Notes, failed for Market
+Weekly and uncertain for City Bulletin. On iPad it runs in landscape, as the frames
+are drawn. It captures the banner, the confirmation and each outcome, named with
+the appearance, for the [design judge](agents/design-judge.md).
 
 ## iPhone and iPad IMAP Spam and Trash folder journey
 

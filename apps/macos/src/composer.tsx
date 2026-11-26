@@ -4882,9 +4882,11 @@ function Editor({
   const waiting = addingName(draft, imports);
   const sendButton = (
     <SendMenu
+      below={renderToolbar !== undefined}
       disabled={closing === 'saving'}
       sendable={blocked === undefined}
       waiting={waiting}
+      reminder={reminder}
       onSend={() => {
         void sendAsking();
       }}

@@ -1078,6 +1078,24 @@ under the same Draft. A reminder stays with its Draft: a conflicting copy the
 editor moves to shows none of the original's, and an edit kept as a copy while
 Send or Discard removes the original leaves the original's reminder removed.
 
+The Mac reminder menu, from Send or from **Change**, ends its times with **Choose
+Date and Time…** ([#2980](https://github.com/unwired-dev/product/issues/2980)).
+It opens a popover below the same anchor, as the approved
+[#2831](https://github.com/unwired-dev/product/issues/2831) frames draw it, or
+above Send in the Inbox window's composer, whose Send sits at the window's bottom:
+**Remind Me to Send**, AppKit's calendar, **Time** with AppKit's time field and
+stepper, the zone line ("Times in Central European Standard Time (Prague)"), then
+**Cancel** and **Set Reminder**. It starts at the stored reminder, otherwise
+tomorrow at Tomorrow Morning's 9:00, in the Mac's current time zone; a time a
+daylight-saving change skips moves forward by the skipped hour. The calendar dims
+days before today. A time that has passed shows "That time has passed. Choose a
+later time.", which VoiceOver announces and reads as the time field's hint, and
+dims **Set Reminder**, which checks the time again when pressed. **Set Reminder**,
+or Return while it is available, stores the instant and the Mac's time zone as
+the reminder times do and closes the popover; **Cancel**, Escape or a click
+outside keeps the earlier reminder. The `testSendReminderChooseDateAndTime`
+journey covers it on the Mac host.
+
 On iPhone and iPad ([#2136](https://github.com/unwired-dev/product/issues/2136))
 a long press on Send opens its menu, whose **Remind Me to Send…** ("Keep it as a
 draft and remind me") offers, in the device's time zone (`mobileReminderTimes`),

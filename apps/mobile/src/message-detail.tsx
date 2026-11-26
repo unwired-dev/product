@@ -114,6 +114,7 @@ import { ReplySheet } from './reply-sheet.tsx';
 import { SidebarToggleContext } from './sidebar-toggle.tsx';
 import { textStyles, usePalette } from './theme.ts';
 import { MessageTranslation } from './translation.tsx';
+import { UnsubscribeBanner } from './unsubscribe.tsx';
 
 // On iPhone the reader is a pushed screen with its own header and bottom toolbar, in every
 // orientation; on iPad the toolbar sits at the top like the Mac's.
@@ -1155,9 +1156,14 @@ function MailboxMessage({
                 inset,
                 clearsBottom(windowBar !== undefined, insets.bottom),
               ]}>
+              <UnsubscribeBanner
+                message={message}
+                above
+              />
               {/* iPhone counts a single message as its frames count a thread's. */}
               {compact ? <MessageCount count={1} /> : null}
               <MessageMetadata message={message} />
+              <UnsubscribeBanner message={message} />
               <MessageActionsNotice id={message.id} />
               <ResponseStatusNotice
                 status={responseStatus}
