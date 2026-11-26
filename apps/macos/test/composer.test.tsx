@@ -2557,6 +2557,7 @@ describe('composing Drafts', () => {
     appleContacts.addresses = [
       { sender: 'Ana Kovač', address: 'ana@example.invalid', given: 'Ana' },
     ];
+    let at = { x: 400, y: 0, width: 8, height: 16 };
     const host: TurboModule &
       Readonly<{
         addListener: typeof ignore;
@@ -2573,12 +2574,7 @@ describe('composing Drafts', () => {
       guardClose: ignore,
       forgetComposerTyping: ignore,
       setComposerIndents: ignore,
-      composerCharacterFrame: async () => ({
-        x: 400,
-        y: 0,
-        width: 8,
-        height: 16,
-      }),
+      composerCharacterFrame: async () => at,
     };
     const modules = windowHostWith(host);
     const announce = jest.mocked(AccessibilityInfo.announceForAccessibility);
@@ -2627,6 +2623,14 @@ describe('composing Drafts', () => {
         }),
       ).resolves.toBeOnTheScreen();
       expect(menu()).toHaveStyle({ left: 180, top: 24 });
+      // A body width change reflows the text, so the menu follows the @ to its new place.
+      at = { x: 100, y: 22, width: 8, height: 16 };
+      await fireEvent(body(), 'layout', {
+        nativeEvent: { layout: { x: 0, y: 0, width: 420, height: 300 } },
+      });
+      await waitFor(() => {
+        expect(menu()).toHaveStyle({ left: 92, top: 46 });
+      });
       expect(screen.getByText('To')).toBeOnTheScreen();
       expect(
         screen.getByRole('button', { name: 'Ana Kovač, ana@example.invalid' }),

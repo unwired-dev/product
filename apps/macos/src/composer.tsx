@@ -2865,10 +2865,14 @@ function useBodyRecipients(
   const suggestions =
     sections === undefined ? [] : [...sections.recent, ...sections.contacts];
   const active = suggestions[Math.min(chosen, suggestions.length - 1)];
-  // Where the body shows the @, and where the body sits, for the menu under the @.
+  // Where the body shows the @, and where the body sits, for the menu under the @. A new body
+  // width reflows the text, so the @ is measured again for it.
   const [anchor, setAnchor] =
-    useState<Readonly<{ at: number; left: number; top: number }>>();
+    useState<
+      Readonly<{ at: number; width: number; left: number; top: number }>
+    >();
   const [body, setBody] = useState({ x: 0, y: 0, width: 0 });
+  const bodyWidth = body.width;
   useEffect(() => {
     if (armed === undefined) {
       return;
@@ -2878,7 +2882,12 @@ function useBodyRecipients(
       try {
         const frame = await windowHost()?.composerCharacterFrame(bodyID, armed);
         if (current && frame !== null && frame !== undefined) {
-          setAnchor({ at: armed, left: frame.x, top: frame.y + frame.height });
+          setAnchor({
+            at: armed,
+            width: bodyWidth,
+            left: frame.x,
+            top: frame.y + frame.height,
+          });
         }
       } catch {
         // Without its place the menu stays closed; the typed text is kept.
@@ -2887,12 +2896,13 @@ function useBodyRecipients(
     return () => {
       current = false;
     };
-  }, [armed, bodyID]);
+  }, [armed, bodyID, bodyWidth]);
   // A bare @ with no recent correspondent shows nothing; typed text shows No Matches.
   const shown =
     sections !== undefined &&
     anchor !== undefined &&
     anchor.at === armed &&
+    anchor.width === bodyWidth &&
     (suggestions.length > 0 || sections.query.text !== '')
       ? {
           sections,
