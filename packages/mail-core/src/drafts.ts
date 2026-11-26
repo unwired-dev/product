@@ -2608,6 +2608,15 @@ export function createDrafts(
     }
   });
 
+  // Ends an import in this account's session; false when it was cancelled or its account left.
+  const stopImporting = (current: number, id: string) => {
+    const wanted = live(current) && !cancelled.delete(id);
+    if (live(current)) {
+      setImporting(id, false);
+    }
+    return wanted;
+  };
+
   // Copies an asset's bytes into Draft storage and completes it in every Draft that has it.
   // `retrying`, for Try Again, turns a failed asset back to importing and downloads a forwarded
   // attachment again first.
@@ -2629,23 +2638,17 @@ export function createDrafts(
       if (retrying) {
         yield* settle(current, asset.id, reimporting);
       }
+      const again = retrying ? download : undefined;
       const fetched =
-        retrying && download !== undefined
-          ? yield* Effect.promise(() => download())
-          : undefined;
+        again === undefined ? undefined : yield* Effect.promise(() => again());
       const read = fetched?.source ?? source;
       const failure = unreadable(read);
       if (failure !== undefined) {
         // Cancel Import may have stopped Try Again while it downloaded.
-        const wanted = live(current) && !cancelled.delete(asset.id);
-        if (live(current)) {
-          setImporting(asset.id, false);
-        }
-        if (wanted) {
+        if (stopImporting(current, asset.id)) {
           yield* failAsset(current, asset, {
             ...failure,
-            retry:
-              download === undefined ? undefined : { source: read, download },
+            retry: download && { source: read, download },
           });
         }
         return;
@@ -2657,10 +2660,7 @@ export function createDrafts(
         ),
       );
       fetched?.release();
-      const wanted = live(current) && !cancelled.delete(asset.id);
-      if (live(current)) {
-        setImporting(asset.id, false);
-      }
+      const wanted = stopImporting(current, asset.id);
       if (Result.isFailure(outcome)) {
         // Failed first, so no editor sees the asset neither importing nor failed meanwhile. Native
         // code may have written the bytes before rejecting, as when the device locked.
