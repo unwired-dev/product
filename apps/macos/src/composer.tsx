@@ -3333,7 +3333,7 @@ function useSlashMenu(
         const step = event.key === 'ArrowDown' ? 1 : -1;
         const next =
           kinds[Math.min(Math.max(index + step, 0), kinds.length - 1)];
-        if (next !== undefined && next !== active) {
+        if (next !== undefined && next !== kinds[index]) {
           choose(next);
         }
       } else if (event.key === 'Escape') {
