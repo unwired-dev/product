@@ -60,7 +60,7 @@ import { MessageDetail } from '../src/message-detail.tsx';
 import { NotificationsContext } from '../src/notification-settings.tsx';
 import { AccountContext, RegistrationGate } from '../src/registration-gate.tsx';
 import { Mailboxes } from '../src/sidebar.tsx';
-import { appleContacts } from './contacts.ts';
+import { appleContacts, Contact } from './contacts.ts';
 import { started } from './started.ts';
 
 // oxlint-disable-next-line vitest/prefer-import-in-mock -- Jest requires a module name, not a dynamic import.
@@ -3879,8 +3879,19 @@ describe('product registration', () => {
       await expect(
         blocked.blockedDomains(defaultProfile),
       ).resolves.toStrictEqual([]);
-      // Each opening starts from the frames' choices; a refused write says so and keeps the sheet.
+      // Each opening starts from the frames' choices and reads Contacts again; Block waits for that
+      // read, so the exemption is not lost. A refused write says so and keeps the sheet.
+      const read = Promise.withResolvers<typeof appleContacts.contacts>();
+      const slow = jest
+        .spyOn(Contact, 'getAllDetails')
+        .mockReturnValueOnce(read.promise);
       await sheet();
+      expect(screen.getByRole('button', { name: title })).toBeDisabled();
+      await act(async () => {
+        read.resolve(appleContacts.contacts);
+      });
+      expect(screen.getByRole('button', { name: title })).toBeEnabled();
+      slow.mockRestore();
       expect(
         choice('mail.example.invalid and its subdomains').props
           .accessibilityState.checked,
@@ -3889,7 +3900,7 @@ describe('product registration', () => {
       await waitFor(() => {
         expect(notSaved).toHaveBeenCalledWith(
           'mail.example.invalid couldn’t be blocked',
-          'The block wasn’t saved on this device, so new mail from this domain still arrives as usual. Try again.',
+          'The change wasn’t saved on this device. Try again.',
         );
       });
       expect(screen.getByTestId('block-domain')).toBeVisible();

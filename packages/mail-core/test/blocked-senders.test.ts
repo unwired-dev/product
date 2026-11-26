@@ -972,7 +972,8 @@ describe('blocked domains', () => {
       script: undefined,
     });
     expect(shownDomain('xn--mxail5aa.example')?.script).toBe('greek');
-    for (const plain of ['nw-deals.com', 'xn--99.com']) {
+    // A right-to-left override, which would reorder the text around it, shows the ASCII name.
+    for (const plain of ['nw-deals.com', 'xn--99.com', 'xn--apple-pz3b.com']) {
       expect(shownDomain(plain)).toBeUndefined();
     }
   });

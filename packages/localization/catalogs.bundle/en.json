@@ -1978,7 +1978,7 @@
     "blockDomainFooter": "Future mail goes to Trash and can be recovered. Mail you already have stays where it is. Nothing is reported as spam.",
     "blockDomainAction": "Block {{domain}}",
     "blockDomainFailed": "{{domain}} couldn’t be blocked",
-    "blockDomainTryAgain": "The block wasn’t saved on this device, so new mail from this domain still arrives as usual. Try again.",
+    "blockDomainTryAgain": "The change wasn’t saved on this device. Try again.",
     "domains": "Domains",
     "addresses": "Addresses",
     "withSubdomainsDetail_one": "With subdomains · {{count}} exemption",

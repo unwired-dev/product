@@ -145,11 +145,13 @@ function BlockDomainForm({
   const [subdomains, setSubdomains] = useState(true);
   const [exempting, setExempting] = useState(true);
   const [saving, setSaving] = useState(false);
-  // Contacts already readable; blocking never asks for Contacts access.
+  // Contacts already readable; blocking never asks for Contacts access, and waits for the read so
+  // the exemption is not lost.
+  const read = useContactAddresses(true, false);
   const contacts = addressesAtDomain(
     domain,
     subdomains,
-    useContactAddresses(true, false).addresses.map(({ address }) => address),
+    read.addresses.map(({ address }) => address),
   );
   const parent = parentDomain(domain);
   let keeps = t('blockedSenders.ruleKeeps', { context: 'only' });
@@ -295,7 +297,7 @@ function BlockDomainForm({
         <SheetButton
           label={t('blockedSenders.blockDomainAction', { domain })}
           color={colors.statusDestructive}
-          disabled={saving}
+          disabled={saving || !read.settled}
           onPress={() => {
             void block();
           }}

@@ -181,7 +181,8 @@ const lookalikeScripts = [
 
 // How Blocked Domain `domain` shows when it has an `xn--` label: its Unicode name and the first
 // character outside ASCII, with that character's script when lookalikes borrow from it. None for a
-// plain ASCII name or a label that does not decode.
+// plain ASCII name, a label that does not decode or one that decodes to a control or formatting
+// character, such as a bidirectional override that would reorder the text around it.
 export const shownDomain = (domain: string) => {
   if (!/(?:^|\.)xn--/u.test(domain)) {
     return undefined;
@@ -195,6 +196,9 @@ export const shownDomain = (domain: string) => {
     return undefined;
   }
   const shown = labels.join('.');
+  if (/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(shown)) {
+    return undefined;
+  }
   const character = [...shown].find((each) => each > '\u007F');
   if (character === undefined) {
     return undefined;
