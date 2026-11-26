@@ -95,10 +95,17 @@ export const styles = StyleSheet.create({
   // system font's own -0.08pt (13pt) and -0.23pt (15pt) tracking.
   unsubscribeBanner: { marginTop: spacing.xs },
   unsubscribeTitle: { lineHeight: 13, letterSpacing: 0.08 },
-  unsubscribeText: { lineHeight: 16, marginTop: spacing.xs, letterSpacing: 0.08 },
+  unsubscribeText: {
+    lineHeight: 16,
+    marginTop: spacing.xs,
+    letterSpacing: 0.08,
+  },
   padUnsubscribeBanner: { marginTop: 1.5 },
   padUnsubscribeTitle: { lineHeight: 15, letterSpacing: 0.23 },
-  padUnsubscribeText: { marginTop: spacing.xs * ipadListScale, letterSpacing: 0.23 },
+  padUnsubscribeText: {
+    marginTop: spacing.xs * ipadListScale,
+    letterSpacing: 0.23,
+  },
   marker: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
   bannerTitle: { ...textStyles.footnote, fontWeight: '500' },
   bannerText: { ...textStyles.footnote },
