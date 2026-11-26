@@ -744,7 +744,15 @@ on iPhone and iPad `testDraftEditorRecovery` after XCUITest terminates the app
 [iPhone and iPad composer recovery journey](native-journeys.md#iphone-and-ipad-composer-recovery-journey)). The regular iPhone, iPad and Mac composers now
 use the same save model. On iPhone both composers cover the
 Inbox and reader, so system **Back** cannot leave them
-([#778](https://github.com/unwired-dev/product/issues/778)).
+([#778](https://github.com/unwired-dev/product/issues/778)). On 2026-11-26 the
+[iPhone Draft editor sheet journey](native-journeys.md#iphone-draft-editor-sheet-journey)
+passed on the iPhone 18 Pro Simulator (iOS 27.0, Release build): with the page
+composer's sheet up the Inbox rows were out of reach, a downward swipe closed an
+untouched New Message, asked **Save Draft** or **Delete Draft** with text typed in the
+page, kept the sheet and text on **Keep Editing**, saved on **Save Draft**, and closed
+the reopened unchanged Draft without asking
+([#2961](https://github.com/unwired-dev/product/issues/2961)). A compact iPad window
+and physical devices have not run it.
 
 ### Website data and network (#2922)
 
@@ -960,5 +968,5 @@ does not approve adoption; #823 owns that decision.
 newest body the page reported even when an earlier report arrives late, conflicting
 Mac windows keep separate copies, and racing imports, failed saves and account
 changes lose no surviving content; natively, two Mac windows on one Draft keep both
-versions (#2938). iPhone **Back** remains outstanding. This does not
+versions (#2938). On iPhone the sheet swipe passed natively (#2961). This does not
 approve adoption; #823 owns that decision.

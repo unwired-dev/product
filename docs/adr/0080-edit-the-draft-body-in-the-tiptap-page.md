@@ -149,7 +149,11 @@ release limit:
    recovery record of [ADR 0077](0077-remove-friction-that-privacy-does-not-require.md)
    and prove that they restore after a forced termination. The page does so on Mac
    since [#2933](https://github.com/unwired-dev/product/issues/2933) and on iPhone
-   and iPad since [#2944](https://github.com/unwired-dev/product/issues/2944).
+   and iPad since [#2944](https://github.com/unwired-dev/product/issues/2944). On iPhone the
+   page composer is the system sheet over the Inbox, so **Back** and edge swipes
+   cannot reach it; its downward swipe closes it as **Close** does, run natively on
+   the iPhone Simulator by [#2961](https://github.com/unwired-dev/product/issues/2961).
+   A compact iPad window has not run it.
 3. File drops on iPhone and iPad, and **Paste Image** and in-page paste on a
    device. Image paste on Mac is met by
    [#2929](https://github.com/unwired-dev/product/issues/2929): native code reads

@@ -838,6 +838,20 @@ fold: the keyboard's typing predictions sit above that element. The captures "Co
 closing", "Composer body fills the sheet", "Composer Send asks for a recipient" and "Composer sheet
 with keyboard" are named with the appearance.
 
+## iPhone Draft editor sheet journey
+
+`testDraftEditorSheet` runs the same swipes on the Draft editor page's composer
+([#2961](https://github.com/unwired-dev/product/issues/2961)), in the
+`registration-draft-editor` Release build that the
+[Draft editor evaluation](draft-editor-evaluation.md#run-the-evaluation) describes, with
+`UNWIRED_JOURNEY=testDraftEditorSheet` on iPhone; iPad skips it. After signing in, New Message
+opens the page in the system sheet over the Inbox, whose rows are out of reach. Swiping the
+untouched sheet down closes it. In a second New Message, with two paragraphs typed into the page,
+the swipe asks **Save Draft** or **Delete Draft** while the sheet and its text stay, the last
+paragraph in sight beneath the question; **Keep Editing** keeps both, and on the next swipe **Save Draft** closes the sheet. The Inbox then lists the Draft, which
+reopens in the page with its text, and a swipe closes it without asking. The captures "Draft
+editor sheet asks before closing" and "Draft editor sheet reopened" are named with the appearance.
+
 ## iPad composer card journey
 
 `testComposerCard` runs on a `registration-declined` Release build with
