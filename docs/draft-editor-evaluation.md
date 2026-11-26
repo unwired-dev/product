@@ -739,33 +739,37 @@ size that [ADR 0080](adr/0080-edit-the-draft-body-in-the-tiptap-page.md)'s gate 
 lists among #822's measurements. The `registration-draft-editor` scenario resolves
 exactly like `registration-apple` except that `scripts/mock-mail-build.cjs`
 substitutes the bundled page for the empty `@private-email/draft-editor/page`
-default, so the difference between their packaged apps is the page's cost.
+default, so the difference between their packaged apps estimates the page's
+packaged cost.
 
 Both scenarios were built on 2026-11-26 from main at `01c50416b` with Xcode 27.2
 (`27B52`) on macOS 27.2.1 on the Mac mini M4 (16 GB): iPhone and iPad as one
 Release app for a generic iOS device (`iphoneos` 27.2 SDK, arm64, unsigned,
 minimum iOS 27.0), and the Mac as `Testing` builds, which mock scenarios require.
 Sizes are the sum of the files' bytes in the `.app`; compressed sizes are a
-`ditto -c -k` zip of it.
+`ditto -c -k --keepParent` zip of it.
 
-| Bytes                          | iPhone and iPad |        Mac |
-| ------------------------------ | --------------: | ---------: |
-| App without the page           |      96,224,080 | 55,999,938 |
-| App with the page              |      97,087,180 | 56,863,079 |
-| Difference                     |         863,100 |    863,141 |
-| Hermes bundle difference       |         818,140 |    818,188 |
-| `ThirdPartyNotices` difference |          44,946 |     44,946 |
-| Compressed difference          |         156,256 |    160,110 |
+| Bytes                      | iPhone and iPad without | with the page | Mac without | with the page |
+| -------------------------- | ----------------------: | ------------: | ----------: | ------------: |
+| App                        |              96,224,080 |    97,087,180 |  55,999,938 |    56,863,079 |
+| Compressed app             |              29,418,905 |    29,575,161 |  17,212,809 |    17,372,919 |
+| Hermes bundle              |               7,994,960 |     8,813,100 |   4,572,996 |     5,391,184 |
+| `ThirdPartyNotices` (both) |                 894,514 |       939,460 |     718,392 |       763,338 |
 
-The page itself is 409,085 bytes of HTML as `buildPage()` writes it, 126,731
-gzipped; the Hermes bundle holds it as one string module. The executables, asset
-catalogs and every other file keep their sizes; the scenario name in `Info.plist`
-(and on iPhone and iPad in Expo's `app.config`) accounts for the remaining 7 or
-14 bytes.
+The page adds 863,100 bytes to the iPhone and iPad app and 863,141 to the Mac
+app, 156,256 and 160,110 compressed: 818,140 and 818,188 in the Hermes bundle,
+which holds the page as one string module, and 44,946 in the notices. The
+`buildPage()` output, `dist/page.js`, is a 414,116-byte module holding 409,085
+bytes of HTML, 126,731 gzipped. Every other file keeps its size except
+`Info.plist` and, on iPhone and iPad, Expo's `app.config`, which name the
+scenario (7 bytes each). The compressed difference also includes those files
+and the executables and asset catalogs, whose sizes match but whose contents
+differ between builds.
 
 This leaves out App Store thinning, encryption and download compression, and
-production builds, which do not package the page yet. Startup, warm composer opening, typing response and memory
-remain unmeasured, as do physical iPhone and iPad.
+production builds, which do not package the page yet. Startup, warm composer
+opening, typing response and memory remain unmeasured, as do physical iPhone
+and iPad.
 
 ## Finding
 
