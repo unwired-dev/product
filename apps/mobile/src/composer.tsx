@@ -3380,17 +3380,23 @@ function useDraftReminder(draft: string, connection: Draft['connection']) {
   const sendReminders = useSendReminders();
   const profile = profileOf(connection, use(AccountContext)?.mailboxes ?? []);
   const [read, setRead] = useState<SendReminder>();
+  // Read again after each stored change, such as one another device synchronized; only the
+  // latest read applies.
   useEffect(() => {
-    let current = true;
+    let latest = 0;
     const load = async () => {
+      latest += 1;
+      const mine = latest;
       const listed = await sendReminders.reminders(profile);
-      if (current && listed !== undefined) {
+      if (mine === latest && listed !== undefined) {
         setRead(listed.find((each) => each.draft === draft));
       }
     };
     void load();
+    const unsubscribe = sendReminders.subscribe(() => void load());
     return () => {
-      current = false;
+      unsubscribe();
+      latest += 1;
     };
   }, [sendReminders, profile, draft]);
   const reminder =

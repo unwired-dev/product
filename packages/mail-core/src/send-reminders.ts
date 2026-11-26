@@ -303,6 +303,14 @@ export function createSendReminders(
   }>,
 ) {
   const semaphore = Semaphore.makeUnsafe(1);
+  // Told after each change this device stores, such as a reminder another device set, and after
+  // each synchronization, so a read that failed meanwhile is made again.
+  const listeners = new Set<() => void>();
+  const notify = () => {
+    for (const listener of listeners) {
+      listener();
+    }
+  };
   const signedIn = () => ownerOf(registration.getSnapshot().snapshot);
   // The Send Reminders of `account`, the Product Account signed in when the action was called, so
   // an action that waited, or whose read finished, while another account signed in reads and
@@ -341,6 +349,7 @@ export function createSendReminders(
       if (committed.owner !== owner) {
         return yield* ownerMismatch();
       }
+      notify();
       return next;
     }).pipe(semaphore.withPermit);
 
@@ -438,7 +447,11 @@ export function createSendReminders(
     return conflicted;
   });
 
-  const synchronize = preferencePasses('Send Reminder', pass, sync);
+  const passes = preferencePasses('Send Reminder', pass, sync);
+  const synchronize = async () => {
+    await passes();
+    notify();
+  };
 
   // Resolves whether storage holds `reminder`, or its removal when null, as `profile`'s reminder for
   // Draft `draft`, then publishes it. A reminder for a Draft another Profile's reminder names is
@@ -523,6 +536,14 @@ export function createSendReminders(
     // Merges Private Sync into this device's reminders and publishes this device's changes;
     // resolves once no pass is running.
     synchronize,
+    // Calls `listener` after each change this device stores and after each synchronization;
+    // returns its removal.
+    subscribe: (listener: () => void) => {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
   };
 }
 export type SendReminders = ReturnType<typeof createSendReminders>;
