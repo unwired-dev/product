@@ -66,6 +66,8 @@ const update = (key: string, change: (entry: Entry) => Entry) => {
   }
 };
 let lookups = 0;
+// The messages whose banner is shown now, which alone announce an outcome.
+const visible = new Set<string>();
 
 // Whether Unsubscribe… is offered: the stored request was looked up, none is under way and none has
 // ended, when the banner offers what comes next.
@@ -153,13 +155,16 @@ function Banner({
     lookups += 1;
     const lookup = lookups;
     update(key, (each) => ({ ...each, checked: false, lookup }));
+    visible.add(key);
     const answered = (request?: SentUnsubscribeRequest) => {
       update(key, (each) =>
         each.lookup === lookup
           ? {
               ...each,
               checked: true,
-              ...(request === undefined || each.outcome !== undefined
+              // A stored request supersedes a Failed or uncertain one, such as one sent from another
+              // message of the list.
+              ...(request === undefined || each.outcome?.kind === 'sent'
                 ? {}
                 : { outcome: { kind: 'sent', at: request.sentAt } }),
             }
@@ -176,6 +181,7 @@ function Banner({
     void recall();
     // Leaving the message closes its confirmation without acting.
     return () => {
+      visible.delete(key);
       update(key, (each) => ({ ...each, asking: false }));
     };
   }, [store, profile, offer, receivedAt, key]);
@@ -205,7 +211,7 @@ function Banner({
       : t(`unsubscribe.${outcome.kind}Detail`, { sender: message.sender });
   };
   // Sends the request once; a press before the stored request is known, while one is under way or
-  // after one was sent sends nothing. VoiceOver hears the outcome once.
+  // after one was sent sends nothing. VoiceOver hears the outcome once, while the banner shows.
   const send = async () => {
     const current = entries.get(key) ?? nothing;
     if (
@@ -225,9 +231,11 @@ function Banner({
       .catch((): UnsubscribeOutcome => 'uncertain');
     const outcome: Entry['outcome'] = kind === 'sent' ? { kind, at } : { kind };
     update(key, (each) => ({ ...each, sending: false, outcome }));
-    AccessibilityInfo.announceForAccessibility(
-      `${marker(outcome)}. ${summary(outcome)}`,
-    );
+    if (visible.has(key)) {
+      AccessibilityInfo.announceForAccessibility(
+        `${marker(outcome)}. ${summary(outcome)}`,
+      );
+    }
   };
   const close = () => {
     update(key, (each) => ({ ...each, asking: false }));

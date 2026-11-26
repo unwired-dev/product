@@ -174,10 +174,10 @@ Gmail, Graph and IMAP connections and covers Undo, a refused handoff and
 connections that cannot send. On iPhone,
 `apps/mobile/test/inbox.test.tsx` opens a synthetic Gmail message in the reader
 and covers the banner, the menu item, Cancel, one request per confirmation, a
-failure, Try Again and the dated Sent state:
+failure, Try Again and the dated Sent state, which replaces a failure:
 
 ```sh
-mise exec -- pnpm --dir apps/mobile exec jest test/inbox.test.tsx -t 'one-click Unsubscribe'
+mise exec -- pnpm --dir apps/mobile exec jest test/inbox.test.tsx -t 'Unsubscribe|asked to leave'
 ```
 
 The native tests cover the request bytes, redirects and every outcome,

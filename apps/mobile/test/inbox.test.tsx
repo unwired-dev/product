@@ -4,7 +4,9 @@ import type { NativeGmailMailbox } from '@private-email/mail-core/inbox-store';
 import type { NativePins, Pins } from '@private-email/mail-core/pins';
 import type { Registration } from '@private-email/mail-core/registration';
 import type {
+  SentUnsubscribeRequest,
   Unsubscribe,
+  UnsubscribeOffer,
   UnsubscribeOutcome,
 } from '@private-email/mail-core/unsubscribe';
 
@@ -3030,9 +3032,11 @@ describe('connected Gmail Inbox', () => {
     );
   });
 
-  it('shows a list the Profile asked to leave before the message arrived as sent on that date', async () => {
+  it('shows a list the Profile asked to leave as sent on that date, even after a failed request', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
+    // Delivered first, the newsletter takes another id than the previous journey's, whose outcome
+    // stays for the app's lifetime.
     gmail.deliver({
       from: 'Alza.cz <news@alza.example>',
       subject: 'Black Friday',
@@ -3043,39 +3047,55 @@ describe('connected Gmail Inbox', () => {
       },
       content: { text: 'This week only.' },
     });
-    const lookups: unknown[] = [];
-    const sentAt = Date.UTC(2026, 10, 8, 9);
+    gmail.deliver({
+      from: 'Oliver Park <oliver@example.invalid>',
+      subject: 'Saturday, by the river?',
+    });
+    // The request the Profile sent to the list from another of its messages, once the journey sends
+    // it.
+    let stored: SentUnsubscribeRequest | undefined = undefined;
+    const sentRequest = jest.fn((_profile: string, _offer: UnsubscribeOffer) =>
+      Promise.resolve(stored),
+    );
     await renderConnected(gmail.native, 'gmail', {
       unsubscribe: {
-        sentRequest: (profile, offer) => {
-          lookups.push([profile, offer.identity]);
-          return Promise.resolve({
-            profile,
-            identity: 'newsletter.alza.example',
-            list: 'Alza.cz newsletter',
-            sentAt,
-          });
-        },
-        request: () => Promise.reject(new Error('Expected no request')),
+        sentRequest,
+        request: () => Promise.resolve('failed'),
       },
     });
-    await act(async () => {
-      await fireEvent.press(
-        await screen.findByRole('button', {
-          name: 'Unread. Alza.cz. Black Friday',
-        }),
-      );
-    });
+    const press = async (name: string) => {
+      await act(async () => {
+        await fireEvent.press(await screen.findByRole('button', { name }));
+      });
+    };
+    await press('Unread. Alza.cz. Black Friday');
+    await press('Unsubscribe…');
+    await press('Unsubscribe');
     await expect(
-      screen.findByText('Unsubscribe request sent'),
+      screen.findByText('Couldn’t send the request'),
     ).resolves.toBeVisible();
-    expect(
-      screen.getByText(
+    stored = {
+      profile: 'default',
+      identity: 'newsletter.alza.example',
+      list: 'Alza.cz newsletter',
+      sentAt: Date.UTC(2026, 10, 8, 9),
+    };
+    // Opened again, the message shows the stored request in place of the failure.
+    await press('Unread. Oliver Park. Saturday, by the river?');
+    await press('Alza.cz. Black Friday');
+    await expect(
+      screen.findByText(
         'To Alza.cz on Nov 8. If their mail keeps coming after 14 days, you can try again.',
       ),
-    ).toBeVisible();
-    expect(lookups).toContainEqual(['default', 'newsletter.alza.example']);
-    expect(screen.queryByRole('button', { name: 'Unsubscribe…' })).toBeNull();
+    ).resolves.toBeVisible();
+    expect(screen.getByText('Unsubscribe request sent')).toBeVisible();
+    expect(
+      sentRequest.mock.calls.map(([profile, { identity }]) => [
+        profile,
+        identity,
+      ]),
+    ).toContainEqual(['default', 'newsletter.alza.example']);
+    expect(screen.queryByRole('button', { name: 'Try Again' })).toBeNull();
     expect(menuSections(screen.getByLabelText('More')).flat()).not.toContain(
       'Unsubscribe…',
     );
