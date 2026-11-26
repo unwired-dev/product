@@ -19,6 +19,7 @@ import type { SettingsDestination } from '../src/settings.tsx';
 
 import { InboxProvider, MailboxScope } from '../src/mailbox.tsx';
 import { MessageBody } from '../src/message-body.tsx';
+import { OutboxRow } from '../src/outbox.tsx';
 import { AccountContext } from '../src/registration-gate.tsx';
 import { UnsubscribeContext } from '../src/unsubscribe.tsx';
 
@@ -31,12 +32,12 @@ const to = 'leave@alza.example';
 const clock = { now: 0 };
 
 // A device whose iCloud Mail mailbox, with an outgoing server when `smtp`, received a newsletter
-// that unsubscribes only by email; the Product Account reports the mailbox in `state` while its
-// Inbox is open. Only the native unsubscribe record and the AppKit controls are substituted.
-async function device({ state = 'connected', smtp = true } = {}) {
+// that unsubscribes only by email. Only the native unsubscribe record and the AppKit controls are
+// substituted.
+async function device({ smtp = true } = {}) {
   // Outcomes outlive a reader for the app's lifetime, so each test opens its own connection.
   const mara = { id: `connection-${crypto.randomUUID()}`, address };
-  const snapshotIn = (now: string): RegistrationSnapshot => ({
+  const snapshot: RegistrationSnapshot = {
     kind: 'connected',
     productAccountId: account,
     signInProvider: 'google',
@@ -44,13 +45,12 @@ async function device({ state = 'connected', smtp = true } = {}) {
       {
         ...mara,
         provider: 'imap',
-        state: now,
+        state: 'connected',
         imap: { host: icloud.host, port: icloud.port, username: 'mara.novak' },
         ...(smtp ? { smtp: { ...icloud.smtp, username: address } } : {}),
       },
     ]),
-  });
-  const snapshot = snapshotIn('connected');
+  };
   const registration = {
     getSnapshot: () => ({ snapshot, busy: false, failed: false }),
     resume: () => Promise.resolve(),
@@ -82,12 +82,6 @@ async function device({ state = 'connected', smtp = true } = {}) {
     registration,
   );
   await mailboxes.load();
-  const outbox = createOutbox({
-    drafts,
-    mailboxes,
-    registration,
-    claims: storage.delivery,
-  });
   const record = { document: null as string | null, revision: 0 };
   const unsubscribe = createUnsubscribe(
     {
@@ -100,8 +94,14 @@ async function device({ state = 'connected', smtp = true } = {}) {
       },
     },
     registration,
-    outbox,
   );
+  const outbox = createOutbox({
+    drafts,
+    mailboxes,
+    registration,
+    claims: storage.delivery,
+    requests: unsubscribe,
+  });
   const mailbox = mailboxes
     .getConnections()
     .find((each): each is ImapMailbox => each.id === mara.id);
@@ -114,7 +114,7 @@ async function device({ state = 'connected', smtp = true } = {}) {
   await render(
     <AccountContext
       value={{
-        mailboxes: mailboxesOf(snapshotIn(state)),
+        mailboxes: mailboxesOf(snapshot),
         openAccount: (destination) => {
           opened.push(destination ?? 'account');
         },
@@ -158,8 +158,29 @@ async function device({ state = 'connected', smtp = true } = {}) {
       await outbox.process();
     });
   };
-  return { imap, outbox, opened, signIns, deliver };
+  // The request the Mail Profile recorded for the newsletter, as reopening the message finds it.
+  const recorded = () =>
+    unsubscribe.sentRequest(
+      mailboxesOf(snapshot)[0]?.profile ?? '',
+      {
+        kind: 'mailto',
+        list: 'Alza.cz newsletter',
+        identity: 'newsletter.alza.example',
+        address: to,
+      },
+      clock.now,
+    );
+  return { imap, outbox, opened, signIns, deliver, recorded };
 }
+
+// The one entry the Outbox holds.
+const waiting = <E,>(entries: readonly E[]) => {
+  const [entry] = entries;
+  if (entry === undefined) {
+    throw new Error('Expected the request in the Outbox');
+  }
+  return entry;
+};
 
 const press = async (name: string) => {
   const button = await screen.findByRole('button', { name });
@@ -228,6 +249,9 @@ describe('the reader’s mailto: Unsubscribe on the Mac', () => {
     ).toBeOnTheScreen();
     expect(mail.imap.smtp.accepted).toHaveLength(1);
     expect(screen.queryByRole('button', { name: 'Unsubscribe…' })).toBeNull();
+    await expect(mail.recorded()).resolves.toMatchObject({
+      sentAt: clock.now,
+    });
   });
   /* oxlint-enable vitest/max-expects */
 
@@ -245,19 +269,58 @@ describe('the reader’s mailto: Unsubscribe on the Mac', () => {
     ).toBeNull();
   });
 
-  it('says why a mailbox that must sign in again cannot send, and opens its settings', async () => {
+  it('lists the waiting request in the Outbox with Undo and no Edit, since it was never a Draft', async () => {
     expect.hasAssertions();
-    const mail = await device({ state: 'authorization' });
+    const mail = await device();
+    await confirm();
+    const entry = waiting(mail.outbox.getSnapshot());
+    const undone: string[] = [];
+    const returned: string[] = [];
+    await render(
+      <OutboxRow
+        entry={entry}
+        actions={{
+          returnToDrafts: ({ id }) => {
+            returned.push(id);
+          },
+          undoResponse: ({ id }) => {
+            undone.push(id);
+          },
+          check: () => undefined,
+          dismiss: () => undefined,
+        }}
+      />,
+    );
+    expect(screen.queryByRole('button', { name: 'Edit' })).toBeNull();
+    await press('Undo');
+    expect({ undone, returned }).toStrictEqual({
+      undone: [entry.id],
+      returned: [],
+    });
+  });
+
+  it('says the mailbox must sign in again when the server refuses it, then offers the request again', async () => {
+    expect.hasAssertions();
+    const mail = await device();
+    await confirm();
+    mail.imap.smtp.failure = 'smtp-refused';
+    await mail.deliver();
     await expect(
       screen.findByText(
         `Alza.cz newsletter unsubscribes by email from ${address}. iCloud Mail needs you to sign in again before this address can send.`,
       ),
     ).resolves.toBeOnTheScreen();
     expect(screen.queryByRole('button', { name: 'Unsubscribe…' })).toBeNull();
-    // An IMAP password is entered again in the mailbox's settings.
+    // An IMAP password is entered again in the mailbox's settings, and the refused request leaves.
     await press('Sign In…');
-    expect(mail.opened).toStrictEqual(['mailboxes']);
-    expect(mail.signIns).toStrictEqual([]);
+    await expect(
+      screen.findByRole('button', { name: 'Unsubscribe…' }),
+    ).resolves.toBeEnabled();
+    expect({
+      opened: mail.opened,
+      signIns: mail.signIns,
+      outbox: mail.outbox.getSnapshot(),
+    }).toStrictEqual({ opened: ['mailboxes'], signIns: [], outbox: [] });
   });
 
   it('says why a receive-only mailbox cannot send, and never uses another address', async () => {

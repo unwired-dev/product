@@ -1,3 +1,4 @@
+import * as Arr from 'effect/Array';
 import * as Clock from 'effect/Clock';
 import * as Effect from 'effect/Effect';
 import * as Option from 'effect/Option';
@@ -16,7 +17,7 @@ import type {
 } from './registration-snapshot.ts';
 import type { Registration } from './registration.ts';
 import type { Block, SemanticDocument } from './semantic-document.ts';
-import type { UnsubscribeOffer } from './unsubscribe.ts';
+import type { Unsubscribe, UnsubscribeOffer } from './unsubscribe.ts';
 
 import {
   rejectionCode,
@@ -111,6 +112,20 @@ export const unsendable = (
   }
   return mailbox.state === 'authorization' ? 'authorization' : undefined;
 };
+
+// The newest `mailto:` unsubscribe request to `address` that `connection` holds in `outbox`, which
+// the reader shows until it leaves the Outbox, across relaunches.
+export const pendingUnsubscribe = (
+  outbox: readonly OutboxSnapshotEntry[],
+  connection: string,
+  address: string,
+) =>
+  Arr.reverse(outbox).find(
+    ({ draft, unsubscribe }) =>
+      unsubscribe !== undefined &&
+      draft.connection === connection &&
+      draft.to[0]?.address === address,
+  );
 
 // One paragraph per line of a `mailto:` body; a span never holds a line break or an image's
 // character.
@@ -227,6 +242,7 @@ export function createOutbox({
   mailboxes,
   registration,
   claims,
+  requests,
 }: Readonly<{
   drafts: Pick<
     Drafts,
@@ -246,6 +262,8 @@ export function createOutbox({
   mailboxes: Pick<Mailboxes, 'getConnections' | 'subscribe'>;
   registration: Pick<Registration, 'getSnapshot' | 'subscribe' | 'resume'>;
   claims: NativeDeliveryClaim | undefined;
+  // Records each confirmed `mailto:` unsubscribe request for its Mail Profile.
+  requests?: Pick<Unsubscribe, 'record'>;
 }>) {
   // When each pending message may try again; one without an entry uses its Send deadline.
   const retryAt = new Map<string, number>();
@@ -420,6 +438,25 @@ export function createOutbox({
     return recorded ? undefined : ('offline' as const);
   });
 
+  // A confirmed unsubscribe request is recorded before it leaves the Outbox, so a relaunch cannot
+  // lose it.
+  const recordRequest = Effect.fnUntraced(function* (
+    entry: OutboxEntry | undefined,
+  ) {
+    const request = entry?.unsubscribe;
+    const identity = request?.identity;
+    if (
+      request !== undefined &&
+      identity !== undefined &&
+      requests !== undefined
+    ) {
+      const sentAt = yield* Clock.currentTimeMillis;
+      yield* Effect.promise(() =>
+        requests.record({ ...request, identity, sentAt }),
+      );
+    }
+  });
+
   const record = Effect.fnUntraced(function* (
     id: string,
     outcome: SendOutcome,
@@ -435,6 +472,7 @@ export function createOutbox({
       if (awaiting !== undefined && (yield* answer(awaiting)) !== undefined) {
         return false;
       }
+      yield* recordRequest(awaiting);
       // Read on each compare-and-set attempt, so a retried step keeps a current time.
       const clock = yield* Clock.Clock;
       return yield* write(id, (entry) =>
@@ -743,6 +781,9 @@ export function createOutbox({
         (yield* Effect.promise(() =>
           mailbox.inbox.fileSent(entry.message, messageId),
         )) ?? (yield* answer(entry));
+    }
+    if (problem === undefined) {
+      yield* recordRequest(entry);
     }
     const clock = yield* Clock.Clock;
     yield* write(
@@ -1307,12 +1348,19 @@ export function createOutbox({
           sendAt: at + undoSendWindow,
           state: 'waiting',
           epoch: epochOf(draft),
-          unsubscribe: true,
+          unsubscribe: {
+            profile: mailbox.profile,
+            list: offer.list,
+            ...(offer.identity === undefined
+              ? {}
+              : { identity: offer.identity }),
+          },
         }));
       return admitted ? { kind: 'waiting', id: draft.id } : { kind: 'failed' };
     },
-    // Whether the message `id` left the Outbox confirmed as sent, among the latest sends.
-    delivered: (id: string) => drafts.getSent().some((sent) => sent.id === id),
+    // When the message `id` left the Outbox confirmed as sent, among the latest sends.
+    delivered: (id: string) =>
+      drafts.getSent().find((sent) => sent.id === id)?.sentAt,
     // Returns a message to the Drafts, as Undo, after a refusal, or when the person chooses to
     // edit one whose delivery is unknown; only while it is `only` when given. An Invitation
     // Response or an unsubscribe request only leaves the Outbox. Resolves the Draft's identifier,

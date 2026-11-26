@@ -1,8 +1,8 @@
 import type { Translate } from '@private-email/localization';
 import type { GmailInbox } from '@private-email/mail-core/inbox-store';
+import type { OutboxSnapshotEntry } from '@private-email/mail-core/outbox';
 import type { MailboxConnection } from '@private-email/mail-core/registration';
 import type {
-  MailtoProgress,
   SentUnsubscribeRequest,
   Unsubscribe,
   UnsubscribeOffer,
@@ -10,16 +10,17 @@ import type {
 } from '@private-email/mail-core/unsubscribe';
 
 import { imapPresetOf } from '@private-email/mail-core/imap-setup';
-import { undoSendWindow, unsendable } from '@private-email/mail-core/outbox';
+import {
+  pendingUnsubscribe,
+  unsendable,
+} from '@private-email/mail-core/outbox';
 import { radius, spacing } from '@private-email/mail-core/theme';
 import { unsubscribeOf } from '@private-email/mail-core/unsubscribe';
 import {
   createContext,
   use,
   useEffect,
-  useLayoutEffect,
   useMemo,
-  useRef,
   useState,
   useSyncExternalStore,
 } from 'react';
@@ -29,7 +30,7 @@ import type { PopUpItem } from './composer-controls.tsx';
 
 import { useBlockSender } from './block-sender.ts';
 import { Button, Popover, Toast } from './design.tsx';
-import { ReaderToastContext } from './inbox-bar.tsx';
+import { useReaderToast } from './inbox-bar.tsx';
 import { Label } from './label.tsx';
 import { useLocalization } from './localization.ts';
 import {
@@ -69,21 +70,22 @@ const styles = StyleSheet.create({
 });
 
 // One message's Unsubscribe: whether its stored request was looked up, whether a request is under
-// way, and how the last one ended, with when a sent one was sent; a `mailto:` request waits in the
-// Outbox as `id` before it ends. It lives outside the reader,
-// keyed by Product Account, Mail Profile, connection and message, so a result arriving after the
-// reader moved on changes only the message it was sent from.
+// way, how the last one ended, with when a sent one was sent, and the Outbox identifiers of its
+// `mailto:` requests. It lives outside the reader, keyed by Product Account, Mail Profile,
+// connection and message, so a result arriving after the reader moved on changes only the message
+// it was sent from.
 type Entry = Readonly<{
   checked?: boolean;
   // The latest stored-request lookup; only its answer counts.
   lookup?: number;
   sending?: boolean;
-  outcome?:
-    | Readonly<{ kind: 'sent'; at: number }>
-    | Readonly<{ kind: 'waiting'; id: string }>
-    | Readonly<{ kind: Exclude<UnsubscribeOutcome, 'sent'> }>
-    | undefined;
+  outcome?: Outcome;
+  requests?: readonly string[];
 }>;
+type Outcome =
+  | Readonly<{ kind: 'sent'; at: number }>
+  | Readonly<{ kind: Exclude<UnsubscribeOutcome, 'sent'> }>
+  | undefined;
 const entries = new Map<string, Entry>();
 const listeners = new Set<() => void>();
 const nothing: Entry = {};
@@ -112,106 +114,181 @@ const next = () => {
 type Source = Pick<GmailInbox, 'subscribe'> &
   Partial<Pick<GmailInbox, 'responseSource'>>;
 
-// How a `mailto:` request's progress shows: undone, or a connection that cannot send, returns to
-// the offer, which then says why.
-const outcomeOf = (progress: MailtoProgress): Entry['outcome'] => {
-  if (progress.kind === 'waiting' || progress.kind === 'sent') {
-    return progress;
+// Whether the provider refused the request until the receiving connection signs in again. A
+// connection that needs authorization has no open Inbox, so the reader only learns it this way.
+const needsSignIn = (pending: OutboxSnapshotEntry | undefined) =>
+  pending?.state === 'failed' && pending.problem === 'authorization';
+
+// Where the message's `mailto:` request stands while the Outbox holds it, as the banner shows it.
+const pendingOf = (pending: OutboxSnapshotEntry) => {
+  if (pending.state === 'waiting') {
+    return { kind: 'waiting', id: pending.id, sendAt: pending.sendAt } as const;
   }
-  if (progress.kind === 'failed' || progress.kind === 'uncertain') {
-    return { kind: progress.kind };
+  if (pending.state === 'failed' || pending.state === 'unknown') {
+    return {
+      kind: pending.state === 'failed' ? 'failed' : 'uncertain',
+    } as const;
   }
-  return undefined;
+  return { kind: 'queued' } as const;
+};
+
+// Admits the `mailto:` request from `connection` in place of the message `key` names' last one. A
+// refused request leaves the Outbox before it is sent again; an unknown one stays, since it may have
+// been sent. A connection that cannot send says why in place of an outcome.
+const email = async ({
+  outbox,
+  key,
+  connection,
+  pending,
+  offer,
+}: Readonly<{
+  outbox: ReturnType<typeof useOutbox>;
+  key: string;
+  connection: string;
+  pending: OutboxSnapshotEntry | undefined;
+  offer: Extract<UnsubscribeOffer, { kind: 'mailto' }>;
+}>) => {
+  if (pending?.state === 'failed') {
+    await outbox.undo(pending.id, 'failed');
+  }
+  const admitted = await outbox
+    .unsubscribe(connection, offer)
+    .catch(() => ({ kind: 'failed' }) as const);
+  update(key, (each) => ({
+    ...each,
+    sending: false,
+    outcome: admitted.kind === 'failed' ? { kind: 'failed' } : undefined,
+    ...(admitted.kind === 'waiting'
+      ? { requests: [...(each.requests ?? []), admitted.id] }
+      : {}),
+  }));
+};
+
+// Sends the one-click `offer` for `profile` in place of the message `key` names' last request, and
+// records how it ended, dated when it was sent.
+const click = async (
+  store: Unsubscribe,
+  { key, profile }: Readonly<{ key: string; profile: string }>,
+  offer: Exclude<UnsubscribeOffer, { kind: 'mailto' }>,
+) => {
+  let at = Date.now();
+  const answered = await store
+    .request(profile, offer, () => {
+      at = Date.now();
+      return at;
+    })
+    .catch((): UnsubscribeOutcome => 'uncertain');
+  update(key, (each) => ({
+    ...each,
+    sending: false,
+    outcome: answered === 'sent' ? { kind: 'sent', at } : { kind: answered },
+  }));
+};
+
+// Why the receiving connection cannot send the `mailto:` request: the provider refused the last one
+// until sign-in, or the connection receives only or needs authorization.
+const blockedOf = (
+  offer: UnsubscribeOffer | undefined,
+  pending: OutboxSnapshotEntry | undefined,
+  receiving: MailboxConnection | undefined,
+) => {
+  if (needsSignIn(pending)) {
+    return 'authorization';
+  }
+  return offer?.kind === 'mailto' && receiving !== undefined
+    ? unsendable(receiving)
+    : undefined;
+};
+
+// The banner's outcome: the request the Outbox holds, else the first of the message's requests the
+// Outbox confirmed, else how the last request ended.
+const outcomeOf = (
+  entry: Entry,
+  pending: OutboxSnapshotEntry | undefined,
+  delivered: (id: string) => number | undefined,
+): ReturnType<typeof pendingOf> | Outcome => {
+  if (pending !== undefined && !needsSignIn(pending)) {
+    return pendingOf(pending);
+  }
+  const at = entry.requests?.map(delivered).find((each) => each !== undefined);
+  return at === undefined ? entry.outcome : { kind: 'sent', at };
 };
 
 // The opened message's offer in the scoped mailbox and Profile, its Unsubscribe state, and why
-// the receiving connection cannot send a `mailto:` request, if it cannot.
+// the receiving connection cannot send a `mailto:` request, if it cannot. A `mailto:` request shows
+// as the Outbox holds it, across relaunches, then as sent once the Outbox confirmed it.
 function useOffer(inbox: Source, id: string) {
   const store = use(UnsubscribeContext);
   const signedIn = use(AccountContext);
   const account = signedIn?.account;
   const profile = useProfile();
   const mailbox = useMailbox();
+  const outbox = useOutbox();
+  const queued = useOutboxEntries();
   const document = useSyncExternalStore(inbox.subscribe, () =>
     inbox.responseSource?.(id),
   );
   const offer = useMemo(() => unsubscribeOf(document), [document]);
+  const connection = mailbox?.id ?? '';
   const receiving = signedIn?.mailboxes.find((each) => each.id === mailbox?.id);
-  const blocked =
-    offer?.kind === 'mailto' && receiving !== undefined
-      ? unsendable(receiving)
-      : undefined;
   const key = `${account}\n${profile}\n${mailbox?.id}\n${id}`;
   const entry =
     useSyncExternalStore(subscribe, () => entries.get(key)) ?? nothing;
-  // Sends the request once; a press before the stored request is known, while one is under way,
-  // waits in the Outbox, or after one was sent sends nothing.
+  const pending =
+    offer?.kind === 'mailto'
+      ? pendingUnsubscribe(queued, connection, offer.address)
+      : undefined;
+  const blocked = blockedOf(offer, pending, receiving);
+  // A request found in the Outbox, as after a relaunch, shows as sent once it is confirmed too.
+  const pendingId = pending?.id;
+  useEffect(() => {
+    if (pendingId !== undefined) {
+      update(key, (each) =>
+        each.requests?.includes(pendingId) === true
+          ? each
+          : { ...each, requests: [...(each.requests ?? []), pendingId] },
+      );
+    }
+  }, [key, pendingId]);
+  const outcome = outcomeOf(entry, pending, outbox.delivered);
+  const retry = outcome?.kind === 'failed' || outcome?.kind === 'uncertain';
+  // Sends the request once; a press before the stored request is known, while one is under way or
+  // in the Outbox, or after one was sent sends nothing.
   const send = async (sending: UnsubscribeOffer) => {
     const current = entries.get(key) ?? nothing;
     if (
       current.checked !== true ||
       current.sending === true ||
       current.outcome?.kind === 'sent' ||
-      current.outcome?.kind === 'waiting'
+      (outcome !== undefined && !retry)
     ) {
       return;
     }
     update(key, (each) => ({ ...each, sending: true }));
-    if (sending.kind === 'mailto') {
-      // A request the Outbox never admitted sent nothing.
-      await store
-        .email(
-          { profile, connection: mailbox?.id ?? '', offer: sending },
-          (progress) => {
-            update(key, (each) => ({
-              ...each,
-              sending: false,
-              outcome: outcomeOf(progress),
-            }));
-          },
-        )
-        .catch(() => {
-          update(key, (each) =>
-            each.sending === true
-              ? { ...each, sending: false, outcome: { kind: 'failed' } }
-              : each,
-          );
-        });
-      return;
-    }
-    let at = Date.now();
-    const outcome = await store
-      .request(profile, sending, () => {
-        at = Date.now();
-        return at;
-      })
-      .catch((): UnsubscribeOutcome => 'uncertain');
-    update(key, (each) => ({
-      ...each,
-      sending: false,
-      outcome: outcome === 'sent' ? { kind: 'sent', at } : { kind: outcome },
-    }));
+    await (sending.kind === 'mailto'
+      ? email({ outbox, key, connection, pending, offer: sending })
+      : click(store, { key, profile }, sending));
   };
   return {
     store,
     profile,
     offer: mailbox === undefined ? undefined : offer,
     address: mailbox?.address,
-    connection: mailbox?.id ?? '',
+    connection,
     receiving,
     blocked,
+    // The refused request a repair takes out of the Outbox, so the offer returns.
+    refused: needsSignIn(pending) ? pending?.id : undefined,
     key,
     entry,
+    outcome,
+    // Whether Unsubscribe… is offered: the stored request was looked up, none is under way or in
+    // the Outbox and none has ended, when the banner offers what comes next.
+    offered:
+      entry.checked === true && entry.sending !== true && outcome === undefined,
     send,
   };
 }
-
-// Whether Unsubscribe… is offered: the stored request was looked up, none is under way or waiting
-// and none has ended, when the banner offers what comes next.
-const offered = (entry: Entry) =>
-  entry.checked === true &&
-  entry.sending !== true &&
-  entry.outcome === undefined;
 
 // The confirmation for `opening`, from the view it is placed in; Unsubscribe sends the request.
 function Confirmation({
@@ -289,13 +366,13 @@ function useAsking(key: string) {
 // name.
 export function useUnsubscribeMenu(inbox: Source, id: string) {
   const { t } = useLocalization();
-  const { offer, address, blocked, key, entry, send } = useOffer(inbox, id);
+  const { offer, address, blocked, key, offered, send } = useOffer(inbox, id);
   const { asking, ask, close } = useAsking(key);
   if (offer === undefined || address === undefined) {
     return { items: [], confirmation: () => null };
   }
   const items: readonly PopUpItem[] =
-    offered(entry) && blocked === undefined
+    offered && blocked === undefined
       ? [
           {
             key: `${key}\nunsubscribe`,
@@ -311,7 +388,7 @@ export function useUnsubscribeMenu(inbox: Source, id: string) {
         offer={offer}
         sender={sender}
         address={address}
-        opening={offered(entry) ? asking : undefined}
+        opening={offered ? asking : undefined}
         onClose={close}
         onConfirm={() => {
           close();
@@ -327,7 +404,6 @@ export function useUnsubscribeMenu(inbox: Source, id: string) {
 function WaitingToast({ id }: { readonly id: string | undefined }) {
   const { t } = useLocalization();
   const outbox = useOutbox();
-  const showToast = use(ReaderToastContext);
   // The toast outlasts the wait so it can fade out.
   const [shown, setShown] = useState(id);
   if (id !== undefined && id !== shown) {
@@ -336,10 +412,11 @@ function WaitingToast({ id }: { readonly id: string | undefined }) {
   const waiting = useOutboxEntries().some(
     (entry) => entry.id === shown && entry.state === 'waiting',
   );
+  const open = waiting && shown === id;
   const toast =
     shown === undefined ? null : (
       <Toast
-        open={waiting && shown === id}
+        open={open}
         symbol="paperplane"
         message={t('unsubscribe.waitingToast')}
         action={t('outbox.undo')}
@@ -348,23 +425,27 @@ function WaitingToast({ id }: { readonly id: string | undefined }) {
         }}
       />
     );
-  // Only a toast this banner showed is cleared, so another reader toast stays.
-  const showing = useRef(false);
-  useLayoutEffect(() => {
-    if (toast !== null) {
-      showing.current = true;
-      showToast?.(toast);
+  return useReaderToast(toast, open);
+}
+
+// The whole seconds until `at`, at least one, counted down each second while `at` is given.
+function useSecondsUntil(at: number | undefined) {
+  const [now, setNow] = useState(Date.now);
+  useEffect(() => {
+    if (at === undefined) {
+      return undefined;
     }
-  });
-  useLayoutEffect(
-    () => () => {
-      if (showing.current) {
-        showToast?.(null);
-      }
-    },
-    [showToast],
-  );
-  return showToast === undefined ? toast : null;
+    const tick = () => {
+      setNow(Date.now());
+    };
+    const first = setTimeout(tick, 0);
+    const timer = setInterval(tick, 1000);
+    return () => {
+      clearTimeout(first);
+      clearInterval(timer);
+    };
+  }, [at]);
+  return at === undefined ? 0 : Math.max(1, Math.ceil((at - now) / 1000));
 }
 
 // Who asks the receiving connection to sign in again: its provider, an IMAP connection's reviewed
@@ -391,10 +472,13 @@ const wordsOf = (
     sender,
     address,
     receiving,
+    seconds,
     date,
   }: Readonly<{
     offer: UnsubscribeOffer;
-    outcome: Entry['outcome'];
+    outcome: ReturnType<typeof useOffer>['outcome'];
+    // Until a waiting request is sent.
+    seconds: number;
     blocked: ReturnType<typeof unsendable>;
     sender: string;
     address: string;
@@ -412,14 +496,13 @@ const wordsOf = (
           : t('unsubscribe.sentDetail', { sender, date: date(outcome.at) }),
     };
   }
-  if (outcome?.kind === 'waiting') {
+  if (outcome?.kind === 'waiting' || outcome?.kind === 'queued') {
     return {
       marker: t('unsubscribe.waiting'),
-      summary: t('unsubscribe.waitingDetail', {
-        count: undoSendWindow / 1000,
-        to,
-        address,
-      }),
+      summary:
+        outcome.kind === 'waiting'
+          ? t('unsubscribe.waitingDetail', { count: seconds, to, address })
+          : t('unsubscribe.sendingDetail', { to, address }),
     };
   }
   if (outcome !== undefined) {
@@ -453,17 +536,27 @@ const wordsOf = (
 function Repair({
   blocked,
   connection,
+  refused,
 }: {
   readonly blocked: NonNullable<ReturnType<typeof unsendable>>;
   readonly connection: MailboxConnection | undefined;
+  // The request the provider refused until sign-in, which a repair takes out of the Outbox.
+  readonly refused: string | undefined;
 }) {
   const { t } = useLocalization();
   const signedIn = use(AccountContext);
   const reload = useReloadMailboxes();
+  const outbox = useOutbox();
+  const repaired = async () => {
+    if (refused !== undefined) {
+      await outbox.undo(refused, 'failed');
+    }
+  };
   const signIn = async (id: string) => {
     try {
       await signedIn?.authorizeMailbox(id);
       await reload();
+      await repaired();
     } catch {
       // Cancelled or refused: the banner still says why the request cannot be sent.
     }
@@ -484,6 +577,7 @@ function Repair({
           void signIn(connection.id);
         } else {
           signedIn?.openAccount('mailboxes');
+          void repaired();
         }
       }}
     />
@@ -520,12 +614,18 @@ export function UnsubscribeBanner({
     connection,
     receiving,
     blocked,
+    refused,
     key,
     entry,
+    outcome,
+    offered,
     send,
   } = useOffer(inbox, id);
   const { asking, ask, close } = useAsking(key);
   const { anchor, items } = useBlockSender();
+  const seconds = useSecondsUntil(
+    outcome?.kind === 'waiting' ? outcome.sendAt : undefined,
+  );
   useEffect(() => {
     if (offer === undefined) {
       return;
@@ -568,7 +668,7 @@ export function UnsubscribeBanner({
     return null;
   }
   const primary = { color: colors.textPrimary };
-  const { outcome, sending = false } = entry;
+  const { sending = false } = entry;
   const block = items(sender.address, connection, id).find(
     (item) => 'run' in item,
   );
@@ -579,6 +679,7 @@ export function UnsubscribeBanner({
     sender: sender.name,
     address,
     receiving,
+    seconds,
     date: (at) => day.format(at),
   });
   let actions = null;
@@ -587,6 +688,7 @@ export function UnsubscribeBanner({
       <Repair
         blocked={blocked}
         connection={receiving}
+        refused={refused}
       />
     );
   } else if (outcome === undefined) {
@@ -594,14 +696,14 @@ export function UnsubscribeBanner({
       <View collapsable={false}>
         <Button
           label={t('unsubscribe.action')}
-          disabled={!offered(entry)}
+          disabled={!offered}
           onPress={ask}
         />
         <Confirmation
           offer={offer}
           sender={sender.name}
           address={address}
-          opening={offered(entry) ? asking : undefined}
+          opening={offered ? asking : undefined}
           onClose={close}
           onConfirm={() => {
             close();

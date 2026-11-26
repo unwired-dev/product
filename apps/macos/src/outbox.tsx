@@ -164,7 +164,7 @@ export function useOutboxActions(onOpen: (id: string) => Promise<void>) {
       }
     })();
   };
-  // An Invitation Response, which was never a Draft, only leaves the Outbox.
+  // An Invitation Response or unsubscribe request, which was never a Draft, only leaves the Outbox.
   const undoResponse = (entry: OutboxSnapshotEntry) => {
     dismiss();
     void outbox.undo(entry.id, 'waiting');
@@ -288,9 +288,9 @@ const responseSymbols = {
   unknown: ['info.circle', 'statusWarning'],
 } as const satisfies Record<OutboxSnapshotEntry['state'], readonly string[]>;
 
-// An Invitation Response's row: the meeting, the choice and where it stands, with Undo while it
-// waits, Check Again when its delivery is unknown, and Open Invitation. It has no Edit, since it
-// was never a Draft.
+// An Invitation Response's or unsubscribe request's row: the meeting and the choice, or the
+// request's recipient, and where it stands, with Undo while it waits, Check Again when its delivery
+// is unknown, and Open Invitation. It has no Edit, since it was never a Draft.
 function ResponseRow({
   entry,
   actions,
@@ -399,7 +399,7 @@ export function OutboxRow({
   const provider = use(AccountContext)?.mailboxes.find(
     ({ id }) => id === entry.draft.connection,
   )?.provider;
-  if (entry.invitation !== undefined) {
+  if (entry.invitation !== undefined || entry.unsubscribe !== undefined) {
     return (
       <ResponseRow
         entry={entry}

@@ -7,7 +7,6 @@ import {
 import { radius, spacing } from '@private-email/mail-core/theme';
 import * as Effect from 'effect/Effect';
 import {
-  use,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -21,7 +20,7 @@ import type { SaveOutcome } from './message-body.tsx';
 
 import { Toast } from './design.tsx';
 import { native } from './host.ts';
-import { ReaderToastContext } from './inbox-bar.tsx';
+import { useReaderToast } from './inbox-bar.tsx';
 import { useLocalization } from './localization.ts';
 import { useReaderTop } from './message-body.tsx';
 import { windowHost } from './settings-window-client.ts';
@@ -138,7 +137,6 @@ export function SaveFailedNotice({ shown }: { readonly shown: Shown }) {
 // A saved copy's toast, with Show in Finder, among the floating bar's notices.
 export function SaveOutcomeToast({ shown }: { readonly shown: Shown }) {
   const { t } = useLocalization();
-  const showToast = use(ReaderToastContext);
   // The words outlast the toast so it can fade out.
   const [said, setSaid] = useState(shown);
   if (shown !== undefined && shown !== said) {
@@ -160,16 +158,7 @@ export function SaveOutcomeToast({ shown }: { readonly shown: Shown }) {
       />
     );
   }
-  useLayoutEffect(() => {
-    showToast?.(toast);
-  });
-  useLayoutEffect(
-    () => () => {
-      showToast?.(null);
-    },
-    [showToast],
-  );
-  return showToast === undefined ? toast : null;
+  return useReaderToast(toast, shown?.open === true);
 }
 
 // The Profiles on this Mac that save received attachments to Downloads, by preference key, and

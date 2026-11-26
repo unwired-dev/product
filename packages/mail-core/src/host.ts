@@ -594,19 +594,6 @@ export function createHost(
     },
   );
 
-  // Messages sent on this device: each waits out the Undo Send Window, is claimed through Convex so no
-  // other Trusted Device sends the same Draft, and is handed to Gmail once.
-  const outbox = createOutbox({
-    drafts,
-    mailboxes: gmailMailboxes,
-    registration,
-    claims: {
-      claimDraftDelivery: (owner, id) => native().claimDraftDelivery(owner, id),
-    },
-  });
-  // The host's application lifecycle grants execution; constructing stores grants none.
-  outbox.pause();
-
   // Unsubscribe requests, each recorded encrypted on this device once sent.
   const unsubscribe = createUnsubscribe(
     {
@@ -616,8 +603,21 @@ export function createHost(
         native().commitUnsubscribeRequests(owner, expectedRevision, document),
     },
     registration,
-    outbox,
   );
+
+  // Messages sent on this device: each waits out the Undo Send Window, is claimed through Convex so no
+  // other Trusted Device sends the same Draft, and is handed to Gmail once.
+  const outbox = createOutbox({
+    drafts,
+    mailboxes: gmailMailboxes,
+    registration,
+    claims: {
+      claimDraftDelivery: (owner, id) => native().claimDraftDelivery(owner, id),
+    },
+    requests: unsubscribe,
+  });
+  // The host's application lifecycle grants execution; constructing stores grants none.
+  outbox.pause();
 
   // This device's remote content policies and the Authorized Remote Content Cache.
   const remoteContent = createRemoteContentSettings({

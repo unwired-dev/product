@@ -7,7 +7,6 @@ import * as Semaphore from 'effect/Semaphore';
 
 import type { DraftStorageFailure } from './draft-native.ts';
 import type { BodyDocument } from './message-body.ts';
-import type { MailtoUnsubscribe, Outbox } from './outbox.ts';
 import type { Registration } from './registration.ts';
 
 import {
@@ -277,25 +276,12 @@ const report = (
     ? Effect.void
     : Effect.logError('Unsubscribe request storage failed:', error.diagnostic);
 
-// Where a `mailto:` request stands as its Outbox entry moves: waiting in the Outbox as `id` until
-// it is handed off, refused (`failed`), delivered unknown (`uncertain`), confirmed `sent` at `at`, or
-// taken out of the Outbox unsent (`undone`). `receive-only` and `authorization` say why the receiving
-// connection could not send it, and `failed` also covers a request the Outbox did not admit.
-export type MailtoProgress =
-  | MailtoUnsubscribe
-  | Readonly<{ kind: 'uncertain' | 'undone' }>
-  | Readonly<{ kind: 'sent'; at: number }>;
-
 // Unsubscribe requests, each recorded on this device for the Mail Profile that sent it once it ends
-// `sent`: one-click requests over the isolated native path, and `mailto:` requests through
-// `outbox`. Records are not synchronized.
+// `sent`: one-click requests here, and `mailto:` requests by the Outbox once it confirms them.
+// Records are not synchronized.
 export function createUnsubscribe(
   storage: NativeUnsubscribe & NativeUnsubscribeRequests,
   registration: Pick<Registration, 'getSnapshot'>,
-  outbox: Pick<
-    Outbox,
-    'subscribe' | 'getSnapshot' | 'unsubscribe' | 'delivered'
-  >,
 ) {
   const semaphore = Semaphore.makeUnsafe(1);
   const signedIn = () => ownerOf(registration.getSnapshot().snapshot);
@@ -392,82 +378,9 @@ export function createUnsubscribe(
       }
       return outcome;
     },
-    // Admits the `mailto:` offer's request from `connection`, the Mailbox Connection that received
-    // it, and follows its Outbox entry until it leaves the Outbox, telling `tell` each change. A
-    // confirmed send is recorded for `profile` like a one-click request before `sent` is told. A
-    // request that leaves unsent after a refusal or an unknown delivery keeps that outcome, and once
-    // another Product Account signs in nothing more is told. Resolves once the request was admitted
-    // or refused.
-    email: async (
-      {
-        profile,
-        connection,
-        offer,
-      }: Readonly<{
-        profile: string;
-        connection: string;
-        offer: Extract<UnsubscribeOffer, { kind: 'mailto' }>;
-      }>,
-      tell: (progress: MailtoProgress) => void,
-      now: () => number = Date.now,
-    ) => {
-      const account = signedIn();
-      const admitted = await outbox.unsubscribe(connection, offer);
-      tell(admitted);
-      if (admitted.kind !== 'waiting') {
-        return;
-      }
-      const { id } = admitted;
-      let last: MailtoProgress['kind'] = 'waiting';
-      const ended = async () => {
-        if (!outbox.delivered(id)) {
-          if (last === 'waiting') {
-            tell({ kind: 'undone' });
-          }
-          return;
-        }
-        const at = now();
-        if (offer.identity !== undefined) {
-          await remember(account, {
-            profile,
-            identity: offer.identity,
-            list: offer.list,
-            sentAt: at,
-          });
-        }
-        tell({ kind: 'sent', at });
-      };
-      // Whether the request is still followed after the Outbox changed.
-      const follow = () => {
-        if (signedIn() !== account) {
-          return false;
-        }
-        const entry = outbox.getSnapshot().find((each) => each.id === id);
-        if (entry === undefined) {
-          void ended();
-          return false;
-        }
-        const kind =
-          entry.state === 'failed' || entry.state === 'unknown'
-            ? ({ failed: 'failed', unknown: 'uncertain' } as const)[entry.state]
-            : 'waiting';
-        if (kind !== last) {
-          last = kind;
-          tell(kind === 'waiting' ? { kind, id } : { kind });
-        }
-        return true;
-      };
-      let following = true;
-      let unfollow: (() => void) | undefined = undefined;
-      const step = () => {
-        if (following && !follow()) {
-          following = false;
-          unfollow?.();
-        }
-      };
-      unfollow = outbox.subscribe(step);
-      // The entry may have moved before this follows it.
-      step();
+    // Records `request`, a confirmed `mailto:` request, for the signed-in Product Account.
+    record: async (request: SentUnsubscribeRequest) => {
+      await remember(signedIn(), request);
     },
   };
 }

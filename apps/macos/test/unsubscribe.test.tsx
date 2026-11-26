@@ -105,8 +105,7 @@ async function opened({
       requests.push(owner);
       return outcomes[requests.length - 1]?.() ?? Promise.resolve('failed');
     },
-    // These messages offer one-click requests only.
-    email: () => Promise.resolve(),
+    record: () => Promise.resolve(),
   };
   const mailboxes = [
     {

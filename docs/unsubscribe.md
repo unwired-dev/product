@@ -91,9 +91,19 @@ paragraph. It is never a Draft, so it never syncs.
 
 It waits in the Outbox under the Undo Send Window and is then claimed and sent
 like any message, so it appears in the connection's Sent mailbox and an
-uncertain handoff is never sent again automatically. Undo, or Edit after a
-refusal, only takes it out of the Outbox. Nothing logs the address, subject or
-body, and Convex hears only the claim's opaque identifier.
+uncertain handoff is never sent again automatically. Undo only takes it out of
+the Outbox; its Outbox row, like an Invitation Response's, has no Edit, since it
+was never a Draft. Nothing logs the address, subject or body, and Convex hears
+only the claim's opaque identifier.
+
+The Outbox entry keeps the Mail Profile that owns the connection, the list's
+name and its Mailing List Identity. Once the provider confirms the send, or
+Check Again finds it in Sent, the Outbox records the request through the
+`requests` it was created with (the host's `unsubscribe.record`) before the
+entry leaves, so a relaunch in between loses neither the request nor its
+record. `pendingUnsubscribe(snapshot, connection, address)` finds the newest
+request the Outbox holds for a message, and `outbox.delivered(id)` when one that
+left was confirmed.
 
 | Result                      | When                                                                                                                 |
 | --------------------------- | -------------------------------------------------------------------------------------------------------------------- |
@@ -107,7 +117,7 @@ the connection cannot send.
 
 ## Remembering a sent request
 
-`createUnsubscribe(native, registration, outbox)` returns the host's `unsubscribe`.
+`createUnsubscribe(native, registration)` returns the host's `unsubscribe`.
 Its `request(profile, offer)` sends the request as above and, when it ends
 `sent`, records it for `profile`, the Mail Profile that owns the receiving
 connection, and for the Product Account signed in when the request started: the
@@ -124,14 +134,9 @@ reader can show it as sent on that date. After that, for another Profile or for
 an offer without a Mailing List Identity, it returns nothing and the message offers Unsubscribe again, as
 [ADR 0044](adr/0044-isolate-standards-based-unsubscribe-actions.md) allows.
 
-`email({ profile, connection, offer }, tell)` admits a `mailto:` request through
-`outbox.unsubscribe` and follows its Outbox entry until it leaves the Outbox,
-telling `tell` each change: `waiting` with the entry's `id`, `failed` for a
-refusal, `uncertain` for an unknown delivery, `sent` with its time once the
-Outbox confirms the send, or `undone` when it leaves unsent. A confirmed send is
-recorded for `profile` like a one-click request before `sent` is told; Undo
-records nothing. `receive-only` and `authorization` come from the admission as
-above. Once another Product Account signs in, nothing more is told.
+`record(request)` records a confirmed `mailto:` request the same way, for the
+Product Account signed in when the Outbox confirms it; Undo and a refusal record
+nothing.
 
 Native code keeps the records in `unsubscribe-requests.enc`, a document sealed
 for the signed-in Product Account like its Pins and removed by an account purge.
@@ -172,19 +177,23 @@ list (`sentRequest`) within 14 days before the message arrived shows as sent on
 the date it was sent. A sent request with no Mailing List Identity, or one
 storage refused to record, still shows as sent for the rest of the session.
 
-A `mailto:` request goes through `unsubscribe.email` instead, from the
-receiving connection only:
+A `mailto:` request goes through `outbox.unsubscribe` instead, from the
+receiving connection only. The banner shows the request the Outbox holds for the
+message, also after a relaunch, then the dated Sent state once the Outbox
+confirmed it:
 
-| State         | Banner                                                                                                                                                                             |
-| ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Waiting       | **Unsubscribe request waiting to send**, with the countdown, the two addresses and no action. The reader's Undo Send toast offers **Undo**, which returns the banner to the offer. |
-| Sent          | **Unsubscribe request sent**, dated, saying the email is in Sent.                                                                                                                  |
-| Refused       | **Couldn’t send the request**, as for one-click.                                                                                                                                   |
-| Unknown       | **No clear answer to the request**, as for one-click.                                                                                                                              |
-| Needs sign-in | In place of **Unsubscribe…**, why the connection cannot send and **Sign In…**, which asks its provider again; an IMAP connection's password is entered in its mailbox settings.    |
-| Receive-only  | In place of **Unsubscribe…**, that the IMAP connection has no outgoing server and that Unwired never uses another address, with **Mailbox Settings…**.                             |
+| State         | Banner                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Waiting       | **Unsubscribe request waiting to send**, with the countdown, the two addresses and no action. The reader's Undo Send toast offers **Undo**, which returns the banner to the offer. Once the window ends the countdown gives way to “Sending to …”.                                                                                                                                                                                                    |
+| Sent          | **Unsubscribe request sent**, dated, saying the email is in Sent.                                                                                                                                                                                                                                                                                                                                                                                     |
+| Refused       | **Couldn’t send the request**, as for one-click. **Try Again** first takes the refused request out of the Outbox.                                                                                                                                                                                                                                                                                                                                     |
+| Unknown       | **No clear answer to the request**, as for one-click.                                                                                                                                                                                                                                                                                                                                                                                                 |
+| Needs sign-in | In place of **Unsubscribe…**, why the connection cannot send and **Sign In…**, which asks its provider again; an IMAP connection's password is entered in its mailbox settings. A connection that needs authorization has no open Inbox, so the reader shows this when the provider refused the request until sign-in; a successful **Sign In…**, or opening the mailbox settings, takes the refused request out of the Outbox and the offer returns. |
+| Receive-only  | In place of **Unsubscribe…**, that the IMAP connection has no outgoing server and that Unwired never uses another address, with **Mailbox Settings…**.                                                                                                                                                                                                                                                                                                |
 
-After the toast ends, the Outbox row keeps the waiting request's **Undo**. The
+The waiting toast shares the reader's toast place with a saved attachment's
+toast; each clears only its own. After the toast ends, the Outbox row keeps the
+waiting request's **Undo**. The
 Mac's ⌘Z undoes organizing only, not a send, so the frames' note that ⌘Z undoes
 the request waits for a Mac Undo Send shortcut.
 
@@ -199,8 +208,8 @@ cover each offer, refusal, list name and identity, how a native answer becomes
 an outcome, and which outcomes are recorded and for how long.
 `test/unsubscribe-mailto.test.ts` sends a `mailto:` request from synthetic
 Gmail, Graph and IMAP connections and covers Undo, a refused handoff and
-connections that cannot send, and how `unsubscribe.email` follows the request
-to sent, Undo, a refusal and an unknown delivery. On the Mac,
+connections that cannot send, and that the Outbox records a confirmed request
+(sent or filed, and found by Check Again) but not one undone or refused. On the Mac,
 `apps/macos/test/unsubscribe.test.tsx` opens a synthetic Gmail message in the
 reader and covers the banner, the menu item, Cancel, one request per
 confirmation, each outcome, Try Again, the dated Sent state with the lookup's
@@ -209,7 +218,9 @@ result after the reader moved to another message.
 `apps/macos/test/unsubscribe-mailto.test.tsx` opens a synthetic iCloud Mail
 message whose offer is `mailto:` through the real Outbox and covers the
 confirmation, the waiting banner and toast, the sent request in SMTP and the
-dated banner, the toast's Undo, and the needs-sign-in and receive-only banners:
+dated banner and its record, the toast's Undo, the Outbox row's Undo without
+Edit, the needs-sign-in banner after the server refuses the request, and the
+receive-only banner:
 
 ```sh
 mise exec -- pnpm --dir apps/macos exec jest test/unsubscribe.test.tsx test/unsubscribe-mailto.test.tsx

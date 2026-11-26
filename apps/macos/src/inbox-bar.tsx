@@ -10,6 +10,7 @@ import { spacing } from '@private-email/mail-core/theme';
 import {
   createContext,
   use,
+  useLayoutEffect,
   useRef,
   useState,
   useSyncExternalStore,
@@ -254,6 +255,30 @@ export const createBarOffset = () => {
 export const ReaderToastContext = createContext<
   ((toast: ReactNode) => void) | undefined
 >(undefined);
+
+// Shows `toast` as the reader's toast while it is `open`, and once more as it closes so it fades
+// out; it leaves alone another toast shown since, and clears only its own open toast as it goes.
+// Without a reader it returns `toast` to place in line.
+export function useReaderToast(toast: ReactNode, open: boolean) {
+  const showToast = use(ReaderToastContext);
+  const shown = useRef(false);
+  useLayoutEffect(() => {
+    const showing = open && toast !== null;
+    if (showing || shown.current) {
+      showToast?.(toast);
+    }
+    shown.current = showing;
+  });
+  useLayoutEffect(
+    () => () => {
+      if (shown.current) {
+        showToast?.(null);
+      }
+    },
+    [showToast],
+  );
+  return showToast === undefined ? toast : null;
+}
 
 // The floating glass bar over the panes: search on the mail saved on this device, and New Message.
 export function FloatingBar({

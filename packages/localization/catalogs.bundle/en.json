@@ -1960,6 +1960,7 @@
     "waiting": "Unsubscribe request waiting to send",
     "waitingDetail_one": "Sending in {{count}} second to {{to}} from {{address}}. The email will be in Sent.",
     "waitingDetail_other": "Sending in {{count}} seconds to {{to}} from {{address}}. The email will be in Sent.",
+    "sendingDetail": "Sending to {{to}} from {{address}}. The email will be in Sent.",
     "waitingToast": "Sending unsubscribe request",
     "emailSentDetail": "Emailed to {{to}} on {{date}}. It’s in Sent. If their mail keeps coming after 14 days, you can try again.",
     "signInDetail": "{{list}} unsubscribes by email from {{address}}. {{provider}} needs you to sign in again before this address can send.",
