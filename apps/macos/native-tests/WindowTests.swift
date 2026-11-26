@@ -2551,25 +2551,7 @@ final class WindowTests: XCTestCase {
   func testComposerOpening() throws {
     continueAfterFailure = false
     executionTimeAllowance = 600
-    let environment = ProcessInfo.processInfo.environment
-    let page = environment["UNWIRED_TEST_SCENARIO"] == "registration-draft-editor"
-    XCTAssertTrue(page || environment["UNWIRED_TEST_SCENARIO"] == "registration-performance")
-    let appURL = URL(fileURLWithPath: try XCTUnwrap(environment["UNWIRED_APP_PATH"]))
-    let evidence = appURL.deletingLastPathComponent().appendingPathComponent("lifecycle.jsonl")
-    let app = XCUIApplication(url: appURL)
-    app.launchArguments += ["-ApplePersistenceIgnoreState", "YES", "-interfaceLanguage", "en"]
-    app.launchEnvironment["UNWIRED_LIFECYCLE_PATH"] = evidence.path
-    app.launch()
-    addTeardownBlock { if app.state != .notRunning { app.terminate() } }
-    let window = app.windows["Inbox 1"]
-    if page {
-      XCTAssertTrue(window.waitForExistence(timeout: 30))
-      draftEditorSignIn(window)
-    } else {
-      performanceSetup(app, window: window)
-      // The Draft's row is listed with both mailboxes' Threads.
-      window.buttons["All Inboxes"].click()
-    }
+    let (app, window, evidence, page) = try signedInComposerApp()
     let body =
       page
       ? window.webViews.textViews["Message body"]
@@ -2625,7 +2607,89 @@ final class WindowTests: XCTestCase {
     // The running app keeps appending probe records; read them only after it quits.
     app.terminate()
     try reportPerformance(
-      groups, evidence: evidence, overhead: overhead, composer: page ? "page" : "current")
+      groups, evidence: evidence, overhead: overhead, name: "Composer opening",
+      composer: page ? "page" : "current")
+  }
+
+  // #2965: what a launch costs each composer, in the same builds as testComposerOpening. Each of 10
+  // samples quits and launches the app, timed from the launch request to the Inbox's first listed
+  // row, then opens a new message, the first composer of that app, which for the page starts its
+  // WebKit processes and loads it: from the click release the app records to the body and the
+  // format bar's Undo. The two builds list different mail, so their launches are not like for like.
+  func testLaunchAndFirstComposer() throws {
+    continueAfterFailure = false
+    executionTimeAllowance = 600
+    let (app, window, evidence, page) = try signedInComposerApp()
+    let listed =
+      page
+      ? window.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Garden plans for spring"))
+        .firstMatch
+      : window.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Jordan Lee")).firstMatch
+    // As in testWarmCachePerformance, the two mailboxes' sidebar must show too.
+    let sidebar = page ? nil : window.buttons["All Inboxes"]
+    let body =
+      page
+      ? window.webViews.textViews["Message body"]
+      : window.textViews.matching(NSPredicate(format: "label == %@", "Message")).firstMatch
+    let undo = window.buttons["Undo"]
+    let subject = window.textFields["Subject"]
+    var launches: [(start: Double, end: Double)] = []
+    var composers: [(start: Double, end: Double)] = []
+    var launchesOnFirstQuery = 0
+    var composersOnFirstQuery = 0
+    for _ in 0..<10 {
+      app.terminate()
+      var before = firstQueryResults
+      let start = uptime()
+      app.launch()
+      launches.append((start, until(listed, from: start, and: sidebar)))
+      launchesOnFirstQuery += firstQueryResults - before
+      XCTAssertFalse(subject.exists)
+      before = firstQueryResults
+      let open = uptime()
+      window.buttons["New Message"].click()
+      composers.append((open, until(body, from: open, and: undo)))
+      composersOnFirstQuery += firstQueryResults - before
+      // The untouched message closes without asking; the next launch starts without a composer.
+      window.buttons["Close"].click()
+      XCTAssertTrue(subject.waitForNonExistence(timeout: 10))
+    }
+    let overhead = queryOverhead(window.buttons["New Message"])
+    // The running app keeps appending probe records; read them only after it quits.
+    app.terminate()
+    try reportPerformance(
+      [
+        ("launch-to-first-list", 1000, launches, launchesOnFirstQuery, []),
+        ("first-composer", 300, composers, composersOnFirstQuery, []),
+      ], evidence: evidence, overhead: overhead, name: "Launch and first composer",
+      composer: page ? "page" : "current")
+  }
+
+  // Launches a registration-performance build, signed in as testWarmCachePerformance is and showing
+  // All Inboxes, or a registration-draft-editor build signed in to its Inbox.
+  private func signedInComposerApp() throws -> (
+    app: XCUIApplication, window: XCUIElement, evidence: URL, page: Bool
+  ) {
+    let environment = ProcessInfo.processInfo.environment
+    let page = environment["UNWIRED_TEST_SCENARIO"] == "registration-draft-editor"
+    XCTAssertTrue(page || environment["UNWIRED_TEST_SCENARIO"] == "registration-performance")
+    let appURL = URL(fileURLWithPath: try XCTUnwrap(environment["UNWIRED_APP_PATH"]))
+    let evidence = appURL.deletingLastPathComponent().appendingPathComponent("lifecycle.jsonl")
+    let app = XCUIApplication(url: appURL)
+    app.launchArguments += ["-ApplePersistenceIgnoreState", "YES", "-interfaceLanguage", "en"]
+    app.launchEnvironment["UNWIRED_LIFECYCLE_PATH"] = evidence.path
+    app.launch()
+    addTeardownBlock { if app.state != .notRunning { app.terminate() } }
+    let window = app.windows["Inbox 1"]
+    if page {
+      XCTAssertTrue(window.waitForExistence(timeout: 30))
+      draftEditorSignIn(window)
+    } else {
+      performanceSetup(app, window: window)
+      // The Draft's row is listed with both mailboxes' Threads.
+      window.buttons["All Inboxes"].click()
+    }
+    return (app, window, evidence, page)
   }
 
   // #2951: selection changes at the end of a one-paragraph and a 1,000-paragraph body, in the
@@ -4872,7 +4936,7 @@ final class WindowTests: XCTestCase {
     print(lines.map { "PERFORMANCE \($0)" }.joined(separator: "\n"))
     let attachment = XCTAttachment(
       data: Data((lines.joined(separator: "\n") + "\n").utf8), uniformTypeIdentifier: "public.json")
-    attachment.name = composer.map { "Composer opening (\($0) composer)" } ?? name
+    attachment.name = composer.map { "\(name) (\($0) composer)" } ?? name
     attachment.lifetime = .keepAlways
     add(attachment)
   }
