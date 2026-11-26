@@ -224,7 +224,9 @@ nothing in it sends or queues the Draft. The schedule follows every change to th
 reminders, the Drafts and the notification settings, and stays as it was while
 storage is locked or still opening; a notification whose Draft is no longer listed
 is withdrawn, also after delivery, and every one is withdrawn when this device
-signs out or is purged.
+signs out or is purged. Turning Show Sender and Subject off withdraws at once
+each one that shows its Draft, pending or delivered, and the generic one replaces
+it for a reminder still ahead.
 
 ## Diagnostics
 

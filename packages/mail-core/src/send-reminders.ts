@@ -486,6 +486,10 @@ export function createSendReminders(
           (each) => each !== id,
         );
         if (reminder !== null) {
+          // Choosing the value it already has is no new revision, so it moves no notification.
+          if (current !== undefined && sameReminder(current, reminder)) {
+            return document;
+          }
           return current === undefined &&
             others.some((each) => each.draft === draft)
             ? undefined
@@ -587,7 +591,8 @@ export function createSendReminders(
 export type SendReminders = ReturnType<typeof createSendReminders>;
 
 // A due reminder's notification, as native code schedules it for its due instant. Its identifier
-// names the reminder's record and instant, so a changed instant withdraws the old notification.
+// names the reminder's record and instant, so a changed instant withdraws the old notification, and
+// marks one that shows the Draft, which native code withdraws when previews are turned off.
 const ScheduledReminderSchema = Schema.Struct({
   id: Schema.String,
   title: Schema.String,
@@ -620,7 +625,7 @@ export interface NativeReminderNotifications {
 
 // What a due reminder's notification shows: with `previews`, the Draft's subject and recipients,
 // otherwise nothing of the Draft. It offers nothing that sends the Draft.
-export const reminderNotificationContent = (
+const reminderNotificationContent = (
   t: Translate,
   previews: boolean,
   draft: Pick<Draft, 'subject' | 'to' | 'cc' | 'bcc'>,
@@ -693,7 +698,7 @@ export function followReminderNotifications(
           ? []
           : [
               {
-                id: `send-reminder.${dueAt}.${recordId({ profile, draft: id })}`,
+                id: `send-reminder.${current.previews ? 'preview.' : ''}${dueAt}.${recordId({ profile, draft: id })}`,
                 ...reminderNotificationContent(t, current.previews, draft),
                 profile,
                 dueAt,

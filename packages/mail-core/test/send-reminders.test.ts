@@ -662,6 +662,14 @@ describe('the device that notifies for a reminder', () => {
     await expect(notified(phone)).resolves.toStrictEqual([evening.dueAt]);
     await expect(notified(mac)).resolves.toStrictEqual([]);
 
+    // Choosing the time it already has makes no new revision, so the Mac takes nothing over.
+    await mac.remind('work', evening);
+    await mac.synchronize();
+    await phone.synchronize();
+    await expect(
+      Promise.all([notified(mac), notified(phone)]),
+    ).resolves.toStrictEqual([[], [evening.dueAt]]);
+
     // A removal elsewhere leaves no device notifying.
     await mac.cancel('work', keys.draft);
     await mac.synchronize();
@@ -776,7 +784,7 @@ describe('due Send Reminder notifications', () => {
     'account-1',
     [
       {
-        id: `send-reminder.${keys.dueAt}.${JSON.stringify(['work', keys.draft])}`,
+        id: `send-reminder.${previews ? 'preview.' : ''}${keys.dueAt}.${JSON.stringify(['work', keys.draft])}`,
         title,
         body,
         profile: 'work',

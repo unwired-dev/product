@@ -284,6 +284,17 @@ extension UnwiredRegistration {
   ) {
     perform("setNotificationPreviews", resolve, reject: reject) { _ in
       UserDefaults.standard.set(previews, forKey: Self.notificationPreviewsKey)
+      // A Send Reminder that shows its Draft leaves, pending or delivered; JavaScript schedules
+      // the generic one again.
+      if !previews {
+        let center = UNUserNotificationCenter.current()
+        let shown = { (id: String) in id.hasPrefix("send-reminder.preview.") }
+        center.removePendingNotificationRequests(
+          withIdentifiers: await center.pendingNotificationRequests().map(\.identifier).filter(shown))
+        center.removeDeliveredNotifications(
+          withIdentifiers: await center.deliveredNotifications().map(\.request.identifier).filter(
+            shown))
+      }
       return await Self.notificationSettings()
     }
   }
@@ -490,27 +501,24 @@ extension UnwiredRegistration {
   }
 
   // Makes this device's Send Reminder notifications, pending or delivered, exactly
-  // `notifications` while `owner` is signed in: each one still ahead is scheduled for its due
-  // instant, replacing one under its identifier, and every other is withdrawn. A reminder offers
-  // no action and nothing that sends its Draft. Runs in the registration operation gate, so a
-  // sign-out's withdrawal is never followed by a stale schedule.
+  // `notifications` while `owner` holds Drafts here: every other is withdrawn first, then each one
+  // still ahead is scheduled for its due instant, replacing one under its identifier. A reminder
+  // offers no action and nothing that sends its Draft. Rejects when one could not be scheduled, so
+  // JavaScript tries again. Runs in the registration operation gate, so a sign-out's withdrawal is
+  // never followed by a stale schedule.
   @objc(scheduleReminderNotifications:notifications:resolver:rejecter:)
   func scheduleReminderNotifications(
     _ owner: String, notifications: [[String: Any]],
     resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
   ) {
     performStep("scheduleReminderNotifications", resolve, reject: reject) { store in
-      guard (try? store.saved().product?.productAccountId) == owner else {
+      guard (try? store.draftOwner().1) == owner else {
         UnwiredNotifications.logger.info("Send Reminder notifications skipped: account changed")
         return
       }
       let center = UNUserNotificationCenter.current()
       let previews = UserDefaults.standard.bool(forKey: Self.notificationPreviewsKey)
-      var utc = Calendar(identifier: .gregorian)
-      utc.timeZone = TimeZone(identifier: "UTC")!
-      let now = Date()
-      var kept = Set<String>()
-      var added = 0
+      var wanted: [(id: String, content: UNNotificationContent, due: Date)] = []
       for notification in notifications {
         guard let id = notification["id"] as? String, id.hasPrefix("send-reminder."),
           let title = notification["title"] as? String,
@@ -519,14 +527,26 @@ extension UnwiredRegistration {
           let dueAt = notification["dueAt"] as? Double,
           let shown = notification["previews"] as? Bool, !shown || previews
         else { continue }
-        kept.insert(id)
-        let due = Date(timeIntervalSince1970: dueAt / 1000)
-        guard due > now else { continue }
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body
         content.sound = .default
         content.threadIdentifier = profile
+        wanted.append((id, content, Date(timeIntervalSince1970: dueAt / 1000)))
+      }
+      let kept = Set(wanted.map { $0.id })
+      let stale = { (id: String) in id.hasPrefix("send-reminder.") && !kept.contains(id) }
+      center.removePendingNotificationRequests(
+        withIdentifiers: await center.pendingNotificationRequests().map(\.identifier).filter(stale))
+      center.removeDeliveredNotifications(
+        withIdentifiers: await center.deliveredNotifications().map(\.request.identifier).filter(
+          stale))
+      var utc = Calendar(identifier: .gregorian)
+      utc.timeZone = TimeZone(identifier: "UTC")!
+      let now = Date()
+      var added = 0
+      var failed = 0
+      for (id, content, due) in wanted where due > now {
         var components = utc.dateComponents(
           [.year, .month, .day, .hour, .minute, .second], from: due)
         components.timeZone = utc.timeZone
@@ -537,21 +557,17 @@ extension UnwiredRegistration {
               trigger: UNCalendarNotificationTrigger(dateMatching: components, repeats: false)))
           added += 1
         } catch {
+          failed += 1
           let error = error as NSError
           UnwiredNotifications.logger.error(
             "Send Reminder notification not scheduled: \(error.domain, privacy: .public) \(error.code, privacy: .public)"
           )
         }
       }
-      let stale = { (id: String) in id.hasPrefix("send-reminder.") && !kept.contains(id) }
-      center.removePendingNotificationRequests(
-        withIdentifiers: await center.pendingNotificationRequests().map(\.identifier).filter(stale))
-      center.removeDeliveredNotifications(
-        withIdentifiers: await center.deliveredNotifications().map(\.request.identifier).filter(
-          stale))
       UnwiredNotifications.logger.info(
         "Send Reminder notifications scheduled: \(added, privacy: .public) of \(notifications.count, privacy: .public)"
       )
+      if failed > 0 { throw RegistrationError.unavailable }
     }
   }
 
