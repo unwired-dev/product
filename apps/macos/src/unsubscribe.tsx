@@ -1,5 +1,6 @@
 import type { GmailInbox } from '@private-email/mail-core/inbox-store';
 import type {
+  SentUnsubscribeRequest,
   Unsubscribe,
   UnsubscribeOffer,
   UnsubscribeOutcome,
@@ -59,6 +60,8 @@ type OneClick = Extract<UnsubscribeOffer, { kind: 'one-click' }>;
 // reader moved on changes only the message it was sent from.
 type Entry = Readonly<{
   checked?: boolean;
+  // The latest stored-request lookup; only its answer counts.
+  lookup?: number;
   sending?: boolean;
   outcome?:
     | Readonly<{ kind: 'sent'; at: number }>
@@ -80,11 +83,12 @@ const update = (key: string, change: (entry: Entry) => Entry) => {
   }
 };
 
-// Each confirmation opening is its own popover, so a late close of the last one cannot close it.
-let openings = 0;
-const nextOpening = () => {
-  openings += 1;
-  return openings;
+// A new number for each confirmation opening, so a late close of the last popover cannot close it,
+// and for each lookup, so an earlier lookup's late answer is ignored.
+let counted = 0;
+const next = () => {
+  counted += 1;
+  return counted;
 };
 
 // The opened message's store; one without bodies, such as the preview fixture, offers nothing.
@@ -213,7 +217,7 @@ function useAsking(key: string) {
   return {
     asking: asking?.key === key ? asking.opening : undefined,
     ask: () => {
-      setAsking({ key, opening: nextOpening() });
+      setAsking({ key, opening: next() });
     },
     close: () => {
       setAsking(undefined);
@@ -281,19 +285,26 @@ export function UnsubscribeBanner({
       return;
     }
     // Each opening looks the stored request up again, and offers nothing until it is known.
-    update(key, (each) => ({ ...each, checked: false }));
+    const lookup = next();
+    update(key, (each) => ({ ...each, checked: false, lookup }));
+    const answered = (request?: SentUnsubscribeRequest) => {
+      update(key, (each) =>
+        each.lookup === lookup
+          ? {
+              ...each,
+              checked: true,
+              ...(request === undefined || each.outcome !== undefined
+                ? {}
+                : { outcome: { kind: 'sent', at: request.sentAt } }),
+            }
+          : each,
+      );
+    };
     const recall = async () => {
       try {
-        const request = await store.sentRequest(profile, offer, receivedAt);
-        update(key, (each) => ({
-          ...each,
-          checked: true,
-          ...(request === undefined || each.outcome !== undefined
-            ? {}
-            : { outcome: { kind: 'sent', at: request.sentAt } }),
-        }));
+        answered(await store.sentRequest(profile, offer, receivedAt));
       } catch {
-        update(key, (each) => ({ ...each, checked: true }));
+        answered();
       }
     };
     void recall();

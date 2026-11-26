@@ -322,6 +322,28 @@ describe('the reader’s one-click Unsubscribe', () => {
     expect(requests).toStrictEqual([]);
   });
 
+  it('ignores an earlier lookup that answers after the message was opened again', async () => {
+    expect.hasAssertions();
+    const first = deferred<undefined>();
+    const again = deferred<undefined>();
+    const { menu, show } = await opened({
+      count: 2,
+      stored: [first.promise, Promise.resolve(undefined), again.promise],
+    });
+    await show(1);
+    await show(0);
+    await act(() => {
+      first.resolve(undefined);
+    });
+    expect(unsubscribeState()).toStrictEqual({ disabled: true });
+    expect(menu()).toStrictEqual([]);
+
+    await act(() => {
+      again.resolve(undefined);
+    });
+    expect(unsubscribeState()).toStrictEqual({ disabled: false });
+  });
+
   it('closes another open confirmation once the request was sent', async () => {
     expect.hasAssertions();
     const { requests, menu } = await opened({
