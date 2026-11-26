@@ -10,6 +10,7 @@ import type {
 } from '@private-email/mail-core/send-reminders';
 
 import { english } from '@private-email/localization';
+import { emptyDocument } from '@private-email/mail-core/semantic-document';
 import {
   createSendReminders,
   followReminderNotifications,
@@ -22,7 +23,6 @@ import * as Schema from 'effect/Schema';
 
 import type { SyntheticProductSync } from '../src/testing/drafts.ts';
 
-import { emptyDocument } from '../src/semantic-document.ts';
 import {
   createSyntheticProductSync,
   syntheticSendReminderSync,

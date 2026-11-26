@@ -531,7 +531,8 @@ extension UnwiredRegistration {
     resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
   ) {
     performStep("scheduleReminderNotifications", resolve, reject: reject) { store in
-      guard (try? store.draftOwner().1) == owner else {
+      // A storage failure rejects, so JavaScript tries again; only another account skips.
+      guard try store.draftOwner().1 == owner else {
         UnwiredNotifications.logger.info("Send Reminder notifications skipped: account changed")
         return
       }
