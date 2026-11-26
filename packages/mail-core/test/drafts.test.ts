@@ -3860,6 +3860,30 @@ describe('adding files and images to Drafts', () => {
     expect(assetsOf(draft())[1]).toMatchObject({ state: 'complete', size: 4 });
   });
 
+  it('keeps Try Again for a forwarded attachment whose download again failed', async () => {
+    expect.hasAssertions();
+    const { drafts, id, draft } = await opened();
+    const download = vi.fn<Download>(async () => {
+      throw new Error('cached body unreadable');
+    });
+    const plan = drafts.prepare({ name: 'plan.key', type: 'application/pdf' });
+    await drafts.fill(
+      id,
+      (each) => ({ ...each, attachments: [...assetsOf(each), plan] }),
+      [{ asset: plan, source: { kind: 'unavailable' }, download, keep: true }],
+    );
+    await vi.waitFor(() => {
+      expect(assetsOf(draft())).toMatchObject([{ state: 'failed' }]);
+    });
+
+    await expect(drafts.retryImport(plan.id)).resolves.toBe(true);
+    expect(download).toHaveBeenCalledWith();
+    expect(assetsOf(draft())).toMatchObject([
+      { state: 'failed', notDownloaded: true },
+    ]);
+    expect([...drafts.getRetries()]).toStrictEqual([plan.id]);
+  });
+
   it('releases each received file once it is added or can no longer be tried again', async () => {
     expect.hasAssertions();
     const { session, storage, drafts, id, draft } = await opened();

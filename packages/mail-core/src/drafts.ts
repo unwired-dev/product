@@ -2712,7 +2712,13 @@ export function createDrafts(
     if (!again || download === undefined) {
       return source;
     }
-    const fetched = yield* Effect.promise(() => download());
+    // A download that rejects, as when the message can no longer be read, finds no file.
+    const fetched = yield* Effect.promise(() =>
+      download().catch(() => ({
+        source: { kind: 'unavailable' } satisfies AssetSource,
+        release: () => undefined,
+      })),
+    );
     if (fetched.source.kind === 'received') {
       holders.add({ id, release: fetched.release });
     }
@@ -3279,6 +3285,7 @@ export function createDrafts(
       const added = files.map((file) => ({
         asset: prepare(file),
         source: file.source,
+        download: file.download,
         release: file.release,
         keep: file.keep,
       }));
