@@ -1626,11 +1626,39 @@ describe('the Tiptap evaluation page', () => {
         },
       ];
       expect(bodyOf(page)).toStrictEqual(edited);
+      expect(page.editor.state.selection.toJSON()).toStrictEqual({
+        type: 'text',
+        anchor: caret,
+        head: caret,
+      });
       page.command({ type: 'undo' });
       expect(bodyOf(page)).toStrictEqual(opened);
       page.command({ type: 'redo' });
       expect(bodyOf(page)).toStrictEqual(edited);
     }
+  });
+
+  it('keeps typing after a word the system capitalizes or corrects at Space', async () => {
+    expect.hasAssertions();
+    const page = await open([{ kind: 'paragraph', spans: [] }]);
+    // The Mac capitalizes the first word when Space follows a pause; ProseMirror reads the
+    // changed letter from the DOM while the caret stays after the word (#2971).
+    page.type('typing');
+    page.editor.view.someProp('handleTextInput', (handle) =>
+      handle(page.editor.view, 1, 2, 'T', () =>
+        page.editor.state.tr.insertText('T', 1, 2),
+      ),
+    );
+    page.type(' teh');
+    page.editor.view.someProp('handleTextInput', (handle) =>
+      handle(page.editor.view, 9, 11, 'he', () =>
+        page.editor.state.tr.insertText('he', 9, 11),
+      ),
+    );
+    page.type(' test');
+    expect(bodyOf(page)).toStrictEqual([
+      { kind: 'paragraph', spans: [{ text: 'Typing the test' }] },
+    ]);
   });
 
   it('replaces the body revision it was computed from as one undoable edit', async () => {
