@@ -65,8 +65,9 @@ recommendation and the decision it supports. Facts link to their evidence;
 - **Measurements.** The packaged page is about 351 KB. No memory or battery
   comparison with the current composer was measured:
   [#822](https://github.com/unwired-dev/product/issues/822) closed without a native
-  result. The only latency comparison is selection changes in Mac `Testing`
-  builds ([#2951](https://github.com/unwired-dev/product/issues/2951), gate 5).
+  result. The only latency comparisons, for gate 5, are in Mac `Testing` builds:
+  composer opening ([#2955](https://github.com/unwired-dev/product/issues/2955))
+  and selection changes ([#2951](https://github.com/unwired-dev/product/issues/2951)).
   The table probes compare behaviour, not speed.
 
 ## Assessment
@@ -152,7 +153,11 @@ release limit:
    selection-change latency on large, many-block Drafts
    ([review note](https://github.com/unwired-dev/product/issues/822#issuecomment-6114571758)),
    and the current composer's interactions the page lacks, such as the Slash
-   Command Menu. Selection-change latency in Mac `Testing` builds is measured by
+   Command Menu. On Mac, [#2955](https://github.com/unwired-dev/product/issues/2955)
+   timed opening a new message and a saved Draft in both composers on a loaded
+   host; repeat it on an idle one
+   ([results](../draft-editor-evaluation.md#composer-opening-2955)).
+   Selection-change latency in Mac `Testing` builds is measured by
    [#2951](https://github.com/unwired-dev/product/issues/2951): on a 1,000-paragraph
    body the page's p95 was 43.2 ms and the current composer's 72.7 ms, against
    30.1 and 40.6 ms on one paragraph
