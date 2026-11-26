@@ -778,9 +778,10 @@ owns that decision.
 
 **#820 finding.** Inline Images and Attachments keep their Draft Asset identity
 through page editing, conversion, Undo, Redo, saving and reopening on iPhone and iPad
-simulators, and the page receives only native thumbnails. Image paste and drop into
-the page need native web-view work before they match the current composer on Mac,
-and drops on every host. The current composer does not offer conversion yet. This
+simulators, and the page receives only native thumbnails. Files dropped on the page
+are attached on Mac ([Mac file drops](#mac-file-drops-2950)). Image paste into the page
+on Mac and drops on iPhone and iPad need native web-view work before they match the
+current composer. The current composer does not offer conversion yet. This
 does not approve adoption; #823 owns that decision.
 
 **#821 finding.** In component journeys on both hosts, **Save Draft** stores the
