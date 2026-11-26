@@ -929,6 +929,62 @@ comparison is not measured. Physical iPhone and iPad, the rest of #822's
 comparison (startup, typing response, memory and packaged size) and the
 interactions the page lacks, such as the Mac Slash Command Menu, remain outstanding.
 
+### Memory (#2957)
+
+[#2957](https://github.com/unwired-dev/product/issues/2957) records the memory part
+of [ADR 0080](adr/0080-edit-the-draft-body-in-the-tiptap-page.md)'s gate 5 on the
+Mac, with a long single paragraph and several composers, as
+[#822](https://github.com/unwired-dev/product/issues/822) asked. It ran on
+2026-11-26 on the Mac mini M4 (`Mac16,10`, 16 GB) with macOS 27.2.1 (`26B131`)
+and Xcode 27.2 (`27B52`), from main at `01c50416b` with the journey added, in
+signed `Testing` builds: `registration-performance` for the current composer and
+`registration-draft-editor` for the page.
+
+Method: the [composer memory journey](native-journeys.md#mac-composer-memory-journey)
+reads the physical footprint of the app and of every process macOS holds it
+responsible for, three times a second apart, with no composer, with one New
+Message whose body holds a pasted paragraph of 50,007 characters, and with four
+Inbox windows each holding such a New Message. Each build ran three times; runs 1
+and 2 checked only the paragraph's end in each body, run 3 the whole paragraph.
+The first table gives each state's median total and its increase over the state
+without a composer, in MiB (1,048,576 bytes); the 1-minute load average before and
+after each run, from the run's `host-load.txt`, follows the run number. The
+second table splits run 3's median readings.
+
+| Composer | Run (load)       | No composer | One composer | Four composers |
+| -------- | ---------------- | ----------: | -----------: | -------------: |
+| Current  | 1 (4.1 → 6.6)    |   199.5 MiB |   +260.1 MiB |     +383.9 MiB |
+| Current  | 2 (31.2 → 169.3) |   193.8 MiB |   +204.3 MiB |     +330.8 MiB |
+| Current  | 3 (3.5 → 3.5)    |   192.9 MiB |   +258.4 MiB |     +380.6 MiB |
+| Page     | 1 (4.7 → 6.2)    |   131.0 MiB |   +147.1 MiB |     +264.5 MiB |
+| Page     | 2 (5.8 → 5.0)    |   125.4 MiB |   +141.4 MiB |     +260.8 MiB |
+| Page     | 3 (19.2 → 12.1)  |   131.0 MiB |   +145.2 MiB |     +277.9 MiB |
+
+| Run 3, MiB       | Current: none |   one |  four | Page: none |  one |  four |
+| ---------------- | ------------: | ----: | ----: | ---------: | ---: | ----: |
+| App process      |         138.7 | 397.1 | 519.3 |       74.1 | 90.9 | 129.4 |
+| WebKit processes |             0 |     0 |     0 |          0 | 97.2 | 187.0 |
+| Other processes  |          54.2 |  54.2 |  54.3 |       56.9 | 88.1 |  92.4 |
+
+- One composer added 141–147 MiB with the page and 204–260 MiB with the current
+  composer; the lowest current-composer result is the run under the highest load.
+- The four-composer increases (261–278 MiB with the page, 331–384 MiB with the
+  current composer) are the growth of the whole session: they also hold three
+  more Inbox windows, which list each build's own mailboxes.
+- The current composer's growth is in the app process, which holds its native
+  text view. The page's is mostly in WebKit: one content process per composer
+  (25–30 MiB each), a GPU process of about 67 MiB and a networking process of
+  about 6 MiB shared by all of them. The page's other processes also grow, by
+  about 30 MiB, from a second Metal compiler service and two audio sandbox
+  helpers that start with the first web view.
+- The builds' mailboxes differ: the performance build lists 254 Inbox Threads,
+  the draft editor build a few, so their totals without a composer differ and only
+  the one-composer increases compare directly.
+
+This does not show physical iPhone and iPad (gate 1), typing, opening or
+startup times, memory after editing, saving or closing composers, or behaviour
+under memory pressure. The readings come from one host shared with other work.
+
 ## Finding
 
 **Proceed** to the dependent evaluations (#819–#822) on iPhone and iPad. A

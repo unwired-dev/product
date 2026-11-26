@@ -67,12 +67,13 @@ recommendation and the decision it supports. Facts link to their evidence;
   [#2916](https://github.com/unwired-dev/product/issues/2916) the page build lists
   the files it bundles beside that module, so `scripts/licence-inventory.mjs` and
   the archive's `ThirdPartyNotices.txt` include the page's packages.
-- **Measurements.** The packaged page is about 351 KB. No memory or battery
+- **Measurements.** The packaged page is about 351 KB. No battery
   comparison with the current composer was measured:
   [#822](https://github.com/unwired-dev/product/issues/822) closed without a native
   result. The only latency comparisons, for gate 5, are in Mac `Testing` builds:
   composer opening ([#2955](https://github.com/unwired-dev/product/issues/2955))
   and selection changes ([#2951](https://github.com/unwired-dev/product/issues/2951)).
+  Memory on the Mac is recorded by [#2957](https://github.com/unwired-dev/product/issues/2957).
   The table probes compare behaviour, not speed.
 
 ## Assessment
@@ -174,8 +175,8 @@ release limit:
    ([review note](https://github.com/unwired-dev/product/issues/822#issuecomment-6114571758)),
    and the current composer's interactions the page lacks. The Slash Command
    Menu is met on iPhone and iPad Simulators by
-   [#2952](https://github.com/unwired-dev/product/issues/2952); the Mac menu, the
-   other #822 measurements and physical devices remain. On Mac,
+   [#2952](https://github.com/unwired-dev/product/issues/2952); the Mac menu,
+   startup, typing response and physical devices remain. On Mac,
    [#2955](https://github.com/unwired-dev/product/issues/2955) timed opening a new
    message and a saved Draft in both composers on a loaded host; repeat it on an
    idle one ([results](../draft-editor-evaluation.md#composer-opening-2955)).
@@ -189,6 +190,12 @@ release limit:
    30.1 and 40.6 ms on one paragraph
    ([evidence](../draft-editor-evaluation.md#selection-change-latency-2951)); a
    Release comparison remains.
+   [#2957](https://github.com/unwired-dev/product/issues/2957) recorded memory:
+   with a pasted 50,007-character paragraph, one composer added 141–147 MiB to the
+   app and the processes it is responsible for with the page, and 204–260 MiB with
+   the current composer; a session with four Inbox windows and composers grew by
+   261–278 MiB and 331–384 MiB
+   ([evidence](../draft-editor-evaluation.md#memory-2957)).
 6. The Tiptap and ProseMirror notices in the distributed app; the licence
    inventory must list the page's packages. Met by
    [#2916](https://github.com/unwired-dev/product/issues/2916): every bundle that
