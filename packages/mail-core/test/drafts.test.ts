@@ -3860,6 +3860,77 @@ describe('adding files and images to Drafts', () => {
     expect(assetsOf(draft())[1]).toMatchObject({ state: 'complete', size: 4 });
   });
 
+  it('releases each received file once it is added or can no longer be tried again', async () => {
+    expect.hasAssertions();
+    const { session, storage, drafts, id, draft } = await opened();
+    const received = (file: string, keep?: true, from = alex) => {
+      const mailbox = {
+        connection: from.id,
+        address: from.address,
+        generation: 'generation-1',
+      };
+      storage.addFile(file, 'bytes');
+      const release = vi.fn<() => void>();
+      return {
+        release,
+        file: {
+          name: `${file}.txt`,
+          type: 'text/plain',
+          source: { kind: 'received', mailbox, file } satisfies AssetSource,
+          release,
+          keep,
+        },
+      };
+    };
+    // One file of a forward failing keeps only its own file for Try Again.
+    const failing = received('failing', true);
+    const added = received('added', true);
+    storage.failNextImport('locked');
+    await drafts.attach(id, [failing.file, added.file]);
+    await vi.waitFor(() => {
+      expect(assetsOf(draft()).map(({ state }) => state)).toStrictEqual([
+        'failed',
+        'complete',
+      ]);
+    });
+    expect(added.release).toHaveBeenCalledWith();
+    expect(failing.release).not.toHaveBeenCalled();
+    // Removing it from the Draft releases it.
+    const listed = draft();
+    await drafts.update(
+      { ...listed, attachments: assetsOf(listed).slice(1) },
+      listed,
+    );
+    await vi.waitFor(() => {
+      expect(failing.release).toHaveBeenCalledWith();
+    });
+
+    // Try Again never adds a file whose mailbox moved into another Mail Profile meanwhile.
+    const moved = received('moved', true, other);
+    storage.failNextImport('locked');
+    await drafts.attach(id, [moved.file]);
+    await vi.waitFor(() => {
+      expect(drafts.getRetries().size).toBe(1);
+    });
+    session.change(
+      connected('account-a', [alex, { ...other, profile: 'personal' }]),
+    );
+    const [retried] = [...drafts.getRetries()];
+    await drafts.retryImport(present(retried, 'the failed file'));
+    expect(assetsOf(draft()).at(-1)).toMatchObject({ state: 'failed' });
+    expect(moved.release).toHaveBeenCalledWith();
+    expect(storage.assets()).toHaveLength(1);
+
+    // A client without Try Again keeps no failed file.
+    const plain = received('plain');
+    storage.failNextImport('locked');
+    await drafts.attach(id, [plain.file]);
+    await vi.waitFor(() => {
+      expect(plain.release).toHaveBeenCalledWith();
+    });
+    expect(drafts.getRetries().size).toBe(0);
+  });
+
   it('refuses files over the limits and reports damaged or missing bytes', async () => {
     expect.hasAssertions();
     const session = account(connected('account-a'));

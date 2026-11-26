@@ -727,12 +727,13 @@ sent. On the Mac the row names the reason ("Couldn’t be downloaded"), or says
 ([#2991](https://github.com/unwired-dev/product/issues/2991)): a failed import keeps
 its picked or dropped copy on the device while it can be retried, and Try Again
 (`retryImport`, listed by `getRetries`) reads the same file, pasted image or
-Downloaded Attachment again without a picker. A received attachment's file stays on the
+Downloaded Attachment again without a picker. Each received attachment's file stays on the
 device while it can be retried; Try Again downloads a forwarded one again, from its
-mailbox's current Inbox, when that file went missing or the mailbox changed, and never
-adds another file the message now lists in its place. Cancel arriving once an import
-failed leaves Try Again in place. Only the Mac keeps a picked or pasted copy
-(`importAsset` with `keep`). The copy is deleted once the file is added or removed, when its Draft is
+mailbox's current Inbox, when it wasn't downloaded or went missing, and only while the
+message lists it alone in its place: another file, or several alike in name, type and
+size, is not added. A file whose Draft now sends from another Mail Profile is not added
+either. Cancel arriving once an import failed leaves Try Again in place. Only the Mac
+keeps a picked, pasted or received copy (`keep`). The copy is deleted once the file is added or removed, when its Draft is
 discarded or sent, when a composer that never saved it closes, on sign-out and at
 launch; a file too large for Drafts is not retried. Only complete files can be sent: `unsendableAssets` in
 `@private-email/mail-core/drafts` lists everything else, which [Send](outbox.md) refuses.

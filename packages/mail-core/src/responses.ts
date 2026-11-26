@@ -16,7 +16,6 @@ import type { BodyDocument, BodySpan } from './message-body.ts';
 import type { MailboxConnection } from './registration-snapshot.ts';
 import type { Asset, Block, SemanticDocument } from './semantic-document.ts';
 
-import { sameAttachment } from './attachment-downloads.ts';
 import {
   draftOf,
   isEmptyDraft,
@@ -187,6 +186,8 @@ function forwarded(t: Translate, source: ResponseSource) {
     asset: prepare(file),
     source: file.source,
     download: file.download,
+    release: file.release,
+    keep: file.keep,
   }));
   const fields = [
     t('drafts.response.forwardedFrom', { value: senderOf(source) }),
@@ -359,9 +360,10 @@ export const typedReply = (
 
 // The files a forward attaches: each listed attachment of an opened message in `mailbox`,
 // downloaded first. One too large to download, or that cannot be downloaded, is attached as a
-// failed asset. The saved files stay on the device until `release`, after the Draft copied them.
-// `inboxOf` names the mailbox's Inbox now, which authorizing it again replaces; without one, Try
-// Again uses `inbox`.
+// failed asset. The saved files stay on the device until `release`, or each file's own `release`
+// once a Draft took it. `inboxOf` names the mailbox's Inbox now, which authorizing it again
+// replaces; without one, Try Again uses `inbox`. `keep`, from a client offering Try Again, keeps
+// a failed file for it.
 type ForwardingInbox = Pick<
   GmailInbox | ImapInbox,
   | 'messageAttachments'
@@ -376,10 +378,12 @@ export async function forwardedAttachments(
     mailbox,
     id,
     inboxOf,
+    keep,
   }: Readonly<{
     mailbox: string;
     id: string;
     inboxOf?: (() => ForwardingInbox | undefined) | undefined;
+    keep?: boolean | undefined;
   }>,
 ) {
   const listed = inbox.messageAttachments(id) ?? [];
@@ -418,19 +422,23 @@ export async function forwardedAttachments(
       name,
       type: mimeType,
       source: sourceOf(saved),
+      release: saved?.release,
+      keep,
       // Try Again downloads it again from this mailbox, which the Draft's Mail Profile keeps,
-      // reading the message meanwhile in case its reader closed. Another file now listed in its
-      // place is not downloaded.
+      // reading the message meanwhile in case its reader closed. Unless the message lists it alone
+      // in its place, with no other file of the same name, type and size, it is not downloaded.
       download: async () => {
         const current = inboxOf?.() ?? inbox;
         const reading = current.retainMessage(id);
         try {
           await current.readMessage(id);
-          if (
-            !(current.messageAttachments(id) ?? []).some((each) =>
-              sameAttachment(each, attachment),
-            )
-          ) {
+          const alike = (current.messageAttachments(id) ?? []).filter(
+            (each) =>
+              each.name === name &&
+              each.mimeType === mimeType &&
+              each.size === attachment.size,
+          );
+          if (alike.length !== 1 || alike[0]?.locator !== locator) {
             return {
               source: { kind: 'unavailable' },
               release: () => undefined,
@@ -469,6 +477,7 @@ export async function startResponse(
     drafts,
     inbox,
     inboxOf,
+    keep = false,
   }: Readonly<{
     navigation: Pick<ComposerNavigation, 'create'>;
     drafts: Pick<
@@ -485,8 +494,10 @@ export async function startResponse(
       | 'retainMessage'
       | 'readMessage'
     >;
-    // The sending mailbox's Inbox now, for Try Again after it was authorized again.
+    // The sending mailbox's Inbox now, for Try Again after it was authorized again; `keep`, from
+    // a client offering Try Again, keeps a forwarded file that wasn't added for it.
     inboxOf?: () => ForwardingInbox | undefined;
+    keep?: boolean;
   }>,
   t: Translate,
   {
@@ -516,7 +527,7 @@ export async function startResponse(
     return undefined;
   }
   let response: ReturnType<typeof respond> | undefined = undefined;
-  // Forwarded files stay on the device until the Draft copied them, even if the reader closes.
+  // Forwarded files stay on the device until the Draft took them, even if the reader closes.
   const held: { release?: () => void } = {};
   let filled = false;
   try {
@@ -539,7 +550,6 @@ export async function startResponse(
           id,
           (each) => (isEmptyDraft(each) ? prepared.edit(each) : each),
           prepared.imports,
-          held.release,
         );
         return filled;
       },
@@ -550,6 +560,7 @@ export async function startResponse(
             mailbox: mailbox.id,
             id: message.id,
             inboxOf,
+            keep,
           });
           attachments = forwarding.files;
           held.release = forwarding.release;

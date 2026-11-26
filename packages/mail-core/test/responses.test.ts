@@ -701,16 +701,15 @@ describe('replying to and forwarding a received message', () => {
   it('downloads a forwarded attachment again from its mailbox Inbox now, never another file in its place', async () => {
     expect.hasAssertions();
     // An Inbox listing `name` at the forwarded attachment's place, with its file saved.
-    const inboxListing = (name: string) => ({
-      messageAttachments: () => [
-        {
-          locator: '1',
+    const inboxListing = (name: string, alike = 0) => ({
+      messageAttachments: () =>
+        Array.from({ length: alike + 1 }, (_, index) => ({
+          locator: String(index + 1),
           name,
           mimeType: 'text/plain',
           size: 5,
           state: { kind: 'available' } as const,
-        },
-      ],
+        })),
       downloadAttachment: vi.fn<() => Promise<void>>(async () => undefined),
       holdAttachmentFile: () => ({
         name,
@@ -743,6 +742,13 @@ describe('replying to and forwarding a received message', () => {
 
     // Another file listed in its place is not this attachment.
     current = inboxListing('other.txt');
+    await expect(download()).resolves.toMatchObject({
+      source: { kind: 'unavailable' },
+    });
+    expect(current.downloadAttachment).not.toHaveBeenCalled();
+
+    // Nor is one of several files alike in name, type and size, which the server may reorder.
+    current = inboxListing('notes.txt', 1);
     await expect(download()).resolves.toMatchObject({
       source: { kind: 'unavailable' },
     });
