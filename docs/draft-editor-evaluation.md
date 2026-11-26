@@ -179,6 +179,13 @@ the current composer's:
   replacement made the edit, so a removal the page refused as stale runs neither.
   Moving the caret or leaving the body closes the menu, and an Undo or Redo that
   restores a `/` does not open it. The Mac page has none, as the Mac composer has none yet.
+- **Inline predictions.** On the Mac, WebKit may offer the rest of a word by
+  replacing the word before the caret and ending the change at once with a
+  `compositionend`. The page cancels that replacement, so the prediction stays
+  shown outside the body: typing through it leaves the word once, Tab accepts it
+  and Escape dismisses it
+  ([#2972](https://github.com/unwired-dev/product/issues/2972)). A word picked
+  from the completion bubble ends without a `compositionend`, and the page adds it.
 - **Paste.** Pasted HTML keeps only supported meaning: headings one to three,
   paragraphs, lists, quotes, code and the five marks. Smaller headings, tables and
   styled text become paragraphs; a heading or code inside a quote or list item

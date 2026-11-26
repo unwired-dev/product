@@ -1030,6 +1030,9 @@ const DraftBehavior = Extension.create<unknown, { typing: boolean }>({
   },
   addProseMirrorPlugins() {
     const { editor } = this;
+    // A completion that extends the word at the caret, waiting to learn whether it is the Mac's
+    // inline prediction or a word picked from the completion bubble.
+    let completion: ReturnType<typeof setTimeout> | undefined = undefined;
     return [
       new Plugin({
         props: {
@@ -1113,8 +1116,46 @@ const DraftBehavior = Extension.create<unknown, { typing: boolean }>({
           // Text inserted over a selection across lines without a key press, as by dictation or a
           // suggestion, goes through handleTextInput too; ProseMirror would read it from the DOM.
           handleDOMEvents: {
+            // fallow-ignore-next-line complexity -- Each guard leaves an input event to ProseMirror.
             beforeinput: (view, event) => {
               const { from, to, $from, $to } = view.state.selection;
+              // WebKit's inline prediction arrives as a replacement extending the word at the
+              // caret, followed at once by a compositionend. Let into the page, it stays in the
+              // body after the letters typed through it. Cancelled, WebKit keeps drawing it outside
+              // the body and settles it as typing, Tab and Escape go on. A word picked from the
+              // completion bubble has no compositionend, so the page adds it once the event is over.
+              if (event.inputType === 'insertReplacementText') {
+                const completed =
+                  event.dataTransfer?.getData('text/plain') ?? '';
+                const [range] = event.getTargetRanges();
+                if (range === undefined || from !== to) {
+                  return false;
+                }
+                const start = view.posAtDOM(
+                  range.startContainer,
+                  range.startOffset,
+                );
+                const word = view.state.doc.textBetween(start, from);
+                if (
+                  view.posAtDOM(range.endContainer, range.endOffset) !== from ||
+                  !completed.startsWith(word) ||
+                  completed.length === word.length
+                ) {
+                  return false;
+                }
+                event.preventDefault();
+                completion = setTimeout(() => {
+                  if (view.state.selection.from === from) {
+                    view.dispatch(
+                      view.state.tr.insertText(
+                        completed.slice(word.length),
+                        from,
+                      ),
+                    );
+                  }
+                }, 0);
+                return true;
+              }
               const text = event.data;
               if (
                 event.inputType !== 'insertText' ||
@@ -1132,6 +1173,11 @@ const DraftBehavior = Extension.create<unknown, { typing: boolean }>({
                   ),
                 ) ?? false
               );
+            },
+            // A cancelled completion followed by a compositionend is the inline prediction.
+            compositionend: () => {
+              clearTimeout(completion);
+              return false;
             },
           },
           // oxlint-disable-next-line max-params -- ProseMirror's handleTextInput signature.

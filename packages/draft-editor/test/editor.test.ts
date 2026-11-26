@@ -1633,6 +1633,61 @@ describe('the Tiptap evaluation page', () => {
     }
   });
 
+  it('keeps the inline prediction out of the body and adds a word picked from the completion bubble', async () => {
+    expect.hasAssertions();
+    // WebKit offers "feedback" by replacing the word before the caret; its inline prediction
+    // ends in a compositionend at once, a word picked from the bubble does not.
+    const complete = (page: Page, ending: readonly Event[]) => {
+      const { view } = page.editor;
+      page.editor.commands.setTextSelection(14);
+      const text = view.dom.querySelector('p')?.firstChild;
+      ok(text, 'Expected the line text');
+      const dataTransfer = new DataTransfer();
+      dataTransfer.setData('text/plain', 'feedback');
+      const input = Object.assign(
+        new InputEvent('beforeinput', {
+          inputType: 'insertReplacementText',
+          dataTransfer,
+          cancelable: true,
+        }),
+        {
+          getTargetRanges: () => [
+            {
+              collapsed: false,
+              startContainer: text,
+              startOffset: 7,
+              endContainer: text,
+              endOffset: 13,
+            },
+          ],
+        },
+      );
+      vi.useFakeTimers();
+      onTestFinished(() => {
+        vi.useRealTimers();
+      });
+      const uncancelled = view.dom.dispatchEvent(input);
+      for (const event of ending) {
+        view.dom.dispatchEvent(event);
+      }
+      vi.runAllTimers();
+      return [uncancelled, bodyOf(page), page.editor.state.selection.from];
+    };
+    const predicted = await open(paragraphs('typing feedba'));
+    const shown = complete(predicted, [new CompositionEvent('compositionend')]);
+    predicted.type('ck');
+    expect([shown, bodyOf(predicted)]).toStrictEqual([
+      [false, undefined, 14],
+      paragraphs('typing feedback'),
+    ]);
+    const picked = await open(paragraphs('typing feedba'));
+    expect(complete(picked, [])).toStrictEqual([
+      false,
+      paragraphs('typing feedback'),
+      16,
+    ]);
+  });
+
   it('replaces the body revision it was computed from as one undoable edit', async () => {
     expect.hasAssertions();
     const opened: SemanticDocument = [
