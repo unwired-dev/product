@@ -776,7 +776,7 @@ outstanding; startup is [below](#launch-and-first-composer-2965).
 "Release startup" for gate 5: what a launch costs each Mac composer, with the
 [launch and first composer journey](native-journeys.md#mac-launch-and-first-composer-journey).
 It ran on 2026-11-26 on the same Mac mini M4 (`Mac16,10`, 16 GB) with macOS 27.2.1
-(`26B131`) and Xcode 27.2 (`27B52`), from `6ba4b5405` with the journey added, in
+(`26B131`) and Xcode 27.2 (`27B52`), from `2f4ae7712` (#2958) with the journey added, in
 signed `Testing` builds: `registration-performance` for the current composer and
 `registration-draft-editor` for the page. Each has 10 samples per interaction. The
 one-minute load average read between 4 and 10 in snapshots before and after each
