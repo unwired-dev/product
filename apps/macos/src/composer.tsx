@@ -307,7 +307,7 @@ const styles = StyleSheet.create({
   // The warning glyph sits 4 pt from its reason, as in the #2991 frames.
   assetWarningRow: { gap: 3 },
   assetStatus: { ...textStyles.subheadline, flexShrink: 1 },
-  // R2 of #2092: a 120 pt bar 2 pt under the status.
+  // R2 of #2992: a 120 pt bar 2 pt under the status.
   assetProgress: { width: 120, marginTop: 2 },
   // The small indicator's 20 pt box fits the 14 pt status line, so a checking chip keeps its height.
   assetChecking: { marginVertical: -3 },
