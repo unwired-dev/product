@@ -3545,6 +3545,7 @@ describe('composing Drafts', () => {
       expect(pickers().calendar).toHaveProp('minimum', noon.getTime());
       expect(pickers().calendar).toHaveProp('timeZone', timeZone);
       expect(pickers().time).toHaveProp('value', tomorrow.dueAt);
+      expect(pickers().time).toHaveProp('minimum', noon.getTime());
       const city = reminderCity(timeZone);
       expect(
         screen.getByText(new RegExp(`^Times in .+ \\(${city}\\)$`, 'u')),

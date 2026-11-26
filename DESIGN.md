@@ -649,7 +649,7 @@ app follows under the issue named:
 - **Reminder menu:** on the Mac, Choose Date and Time… opens #2831's R4 and R5
   popover (#2980) with AppKit's own calendar and time field: the calendar keeps
   its 139 × 148 pt, centred, where the frames draw a 248 × 184 pt grid, and the
-  time field its 62 pt. On iPhone and iPad it waits for #2979. The Mac offers
+  time field the width its region needs. On iPhone and iPad it waits for #2979. The Mac offers
   This Evening at 20:00 and Tomorrow Morning at 9:00, as
   M3 draws them; iPhone and iPad offer the times their frames draw (#2136). The
   Mac menu shows each time on the item's second line and the note

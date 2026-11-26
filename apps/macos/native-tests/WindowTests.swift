@@ -348,6 +348,7 @@ final class WindowTests: XCTestCase {
     XCTAssertTrue(shows(tomorrow), "\(String(describing: time.value))")
     XCTAssertTrue(set.isEnabled)
     attach(window.screenshot(), "Choose Date and Time from Send")
+    attach(popover.screenshot(), "Choose Date and Time popover")
     window.typeKey(.return, modifierFlags: [])
     XCTAssertTrue(set.waitForNonExistence(timeout: 10))
     // The banner's clock follows the host's locale; Change below checks the stored 9:00.
@@ -371,6 +372,7 @@ final class WindowTests: XCTestCase {
     XCTAssertTrue(passed.waitForExistence(timeout: 5))
     XCTAssertFalse(set.isEnabled)
     attach(window.screenshot(), "Time has passed")
+    attach(popover.screenshot(), "Time has passed popover")
     app.typeKey(.escape, modifierFlags: [])
     XCTAssertTrue(set.waitForNonExistence(timeout: 10))
     XCTAssertTrue(banner.exists)

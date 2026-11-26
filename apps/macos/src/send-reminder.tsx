@@ -25,7 +25,7 @@ import { textStyles, usePalette } from './theme.ts';
 
 // AppKit's date picker: the graphical calendar choosing `value`'s day, or the time field and stepper
 // choosing its hour and minute, on the clocks of `timeZone`. The calendar dims days before
-// `minimum`'s.
+// `minimum`'s; an earlier `value` shows, and takes a new time on, `minimum`'s day.
 const DatePicker = requireNativeComponent<
   ViewProps & {
     readonly calendar: boolean;
@@ -64,7 +64,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
   },
-  time: { width: 62, height: 24 },
+  // The time field keeps AppKit's width, which depends on the region, at this view's trailing edge.
+  time: { width: 120, height: 24 },
   note: { flexDirection: 'row', alignItems: 'flex-start', gap: 6 },
   noteText: { flex: 1 },
   separator: { height: StyleSheet.hairlineWidth },
@@ -232,6 +233,7 @@ function ReminderPicker({
           <DatePicker
             calendar={false}
             value={value}
+            minimum={now}
             timeZone={timeZone}
             label={t('drafts.reminder.time')}
             hint={passed ? pastMessage : ''}
