@@ -75,6 +75,17 @@ interface WindowHost extends TurboModule {
     readonly width: number;
     readonly height: number;
   } | null>;
+  // `Testing` builds only: writes one note of the Draft editor page's typing probe to the journey
+  // evidence, its times converted from the page's clock to the app's (#2962).
+  readonly recordPageProbe?: (
+    note: Readonly<{
+      event: 'text-edit' | 'text-drawn';
+      epoch: number;
+      frameEpoch?: number;
+      text?: string;
+      marks?: string;
+    }>,
+  ) => void;
   // `Testing` builds only: records when the next mount of the `rootTag` surface shows a
   // composer's format bar with its body's latest selection, for the selection-change journey;
   // `linkable` when the Link control is available.

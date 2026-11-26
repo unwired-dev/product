@@ -51,9 +51,11 @@ journey=${2:-testIndependentWindowsCloseReopenAndQuit}
 # runs accessibility audits; the Edit Favorites journey
 # audits and relaunches; the German strings journey relaunches after signing in and opens four
 # screens; the composer recovery journey relaunches three
-# times and waits out each journal write.
+# times and waits out each journal write; the typing response journey connects the performance
+# mailboxes first.
 allowance=120
 [[ "$journey" == testWarmCachePerformance ]] && allowance=1200
+[[ "$journey" == testTypingResponse ]] && allowance=600
 [[ "$journey" == testKeyboardAndAccessibility* ]] && allowance=600
 [[ "$journey" == testMailProfileIsolation ]] && allowance=600
 [[ "$journey" == testImapSpamAndTrashFolders* ]] && allowance=600

@@ -2492,65 +2492,55 @@ final class WindowTests: XCTestCase {
       close()
       return (start, end)
     }
-    // Typing and formatting feedback: each sample runs from the key press or format bar button
-    // release the app recorded to its first recorded edit of the body that begins with the
-    // expected text and marks (bold 1, italic 2, underline 4 per character), so a later input
-    // cannot hide a late result. The budget is the frame interval the app recorded.
     window.buttons["New Message"].click()
     let message = window.textViews.matching(NSPredicate(format: "label == %@", "Message")).firstMatch
     XCTAssertTrue(message.waitForExistence(timeout: 10))
-    message.click()
-    var text = ""
-    var marks: [Int] = []
-    func press(
-      _ name: String, _ keys: [String], _ input: (String) -> Void, _ change: (String) -> Void
-    ) {
-      var windows: [(start: Double, end: Double)] = []
-      var shows: [(text: String, marks: String)] = []
-      for key in keys {
-        let start = uptime()
-        input(key)
-        windows.append((start, uptime()))
-        change(key)
-        shows.append((text, marks.map(String.init).joined()))
-      }
-      groups.append((name, 0, windows, 0, shows))
-    }
-    let type = { (key: String) in app.typeKey(key, modifierFlags: []) }
-    press("typing", "typing feedback test".map(String.init), type) { key in
-      text += key
-      marks.append(0)
-    }
-    // Command-B at the caret marks what is typed next.
-    app.typeKey("b", modifierFlags: .command)
-    press("marked-typing", " bold words".map(String.init), type) { key in
-      text += key
-      marks.append(1)
-    }
-    // Option-Shift-Left selects the last word; each shortcut toggles its mark on it, then back.
-    app.typeKey(.leftArrow, modifierFlags: [.option, .shift])
-    let bits = ["b": 1, "i": 2, "u": 4]
-    let toggles = (0..<12).map { ["b", "i", "u"][$0 / 2 % 3] }
-    let toggle = { (key: String) in
-      for index in marks.indices.suffix(5) { marks[index] ^= bits[key, default: 0] }
-    }
-    press("formatting", toggles, { app.typeKey($0, modifierFlags: .command) }, toggle)
-    // The format bar's mark buttons toggle the same marks on the still-selected word.
-    let buttons = ["b": "Bold", "i": "Italic", "u": "Underline"]
-    let click = { (key: String) in window.buttons[buttons[key, default: ""]].firstMatch.click() }
-    press("format-bar", toggles, click, toggle)
-    // Right collapses the selection at the word's end, so Command-B right after it turns bold off
-    // for what is typed next and leaves the word bold (#1229).
-    app.typeKey(.rightArrow, modifierFlags: [])
-    app.typeKey("b", modifierFlags: .command)
-    press("collapsed-typing", " end".map(String.init), type) { key in
-      text += key
-      marks.append(0)
-    }
+    groups += typingSamples(app, window: window, body: message)
     let overhead = queryOverhead(window.buttons["New Message"])
     // The running app keeps appending probe records; read them only after it quits.
     app.terminate()
     try reportPerformance(groups, evidence: evidence, overhead: overhead)
+  }
+
+  // #2962: the performance journey's typing and formatting feedback in either composer, from the
+  // same empty new message: the current composer in a registration-performance build, the Draft
+  // editor page in a registration-draft-editor build. The page's injected probe writes its edits
+  // and their rendering updates as the text view probe does (page-typing-probe.ts).
+  func testTypingResponse() throws {
+    continueAfterFailure = false
+    let environment = ProcessInfo.processInfo.environment
+    let page = environment["UNWIRED_TEST_SCENARIO"] == "registration-draft-editor"
+    if !page { XCTAssertEqual(environment["UNWIRED_TEST_SCENARIO"], "registration-performance") }
+    let appURL = URL(fileURLWithPath: try XCTUnwrap(environment["UNWIRED_APP_PATH"]))
+    let evidence = appURL.deletingLastPathComponent().appendingPathComponent("lifecycle.jsonl")
+    let app = XCUIApplication(url: appURL)
+    // With the system's inline predictions on, the three synthesized key presses after "feedb"
+    // reached the page about 5 s late and never reached the app’s key monitor (#2966). Both
+    // composers run with them off, so they type the same way.
+    app.launchArguments += [
+      "-ApplePersistenceIgnoreState", "YES", "-interfaceLanguage", "en",
+      "-NSAutomaticInlinePredictionEnabled", "NO",
+    ]
+    app.launchEnvironment["UNWIRED_LIFECYCLE_PATH"] = evidence.path
+    app.launch()
+    addTeardownBlock { if app.state != .notRunning { app.terminate() } }
+    let window = app.windows["Inbox 1"]
+    XCTAssertTrue(window.waitForExistence(timeout: 30))
+    if page { draftEditorSignIn(window) } else { performanceSetup(app, window: window) }
+    window.buttons["New Message"].click()
+    let body = page
+      ? window.webViews.textViews["Message body"]
+      : window.textViews.matching(NSPredicate(format: "label == %@", "Message")).firstMatch
+    XCTAssertTrue(body.waitForExistence(timeout: 15))
+    // The page's toolbar appears once the page is ready and moves the page down.
+    XCTAssertTrue(window.buttons["Undo"].waitForExistence(timeout: 30))
+    let groups = typingSamples(app, window: window, body: body)
+    let overhead = queryOverhead(window.buttons["New Message"])
+    // The running app keeps appending probe records; read them only after it quits.
+    app.terminate()
+    try reportPerformance(
+      groups, evidence: evidence, overhead: overhead,
+      name: page ? "Typing response, Draft editor page" : "Typing response, current composer")
   }
 
   // #2955: opening a new message and a saved Draft, in the current composer
@@ -4690,9 +4680,69 @@ final class WindowTests: XCTestCase {
     shows: [(text: String, marks: String)]
   )
 
+  // Typing and formatting feedback: each sample runs from the key press or format bar button
+  // release the app recorded to its first recorded edit of the body that shows exactly the
+  // expected text and marks (bold 1, italic 2, underline 4 per character), so a later input
+  // cannot hide a late result. The budget is the frame interval the app recorded.
+  private func typingSamples(
+    _ app: XCUIApplication, window: XCUIElement, body: XCUIElement
+  ) -> [PerformanceGroup] {
+    body.click()
+    var groups: [PerformanceGroup] = []
+    var text = ""
+    var marks: [Int] = []
+    func press(
+      _ name: String, _ keys: [String], _ input: (String) -> Void, _ change: (String) -> Void
+    ) {
+      var windows: [(start: Double, end: Double)] = []
+      var shows: [(text: String, marks: String)] = []
+      for key in keys {
+        let start = uptime()
+        input(key)
+        windows.append((start, uptime()))
+        change(key)
+        shows.append((text, marks.map(String.init).joined()))
+      }
+      groups.append((name, 0, windows, 0, shows))
+    }
+    let type = { (key: String) in app.typeKey(key, modifierFlags: []) }
+    press("typing", "typing feedback test".map(String.init), type) { key in
+      text += key
+      marks.append(0)
+    }
+    // Command-B at the caret marks what is typed next.
+    app.typeKey("b", modifierFlags: .command)
+    press("marked-typing", " bold words".map(String.init), type) { key in
+      text += key
+      marks.append(1)
+    }
+    // Option-Shift-Left selects the last word; each shortcut toggles its mark on it, then back.
+    app.typeKey(.leftArrow, modifierFlags: [.option, .shift])
+    let bits = ["b": 1, "i": 2, "u": 4]
+    let toggles = (0..<12).map { ["b", "i", "u"][$0 / 2 % 3] }
+    let toggle = { (key: String) in
+      for index in marks.indices.suffix(5) { marks[index] ^= bits[key, default: 0] }
+    }
+    press("formatting", toggles, { app.typeKey($0, modifierFlags: .command) }, toggle)
+    // The format bar's mark buttons toggle the same marks on the still-selected word.
+    let buttons = ["b": "Bold", "i": "Italic", "u": "Underline"]
+    let click = { (key: String) in window.buttons[buttons[key, default: ""]].firstMatch.click() }
+    press("format-bar", toggles, click, toggle)
+    // Right collapses the selection at the word's end, so Command-B right after it turns bold off
+    // for what is typed next and leaves the word bold (#1229).
+    app.typeKey(.rightArrow, modifierFlags: [])
+    app.typeKey("b", modifierFlags: .command)
+    press("collapsed-typing", " end".map(String.init), type) { key in
+      text += key
+      marks.append(0)
+    }
+    return groups
+  }
+
   private func reportPerformance(
     _ groups: [PerformanceGroup],
-    evidence: URL, overhead: Double, composer: String? = nil
+    evidence: URL, overhead: Double, name: String = "Warm-cache performance",
+    composer: String? = nil
   ) throws {
     struct Record: Decodable {
       let event: String
@@ -4709,8 +4759,10 @@ final class WindowTests: XCTestCase {
       try records.filter { $0.event == event }.map { try XCTUnwrap($0.uptime) }
     }
     let keys = records.filter { $0.event == "key-down" }
-    let edits = records.filter { $0.event == "text-edit" }
-    let draws = records.filter { $0.event == "text-drawn" }
+    // Indices into the evidence, which each source writes in the order it noted them.
+    let edits = records.indices.filter { records[$0].event == "text-edit" }
+    let draws = records.indices.filter { records[$0].event == "text-drawn" }
+    var lastEdit = -1
     let presses = try times("mouse-down")
     let releases = try times("mouse-up")
     // Body requests the synthetic providers answered; priming the cache must have made some.
@@ -4744,20 +4796,23 @@ final class WindowTests: XCTestCase {
         }
         group.budget = try XCTUnwrap(keys.compactMap(\.milliseconds).max())
         group.windows = try zip(starts, group.shows).map { start, shown in
-          let edit = try XCTUnwrap(
+          // Each input has its own edit, so a later input's result cannot stand in for it.
+          let editIndex = try XCTUnwrap(
             edits.first {
-              ($0.uptime ?? 0) >= start && $0.text?.hasPrefix(shown.text) == true
-                && $0.marks?.hasPrefix(shown.marks) == true
+              $0 > lastEdit && (records[$0].uptime ?? 0) >= start
+                && records[$0].text == shown.text && records[$0].marks == shown.marks
             }, "No edit showed \(shown) for \(group.name)")
+          lastEdit = editIndex
+          let edit = records[editIndex]
           let end = try XCTUnwrap(edit.uptime)
-          let draw = try XCTUnwrap(
-            draws.first { ($0.uptime ?? 0) >= end }, "No draw after \(shown) for \(group.name)")
+          let drawIndex = try XCTUnwrap(
+            draws.first { $0 > editIndex }, "No draw after \(shown) for \(group.name)")
+          let draw = records[drawIndex]
           let drawEnd = try XCTUnwrap(draw.uptime)
           // A draw shows the body's latest edit; a result a later input replaced first never showed.
-          let drawnEdit = edits.last { ($0.uptime ?? 0) <= drawEnd }
+          let drawnEdit = edits.last { $0 < drawIndex }.map { records[$0] }
           XCTAssertTrue(
-            drawnEdit?.text?.hasPrefix(shown.text) == true
-              && drawnEdit?.marks?.hasPrefix(shown.marks) == true,
+            drawnEdit?.text == edit.text && drawnEdit?.marks == edit.marks,
             "\(shown) for \(group.name) was replaced before it was drawn")
           let frameStart = try XCTUnwrap(draw.frameStart)
           let interval = try XCTUnwrap(draw.milliseconds)
@@ -4817,8 +4872,7 @@ final class WindowTests: XCTestCase {
     print(lines.map { "PERFORMANCE \($0)" }.joined(separator: "\n"))
     let attachment = XCTAttachment(
       data: Data((lines.joined(separator: "\n") + "\n").utf8), uniformTypeIdentifier: "public.json")
-    attachment.name =
-      composer.map { "Composer opening (\($0) composer)" } ?? "Warm-cache performance"
+    attachment.name = composer.map { "Composer opening (\($0) composer)" } ?? name
     attachment.lifetime = .keepAlways
     add(attachment)
   }

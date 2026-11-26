@@ -403,6 +403,11 @@ of a Link control, the next mount of its window also records its uptime and whet
 control is available, for the [selection-change journey](native-journeys.md#mac-selection-change-journey). In
 text-edit records it includes the text and its per-UTF-16-unit bold, italic and
 underline marks; the journey uses synthetic composer content. In
+`registration-draft-editor` `Testing` builds the host also injects a probe into the Draft
+editor page that sends the same text-edit and text-drawn records for the page's
+body, marked `"source": "page"`, for the
+[typing response journey](native-journeys.md#mac-typing-response-journey); other
+builds inject nothing. In
 registration Mock Mail Sessions, the synthetic relay also appends the uptime of
 each provider body request, with no URL or message content. Release compiles out the probe and timer. Ordinary local
 OS logs contain lifecycle names and window counts, never message content.
