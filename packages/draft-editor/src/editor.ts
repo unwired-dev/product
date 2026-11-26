@@ -1146,17 +1146,17 @@ const DraftBehavior = Extension.create<unknown, { typing: boolean }>({
                 event.preventDefault();
                 const { doc } = view.state;
                 completion = setTimeout(() => {
-                  // Only into the body and caret it was offered for, before the host freezes it.
+                  // Only into the body and caret it was offered for, before the host freezes it;
+                  // it replaces the word as other replacements do, keeping its link and format.
                   if (
                     view.editable &&
                     view.state.doc === doc &&
                     view.state.selection.empty &&
                     view.state.selection.from === from
                   ) {
-                    view.dispatch(
-                      view.state.tr.insertText(
-                        completed.slice(word.length),
-                        from,
+                    view.someProp('handleTextInput', (input) =>
+                      input(view, start, from, completed, () =>
+                        view.state.tr.insertText(completed, start, from),
                       ),
                     );
                   }

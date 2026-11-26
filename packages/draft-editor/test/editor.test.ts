@@ -1645,8 +1645,8 @@ describe('the Tiptap evaluation page', () => {
     const complete = (page: Page, after: () => void) => {
       const { view } = page.editor;
       page.editor.commands.setTextSelection(14);
-      const text = view.dom.querySelector('p')?.firstChild;
-      ok(text, 'Expected the line text');
+      const start = view.domAtPos(8);
+      const end = view.domAtPos(14);
       const dataTransfer = new DataTransfer();
       dataTransfer.setData('text/plain', 'feedback');
       const input = Object.assign(
@@ -1659,10 +1659,10 @@ describe('the Tiptap evaluation page', () => {
           getTargetRanges: () => [
             {
               collapsed: false,
-              startContainer: text,
-              startOffset: 7,
-              endContainer: text,
-              endOffset: 13,
+              startContainer: start.node,
+              startOffset: start.offset,
+              endContainer: end.node,
+              endOffset: end.offset,
             },
           ],
         },
@@ -1687,13 +1687,32 @@ describe('the Tiptap evaluation page', () => {
       [false, undefined, 14],
       paragraphs('typing feedback'),
     ]);
-    const picked = await open(paragraphs('typing feedba'));
+    // The picked word replaces the typed one, keeping its link.
+    const link = 'https://example.com/feedback';
+    const picked = await open([
+      {
+        kind: 'paragraph',
+        spans: [{ text: 'typing ' }, { text: 'feedba', link }],
+      },
+    ]);
     expect(complete(picked, Fn.constVoid)).toStrictEqual([
       false,
-      paragraphs('typing feedback'),
+      [
+        {
+          kind: 'paragraph',
+          spans: [{ text: 'typing ' }, { text: 'feedback', link }],
+        },
+      ],
       16,
     ]);
-    // A pick still pending when Save or Send freezes the page stays out of the frozen body.
+    // A pick the caret moved away from, or one still pending when Save or Send freezes the
+    // page, stays out of the body.
+    const moved = await open(paragraphs('typing feedba'));
+    expect(
+      complete(moved, () => {
+        moved.editor.commands.setTextSelection(1);
+      }),
+    ).toStrictEqual([false, undefined, 1]);
     const frozen = await open(paragraphs('typing feedba'));
     expect(
       complete(frozen, () => {
