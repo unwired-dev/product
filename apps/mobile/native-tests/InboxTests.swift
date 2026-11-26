@@ -5007,9 +5007,12 @@ final class InboxTests: XCTestCase {
       firstParagraph.tap()
       _ = app.keyboards.firstMatch.waitForExistence(timeout: 10)
     }
-    body.typeText("Kept by the sheet")
+    // The question covers the first line; the last one stays in sight beneath it.
+    body.typeText("Kept by the sheet\n\nShown under the question")
     let typed = webText("Kept by the sheet", in: app)
+    let shown = webText("Shown under the question", in: app)
     XCTAssertTrue(typed.waitForExistence(timeout: 20))
+    XCTAssertTrue(shown.waitForExistence(timeout: 20))
     swipeDown()
     let save = app.buttons["Save Draft"]
     XCTAssertTrue(save.waitForExistence(timeout: 10))
@@ -5019,7 +5022,7 @@ final class InboxTests: XCTestCase {
     // Keep Editing, outside the question, keeps the sheet and the page's text.
     app.buttons["Keep Editing"].tap()
     XCTAssertTrue(save.waitForNonExistence(timeout: 10))
-    XCTAssertTrue(typed.exists)
+    XCTAssertTrue(typed.exists && shown.exists)
     swipeDown()
     XCTAssertTrue(save.waitForExistence(timeout: 10))
     save.tap()
@@ -5029,6 +5032,7 @@ final class InboxTests: XCTestCase {
     draft.tap()
     XCTAssertTrue(body.waitForExistence(timeout: 30))
     XCTAssertTrue(typed.waitForExistence(timeout: 20))
+    XCTAssertTrue(shown.exists)
     waitUntil({ self.pageReady(app) }, timeout: 30)
     attachScreen("Draft editor sheet reopened", of: app, to: self)
     // The reopened Draft is unchanged, so the swipe closes it without asking.

@@ -694,9 +694,9 @@ with keyboard" are named with the appearance.
 [Draft editor evaluation](draft-editor-evaluation.md#run-the-evaluation) describes, with
 `UNWIRED_JOURNEY=testDraftEditorSheet` on iPhone; iPad skips it. After signing in, New Message
 opens the page in the system sheet over the Inbox, whose rows are out of reach. Swiping the
-untouched sheet down closes it. In a second New Message, with text typed into the page, the swipe
-asks **Save Draft** or **Delete Draft** while the sheet and its text stay; **Keep Editing** keeps
-both, and on the next swipe **Save Draft** closes the sheet. The Inbox then lists the Draft, which
+untouched sheet down closes it. In a second New Message, with two paragraphs typed into the page,
+the swipe asks **Save Draft** or **Delete Draft** while the sheet and its text stay, the last
+paragraph in sight beneath the question; **Keep Editing** keeps both, and on the next swipe **Save Draft** closes the sheet. The Inbox then lists the Draft, which
 reopens in the page with its text, and a swipe closes it without asking. The captures "Draft
 editor sheet asks before closing" and "Draft editor sheet reopened" are named with the appearance.
 
