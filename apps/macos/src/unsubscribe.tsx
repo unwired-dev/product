@@ -12,6 +12,7 @@ import type {
 import { imapPresetOf } from '@private-email/mail-core/imap-setup';
 import {
   pendingUnsubscribe,
+  undoSendWindow,
   unsendable,
 } from '@private-email/mail-core/outbox';
 import { radius, spacing } from '@private-email/mail-core/theme';
@@ -139,12 +140,15 @@ const email = async ({
   outbox,
   key,
   connection,
+  message,
   pending,
   offer,
 }: Readonly<{
   outbox: ReturnType<typeof useOutbox>;
   key: string;
   connection: string;
+  // The message that offered the request.
+  message: string;
   pending: OutboxSnapshotEntry | undefined;
   offer: Extract<UnsubscribeOffer, { kind: 'mailto' }>;
 }>) => {
@@ -152,7 +156,7 @@ const email = async ({
     await outbox.undo(pending.id, 'failed');
   }
   const admitted = await outbox
-    .unsubscribe(connection, offer)
+    .unsubscribe(connection, offer, message)
     .catch(() => ({ kind: 'failed' }) as const);
   update(key, (each) => ({
     ...each,
@@ -200,18 +204,26 @@ const blockedOf = (
     : undefined;
 };
 
-// The banner's outcome: the request the Outbox holds, else the first of the message's requests the
-// Outbox confirmed, else how the last request ended.
+// The banner's outcome: a request the Outbox confirmed or that was recorded as sent, which an older
+// attempt still in the Outbox never masks; else the request the Outbox holds; else how the last
+// request ended.
 const outcomeOf = (
   entry: Entry,
   pending: OutboxSnapshotEntry | undefined,
   delivered: (id: string) => number | undefined,
 ): ReturnType<typeof pendingOf> | Outcome => {
-  if (pending !== undefined && !needsSignIn(pending)) {
-    return pendingOf(pending);
-  }
   const at = entry.requests?.map(delivered).find((each) => each !== undefined);
-  return at === undefined ? entry.outcome : { kind: 'sent', at };
+  if (at !== undefined) {
+    return { kind: 'sent', at };
+  }
+  if (
+    entry.outcome?.kind === 'sent' ||
+    pending === undefined ||
+    needsSignIn(pending)
+  ) {
+    return entry.outcome;
+  }
+  return pendingOf(pending);
 };
 
 // The opened message's offer in the scoped mailbox and Profile, its Unsubscribe state, and why
@@ -236,7 +248,7 @@ function useOffer(inbox: Source, id: string) {
     useSyncExternalStore(subscribe, () => entries.get(key)) ?? nothing;
   const pending =
     offer?.kind === 'mailto'
-      ? pendingUnsubscribe(queued, connection, offer.address)
+      ? pendingUnsubscribe(queued, connection, { ...offer, message: id })
       : undefined;
   const blocked = blockedOf(offer, pending, receiving);
   // A request found in the Outbox, as after a relaunch, shows as sent once it is confirmed too.
@@ -266,7 +278,7 @@ function useOffer(inbox: Source, id: string) {
     }
     update(key, (each) => ({ ...each, sending: true }));
     await (sending.kind === 'mailto'
-      ? email({ outbox, key, connection, pending, offer: sending })
+      ? email({ outbox, key, connection, message: id, pending, offer: sending })
       : click(store, { key, profile }, sending));
   };
   return {
@@ -428,7 +440,7 @@ function WaitingToast({ id }: { readonly id: string | undefined }) {
   return useReaderToast(toast, open);
 }
 
-// The whole seconds until `at`, at least one, counted down each second while `at` is given.
+// The whole seconds until `at`, counted down each second while `at` is given; none once it passed.
 function useSecondsUntil(at: number | undefined) {
   const [now, setNow] = useState(Date.now);
   useEffect(() => {
@@ -445,7 +457,9 @@ function useSecondsUntil(at: number | undefined) {
       clearInterval(timer);
     };
   }, [at]);
-  return at === undefined ? 0 : Math.max(1, Math.ceil((at - now) / 1000));
+  // The clock may be a tick old when `at` first arrives; the window is never longer than its own.
+  const left = Math.min(at ?? 0, now + undoSendWindow) - now;
+  return at === undefined ? 0 : Math.max(0, Math.ceil(left / 1000));
 }
 
 // Who asks the receiving connection to sign in again: its provider, an IMAP connection's reviewed
@@ -500,7 +514,8 @@ const wordsOf = (
     return {
       marker: t('unsubscribe.waiting'),
       summary:
-        outcome.kind === 'waiting'
+        // Past its deadline a request waits for the Outbox to hand it off.
+        outcome.kind === 'waiting' && seconds > 0
           ? t('unsubscribe.waitingDetail', { count: seconds, to, address })
           : t('unsubscribe.sendingDetail', { to, address }),
     };
@@ -547,16 +562,26 @@ function Repair({
   const signedIn = use(AccountContext);
   const reload = useReloadMailboxes();
   const outbox = useOutbox();
+  const { inbox } = useMailbox() ?? {};
   const repaired = async () => {
     if (refused !== undefined) {
       await outbox.undo(refused, 'failed');
     }
   };
+  // Authorization also resolves when the person cancels it, so the refused request leaves only once
+  // the reloaded Inbox no longer needs signing in.
   const signIn = async (id: string) => {
     try {
       await signedIn?.authorizeMailbox(id);
       await reload();
-      await repaired();
+      await inbox?.load();
+      const state = inbox?.getSnapshot();
+      if (
+        state?.kind === 'ready' &&
+        !('sync' in state && state.sync === 'authentication')
+      ) {
+        await repaired();
+      }
     } catch {
       // Cancelled or refused: the banner still says why the request cannot be sent.
     }

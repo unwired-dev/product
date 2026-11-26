@@ -10,7 +10,9 @@ import { spacing } from '@private-email/mail-core/theme';
 import {
   createContext,
   use,
+  useCallback,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   useSyncExternalStore,
@@ -251,31 +253,46 @@ export const createBarOffset = () => {
   };
 };
 
-// Shows the reader's toast with the bar's notices, or none.
+// Shows the reader's toast with the bar's notices for `owner`: taking the place, or, when `claim`
+// is false, only while `owner` still holds it; null clears it.
 export const ReaderToastContext = createContext<
-  ((toast: ReactNode) => void) | undefined
+  ((owner: object, toast: ReactNode, claim: boolean) => void) | undefined
 >(undefined);
 
+// The reader's toast and how to show one, for ReaderToastContext.
+export function useReaderToastPlace() {
+  const [place, setPlace] =
+    useState<Readonly<{ owner: object; toast: ReactNode }>>();
+  const show = useCallback(
+    (owner: object, toast: ReactNode, claim: boolean) => {
+      setPlace((current) =>
+        claim || current?.owner === owner ? { owner, toast } : current,
+      );
+    },
+    [],
+  );
+  return [place?.toast ?? null, show] as const;
+}
+
 // Shows `toast` as the reader's toast while it is `open`, and once more as it closes so it fades
-// out; it leaves alone another toast shown since, and clears only its own open toast as it goes.
-// Without a reader it returns `toast` to place in line.
+// out; it never replaces another toast shown since, and clears only its own as it goes. Without a
+// reader it returns `toast` to place in line.
 export function useReaderToast(toast: ReactNode, open: boolean) {
   const showToast = use(ReaderToastContext);
+  const owner = useMemo(() => ({}), []);
   const shown = useRef(false);
   useLayoutEffect(() => {
     const showing = open && toast !== null;
     if (showing || shown.current) {
-      showToast?.(toast);
+      showToast?.(owner, toast, showing);
     }
     shown.current = showing;
   });
   useLayoutEffect(
     () => () => {
-      if (shown.current) {
-        showToast?.(null);
-      }
+      showToast?.(owner, null, false);
     },
-    [showToast],
+    [showToast, owner],
   );
   return showToast === undefined ? toast : null;
 }

@@ -113,18 +113,21 @@ export const unsendable = (
   return mailbox.state === 'authorization' ? 'authorization' : undefined;
 };
 
-// The newest `mailto:` unsubscribe request to `address` that `connection` holds in `outbox`, which
-// the reader shows until it leaves the Outbox, across relaunches.
+// The newest `mailto:` unsubscribe request `connection` holds in `outbox` for the list with
+// `identity`, or for `message` when the list has none, which the reader shows until it leaves the
+// Outbox, across relaunches.
 export const pendingUnsubscribe = (
   outbox: readonly OutboxSnapshotEntry[],
   connection: string,
-  address: string,
+  { identity, message }: Readonly<{ identity?: string; message: string }>,
 ) =>
   Arr.reverse(outbox).find(
     ({ draft, unsubscribe }) =>
       unsubscribe !== undefined &&
       draft.connection === connection &&
-      draft.to[0]?.address === address,
+      (identity === undefined
+        ? unsubscribe.identity === undefined && unsubscribe.message === message
+        : unsubscribe.identity === identity),
   );
 
 // One paragraph per line of a `mailto:` body; a span never holds a line break or an image's
@@ -450,9 +453,10 @@ export function createOutbox({
       identity !== undefined &&
       requests !== undefined
     ) {
+      const { account, profile, list } = request;
       const sentAt = yield* Clock.currentTimeMillis;
       yield* Effect.promise(() =>
-        requests.record({ ...request, identity, sentAt }),
+        requests.record(account, { profile, identity, list, sentAt }),
       );
     }
   });
@@ -1312,11 +1316,14 @@ export function createOutbox({
     unsubscribe: async (
       connection: string,
       offer: Extract<UnsubscribeOffer, { kind: 'mailto' }>,
+      // The message that offered it.
+      source: string,
     ): Promise<MailtoUnsubscribe> => {
+      const account = ownerOf(registration);
       const mailbox = mailboxesOf(registration.getSnapshot().snapshot).find(
         ({ id }) => id === connection,
       );
-      if (mailbox === undefined) {
+      if (mailbox === undefined || account === undefined) {
         return { kind: 'failed' };
       }
       const refused = unsendable(mailbox);
@@ -1349,8 +1356,10 @@ export function createOutbox({
           state: 'waiting',
           epoch: epochOf(draft),
           unsubscribe: {
+            account,
             profile: mailbox.profile,
             list: offer.list,
+            message: source,
             ...(offer.identity === undefined
               ? {}
               : { identity: offer.identity }),

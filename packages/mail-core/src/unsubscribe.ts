@@ -378,9 +378,9 @@ export function createUnsubscribe(
       }
       return outcome;
     },
-    // Records `request`, a confirmed `mailto:` request, for the signed-in Product Account.
-    record: async (request: SentUnsubscribeRequest) => {
-      await remember(signedIn(), request);
+    // Records `request`, a confirmed `mailto:` request, for `account`, only while it is signed in.
+    record: async (account: string, request: SentUnsubscribeRequest) => {
+      await remember(account, request);
     },
   };
 }

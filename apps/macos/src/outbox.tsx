@@ -295,16 +295,23 @@ function ResponseRow({
   entry,
   actions,
   onOpenInvitation,
+  provider,
 }: {
   readonly entry: OutboxSnapshotEntry;
   readonly actions: OutboxActions;
   readonly onOpenInvitation: (() => void) | undefined;
+  // The sending connection's provider, which an unsubscribe request's status names.
+  readonly provider: Parameters<typeof outboxCopy>[2];
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
   const formats = useMessageDateFormats();
   const { subject, recipients } = summaryOf(t, entry);
-  const { status, unconfirmed } = outboxCopy(t, entry, 'imap');
+  const { status, unconfirmed } = outboxCopy(
+    t,
+    entry,
+    entry.unsubscribe === undefined ? 'imap' : provider,
+  );
   const [symbol, tone] = responseSymbols[entry.state];
   const time = formats.time.format(entry.draft.updatedAt);
   return (
@@ -405,6 +412,7 @@ export function OutboxRow({
         entry={entry}
         actions={actions}
         onOpenInvitation={onOpenInvitation}
+        provider={provider}
       />
     );
   }

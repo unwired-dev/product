@@ -35,6 +35,9 @@ const offer = {
   body: 'Please remove me.\r\nList 42',
 } as const;
 
+// The message that offered the request.
+const source = '7.INBOX';
+
 const listed = (provider: Provider, state: string, smtp: boolean) => ({
   ...receiving[provider],
   provider: provider === 'graph' ? 'microsoft-graph' : provider,
@@ -172,6 +175,7 @@ describe('a mailto unsubscribe request', () => {
         const admitted = await phone.outbox.unsubscribe(
           receiving[provider].id,
           offer,
+          source,
         );
         expect(admitted).toStrictEqual({
           kind: 'waiting',
@@ -182,7 +186,12 @@ describe('a mailto unsubscribe request', () => {
           {
             sendAt: clock.now + undoSendWindow,
             state: 'waiting',
-            unsubscribe: { profile: 'default', list: offer.list },
+            unsubscribe: {
+              account,
+              profile: 'default',
+              list: offer.list,
+              message: source,
+            },
           },
         ]);
         expect(phone.list()).toStrictEqual([]);
@@ -240,6 +249,7 @@ describe('a mailto unsubscribe request', () => {
       const admitted = await phone.outbox.unsubscribe(
         receiving.gmail.id,
         offer,
+        source,
       );
       const id = waitingId(admitted);
       await expect(phone.outbox.undo(id, 'waiting')).resolves.toBe(id);
@@ -262,6 +272,7 @@ describe('a mailto unsubscribe request', () => {
       const admitted = await phone.outbox.unsubscribe(
         receiving.gmail.id,
         offer,
+        source,
       );
       const id = waitingId(admitted);
       phone.become('authorization');
@@ -272,7 +283,12 @@ describe('a mailto unsubscribe request', () => {
           id,
           state: 'failed',
           problem: 'authorization',
-          unsubscribe: { profile: 'default', list: offer.list },
+          unsubscribe: {
+            account,
+            profile: 'default',
+            list: offer.list,
+            message: source,
+          },
         },
       ]);
       await expect(phone.outbox.undo(id)).resolves.toBe(id);
@@ -313,7 +329,7 @@ describe('a mailto unsubscribe request', () => {
       const phone = await receiver(provider, state, smtp);
       try {
         await expect(
-          phone.outbox.unsubscribe(receiving[provider].id, offer),
+          phone.outbox.unsubscribe(receiving[provider].id, offer, source),
         ).resolves.toStrictEqual({ kind });
         later(undoSendWindow);
         await phone.outbox.process();
@@ -332,7 +348,7 @@ describe('a mailto unsubscribe request', () => {
     const phone = await receiver('gmail');
     try {
       await expect(
-        phone.outbox.unsubscribe('connection-removed', offer),
+        phone.outbox.unsubscribe('connection-removed', offer, source),
       ).resolves.toStrictEqual({ kind: 'failed' });
       expect(phone.drafts.getOutbox()).toStrictEqual([]);
     } finally {
@@ -359,17 +375,18 @@ describe('recording a mailto unsubscribe request', () => {
     phone: Awaited<ReturnType<typeof receiver>>,
     provider: Provider = 'gmail',
   ) =>
-    waitingId(await phone.outbox.unsubscribe(receiving[provider].id, listed));
+    waitingId(
+      await phone.outbox.unsubscribe(receiving[provider].id, listed, source),
+    );
   // The request the Outbox holds for the receiving connection, as the reader finds it.
   const pending = (
     phone: Awaited<ReturnType<typeof receiver>>,
     provider: Provider = 'gmail',
   ) =>
-    pendingUnsubscribe(
-      phone.outbox.getSnapshot(),
-      receiving[provider].id,
-      listed.address,
-    );
+    pendingUnsubscribe(phone.outbox.getSnapshot(), receiving[provider].id, {
+      ...listed,
+      message: source,
+    });
 
   // The Mail Profile a waiting request is recorded for.
   const profileOf = (entry: ReturnType<typeof pending>) => {
@@ -408,6 +425,48 @@ describe('recording a mailto unsubscribe request', () => {
       }
     },
   );
+
+  it('keeps another list’s request at the same address, or another message’s without a list identity, apart', async () => {
+    expect.hasAssertions();
+    const phone = await receiver('gmail');
+    try {
+      await start(phone);
+      await phone.outbox.unsubscribe(receiving.gmail.id, offer, source);
+      const find = (each: Readonly<{ identity?: string; message: string }>) =>
+        pendingUnsubscribe(phone.outbox.getSnapshot(), receiving.gmail.id, each)
+          ?.unsubscribe;
+
+      expect({
+        listed: find({ identity: listed.identity, message: 'other' }),
+        otherList: find({ identity: 'deals.alza.example', message: source }),
+        unlisted: find({ message: source }),
+        otherMessage: find({ message: 'other' }),
+      }).toStrictEqual({
+        listed: expect.objectContaining({ identity: listed.identity }),
+        otherList: undefined,
+        unlisted: expect.not.objectContaining({ identity: expect.anything() }),
+        otherMessage: undefined,
+      });
+    } finally {
+      phone.outbox.dispose();
+    }
+  });
+
+  it('records a confirmed request only for the Product Account that sent it', async () => {
+    expect.hasAssertions();
+    const phone = await receiver('gmail');
+    try {
+      await phone.unsubscribe.record('another-product-account', {
+        profile: 'default',
+        identity: listed.identity,
+        list: listed.list,
+        sentAt: clock.now,
+      });
+      expect(phone.kept.document).toBeNull();
+    } finally {
+      phone.outbox.dispose();
+    }
+  });
 
   it('records nothing at Undo', async () => {
     expect.hasAssertions();

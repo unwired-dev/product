@@ -62,7 +62,11 @@ import {
 } from './design.tsx';
 import { ErrorReportingContext } from './error-reporting.tsx';
 import { FolderChoice } from './folder-choice.tsx';
-import { FloatingBar, ReaderToastContext } from './inbox-bar.tsx';
+import {
+  FloatingBar,
+  ReaderToastContext,
+  useReaderToastPlace,
+} from './inbox-bar.tsx';
 import {
   DateDivider,
   DownloadingOlder,
@@ -1024,7 +1028,7 @@ export function Inbox({
   const mailboxes = useMailboxes();
   const every = useAllMailboxes();
   // The reader's toast, such as a saved attachment's, with the bar's notices.
-  const [readerToast, setReaderToast] = useState<ReactNode>(null);
+  const [readerToast, showReaderToast] = useReaderToastPlace();
   // The view a Pin or Unpin that storage refused explains itself on.
   const pinAnchor = useRef<View>(null);
   const pinned = usePinned(mailboxes.map(({ id }) => id));
@@ -1557,7 +1561,7 @@ export function Inbox({
           }}
         />
       </View>
-      <ReaderToastContext value={setReaderToast}>{reader}</ReaderToastContext>
+      <ReaderToastContext value={showReaderToast}>{reader}</ReaderToastContext>
       <FloatingBar
         hidden={composeSearch.hidden}
         search={search}

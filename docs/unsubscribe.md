@@ -82,9 +82,9 @@ native answer is `uncertain` for the same reason.
 
 ## Sending a mailto request
 
-`outbox.unsubscribe(connection, offer)` admits a `mailto:` offer's request once,
-after the person confirms it. `connection` is the Mailbox Connection that
-received the message. The request is an ordinary message from that connection's
+`outbox.unsubscribe(connection, offer, source)` admits a `mailto:` offer's
+request once, after the person confirms it. `connection` is the Mailbox
+Connection that received `source`, the message that offered it. The request is an ordinary message from that connection's
 address to the offer's one address, with only the offer's `subject` and `body`:
 no Cc, Bcc, reply headers or other `mailto:` fields. Each line of the body is a
 paragraph. It is never a Draft, so it never syncs.
@@ -96,14 +96,17 @@ the Outbox; its Outbox row, like an Invitation Response's, has no Edit, since it
 was never a Draft. Nothing logs the address, subject or body, and Convex hears
 only the claim's opaque identifier.
 
-The Outbox entry keeps the Mail Profile that owns the connection, the list's
-name and its Mailing List Identity. Once the provider confirms the send, or
+The Outbox entry keeps the Product Account that admitted it, the Mail Profile
+that owns the connection, the list's name, its Mailing List Identity and the
+source message. Once the provider confirms the send, or
 Check Again finds it in Sent, the Outbox records the request through the
 `requests` it was created with (the host's `unsubscribe.record`) before the
 entry leaves, so a relaunch in between loses neither the request nor its
-record. `pendingUnsubscribe(snapshot, connection, address)` finds the newest
-request the Outbox holds for a message, and `outbox.delivered(id)` when one that
-left was confirmed.
+record. `pendingUnsubscribe(snapshot, connection, { identity, message })` finds
+the newest request the Outbox holds for the list with that Mailing List
+Identity, or, for a list without one, for that message, so two lists sharing an
+address never take each other's state. `outbox.delivered(id)` says when one
+that left was confirmed.
 
 | Result                      | When                                                                                                                 |
 | --------------------------- | -------------------------------------------------------------------------------------------------------------------- |
@@ -134,9 +137,9 @@ reader can show it as sent on that date. After that, for another Profile or for
 an offer without a Mailing List Identity, it returns nothing and the message offers Unsubscribe again, as
 [ADR 0044](adr/0044-isolate-standards-based-unsubscribe-actions.md) allows.
 
-`record(request)` records a confirmed `mailto:` request the same way, for the
-Product Account signed in when the Outbox confirms it; Undo and a refusal record
-nothing.
+`record(account, request)` records a confirmed `mailto:` request the same way,
+for `account`, the Product Account that admitted it, and only while that account
+is signed in and owns the stored records; Undo and a refusal record nothing.
 
 Native code keeps the records in `unsubscribe-requests.enc`, a document sealed
 for the signed-in Product Account like its Pins and removed by an account purge.
@@ -180,16 +183,17 @@ storage refused to record, still shows as sent for the rest of the session.
 A `mailto:` request goes through `outbox.unsubscribe` instead, from the
 receiving connection only. The banner shows the request the Outbox holds for the
 message, also after a relaunch, then the dated Sent state once the Outbox
-confirmed it:
+confirmed it. A confirmed or recorded request wins over an older attempt that
+is still in the Outbox with an unknown delivery:
 
-| State         | Banner                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Waiting       | **Unsubscribe request waiting to send**, with the countdown, the two addresses and no action. The reader's Undo Send toast offers **Undo**, which returns the banner to the offer. Once the window ends the countdown gives way to “Sending to …”.                                                                                                                                                                                                    |
-| Sent          | **Unsubscribe request sent**, dated, saying the email is in Sent.                                                                                                                                                                                                                                                                                                                                                                                     |
-| Refused       | **Couldn’t send the request**, as for one-click. **Try Again** first takes the refused request out of the Outbox.                                                                                                                                                                                                                                                                                                                                     |
-| Unknown       | **No clear answer to the request**, as for one-click.                                                                                                                                                                                                                                                                                                                                                                                                 |
-| Needs sign-in | In place of **Unsubscribe…**, why the connection cannot send and **Sign In…**, which asks its provider again; an IMAP connection's password is entered in its mailbox settings. A connection that needs authorization has no open Inbox, so the reader shows this when the provider refused the request until sign-in; a successful **Sign In…**, or opening the mailbox settings, takes the refused request out of the Outbox and the offer returns. |
-| Receive-only  | In place of **Unsubscribe…**, that the IMAP connection has no outgoing server and that Unwired never uses another address, with **Mailbox Settings…**.                                                                                                                                                                                                                                                                                                |
+| State         | Banner                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Waiting       | **Unsubscribe request waiting to send**, with the countdown, the two addresses and no action. The reader's Undo Send toast offers **Undo**, which returns the banner to the offer. Once the window ends the countdown gives way to “Sending to …”.                                                                                                                                                                                                                                                                                  |
+| Sent          | **Unsubscribe request sent**, dated, saying the email is in Sent.                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| Refused       | **Couldn’t send the request**, as for one-click. **Try Again** first takes the refused request out of the Outbox.                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| Unknown       | **No clear answer to the request**, as for one-click.                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| Needs sign-in | In place of **Unsubscribe…**, why the connection cannot send and **Sign In…**, which asks its provider again; an IMAP connection's password is entered in its mailbox settings. A connection that needs authorization has no open Inbox, so the reader shows this when the provider refused the request until sign-in; a **Sign In…** after which the reloaded Inbox no longer needs signing in, or opening the mailbox settings, takes the refused request out of the Outbox and the offer returns; a cancelled sign-in leaves it. |
+| Receive-only  | In place of **Unsubscribe…**, that the IMAP connection has no outgoing server and that Unwired never uses another address, with **Mailbox Settings…**.                                                                                                                                                                                                                                                                                                                                                                              |
 
 The waiting toast shares the reader's toast place with a saved attachment's
 toast; each clears only its own. After the toast ends, the Outbox row keeps the

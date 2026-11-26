@@ -255,6 +255,24 @@ describe('the reader’s mailto: Unsubscribe on the Mac', () => {
   });
   /* oxlint-enable vitest/max-expects */
 
+  it('shows a retry sent once the Outbox confirms it, though the unknown attempt stays', async () => {
+    expect.hasAssertions();
+    const mail = await device();
+    await confirm();
+    mail.imap.smtp.lost = true;
+    await mail.deliver();
+    await press('Try Again');
+    await expect(
+      screen.findByText('Unsubscribe request waiting to send'),
+    ).resolves.toBeOnTheScreen();
+
+    await mail.deliver();
+    await expect(
+      screen.findByText('Unsubscribe request sent'),
+    ).resolves.toBeOnTheScreen();
+    expect(mail.outbox.getSnapshot()).toMatchObject([{ state: 'unknown' }]);
+  });
+
   it('takes the request back with the toast’s Undo and offers it again', async () => {
     expect.hasAssertions();
     const mail = await device();
