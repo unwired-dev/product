@@ -571,9 +571,16 @@ function EvaluationEditor({
       void add('drop', false);
     } else {
       // The keys the page hands over while the Slash Command Menu shows.
-      slashMenu.press(message.key, () => {
-        chooseBlock();
-      });
+      slashMenu.press(
+        message.key,
+        {
+          document: textOf(authored.current.body),
+          at: pageNow.current?.selection ?? { start: 0, end: 0 },
+        },
+        () => {
+          chooseBlock();
+        },
+      );
     }
   };
   // The page loads once with the opened body; later edits never reload it.
@@ -961,94 +968,101 @@ function EvaluationEditor({
         {stopped ? (
           <View style={s.fill} />
         ) : (
-          <WebView
-            ref={view}
-            allowsInlineMediaPlayback={false}
-            allowsLinkPreview={false}
-            cacheEnabled={false}
-            // An array, as in the message body: a string crashes React Native macOS 0.83.
-            dataDetectorTypes={['none']}
-            incognito
-            injectedJavaScriptBeforeContentLoaded={injected}
-            javaScriptCanOpenWindowsAutomatically={false}
-            mediaPlaybackRequiresUserAction
-            onContentProcessDidTerminate={stop}
-            onError={stop}
-            onMessage={({ nativeEvent }) => {
-              if (!mounted.current || pageStopped.current) {
-                return;
-              }
-              const message = decodeMessage(nativeEvent.data);
-              // In `Testing` builds, the typing probe's notes are the page's only other messages.
-              if (message === undefined) {
-                recordPageProbe(nativeEvent.data);
-                return;
-              }
-              if (message.type !== 'update') {
-                request(message);
-                return;
-              }
-              // A delayed report of an earlier body revision never replaces a newer one.
-              if (message.revision < (pageNow.current?.revision ?? 0)) {
-                return;
-              }
-              const {
-                document: reported,
-                attachments: attached = [],
-                type: _,
-                frozen,
-                ...next
-              } = message;
-              const flushed = frozen && next.revision === bodyRevision.current;
-              const was = pageNow.current?.selection;
-              slashMenu.moved(was, next.selection, reported !== undefined);
-              pageNow.current = next;
-              setPageState(next);
-              if (reported === undefined || flushed) {
+          // The web view reports its frame inside its own wrapper, so the body measures its place in the
+          // scrolling area here, for the Slash Command Menu.
+          <View
+            style={styles.body}
+            testID="draft-page"
+            onLayout={({ nativeEvent }) => {
+              slashMenu.placeBody(nativeEvent.layout);
+            }}>
+            <WebView
+              ref={view}
+              allowsInlineMediaPlayback={false}
+              allowsLinkPreview={false}
+              cacheEnabled={false}
+              // An array, as in the message body: a string crashes React Native macOS 0.83.
+              dataDetectorTypes={['none']}
+              incognito
+              injectedJavaScriptBeforeContentLoaded={injected}
+              javaScriptCanOpenWindowsAutomatically={false}
+              mediaPlaybackRequiresUserAction
+              onContentProcessDidTerminate={stop}
+              onError={stop}
+              onMessage={({ nativeEvent }) => {
+                if (!mounted.current || pageStopped.current) {
+                  return;
+                }
+                const message = decodeMessage(nativeEvent.data);
+                // In `Testing` builds, the typing probe's notes are the page's only other messages.
+                if (message === undefined) {
+                  recordPageProbe(nativeEvent.data);
+                  return;
+                }
+                if (message.type !== 'update') {
+                  request(message);
+                  return;
+                }
+                // A delayed report of an earlier body revision never replaces a newer one.
+                if (message.revision < (pageNow.current?.revision ?? 0)) {
+                  return;
+                }
+                const {
+                  document: reported,
+                  attachments: attached = [],
+                  type: _,
+                  frozen,
+                  ...next
+                } = message;
+                const flushed =
+                  frozen && next.revision === bodyRevision.current;
+                const was = pageNow.current?.selection;
+                slashMenu.moved(was, next.selection, reported !== undefined);
+                pageNow.current = next;
+                setPageState(next);
+                if (reported === undefined || flushed) {
+                  if (frozen) {
+                    paused.current?.(true);
+                  }
+                  return;
+                }
+                bodyRevision.current = next.revision;
+                // Editing again retires captured text, as in the current composer.
+                forget();
+                const previous = authored.current;
+                // The host gives the page the Draft's text without its tables (#2865), and no paste
+                // makes a table, so the page reports none.
+                const { body, attachments } = knownAssets(known.current, {
+                  document: textOf(reported),
+                  attachments: attached,
+                });
+                change({
+                  ...previous,
+                  body: withText(previous.body, body),
+                  ...(attachments.length === 0 &&
+                  previous.attachments === undefined
+                    ? {}
+                    : { attachments }),
+                });
+                slashMenu.reported(
+                  { body: textOf(previous.body), selection: was },
+                  { ...next, body },
+                );
                 if (frozen) {
                   paused.current?.(true);
                 }
-                return;
+              }}
+              // Only the page itself loads; every navigation it could start is cancelled.
+              onShouldStartLoadWithRequest={({ url, navigationType }) =>
+                url === 'about:blank' && navigationType === 'other'
               }
-              bodyRevision.current = next.revision;
-              // Editing again retires captured text, as in the current composer.
-              forget();
-              const previous = authored.current;
-              // The host gives the page the Draft's text without its tables (#2865), and no paste
-              // makes a table, so the page reports none.
-              const { body, attachments } = knownAssets(known.current, {
-                document: textOf(reported),
-                attachments: attached,
-              });
-              change({
-                ...previous,
-                body: withText(previous.body, body),
-                ...(attachments.length === 0 &&
-                previous.attachments === undefined
-                  ? {}
-                  : { attachments }),
-              });
-              slashMenu.reported(
-                { body: textOf(previous.body), selection: was },
-                { ...next, body },
-              );
-              if (frozen) {
-                paused.current?.(true);
-              }
-            }}
-            // Only the page itself loads; every navigation it could start is cancelled.
-            onShouldStartLoadWithRequest={({ url, navigationType }) =>
-              url === 'about:blank' && navigationType === 'other'
-            }
-            onLayout={({ nativeEvent }) => {
-              slashMenu.placeBody(nativeEvent.layout);
-            }}
-            pointerEvents={closing === 'saving' ? 'none' : 'auto'}
-            originWhitelist={['*']}
-            setSupportMultipleWindows={false}
-            source={source}
-            style={[styles.body, { backgroundColor: colors.surfaceContent }]}
-          />
+              pointerEvents={closing === 'saving' ? 'none' : 'auto'}
+              originWhitelist={['*']}
+              setSupportMultipleWindows={false}
+              source={source}
+              style={[styles.body, { backgroundColor: colors.surfaceContent }]}
+            />
+          </View>
         )}
         <BodySlashMenu
           shown={slashMenu.shown}

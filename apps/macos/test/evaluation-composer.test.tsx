@@ -873,7 +873,7 @@ describe('the Tiptap evaluation composer', () => {
 
     // A / first in a block opens the Basic Blocks, as in the current composer, 7pt right of the /
     // and 3pt under its line, and the page hands the menu its keys.
-    await fireEvent(page(), 'layout', {
+    await fireEvent(screen.getByTestId('draft-page'), 'layout', {
       nativeEvent: { layout: { x: 0, y: 40, width: 500, height: 400 } },
     });
     const scroll = scrollOf(page());
@@ -963,11 +963,39 @@ describe('the Tiptap evaluation composer', () => {
     });
     expect(menu()).toBeNull();
 
-    // Leaving the body, which the page reports as Escape, closes it.
-    await typeEach('', 'Hi\n/');
-    expect(menu()).not.toBeNull();
-    await key('Escape');
+    // Reports and keys can arrive before the host renders: leaving the body, which the page
+    // reports as Escape, right after a / closes the menu, and Down Arrow right after filtering moves
+    // through the filtered blocks.
+    const edit = (at: number, text: string) => ({
+      type: 'update',
+      revision: revision() + at,
+      document: lines(text),
+      selection: { start: text.length, end: text.length },
+      caret,
+      kind: 'paragraph',
+      marks: [],
+      undo: true,
+      redo: false,
+    });
+    const batched = async (...messages: readonly object[]) => {
+      const { onMessage } = page().props;
+      await act(async () => {
+        messages.forEach((message) => {
+          onMessage({ nativeEvent: { data: JSON.stringify(message) } });
+        });
+      });
+    };
+    await batched(edit(1, 'Hi\n'));
+    await batched(edit(2, 'Hi\n/'), { type: 'key', key: 'Escape' });
     expect(menu()).toBeNull();
+    await batched(edit(3, 'Hi\n'));
+    await batched(edit(4, 'Hi\n/'));
+    expect(menu()).not.toBeNull();
+    await batched(edit(5, 'Hi\n/h'), edit(6, 'Hi\n/he'), {
+      type: 'key',
+      key: 'ArrowDown',
+    });
+    expect(rows({ selected: true })).toStrictEqual(['Heading 2, ##']);
   });
 
   it('suggests a reply in a reply Draft and replaces the whole authored body', async () => {

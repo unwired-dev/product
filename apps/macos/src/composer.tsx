@@ -3307,19 +3307,23 @@ export function useSlashMenu(
             },
           ],
         };
-  // Up and Down move the highlight, Return and Tab choose it, Escape closes.
-  const press = (key: string, apply: () => void) => {
-    if (shown === undefined) {
-      return;
-    }
+  // Up and Down move the highlight through the blocks listed for the latest `document` and caret
+  // `at`, Return and Tab choose it, Escape closes.
+  const press = (
+    key: string,
+    now: Readonly<{ document: SemanticDocument; at: Selection }>,
+    apply: () => void,
+  ) => {
     if (key === 'ArrowDown' || key === 'ArrowUp') {
-      const index = Math.max(
-        kinds.indexOf(chosenNow.current ?? shown.active),
-        0,
-      );
+      const listing = latest(now.document, now.at)?.kinds ?? [];
+      const index =
+        chosenNow.current === undefined
+          ? 0
+          : Math.max(listing.indexOf(chosenNow.current), 0);
       const step = key === 'ArrowDown' ? 1 : -1;
-      const next = kinds[Math.min(Math.max(index + step, 0), kinds.length - 1)];
-      if (next !== undefined && next !== kinds[index]) {
+      const next =
+        listing[Math.min(Math.max(index + step, 0), listing.length - 1)];
+      if (next !== undefined && next !== listing[index]) {
         choose(next);
       }
     } else if (key === 'Escape') {
@@ -3394,11 +3398,16 @@ export function useSlashMenu(
         : { query: open.query, kind: picked };
     },
     keyDown: (event: KeyEvent['nativeEvent'], apply: () => void) => {
-      if (plainEvent(event)) {
-        press(event.key, apply);
+      if (shown !== undefined && plainEvent(event)) {
+        press(
+          event.key,
+          { document: textOf(draft.body), at: selection },
+          apply,
+        );
       }
     },
-    // The keys a Draft editor page hands over while the menu shows.
+    // The keys a Draft editor page hands over while the menu shows, or Escape as the body leaves,
+    // which may arrive before the latest report renders.
     press,
   };
 }
