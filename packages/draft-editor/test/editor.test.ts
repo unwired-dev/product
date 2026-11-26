@@ -1626,6 +1626,11 @@ describe('the Tiptap evaluation page', () => {
         },
       ];
       expect(bodyOf(page)).toStrictEqual(edited);
+      expect(page.editor.state.selection.toJSON()).toStrictEqual({
+        type: 'text',
+        anchor: caret,
+        head: caret,
+      });
       page.command({ type: 'undo' });
       expect(bodyOf(page)).toStrictEqual(opened);
       page.command({ type: 'redo' });
@@ -1695,6 +1700,43 @@ describe('the Tiptap evaluation page', () => {
         frozen.command({ type: 'editable', editable: false });
       }),
     ).toStrictEqual([false, paragraphs('typing feedba'), 14]);
+  });
+
+  it('keeps typing after a word the system capitalizes or corrects at Space', async () => {
+    expect.hasAssertions();
+    const page = await open([{ kind: 'paragraph', spans: [] }]);
+    // The Mac capitalizes the first word when Space follows a pause; ProseMirror reads the
+    // changed letter from the DOM while the caret stays after the word (#2971).
+    page.type('typing');
+    page.editor.view.someProp('handleTextInput', (handle) =>
+      handle(page.editor.view, 1, 2, 'T', () =>
+        page.editor.state.tr.insertText('T', 1, 2),
+      ),
+    );
+    page.type(' teh');
+    page.editor.view.someProp('handleTextInput', (handle) =>
+      handle(page.editor.view, 9, 11, 'he', () =>
+        page.editor.state.tr.insertText('he', 9, 11),
+      ),
+    );
+    page.type(' test');
+    expect(bodyOf(page)).toStrictEqual([
+      { kind: 'paragraph', spans: [{ text: 'Typing the test' }] },
+    ]);
+    // A correction from the caret on leaves the caret after the corrected word.
+    const corrected = await open([
+      { kind: 'paragraph', spans: [{ text: 'teh tail' }] },
+    ]);
+    corrected.editor.commands.setTextSelection(2);
+    corrected.editor.view.someProp('handleTextInput', (handle) =>
+      handle(corrected.editor.view, 2, 4, 'he', () =>
+        corrected.editor.state.tr.insertText('he', 2, 4),
+      ),
+    );
+    corrected.type('n');
+    expect(bodyOf(corrected)).toStrictEqual([
+      { kind: 'paragraph', spans: [{ text: 'then tail' }] },
+    ]);
   });
 
   it('replaces the body revision it was computed from as one undoable edit', async () => {
