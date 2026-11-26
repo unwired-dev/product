@@ -239,10 +239,11 @@ function usePageSlashMenu(
 
 // The page's Slash Command Menu under the caret's line, or over it when only there is room for it,
 // staying inside the editor's `viewport` less `reserve` at its bottom, as the current composer
-// places it.
+// places it. The editor calls `placeRef` as it scrolls or resizes.
 function PageSlashMenu({
   page,
   viewport,
+  placeRef,
   reserve,
   shown,
   ...panel
@@ -252,6 +253,7 @@ function PageSlashMenu({
 > & {
   readonly page: PageState | undefined;
   readonly viewport: Readonly<{ current: ViewInstance | null }>;
+  readonly placeRef: { current: (() => void) | undefined };
   readonly reserve: number;
   readonly shown: ComponentProps<typeof SlashMenuPanel>['shown'] | undefined;
 }) {
@@ -260,10 +262,6 @@ function PageSlashMenu({
   const [rows, setRows] = useState(0);
   const [room, setRoom] =
     useState<Readonly<{ below: number; above: number }>>();
-  const caret = page?.caret;
-  if (shown === undefined || caret === undefined) {
-    return null;
-  }
   const measure = () => {
     const view = viewport.current?.getBoundingClientRect();
     const at = line.current?.getBoundingClientRect();
@@ -275,6 +273,16 @@ function PageSlashMenu({
       });
     }
   };
+  useEffect(() => {
+    placeRef.current = measure;
+    return () => {
+      placeRef.current = undefined;
+    };
+  });
+  const caret = page?.caret;
+  if (shown === undefined || caret === undefined) {
+    return null;
+  }
   const flipped =
     room !== undefined && rows > room.below && room.above > room.below;
   return (
@@ -375,7 +383,9 @@ function EvaluationEditor({
   }, []);
   const [stopped, setStopped] = useState(false);
   // The editor's visible area, which the Slash Command Menu stays inside.
+  // The body's visible area, which bounds the Slash Command Menu, and its placement.
   const viewport = useRef<ViewInstance>(null);
+  const placeSlash = useRef<() => void>(undefined);
   const mounted = useRef(true);
   const onRebindNow = useRef(onRebind);
   useLayoutEffect(() => {
@@ -903,9 +913,7 @@ function EvaluationEditor({
         enabled={layout.avoidKeyboard}
         keyboardVerticalOffset={layout.top}
         style={s.fill}>
-        <View
-          ref={viewport}
-          style={s.fill}>
+        <View style={s.fill}>
           <EditorHeader
             subject={draft.subject}
             busy={closing === 'saving'}
@@ -959,187 +967,198 @@ function EvaluationEditor({
           )}
           {/* The body, files and fields scroll together when the keyboard leaves them too little
             room, as in landscape; the iPhone controls float over them above the keyboard. */}
-          <ScrollView
-            contentContainerStyle={[
-              styles.scroll,
-              { paddingBottom: phoneControlsInset(phone, open) },
-            ]}
-            keyboardShouldPersistTaps="handled">
-            <ComposerNotices
-              closing={closing}
-              draft={draft}
-              refused={refused}
-              onClose={() => {
-                void saveDraft();
-              }}
-              onDiscard={() => {
-                void deleteDraft();
-              }}
-              onKeepEditing={() => {
-                setClosing(undefined);
-              }}
-            />
-            {stopped ? (
-              <Text
-                accessibilityRole="alert"
-                style={[styles.notice, { color: colors.textPrimary }]}>
-                {t('drafts.evaluation.stopped')}
-              </Text>
-            ) : null}
-            {captured === undefined ? null : (
-              <View style={s.review}>
-                <CapturedAssistance
-                  key={captured.id}
-                  captured={captured}
-                  assistance={assistance}
-                  translation={translation}
-                  onApply={applyCaptured}
-                  onClose={forget}
-                />
-              </View>
-            )}
-            {stopped ? (
-              <View style={s.fill} />
-            ) : (
-              <View style={styles.body}>
-                <WebView
-                  ref={view}
-                  allowsInlineMediaPlayback={false}
-                  allowsLinkPreview={false}
-                  automaticallyAdjustContentInsets={false}
-                  cacheEnabled={false}
-                  dataDetectorTypes="none"
-                  hideKeyboardAccessoryView
-                  incognito
-                  injectedJavaScriptBeforeContentLoaded={injected}
-                  javaScriptCanOpenWindowsAutomatically={false}
-                  // Closing the Format panel returns to typing where the person left off.
-                  keyboardDisplayRequiresUserAction={false}
-                  mediaPlaybackRequiresUserAction
-                  onContentProcessDidTerminate={stop}
-                  onError={stop}
-                  onMessage={({ nativeEvent }) => {
-                    if (!mounted.current || pageStopped.current) {
-                      return;
-                    }
-                    const message = decodeMessage(nativeEvent.data);
-                    if (message === undefined) {
-                      return;
-                    }
-                    // A paste carrying images, which native code reads from the pasteboard.
-                    if (message.type === 'paste') {
-                      void add('paste', true);
-                      return;
-                    }
-                    if (message.type === 'key') {
-                      slashKey(message.key);
-                      return;
-                    }
-                    // A delayed report of an earlier body revision never replaces a newer one.
-                    if (message.revision < (pageNow.current?.revision ?? 0)) {
-                      return;
-                    }
-                    const {
-                      document: reported,
-                      attachments: attached = [],
-                      type: _,
-                      frozen,
-                      ...next
-                    } = message;
-                    const flushed =
-                      frozen && next.revision === bodyRevision.current;
-                    const was = pageNow.current?.selection;
-                    slashMenu.moved(
-                      pageNow.current,
-                      next,
-                      reported !== undefined,
-                    );
-                    pageNow.current = next;
-                    setPageState(next);
-                    if (reported === undefined || flushed) {
+          <View
+            ref={viewport}
+            onLayout={() => placeSlash.current?.()}
+            style={s.fill}>
+            <ScrollView
+              onScroll={() => placeSlash.current?.()}
+              scrollEventThrottle={16}
+              contentContainerStyle={[
+                styles.scroll,
+                { paddingBottom: phoneControlsInset(phone, open) },
+              ]}
+              keyboardShouldPersistTaps="handled">
+              <ComposerNotices
+                closing={closing}
+                draft={draft}
+                refused={refused}
+                onClose={() => {
+                  void saveDraft();
+                }}
+                onDiscard={() => {
+                  void deleteDraft();
+                }}
+                onKeepEditing={() => {
+                  setClosing(undefined);
+                }}
+              />
+              {stopped ? (
+                <Text
+                  accessibilityRole="alert"
+                  style={[styles.notice, { color: colors.textPrimary }]}>
+                  {t('drafts.evaluation.stopped')}
+                </Text>
+              ) : null}
+              {captured === undefined ? null : (
+                <View style={s.review}>
+                  <CapturedAssistance
+                    key={captured.id}
+                    captured={captured}
+                    assistance={assistance}
+                    translation={translation}
+                    onApply={applyCaptured}
+                    onClose={forget}
+                  />
+                </View>
+              )}
+              {stopped ? (
+                <View style={s.fill} />
+              ) : (
+                <View style={styles.body}>
+                  <WebView
+                    ref={view}
+                    allowsInlineMediaPlayback={false}
+                    allowsLinkPreview={false}
+                    automaticallyAdjustContentInsets={false}
+                    cacheEnabled={false}
+                    dataDetectorTypes="none"
+                    hideKeyboardAccessoryView
+                    incognito
+                    injectedJavaScriptBeforeContentLoaded={injected}
+                    javaScriptCanOpenWindowsAutomatically={false}
+                    // Closing the Format panel returns to typing where the person left off.
+                    keyboardDisplayRequiresUserAction={false}
+                    mediaPlaybackRequiresUserAction
+                    onContentProcessDidTerminate={stop}
+                    onError={stop}
+                    onMessage={({ nativeEvent }) => {
+                      if (!mounted.current || pageStopped.current) {
+                        return;
+                      }
+                      const message = decodeMessage(nativeEvent.data);
+                      if (message === undefined) {
+                        return;
+                      }
+                      // A paste carrying images, which native code reads from the pasteboard.
+                      if (message.type === 'paste') {
+                        void add('paste', true);
+                        return;
+                      }
+                      if (message.type === 'key') {
+                        slashKey(message.key);
+                        return;
+                      }
+                      // A delayed report of an earlier body revision never replaces a newer one.
+                      if (message.revision < (pageNow.current?.revision ?? 0)) {
+                        return;
+                      }
+                      const {
+                        document: reported,
+                        attachments: attached = [],
+                        type: _,
+                        frozen,
+                        ...next
+                      } = message;
+                      const flushed =
+                        frozen && next.revision === bodyRevision.current;
+                      const was = pageNow.current?.selection;
+                      slashMenu.moved(
+                        pageNow.current,
+                        next,
+                        reported !== undefined,
+                      );
+                      pageNow.current = next;
+                      setPageState(next);
+                      if (reported === undefined || flushed) {
+                        if (frozen) {
+                          paused.current?.(true);
+                        }
+                        return;
+                      }
+                      bodyRevision.current = next.revision;
+                      // Editing again retires captured text, as in the current composer.
+                      forget();
+                      const previous = authored.current;
+                      // The host gives the page the Draft's text without its tables (#2865), and no paste
+                      // makes a table, so the page reports none.
+                      const { body, attachments } = knownAssets(known.current, {
+                        document: textOf(reported),
+                        attachments: attached,
+                      });
+                      change({
+                        ...previous,
+                        body: withText(previous.body, body),
+                        ...(attachments.length === 0 &&
+                        previous.attachments === undefined
+                          ? {}
+                          : { attachments }),
+                      });
+                      slashMenu.reported(
+                        { body: textOf(previous.body), selection: was },
+                        { ...next, body },
+                      );
+                      afterSlash(next.replaced);
                       if (frozen) {
                         paused.current?.(true);
                       }
-                      return;
+                    }}
+                    // Only the page itself loads; every navigation it could start is cancelled.
+                    onShouldStartLoadWithRequest={({ url, navigationType }) =>
+                      url === 'about:blank' && navigationType === 'other'
                     }
-                    bodyRevision.current = next.revision;
-                    // Editing again retires captured text, as in the current composer.
-                    forget();
-                    const previous = authored.current;
-                    // The host gives the page the Draft's text without its tables (#2865), and no paste
-                    // makes a table, so the page reports none.
-                    const { body, attachments } = knownAssets(known.current, {
-                      document: textOf(reported),
-                      attachments: attached,
-                    });
-                    change({
-                      ...previous,
-                      body: withText(previous.body, body),
-                      ...(attachments.length === 0 &&
-                      previous.attachments === undefined
-                        ? {}
-                        : { attachments }),
-                    });
-                    slashMenu.reported(
-                      { body: textOf(previous.body), selection: was },
-                      { ...next, body },
-                    );
-                    afterSlash(next.replaced);
-                    if (frozen) {
-                      paused.current?.(true);
-                    }
-                  }}
-                  // Only the page itself loads; every navigation it could start is cancelled.
-                  onShouldStartLoadWithRequest={({ url, navigationType }) =>
-                    url === 'about:blank' && navigationType === 'other'
+                    pointerEvents={closing === 'saving' ? 'none' : 'auto'}
+                    originWhitelist={['*']}
+                    setSupportMultipleWindows={false}
+                    source={source}
+                    style={[
+                      styles.page,
+                      { backgroundColor: colors.surfaceContent },
+                    ]}
+                  />
+                  <PageSlashMenu
+                    page={pageState}
+                    viewport={viewport}
+                    placeRef={placeSlash}
+                    // On iPhone the menu ends 8pt above the floating controls.
+                    reserve={Math.max(
+                      phoneControlsInset(phone, open),
+                      spacing.s,
+                    )}
+                    shown={slashMenu.shown}
+                    titleOf={slashMenu.titleOf}
+                    onChoose={chooseSlash}
+                  />
+                </View>
+              )}
+              <DraftAssets
+                draft={owned}
+                editable={shown !== undefined}
+                onCancel={(id) => {
+                  if (!busy.current) {
+                    void store.cancelImport(id);
                   }
-                  pointerEvents={closing === 'saving' ? 'none' : 'auto'}
-                  originWhitelist={['*']}
-                  setSupportMultipleWindows={false}
-                  source={source}
-                  style={[
-                    styles.page,
-                    { backgroundColor: colors.surfaceContent },
-                  ]}
-                />
-                <PageSlashMenu
-                  page={pageState}
-                  viewport={viewport}
-                  // On iPhone the menu ends 8pt above the floating controls.
-                  reserve={Math.max(phoneControlsInset(phone, open), spacing.s)}
-                  shown={slashMenu.shown}
-                  titleOf={slashMenu.titleOf}
-                  onChoose={chooseSlash}
-                />
-              </View>
-            )}
-            <DraftAssets
-              draft={owned}
-              editable={shown !== undefined}
-              onCancel={(id) => {
-                if (!busy.current) {
-                  void store.cancelImport(id);
-                }
-              }}
-              onConvert={(id) => {
-                run({ type: 'convert', id });
-              }}
-              onPreview={showPreview}
-              onRemove={removeAsset}
-              onResize={(id, width) => {
-                run({ type: 'resize', id, width: width ?? null });
-              }}
-            />
-            <DraftFields
-              draft={draft}
-              getDraft={getDraft}
-              editable={closing !== 'saving' && !sending}
-              onChange={change}
-              onCaretMove={() => {
-                setOpen(undefined);
-              }}
-            />
-          </ScrollView>
+                }}
+                onConvert={(id) => {
+                  run({ type: 'convert', id });
+                }}
+                onPreview={showPreview}
+                onRemove={removeAsset}
+                onResize={(id, width) => {
+                  run({ type: 'resize', id, width: width ?? null });
+                }}
+              />
+              <DraftFields
+                draft={draft}
+                getDraft={getDraft}
+                editable={closing !== 'saving' && !sending}
+                onChange={change}
+                onCaretMove={() => {
+                  setOpen(undefined);
+                }}
+              />
+            </ScrollView>
+          </View>
           {retained.phone === undefined ? null : (
             <View
               style={[StyleSheet.absoluteFill, styles.controls]}
