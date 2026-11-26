@@ -34,7 +34,9 @@ export const UnsubscribeContext = createContext<Unsubscribe>(unsubscribe);
 // The Mac Unsubscribe frames: a 12pt banner with 4pt between its lines and 8pt between buttons,
 // and the confirmation popover's 20pt inset and 10pt rhythm.
 const styles = StyleSheet.create({
+  // The reader's 16pt gap is 12pt above and below the banner in the frames.
   banner: {
+    marginVertical: -spacing.xs,
     gap: spacing.xs,
     padding: spacing.m,
     borderRadius: radius.card,
@@ -342,7 +344,7 @@ export function UnsubscribeBanner({
     <View
       ref={anchor}
       collapsable={false}
-      style={[styles.banner, { backgroundColor: colors.fillQuiet }]}>
+      style={[styles.banner, { backgroundColor: colors.fillBanner }]}>
       <Label style={[styles.marker, primary]}>{marker}</Label>
       {summary === undefined ? null : (
         <Label
