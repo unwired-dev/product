@@ -260,7 +260,9 @@ function Banner({
   return (
     <View
       style={[
-        ipad ? styles.padBanner : [styles.banner, styles.unsubscribeBanner],
+        ipad
+          ? [styles.padBanner, styles.padUnsubscribeBanner]
+          : [styles.banner, styles.unsubscribeBanner],
         { backgroundColor: colors.fillQuiet },
       ]}>
       {/* VoiceOver reads the label, then the summary, as one element before the buttons. */}
