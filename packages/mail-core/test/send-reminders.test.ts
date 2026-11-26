@@ -738,25 +738,38 @@ describe('due Send Reminder notifications', () => {
       previews: false,
       badge: 'off',
     };
-    const listeners = new Set<() => void>();
+    const draftListeners = new Set<() => void>();
+    const settingsListeners = new Set<() => void>();
     const scheduled: Array<
       Parameters<NativeReminderNotifications['scheduleReminderNotifications']>
     > = [];
-    const subscribe = (listener: () => void) => {
-      listeners.add(listener);
-      return () => listeners.delete(listener);
-    };
+    // Native code refuses this many schedulings next.
+    const native = { refuses: 0 };
+    const subscribe =
+      (listeners: Set<() => void>) => (listener: () => void) => {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      };
     followReminderNotifications(
       {
         scheduleReminderNotifications: (...call) => {
           scheduled.push(call);
-          return Promise.resolve(null);
+          native.refuses -= 1;
+          return native.refuses >= 0
+            ? Promise.reject(new Error('not scheduled'))
+            : Promise.resolve(null);
         },
       },
       {
         reminders: store,
-        drafts: { getSnapshot: () => drafts, subscribe },
-        settings: { getSnapshot: () => settings, subscribe },
+        drafts: {
+          getSnapshot: () => drafts,
+          subscribe: subscribe(draftListeners),
+        },
+        settings: {
+          getSnapshot: () => settings,
+          subscribe: subscribe(settingsListeners),
+        },
         translate: () => english,
       },
     );
@@ -766,7 +779,9 @@ describe('due Send Reminder notifications', () => {
     }) => {
       drafts = next.drafts ?? drafts;
       settings = 'settings' in next ? next.settings : settings;
-      for (const listener of listeners) {
+      for (const listener of 'settings' in next
+        ? settingsListeners
+        : draftListeners) {
         listener();
       }
       // The pass reads storage and native code, all settled before the next task.
@@ -774,7 +789,7 @@ describe('due Send Reminder notifications', () => {
     };
     await store.remind('work', keys);
     await change({});
-    return { store, scheduled, change };
+    return { store, scheduled, native, change };
   };
   const ready = (...drafts: Draft[]): DraftsState => ({
     kind: 'ready',
@@ -872,6 +887,31 @@ describe('due Send Reminder notifications', () => {
       scheduled.at(-1)?.[1].map(({ id, dueAt }) => [id, dueAt]),
     ).toStrictEqual([
       [`send-reminder.${later}.${JSON.stringify(['work', keys.draft])}`, later],
+    ]);
+  });
+
+  it('schedules again after previews were turned off and on, or native code refused one', async () => {
+    expect.hasAssertions();
+    vi.spyOn(console, 'error').mockReturnValue();
+    const { store, scheduled, native, change } = await follow();
+    await change({ drafts: ready(draft) });
+    const shown = { authorization: 'authorized', badge: 'off' } as const;
+    // A settings change, such as previews turned off and on, may have withdrawn it natively.
+    await change({ settings: { ...shown, previews: false } });
+    expect(scheduled).toHaveLength(2);
+
+    native.refuses = 2;
+    await store.remind('work', { ...keys, dueAt: keys.dueAt + 3_600_000 });
+    await change({});
+    await store.remind('work', keys);
+    await change({});
+    expect(scheduled.map(([, each]) => each[0]?.dueAt)).toStrictEqual([
+      keys.dueAt,
+      keys.dueAt,
+      // Refused, also when the next change tries again, so the return to the first time schedules it.
+      keys.dueAt + 3_600_000,
+      keys.dueAt + 3_600_000,
+      keys.dueAt,
     ]);
   });
 

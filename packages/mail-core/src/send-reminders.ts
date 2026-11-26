@@ -678,9 +678,13 @@ export function followReminderNotifications(
     translate: () => Translate;
   }>,
 ) {
-  // What native code last accepted, so an unchanged set is not scheduled again.
+  // What native code last accepted, so an unchanged set is not scheduled again. A settings change
+  // forgets it, since turning previews off withdraws reminders natively, and a pass that started
+  // before one keeps nothing.
   let scheduled: Parameters<typeof sameScheduling>[0] | undefined = undefined;
+  let settingsChanges = 0;
   const pass = Effect.gen(function* () {
+    const started = settingsChanges;
     const listed = drafts.getSnapshot();
     const current = settings.getSnapshot();
     if (listed.kind !== 'ready' || current === undefined) {
@@ -715,10 +719,13 @@ export function followReminderNotifications(
     if (scheduled !== undefined && sameScheduling(next, scheduled)) {
       return;
     }
+    scheduled = undefined;
     yield* Effect.tryPromise(() =>
       host.scheduleReminderNotifications(notifying.owner, notifications),
     );
-    scheduled = next;
+    if (started === settingsChanges) {
+      scheduled = next;
+    }
   }).pipe(
     Effect.catchTag('UnknownError', ({ cause }) =>
       Effect.logError(
@@ -748,7 +755,11 @@ export function followReminderNotifications(
   };
   reminders.subscribe(follow);
   drafts.subscribe(follow);
-  settings.subscribe(follow);
+  settings.subscribe(() => {
+    settingsChanges += 1;
+    scheduled = undefined;
+    follow();
+  });
   follow();
 }
 
