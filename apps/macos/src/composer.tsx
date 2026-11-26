@@ -3262,6 +3262,15 @@ function useSlashMenu(
             },
           ],
         };
+  // Focus stays in the body, so VoiceOver hears each highlighted block as it shows.
+  const heard = shown === undefined ? undefined : labelOf(shown.active);
+  useEffect(() => {
+    if (heard !== undefined) {
+      AccessibilityInfo.announceForAccessibilityWithOptions(heard, {
+        queue: true,
+      });
+    }
+  }, [heard]);
   return {
     shown,
     titleOf,
@@ -3324,10 +3333,8 @@ function useSlashMenu(
         const step = event.key === 'ArrowDown' ? 1 : -1;
         const next =
           kinds[Math.min(Math.max(index + step, 0), kinds.length - 1)];
-        // Focus stays in the body, so VoiceOver hears the highlighted block.
         if (next !== undefined && next !== active) {
           choose(next);
-          AccessibilityInfo.announceForAccessibility(labelOf(next));
         }
       } else if (event.key === 'Escape') {
         close();
@@ -3987,9 +3994,10 @@ function Editor({
       place(result.selection);
     }
     const typedAt = { start: caret.current, end: caret.current };
+    // The typed text replaced the selection, so it ends where the selection's end moved to.
     const inserted = text.slice(
       at.start,
-      at.start + text.length - textBefore.length,
+      at.end + text.length - textBefore.length,
     );
     recipientMenu.typed(result.document, typedAt, inserted);
     slashMenu.typed(result.document, typedAt, inserted);

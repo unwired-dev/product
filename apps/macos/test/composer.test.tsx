@@ -2630,9 +2630,10 @@ describe('composing Drafts', () => {
           'Basic Blocks',
         ),
       ).toBeOnTheScreen();
-      expect(announce).toHaveBeenLastCalledWith('Slash commands', {
+      expect(announce).toHaveBeenCalledWith('Slash commands', {
         queue: true,
       });
+      expect(announce).toHaveBeenLastCalledWith('Text', { queue: true });
       expect(body().props.keyDownEvents).toContainEqual(
         expect.objectContaining({ key: 'Enter' }),
       );
@@ -2647,11 +2648,14 @@ describe('composing Drafts', () => {
         'Heading 3, ###',
       ]);
       expect(rows({ selected: true })).toStrictEqual(['Heading 1, #']);
+      expect(announce).toHaveBeenLastCalledWith('Heading 1, #', {
+        queue: true,
+      });
       await key('ArrowDown');
       expect(rows({ selected: true })).toStrictEqual(['Heading 2, ##']);
-      expect(
-        AccessibilityInfo.announceForAccessibility,
-      ).toHaveBeenLastCalledWith('Heading 2, ##');
+      expect(announce).toHaveBeenLastCalledWith('Heading 2, ##', {
+        queue: true,
+      });
       await key('ArrowUp');
       expect(rows({ selected: true })).toStrictEqual(['Heading 1, #']);
       await key('Escape');
@@ -2675,6 +2679,15 @@ describe('composing Drafts', () => {
       expect(menu()).toBeNull();
       await type('Hi\nA /');
       expect(menu()).toBeNull();
+      // A / typed over a selected line opens it too.
+      await type('Hi\nab');
+      await fireEvent(body(), 'selectionChange', {
+        nativeEvent: { selection: { start: 3, end: 5 } },
+      });
+      await type('Hi\n/');
+      await waitFor(() => {
+        expect(menu()).toBeOnTheScreen();
+      });
 
       // Moving the caret or leaving the body closes it.
       await type('Hi\n');
