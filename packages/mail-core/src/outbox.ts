@@ -974,8 +974,25 @@ export function createOutbox({
         (yield* Effect.promise(() =>
           mailbox.inbox.fileSent(entry.message, messageId),
         )) ?? (yield* answer(entry));
+      // A filed request keeps when it was confirmed before it leaves, so neither a refused step
+      // nor a relaunch files it again.
+      if (problem === undefined && entry.unsubscribe !== undefined) {
+        const confirmedAt = yield* Clock.currentTimeMillis;
+        yield* write(entry.id, (each) =>
+          each.unsubscribe === undefined ||
+          each.unsubscribe.sentAt !== undefined
+            ? undefined
+            : {
+                ...each,
+                unsubscribe: { ...each.unsubscribe, sentAt: confirmedAt },
+              },
+        );
+      }
     }
-    if (problem === undefined && !(yield* recordRequest(entry))) {
+    if (
+      problem === undefined &&
+      !(yield* recordRequest(entryOf(entry.id) ?? entry))
+    ) {
       problem = 'offline';
     }
     const clock = yield* Clock.Clock;

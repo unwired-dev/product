@@ -823,27 +823,29 @@ describe('recording a mailto unsubscribe request', () => {
     return refused;
   };
 
-  it('never files the Sent copy again for a confirmed IMAP request whose leaving storage refused, though the copy was deleted meanwhile', async () => {
+  it('never files the Sent copy again for a confirmed IMAP request whose leaving storage refused, though the copy was deleted before a relaunch', async () => {
     expect.hasAssertions();
     const phone = await receiver('imap');
-    try {
-      const id = await start(phone, 'imap');
-      const refused = refuseLeavingOnce(phone);
-      later(undoSendWindow);
-      await phone.outbox.process();
-      await vi.waitFor(() => {
-        expect(refused.done).toBe(true);
-      });
-      expect(phone.outbox.getSnapshot()).toMatchObject([{ id }]);
-      phone.imap.expunge('Sent', 1);
+    const id = await start(phone, 'imap');
+    const refused = refuseLeavingOnce(phone);
+    later(undoSendWindow);
+    await phone.outbox.process();
+    await vi.waitFor(() => {
+      expect(refused.done).toBe(true);
+    });
+    expect(phone.outbox.getSnapshot()).toMatchObject([{ id }]);
+    phone.imap.expunge('Sent', 1);
+    phone.outbox.dispose();
 
-      await phone.outbox.process();
+    const relaunched = phone.relaunch();
+    try {
+      await relaunched.process();
       await vi.waitFor(() => {
-        expect(phone.outbox.getSnapshot()).toStrictEqual([]);
+        expect(relaunched.getSnapshot()).toStrictEqual([]);
       });
       expect([phone.sent().length, phone.filed()]).toStrictEqual([1, 1]);
     } finally {
-      phone.outbox.dispose();
+      relaunched.dispose();
     }
   });
 
