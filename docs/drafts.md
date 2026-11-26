@@ -321,8 +321,20 @@ slash query the same way and then runs as the format bar's item does: Generate a
 Draft… opens its prompt, and a text tool rewrites the whole authored body. With an iPad hardware
 keyboard, Up and Down Arrow move the highlight through every section and Escape
 or Command-period closes the menu. Insert Template…, Translate to… and the Mac
-menu are later slices
+menu's Insert and writing tools are later slices
 ([#2117](https://github.com/unwired-dev/product/issues/2117)).
+
+On the Mac, the same `/` opens the menu's **Basic Blocks**
+([#2789](https://github.com/unwired-dev/product/issues/2789)): a 320pt glass menu
+under the `/`'s line, or over it when more room is there, that scrolls inside the
+composer's room while the body keeps focus. Each row is led by its icon and ends
+with its Markdown marker (`#`, `##`, `###`, `-`, `1.`, `>`, three backticks); the
+first match shows highlighted. Typing filters the rows as on iPad and iPhone, and
+a result with none closes the menu and leaves the typed text. Up and Down Arrow
+move the highlight, Return, Tab or a click sets the caret's block as the Text
+style pop-up does and removes the slash query as one Undo step, and Escape,
+deleting the `/`, moving the caret or leaving the body closes the menu. VoiceOver
+hears **Slash commands** as it opens and each highlighted row with its marker.
 
 Each block can also be centered, right-aligned or justified; a block without an
 alignment is start-aligned, and a Draft holding any other alignment is not saved
