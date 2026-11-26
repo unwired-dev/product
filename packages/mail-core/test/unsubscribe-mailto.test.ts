@@ -899,35 +899,69 @@ describe('recording a mailto unsubscribe request', () => {
     }
   });
 
-  it('offers a request again to a message the list sent more than 14 days after a confirmed one whose record waited', async () => {
+  it.each([
+    { refused: 'record', owner: 'another-product-account' },
+    { refused: 'leaving', owner: account },
+  ])(
+    'offers a request again to a message the list sent more than 14 days after a confirmed one whose $refused storage refused, and keeps the first for its own message',
+    async ({ refused, owner }) => {
+      expect.hasAssertions();
+      const phone = await receiver('gmail');
+      try {
+        const id = await start(phone);
+        const leaving = refuseLeavingOnce(phone);
+        phone.kept.owner = owner;
+        later(undoSendWindow);
+        await phone.outbox.process();
+        const confirmedAt = clock.now;
+        await vi.waitFor(() => {
+          expect(pending(phone)?.unsubscribe?.sentAt).toBe(confirmedAt);
+        });
+        expect(leaving.done).toBe(refused === 'leaving');
+        const held = (message: string, receivedAt?: number) =>
+          pendingUnsubscribe(phone.outbox.getSnapshot(), receiving.gmail.id, {
+            ...listed,
+            message,
+            receivedAt,
+          });
+        expect([
+          held('9.INBOX', confirmedAt + unsubscribeOfferReturnsAfter)?.id,
+          held('9.INBOX')?.id,
+        ]).toStrictEqual([id, undefined]);
+
+        later(unsubscribeOfferReturnsAfter + 1);
+        expect(held('9.INBOX', clock.now)).toBeUndefined();
+        const again = waitingId(
+          await phone.outbox.unsubscribe(receiving.gmail.id, listed, {
+            message: '9.INBOX',
+            receivedAt: clock.now,
+          }),
+        );
+        expect([
+          held('9.INBOX', clock.now)?.id,
+          held(source, confirmedAt)?.id,
+        ]).toStrictEqual([again, id]);
+      } finally {
+        phone.outbox.dispose();
+      }
+    },
+  );
+
+  it('answers for a confirmed IMAP request as soon as its copy is filed, while storage refuses its confirmed time', async () => {
     expect.hasAssertions();
-    const phone = await receiver('gmail');
+    const phone = await receiver('imap');
     try {
-      const id = await start(phone);
-      phone.kept.owner = 'another-product-account';
+      const id = await start(phone, 'imap');
+      const refused = refuseLeavingOnce(phone, true);
       later(undoSendWindow);
       await phone.outbox.process();
-      const confirmedAt = clock.now;
       await vi.waitFor(() => {
-        expect(pending(phone)?.unsubscribe?.sentAt).toBe(confirmedAt);
+        expect(refused.checkpoint).toBe(true);
       });
-      const newer = (receivedAt: number) =>
-        pendingUnsubscribe(phone.outbox.getSnapshot(), receiving.gmail.id, {
-          ...listed,
-          message: '9.INBOX',
-          receivedAt,
-        });
-      expect(newer(confirmedAt + unsubscribeOfferReturnsAfter)).toMatchObject({
-        id,
+      expect(phone.outbox.delivered(id)).toStrictEqual({
+        at: clock.now,
+        to: offer.address,
       });
-
-      later(unsubscribeOfferReturnsAfter + 1);
-      expect(newer(clock.now)).toBeUndefined();
-      const again = await phone.outbox.unsubscribe(receiving.gmail.id, listed, {
-        message: '9.INBOX',
-        receivedAt: clock.now,
-      });
-      expect(waitingId(again)).not.toBe(id);
     } finally {
       phone.outbox.dispose();
     }

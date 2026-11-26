@@ -120,7 +120,8 @@ export const unsendable = (
 // shows until it leaves the Outbox, across relaunches; an unknown one a confirmed retry answered no
 // longer stands for it, and one from before the connection was added again never does. A request
 // confirmed for another message stands for one the list sent at `receivedAt` only within the
-// list's 14 days, as a recorded request does.
+// list's 14 days, as a recorded request does, and not while that time is unknown; one confirmed
+// for `message` itself stands for it before a newer one for the list.
 export const pendingUnsubscribe = <
   E extends Pick<OutboxEntry, 'draft' | 'unsubscribe' | 'epoch'>,
 >(
@@ -137,21 +138,28 @@ export const pendingUnsubscribe = <
     epoch?: string;
     receivedAt?: number | undefined;
   }>,
-) =>
-  Arr.reverse(outbox).find(
+) => {
+  const held = Arr.reverse(outbox).filter(
     ({ draft, unsubscribe, epoch: incarnation }) =>
       unsubscribe !== undefined &&
       unsubscribe.answered !== true &&
       (unsubscribe.message === message ||
         unsubscribe.sentAt === undefined ||
-        receivedAt === undefined ||
-        receivedAt <= unsubscribe.sentAt + unsubscribeOfferReturnsAfter) &&
+        (receivedAt !== undefined &&
+          receivedAt <= unsubscribe.sentAt + unsubscribeOfferReturnsAfter)) &&
       draft.connection === connection &&
       (incarnation ?? 'legacy') === (epoch ?? 'legacy') &&
       (identity === undefined
         ? unsubscribe.identity === undefined && unsubscribe.message === message
         : unsubscribe.identity === identity),
   );
+  return (
+    held.find(
+      ({ unsubscribe }) =>
+        unsubscribe?.message === message && unsubscribe.sentAt !== undefined,
+    ) ?? held[0]
+  );
+};
 
 // The message that offered a `mailto:` unsubscribe request, and the requests already made for it,
 // which answer in place of another once one is confirmed; with `epoch`, the connection's
@@ -520,9 +528,6 @@ export function createOutbox({
   // and message that offered them.
   const confirmedRequests = new Map<string, { at: number; to?: string }>();
   const confirmedMessages = new Map<string, { at: number; to?: string }>();
-  // When this session filed the Sent copy of an IMAP unsubscribe request, kept until the entry
-  // holds that time in storage.
-  const filedRequests = new Map<string, number>();
   // When the message `id` was confirmed as sent, and to whom for an unsubscribe request confirmed
   // this session or still waiting for its record; otherwise only among the latest sends.
   const deliveredOf = (
@@ -610,6 +615,24 @@ export function createOutbox({
       sent,
     );
     publish();
+    // Kept with the entry first, so neither a refused step nor a relaunch loses when it was
+    // confirmed, nor files an IMAP request's copy again; while storage refuses that, it waits.
+    if (
+      request.sentAt === undefined &&
+      !(yield* write(entry.id, (each) =>
+        each.unsubscribe === undefined
+          ? undefined
+          : {
+              ...each,
+              unsubscribe: {
+                ...each.unsubscribe,
+                sentAt: each.unsubscribe.sentAt ?? sentAt,
+              },
+            },
+      ))
+    ) {
+      return false;
+    }
     // The unknown requests it tried again no longer stand for the list, though they stay for
     // Check Again, and a refused one still held leaves. It stays in the Outbox until each one is
     // marked or gone.
@@ -629,14 +652,6 @@ export function createOutbox({
             ...(to === undefined ? {} : { to }),
           }),
         )));
-    // Kept with the entry, so a relaunch saves the same outcome again.
-    if (!recorded && request.sentAt === undefined) {
-      yield* write(entry.id, (each) =>
-        each.unsubscribe === undefined
-          ? undefined
-          : { ...each, unsubscribe: { ...each.unsubscribe, sentAt } },
-      );
-    }
     return recorded;
   });
 
@@ -956,26 +971,6 @@ export function createOutbox({
     return true;
   };
 
-  // A filed request keeps when it was confirmed before it leaves, so neither a refused step nor a
-  // relaunch files it again. Resolves false while storage refuses that, and it waits.
-  const keepFiled = (id: string): Effect.Effect<boolean> => {
-    const confirmedAt = filedRequests.get(id) ?? confirmedRequests.get(id)?.at;
-    return confirmedAt === undefined ||
-      entryOf(id)?.unsubscribe?.sentAt !== undefined
-      ? Effect.succeed(true)
-      : write(id, (each) => {
-          if (each.unsubscribe === undefined) {
-            return undefined;
-          }
-          return each.unsubscribe.sentAt === undefined
-            ? {
-                ...each,
-                unsubscribe: { ...each.unsubscribe, sentAt: confirmedAt },
-              }
-            : each;
-        });
-  };
-
   // Files an accepted message's Sent copy, and records it as sent once the copy is there. A
   // connection removed meanwhile has nowhere to keep it, so the message is recorded as sent; one
   // waiting for its password keeps the copy waiting.
@@ -988,8 +983,7 @@ export function createOutbox({
     // since, so only its record is saved again, without opening its mailbox.
     const filed =
       entry.unsubscribe?.sentAt !== undefined ||
-      confirmedRequests.has(entry.id) ||
-      filedRequests.has(entry.id);
+      confirmedRequests.has(entry.id);
     if (
       (!filed && !(yield* Effect.promise(() => openSender(entry.draft)))) ||
       !current()
@@ -1013,16 +1007,10 @@ export function createOutbox({
         (yield* Effect.promise(() =>
           mailbox.inbox.fileSent(entry.message, messageId),
         )) ?? (yield* answer(entry));
-      if (problem === undefined && entry.unsubscribe !== undefined) {
-        filedRequests.set(entry.id, yield* Clock.currentTimeMillis);
-      }
     }
     if (
       problem === undefined &&
-      !(
-        (yield* keepFiled(entry.id)) &&
-        (yield* recordRequest(entryOf(entry.id) ?? entry))
-      )
+      !(yield* recordRequest(entryOf(entry.id) ?? entry))
     ) {
       problem = 'offline';
     }

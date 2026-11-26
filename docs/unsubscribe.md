@@ -124,19 +124,20 @@ source message. Once the provider confirms the send, or
 Check Again finds it in Sent, the Outbox records the request through the
 `requests` it was created with (the host's `unsubscribe.record`) before the
 entry leaves, so a relaunch in between loses neither the request nor its
-record. While storage refuses the record, the entry stays in the Outbox with the
-time the provider confirmed it, saved again later and after a relaunch with that
-same time, and is never sent again; the reader shows it sent at once. An IMAP
-request keeps that time as soon as its Sent copy is filed and never files it
-again, even after a refused step or a relaunch, so a copy the person moved or
-deleted meanwhile stays that way. A record
+record. The entry first keeps the time the provider confirmed it, and waits
+while storage refuses that; the reader shows it sent at once. While storage
+refuses the record, the entry stays in the Outbox and saves it again later and
+after a relaunch with that same time, and is never sent again. Once that time is
+saved, an IMAP request never files its Sent copy again, even after a refused step
+or a relaunch, so a copy the person moved or deleted meanwhile stays that way. A record
 older than the one storage holds for the Profile and list leaves the newer one
 in place and counts as saved. `pendingUnsubscribe(snapshot, connection, { identity, message, epoch, receivedAt })` finds
 the newest request the Outbox holds for the list with that Mailing List
 Identity, or, for a list without one, for that message, so two lists sharing an
-address never take each other's state. A request confirmed for another message
-stands for one that arrived at `receivedAt` only within the list's 14 days, as a
-recorded one does; past them the reader and the admission (`receivedAt` in its
+address never take each other's state. A request confirmed for the message
+itself comes before a newer one for the list. A request confirmed for another
+message stands for one that arrived at `receivedAt` only within the list's 14
+days, as a recorded one does, and not while that time is unknown; past those days the reader and the admission (`receivedAt` in its
 source) offer the request again. It looks only at the connection's
 current incarnation (`epoch`): a request from before the mailbox was removed and
 added again is refused, and never tried again for the new one: the reader passes
