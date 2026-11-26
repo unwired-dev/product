@@ -1,6 +1,9 @@
 #import <React/RCTBridgeModule.h>
 #import <React/RCTConvert.h>
 #import <React/RCTEventEmitter.h>
+#if UNWIRED_NATIVE_TESTING
+#import <React/RCTSurfacePresenterStub.h>
+#endif
 
 // The Commands… menu item, Command-K, tells the key window's JavaScript to open its Command Palette.
 NSNotificationName const UnwiredOpenCommandPalette = @"UnwiredOpenCommandPalette";
@@ -86,11 +89,22 @@ NSString *UnwiredGuardedWindow(void)
 // AppDelegate.mm writes the timing journeys' evidence.
 @protocol UnwiredLifecycle
 - (void)recordLifecycle:(NSString *)event extra:(NSDictionary *)extra;
+- (void)observeMounts:(id<RCTSurfacePresenterObserver>)observer;
 @end
 #endif
 
 @interface UnwiredCommands : RCTEventEmitter <RCTBridgeModule>
 @end
+
+#if UNWIRED_NATIVE_TESTING
+@interface UnwiredCommands () <RCTSurfacePresenterObserver> {
+  // The surface whose next mount shows the selection recordSelectionShown armed, or 0.
+  NSInteger _selectionRootTag;
+  BOOL _selectionLinkable;
+  BOOL _observingMounts;
+}
+@end
+#endif
 
 @implementation UnwiredCommands
 RCT_EXPORT_MODULE()
@@ -370,6 +384,28 @@ RCT_EXPORT_METHOD(recordPageProbe:(NSDictionary *)note)
   if (note[@"text"] != nil) extra[@"text"] = note[@"text"];
   if (note[@"marks"] != nil) extra[@"marks"] = note[@"marks"];
   [(id<UnwiredLifecycle>)NSApp.delegate recordLifecycle:note[@"event"] extra:extra];
+}
+
+// The selection-change journey measures from each key press to the mount of the format bar's
+// commit that shows its selection. The commit's layout effect calls this before Fabric mounts it:
+// React Native queues the mount at the end of the JavaScript task, after this call on the main
+// queue, so the record waits for that surface's next mount.
+RCT_EXPORT_METHOD(recordSelectionShown:(BOOL)linkable rootTag:(double)rootTag)
+{
+  _selectionRootTag = (NSInteger)rootTag;
+  _selectionLinkable = linkable;
+  if (!_observingMounts) {
+    _observingMounts = YES;
+    [(id<UnwiredLifecycle>)NSApp.delegate observeMounts:self];
+  }
+}
+
+- (void)didMountComponentsWithRootTag:(NSInteger)rootTag
+{
+  if (rootTag != _selectionRootTag) return;
+  _selectionRootTag = 0;
+  [(id<UnwiredLifecycle>)NSApp.delegate recordLifecycle:@"selection-shown"
+      extra:@{@"uptime": @(clock_gettime_nsec_np(CLOCK_UPTIME_RAW) / 1e6), @"linkable": @(_selectionLinkable)}];
 }
 #endif
 @end

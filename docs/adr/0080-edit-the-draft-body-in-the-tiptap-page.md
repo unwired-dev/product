@@ -45,8 +45,11 @@ recommendation and the decision it supports. Facts link to their evidence;
   runs: the review panel under the iPhone keyboard, a result dropped before the
   page loaded, rotation squeezing the body, the iPhone pill behind the keyboard and
   the iPad format bar clipping its menu. Still open: the page cannot read file
-  drops on any host without native web-view interception (Mac image paste reads the
-  pasteboard natively since [#2929](https://github.com/unwired-dev/product/issues/2929)), the
+  drops on iPhone and iPad without native web-view interception (Mac image paste
+  reads the pasteboard natively since
+  [#2929](https://github.com/unwired-dev/product/issues/2929), and Mac file drops
+  read the drag pasteboard since
+  [#2950](https://github.com/unwired-dev/product/issues/2950)), the
   first tap on iPhone only focuses the page, and WebKit adds its own iPhone form
   accessory bar and iPad shortcut group ([probes](../architecture/draft-table-editing.md#probes)).
 - **Semantic differences** from the current composer
@@ -67,10 +70,12 @@ recommendation and the decision it supports. Facts link to their evidence;
 - **Measurements.** The packaged page is about 351 KB. No memory or battery
   comparison with the current composer was measured:
   [#822](https://github.com/unwired-dev/product/issues/822) closed without a native
-  result. The latency comparisons, in Mac `Testing` builds for gate 5, are typing
-  and formatting feedback
-  ([#2962](https://github.com/unwired-dev/product/issues/2962)) and composer
-  opening ([#2955](https://github.com/unwired-dev/product/issues/2955)). The table probes compare behaviour, not speed.
+  result. The only latency comparisons, for gate 5, are in Mac `Testing` builds:
+  typing and formatting feedback
+  ([#2962](https://github.com/unwired-dev/product/issues/2962)), composer opening
+  ([#2955](https://github.com/unwired-dev/product/issues/2955)) and selection
+  changes ([#2951](https://github.com/unwired-dev/product/issues/2951)). The table
+  probes compare behaviour, not speed.
 
 ## Assessment
 
@@ -147,13 +152,16 @@ release limit:
    and prove that they restore after a forced termination. The page does so on Mac
    since [#2933](https://github.com/unwired-dev/product/issues/2933) and on iPhone
    and iPad since [#2944](https://github.com/unwired-dev/product/issues/2944).
-3. File drops on every host, and **Paste Image** and in-page paste on a device.
-   Image paste on Mac is met by
+3. File drops on iPhone and iPad, and **Paste Image** and in-page paste on a
+   device. Image paste on Mac is met by
    [#2929](https://github.com/unwired-dev/product/issues/2929): native code reads
    the pasteboard, and the Mac journey pastes an image that reopens in place. The
    Mac Inline Image journey passed natively in
    [#2948](https://github.com/unwired-dev/product/issues/2948)
-   ([evidence](../draft-editor-evaluation.md#inline-images-820)).
+   ([evidence](../draft-editor-evaluation.md#inline-images-820)). File drops on Mac
+   are met by [#2950](https://github.com/unwired-dev/product/issues/2950): native
+   code reads the drag pasteboard, and the Mac journey drops a file from Finder that
+   reopens as an Attachment.
 4. WebKit website data after account removal and a network capture of a journey.
    Met by [#2922](https://github.com/unwired-dev/product/issues/2922) on iPhone
    and iPad Simulators and the Mac: no sample found website data during the
@@ -184,6 +192,12 @@ release limit:
    size: the page adds about 0.86 MB to the iPhone and iPad app and to the Mac
    app, and about 0.16 MB compressed
    ([evidence](../draft-editor-evaluation.md#packaged-size-2953)).
+   Selection-change latency in Mac `Testing` builds is measured by
+   [#2951](https://github.com/unwired-dev/product/issues/2951): on a 1,000-paragraph
+   body the page's p95 was 43.2 ms and the current composer's 72.7 ms, against
+   30.1 and 40.6 ms on one paragraph
+   ([evidence](../draft-editor-evaluation.md#selection-change-latency-2951)); a
+   Release comparison remains.
 6. The Tiptap and ProseMirror notices in the distributed app; the licence
    inventory must list the page's packages. Met by
    [#2916](https://github.com/unwired-dev/product/issues/2916): every bundle that

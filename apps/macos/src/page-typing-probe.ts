@@ -82,18 +82,16 @@ const ProbeSchema = Schema.fromJsonString(
 export const pageTypingProbe = () =>
   windowHost()?.recordPageProbe === undefined ? '' : probe;
 
-// Records a page message that holds the probe's notes; false for any other message.
-export const recordedPageProbe = (message: string) => {
+// Records the probe's notes from a page message; any other message records nothing.
+export const recordPageProbe = (message: string) => {
   const record = windowHost()?.recordPageProbe;
-  const decoded =
-    record === undefined
-      ? Option.none()
-      : Schema.decodeOption(ProbeSchema)(message);
-  if (Option.isNone(decoded)) {
-    return false;
+  if (record === undefined) {
+    return;
   }
-  for (const note of decoded.value.notes) {
-    record?.(note);
+  const decoded = Schema.decodeOption(ProbeSchema)(message);
+  if (Option.isSome(decoded)) {
+    for (const note of decoded.value.notes) {
+      record(note);
+    }
   }
-  return true;
 };

@@ -398,7 +398,9 @@ press and release, key press with the display's maximum-refresh interval, focuse
 non-field-editor text edit, that text view's first draw after each edit with a recent
 display frame start and the frame interval, and observed main-queue delays of 100 ms
 or longer, with their uptime and duration where applicable, for the
-[performance journey](native-journeys.md#mac-performance-journey). In
+[performance journey](native-journeys.md#mac-performance-journey). After each commit
+of a Link control, the next mount of its window also records its uptime and whether the
+control is available, for the [selection-change journey](native-journeys.md#mac-selection-change-journey). In
 text-edit records it includes the text and its per-UTF-16-unit bold, italic and
 underline marks; the journey uses synthetic composer content. In
 `registration-draft-editor` `Testing` builds the host also injects a probe into the Draft

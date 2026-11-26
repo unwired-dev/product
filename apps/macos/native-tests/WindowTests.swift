@@ -41,7 +41,8 @@ final class WindowTests: XCTestCase {
   }
 
   // #2271: @ in an empty body opens Recipient Suggestions under it without a Contacts prompt;
-  // Return adds the first to To with a greeting, and one Undo restores the @.
+  // Return adds the first to To with a greeting, and one Undo restores the @. #2976: in written
+  // text Return inserts the name alone, and a person already in To shows their role.
   func testBodyRecipientShortcut() throws {
     try bodyRecipientShortcut(appearance: "Light")
   }
@@ -96,6 +97,29 @@ final class WindowTests: XCTestCase {
     app.typeKey("z", modifierFlags: .command)
     waitUntil { body.value as? String == "@" }
     XCTAssertEqual(token.count, 0)
+    // #2976: in written text the query becomes the name alone and the person joins To; a person
+    // already on the Draft shows their role and is not added again.
+    app.typeKey(.delete, modifierFlags: [])
+    waitUntil { body.value as? String != "@" }
+    app.typeText("Hi team, I will ask @")
+    XCTAssertTrue(menu.waitForExistence(timeout: 10))
+    attach("Body Recipient Shortcut in written text")
+    app.typeKey(.return, modifierFlags: [])
+    XCTAssertTrue(menu.waitForNonExistence(timeout: 10))
+    waitUntil { body.value as? String == "Hi team, I will ask Jordan Lee" }
+    XCTAssertEqual(token.count, 1)
+    attach("Body Recipient Shortcut name in written text")
+    app.typeText(" and @")
+    let present = window.buttons["Jordan Lee, jordan@example.invalid, in To"]
+    XCTAssertTrue(present.waitForExistence(timeout: 10))
+    attach("Body Recipient Shortcut role")
+    // The role keeps its secondary colour on a row that is not highlighted.
+    app.typeKey(.downArrow, modifierFlags: [])
+    attach("Body Recipient Shortcut role unhighlighted")
+    app.typeKey(.upArrow, modifierFlags: [])
+    app.typeKey(.return, modifierFlags: [])
+    waitUntil { body.value as? String == "Hi team, I will ask Jordan Lee and Jordan Lee" }
+    XCTAssertEqual(token.count, 1)
   }
 
   // #2597: Outdent and Indent follow the list buttons; Format › Increase Indent (Command-]) and
@@ -598,6 +622,108 @@ final class WindowTests: XCTestCase {
     // The text after the image follows it on its line, or wraps below it.
     XCTAssertTrue(
       after.frame.minX >= image.frame.maxX - 1 || after.frame.minY >= image.frame.maxY - 1)
+  }
+
+  // #2950: a file dragged from Finder onto the Draft editor page is attached, as on the current
+  // composer, and stays attached through Save, a relaunch and reopening the Draft.
+  func testDraftEditorFileDrop() throws {
+    continueAfterFailure = false
+    let environment = ProcessInfo.processInfo.environment
+    XCTAssertEqual(environment["UNWIRED_TEST_SCENARIO"], "registration-draft-editor")
+    let app = XCUIApplication(
+      url: URL(fileURLWithPath: try XCTUnwrap(environment["UNWIRED_APP_PATH"])))
+    app.launchArguments += ["-ApplePersistenceIgnoreState", "YES", "-interfaceLanguage", "en"]
+    app.launch()
+    addTeardownBlock { if app.state != .notRunning { app.terminate() } }
+    let window = app.windows["Inbox 1"]
+    XCTAssertTrue(window.waitForExistence(timeout: 30))
+    draftEditorSignIn(window)
+    window.buttons["New Message"].click()
+    let body = window.webViews.textViews["Message body"]
+    XCTAssertTrue(body.waitForExistence(timeout: 15))
+    // The toolbar appears once the page is ready and moves the page down; focus it after that.
+    XCTAssertTrue(window.buttons["Undo"].waitForExistence(timeout: 30))
+    body.click()
+    body.typeText("Dropped below this line")
+    let typed = webText("Dropped below this line", in: window)
+    XCTAssertTrue(typed.waitForExistence(timeout: 10))
+    let text = body.value as? String
+
+    // A folder of the runner's own, outside the app's container: the app can read the file only
+    // through the access the drop grants it.
+    let folder = FileManager.default.temporaryDirectory
+      .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    let file = folder.appendingPathComponent("drop-note.txt")
+    XCTAssertNoThrow(
+      try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true))
+    XCTAssertNoThrow(try Data("Dropped on the page".utf8).write(to: file))
+    addTeardownBlock { try? FileManager.default.removeItem(at: folder) }
+    NSWorkspace.shared.activateFileViewerSelecting([file])
+    let finder = XCUIApplication(bundleIdentifier: "com.apple.finder")
+    let shown = finder.windows[folder.lastPathComponent]
+    XCTAssertTrue(shown.waitForExistence(timeout: 15))
+    addTeardownBlock { if shown.exists { shown.typeKey("w", modifierFlags: .command) } }
+    // The file's row, not the preview's title below it.
+    let names = shown.descendants(matching: .any)
+      .matching(NSPredicate(format: "label == %@ OR value == %@", "drop-note.txt", "drop-note.txt"))
+    XCTAssertTrue(names.firstMatch.waitForExistence(timeout: 10))
+    let item = try XCTUnwrap(names.allElementsBoundByIndex.min { $0.frame.minY < $1.frame.minY })
+    // Finder's window moves down until the row sits above the Dock, clear of the page's drop
+    // point.
+    let screen = try XCTUnwrap(NSScreen.main).frame
+    let bar = shown.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0))
+      .withOffset(CGVector(dx: 0, dy: 12))
+    bar.click(
+      forDuration: 0.2,
+      thenDragTo: bar.withOffset(CGVector(dx: 0, dy: screen.height - 200 - item.frame.midY)))
+    waitUntil { abs(item.frame.midY - (screen.height - 200)) < 20 }
+    let target = CGPoint(x: body.frame.midX, y: body.frame.midY)
+    XCTAssertFalse(shown.frame.contains(target))
+    // Both apps' frames are in screen points, so one coordinate reaches the other app.
+    let start = item.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+    start.click(
+      forDuration: 0.5,
+      thenDragTo: start.withOffset(
+        CGVector(dx: target.x - item.frame.midX, dy: target.y - item.frame.midY)),
+      withVelocity: .slow, thenHoldForDuration: 1)
+
+    let row = window.descendants(matching: .any)
+      .matching(NSPredicate(format: "label BEGINSWITH %@", "drop-note.txt, ")).firstMatch
+    XCTAssertTrue(row.waitForExistence(timeout: 30))
+    // The import reads the bytes, which fails for a file the app was given no access to.
+    waitUntil { !row.label.contains("…") }
+    XCTAssertFalse(row.label.contains("Not added"), row.label)
+    let attached = row.label
+    XCTAssertEqual(body.value as? String, text)
+    XCTAssertEqual(body.images.count, 0)
+    let dropped = XCTAttachment(screenshot: window.screenshot())
+    dropped.name = "Draft editor page with a dropped file"
+    dropped.lifetime = .keepAlways
+    add(dropped)
+    shown.typeKey("w", modifierFlags: .command)
+
+    saveOnClose(window)
+    app.terminate()
+    app.launch()
+    let relaunched = app.windows["Inbox 1"]
+    let draft = relaunched.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Draft."))
+      .firstMatch
+    XCTAssertTrue(draft.waitForExistence(timeout: 20))
+    draft.click()
+    XCTAssertTrue(
+      webText("Dropped below this line", in: relaunched).waitForExistence(timeout: 15))
+    XCTAssertEqual(relaunched.webViews.textViews["Message body"].value as? String, text)
+    let kept = relaunched.descendants(matching: .any)
+      .matching(NSPredicate(format: "label BEGINSWITH %@", "drop-note.txt, ")).firstMatch
+    XCTAssertTrue(kept.waitForExistence(timeout: 15))
+    // The row shows the size before its bytes are read again; a damaged or missing file then
+    // adds why, so look again once that check has had time to finish.
+    Thread.sleep(forTimeInterval: 5)
+    XCTAssertEqual(kept.label, attached)
+    let reopened = XCTAttachment(screenshot: relaunched.screenshot())
+    reopened.name = "Reopened Draft with the dropped file"
+    reopened.lifetime = .keepAlways
+    add(reopened)
   }
 
   // Moving the entry into the reader must keep the open query and command rows in the window.
@@ -2362,6 +2488,153 @@ final class WindowTests: XCTestCase {
     app.terminate()
     try reportPerformance(
       groups, evidence: evidence, overhead: overhead, composer: page ? "page" : "current")
+  }
+
+  // #2951: selection changes at the end of a one-paragraph and a 1,000-paragraph body, in the
+  // current composer (registration-performance) or the Draft editor page (registration-draft-editor).
+  // Each sample runs from the key press the app records to the mount of the format bar's commit that
+  // shows the new selection, which computes the Link control's state and the Writing tools' over the
+  // body.
+  func testSelectionChangeLatency() throws {
+    continueAfterFailure = false
+    executionTimeAllowance = 600
+    let environment = ProcessInfo.processInfo.environment
+    let page = environment["UNWIRED_TEST_SCENARIO"] == "registration-draft-editor"
+    XCTAssertTrue(page || environment["UNWIRED_TEST_SCENARIO"] == "registration-performance")
+    let appURL = URL(fileURLWithPath: try XCTUnwrap(environment["UNWIRED_APP_PATH"]))
+    let evidence = appURL.deletingLastPathComponent().appendingPathComponent("lifecycle.jsonl")
+    let app = XCUIApplication(url: appURL)
+    app.launchArguments += ["-ApplePersistenceIgnoreState", "YES", "-interfaceLanguage", "en"]
+    app.launchEnvironment["UNWIRED_LIFECYCLE_PATH"] = evidence.path
+    app.launch()
+    addTeardownBlock { if app.state != .notRunning { app.terminate() } }
+    let window = app.windows["Inbox 1"]
+    if page {
+      XCTAssertTrue(window.waitForExistence(timeout: 30))
+      draftEditorSignIn(window)
+    } else {
+      performanceSetup(app, window: window)
+    }
+    // Give the person their pasteboard back after the pasted bodies.
+    let pasteboard = NSPasteboard.general
+    let saved = (pasteboard.pasteboardItems ?? []).map { item in
+      let copy = NSPasteboardItem()
+      for type in item.types {
+        if let data = item.data(forType: type) { copy.setData(data, forType: type) }
+      }
+      return copy
+    }
+    var written = pasteboard.changeCount
+    addTeardownBlock {
+      guard pasteboard.changeCount == written else { return }
+      pasteboard.clearContents()
+      pasteboard.writeObjects(saved)
+    }
+
+    window.buttons["New Message"].click()
+    XCTAssertTrue(window.buttons["Undo"].waitForExistence(timeout: 30))
+    // The current composer's body is the window's only text view.
+    let body = page ? window.webViews.textViews["Message body"] : window.textViews.firstMatch
+    XCTAssertTrue(body.waitForExistence(timeout: 15))
+    body.click()
+    let addLink = window.buttons["Add Link"]
+    var groups: [(name: String, windows: [(start: Double, end: Double)])] = []
+    for count in [1, 1000] {
+      let paragraphs = (1...count).map {
+        String(format: "Paragraph %04d of the selection fixture, long enough to wrap once.", $0)
+      }
+      pasteboard.clearContents()
+      pasteboard.setString(paragraphs.joined(separator: "\n"), forType: .string)
+      written = pasteboard.changeCount
+      app.typeKey("a", modifierFlags: .command)
+      app.typeKey("v", modifierFlags: .command)
+      let last = try XCTUnwrap(paragraphs.last)
+      waitUntil(
+        {
+          page
+            ? self.webText(last, in: window).exists
+            : (body.value as? String)?.hasSuffix(last) == true
+        }, timeout: 60)
+      waitUntil { !addLink.exists }
+      // Shift-Left selects the last character, which Add Link can link; Right collapses the
+      // selection at the end again, where the Link control is unavailable.
+      let windows = (0..<20).map { index -> (start: Double, end: Double) in
+        let start = uptime()
+        if index % 2 == 0 {
+          app.typeKey(.leftArrow, modifierFlags: .shift)
+          waitUntil { addLink.isEnabled }
+        } else {
+          app.typeKey(.rightArrow, modifierFlags: [])
+          waitUntil { !addLink.exists }
+        }
+        return (start, uptime())
+      }
+      groups.append(("selection-\(count)-paragraph\(count == 1 ? "" : "s")", windows))
+    }
+    // The running app keeps appending probe records; read them only after it quits.
+    app.terminate()
+    try reportSelectionLatency(groups, composer: page ? "page" : "current", evidence: evidence)
+  }
+
+  // Pairs each selection sample's recorded key press with the first mount after it that shows its
+  // selection, alternately linkable and not, within the sample: before the journey saw it.
+  private func reportSelectionLatency(
+    _ groups: [(name: String, windows: [(start: Double, end: Double)])], composer: String,
+    evidence: URL
+  ) throws {
+    struct Record: Decodable {
+      let event: String
+      let uptime: Double?
+      let milliseconds: Double?
+      let linkable: Bool?
+    }
+    let records = try String(contentsOf: evidence, encoding: .utf8)
+      .split(separator: "\n")
+      .map { try JSONDecoder().decode(Record.self, from: Data($0.utf8)) }
+    let keys = records.filter { $0.event == "key-down" }
+    let shown = records.filter { $0.event == "selection-shown" }
+    let stalls = try records.filter { $0.event == "stall" }.map {
+      (uptime: try XCTUnwrap($0.uptime), milliseconds: try XCTUnwrap($0.milliseconds))
+    }
+    func percentile(_ sorted: [Double], _ rank: Double) -> Double {
+      sorted[max(0, Int((rank * Double(sorted.count)).rounded(.up)) - 1)]
+    }
+    var lines: [String] = []
+    for group in groups {
+      let presses = try group.windows.map { window in
+        try XCTUnwrap(
+          keys.last { ($0.uptime ?? 0) >= window.start && ($0.uptime ?? 0) <= window.end },
+          "Missing key press for \(group.name)")
+      }
+      let samples = try zip(presses, group.windows).enumerated().map {
+        index, sample -> Double in
+        let pressed = try XCTUnwrap(sample.0.uptime)
+        let commit = try XCTUnwrap(
+          shown.first {
+            ($0.uptime ?? 0) >= pressed && ($0.uptime ?? 0) <= sample.1.end
+              && $0.linkable == (index % 2 == 0)
+          }, "No mount showed sample \(index) of \(group.name)")
+        return try XCTUnwrap(commit.uptime) - pressed
+      }.sorted()
+      let during = stalls.filter { stall in
+        group.windows.contains {
+          stall.uptime <= $0.end && stall.uptime + stall.milliseconds >= $0.start
+        }
+      }.map(\.milliseconds)
+      lines.append(
+        json([
+          "composer": composer, "interaction": group.name, "samplesMs": samples,
+          "p50Ms": percentile(samples, 0.5), "p95Ms": percentile(samples, 0.95),
+          "maxMs": samples.last ?? 0, "stallsMs": during,
+          "frameMs": try XCTUnwrap(keys.compactMap(\.milliseconds).max()),
+        ]))
+    }
+    print(lines.map { "PERFORMANCE \($0)" }.joined(separator: "\n"))
+    let attachment = XCTAttachment(
+      data: Data((lines.joined(separator: "\n") + "\n").utf8), uniformTypeIdentifier: "public.json")
+    attachment.name = "Selection-change latency (\(composer) composer)"
+    attachment.lifetime = .keepAlways
+    add(attachment)
   }
 
   // #626: the core mail loop by keyboard where the Mac app offers a keyboard path, over the

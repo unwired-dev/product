@@ -86,6 +86,10 @@ interface WindowHost extends TurboModule {
       marks?: string;
     }>,
   ) => void;
+  // `Testing` builds only: records when the next mount of the `rootTag` surface shows a
+  // composer's format bar with its body's latest selection, for the selection-change journey;
+  // `linkable` when the Link control is available.
+  readonly recordSelectionShown?: (linkable: boolean, rootTag: number) => void;
 }
 
 export const windowHost = () =>

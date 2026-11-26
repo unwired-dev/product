@@ -86,7 +86,7 @@ import {
   useOutbox,
 } from './mailbox.tsx';
 import { AssistanceContext } from './message-summary.tsx';
-import { pageTypingProbe, recordedPageProbe } from './page-typing-probe.ts';
+import { pageTypingProbe, recordPageProbe } from './page-typing-probe.ts';
 import { AccountContext } from './registration-gate.tsx';
 import { usePalette } from './theme.ts';
 import { TranslationContext } from './translation.tsx';
@@ -833,15 +833,13 @@ function EvaluationEditor({
             onContentProcessDidTerminate={stop}
             onError={stop}
             onMessage={({ nativeEvent }) => {
-              if (
-                !mounted.current ||
-                pageStopped.current ||
-                recordedPageProbe(nativeEvent.data)
-              ) {
+              if (!mounted.current || pageStopped.current) {
                 return;
               }
               const message = decodeMessage(nativeEvent.data);
+              // In `Testing` builds, the typing probe's notes are the page's only other messages.
               if (message === undefined) {
+                recordPageProbe(nativeEvent.data);
                 return;
               }
               // A paste carrying files, which native code reads from the pasteboard.
@@ -851,6 +849,12 @@ function EvaluationEditor({
               }
               // Without a Slash Command Menu here, the page's keys need nothing.
               if (message.type === 'key') {
+                return;
+              }
+              // Files dropped on the page, which native code reads from the drag pasteboard, are
+              // attached, as files dropped on the current composer are.
+              if (message.type === 'drop') {
+                void add('drop', false);
                 return;
               }
               // A delayed report of an earlier body revision never replaces a newer one.
