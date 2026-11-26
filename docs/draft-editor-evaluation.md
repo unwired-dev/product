@@ -93,10 +93,9 @@ their controls stop accepting input and leave VoiceOver immediately.
   has received and ignores a late report of an earlier edit, also while Close,
   Save Draft or Send waits for the page.
 - **Durability.** Edits reach the Drafts only when **Save Draft** or **Send** stores
-  them, and reopening shows the stored version. On iPhone and iPad ending the app
-  before that loses them. On Mac the editor also journals them, about 2 seconds after
-  an edit, to a device-local composer recovery record, which the next launch offers to
-  restore in the page (ADR 0077, #2933).
+  them, and reopening shows the stored version. The editor also journals them, about
+  2 seconds after an edit, to a device-local composer recovery record, which the next
+  launch offers to restore in the page (ADR 0077; Mac #2933, iPhone and iPad #2944).
 - **Failures.** If the page stops, the editor says so and clears assistance previews.
   Callbacks from a stopped or closed page cannot submit edits or accept results.
   **Save Draft** still stores the body the page last reported; reopen the Draft to
@@ -649,12 +648,23 @@ five seconds for WebKit website data (local storage, IndexedDB, cache storage,
 cookies and other WebKit stores). No sample found any, through typing, imports,
 **Save Draft**, relaunch and reopening, on iPhone and on iPad.
 
-Outstanding for #820: the Mac native journey, which needs a signed mock profile;
-pasting image data into the page on Mac, and dropping files on the page on every
-host, which need native interception in the web view (the page refuses both unread);
-**Paste Image** and in-page paste on a device; and physical iPhone and iPad runs.
-Website data after account removal and a network capture are recorded in
-[Website data and network](#website-data-and-network-2922).
+On the Mac, `testDraftEditorInlineImage`
+([#2948](https://github.com/unwired-dev/product/issues/2948),
+[Mac Draft editor Inline Image journey](native-journeys.md#mac-draft-editor-inline-image-journey))
+passed on 2026-11-26 with Xcode 27.2 (`27B52`) on macOS 27.2.1, in a signed
+`registration-draft-editor` `Testing` build from main at `01c50416b`. **Insert
+Image…** placed a PNG chosen in the system open panel at the caret between two typed
+words, and the page showed its native thumbnail; **Attach Instead** and **Show
+Inline** from the row's context menu converted it, and two **Undo** and two **Redo**
+stepped back and forward through both conversions; after **Save**, a relaunch and
+reopening, the image was in place with its thumbnail. The journey's mock copy needed
+the app's own user-selected file entitlement for the open panel to appear.
+
+Outstanding for #820: pasting image data into the page on Mac, and dropping files on
+the page on every host, which need native interception in the web view (the page
+refuses both unread); **Paste Image** and in-page paste on a device; and physical
+iPhone and iPad runs. Website data after account removal and a network capture are
+recorded in [Website data and network](#website-data-and-network-2922).
 
 ### Save ordering (#821)
 
@@ -699,11 +709,16 @@ second, the window's close button asked **Save**, **Don’t Save** and **Cancel*
 version as a conflicting copy. After a relaunch, the conflicting copy held only
 the second window's text and the original only the first's.
 
-Outstanding for #821: on iPhone and iPad, edits lost when the app ends before **Save Draft**. On Mac
-the page journals its unsaved edits to a composer recovery record as the current
-composer does, and **Restore** reopens them in the page; `testDraftEditorRecoveryAfterForceQuit`
-proves it after a force quit ([#2933](https://github.com/unwired-dev/product/issues/2933),
-[Mac composer recovery journey](native-journeys.md#mac-composer-recovery-journey)). The regular iPhone, iPad and Mac composers now
+Outstanding for #821: the Mac two-window journey on one Draft and the window's close
+button natively (the Command-W and **Quit** questions passed on 2026-11-25, #2876).
+The page journals its unsaved edits to a composer recovery record as the current
+composer does, and **Restore** reopens them in the page. On Mac
+`testDraftEditorRecoveryAfterForceQuit` proves it after a force quit
+([#2933](https://github.com/unwired-dev/product/issues/2933),
+[Mac composer recovery journey](native-journeys.md#mac-composer-recovery-journey)), and
+on iPhone and iPad `testDraftEditorRecovery` after XCUITest terminates the app
+([#2944](https://github.com/unwired-dev/product/issues/2944),
+[iPhone and iPad composer recovery journey](native-journeys.md#iphone-and-ipad-composer-recovery-journey)). The regular iPhone, iPad and Mac composers now
 use the same save model. On iPhone both composers cover the
 Inbox and reader, so system **Back** cannot leave them
 ([#778](https://github.com/unwired-dev/product/issues/778)).
@@ -810,6 +825,44 @@ budgets on an idle host nor which opens faster. Repeat
 them on an idle host before reading them as a comparison. Physical iPhone and
 iPad, and #822's startup, typing response and memory measurements, are still
 outstanding.
+
+### Packaged size (#2953)
+
+[#2953](https://github.com/unwired-dev/product/issues/2953) measures the packaged
+size that [ADR 0080](adr/0080-edit-the-draft-body-in-the-tiptap-page.md)'s gate 5
+lists among #822's measurements. The `registration-draft-editor` scenario resolves
+exactly like `registration-apple` except that `scripts/mock-mail-build.cjs`
+substitutes the bundled page for the empty `@private-email/draft-editor/page`
+default, so the difference between their packaged apps estimates the page's
+packaged cost.
+
+Both scenarios were built on 2026-11-26 from main at `01c50416b` with Xcode 27.2
+(`27B52`) on macOS 27.2.1 on the Mac mini M4 (16 GB): iPhone and iPad as one
+Release app for a generic iOS device (`iphoneos` 27.2 SDK, arm64, unsigned,
+minimum iOS 27.0), and the Mac as `Testing` builds, which mock scenarios require.
+Sizes are the sum of the files' bytes in the `.app`; compressed sizes are a
+`ditto -c -k --keepParent` zip of it.
+
+| Bytes                      | iPhone and iPad without | with the page | Mac without | with the page |
+| -------------------------- | ----------------------: | ------------: | ----------: | ------------: |
+| App                        |              96,224,080 |    97,087,180 |  55,999,938 |    56,863,079 |
+| Compressed app             |              29,418,905 |    29,575,161 |  17,212,809 |    17,372,919 |
+| Hermes bundle              |               7,994,960 |     8,813,100 |   4,572,996 |     5,391,184 |
+| `ThirdPartyNotices` (both) |                 894,514 |       939,460 |     718,392 |       763,338 |
+
+The page adds 863,100 bytes to the iPhone and iPad app and 863,141 to the Mac
+app, 156,256 and 160,110 compressed: 818,140 and 818,188 in the Hermes bundle,
+which holds the page as one string module, and 44,946 in the notices. The
+`buildPage()` output, `dist/page.js`, is a 414,116-byte module holding 409,085
+bytes of HTML, 126,731 gzipped. Every other file keeps its size except
+`Info.plist` and, on iPhone and iPad, Expo's `app.config`, which name the
+scenario (7 bytes each). The compressed difference also includes those files
+and the executables and asset catalogs, whose sizes match but whose contents
+differ between builds.
+
+This leaves out App Store thinning, encryption and download compression, and
+production builds, which do not package the page yet. Startup, typing response
+and memory remain unmeasured, as do physical iPhone and iPad.
 
 ## Finding
 

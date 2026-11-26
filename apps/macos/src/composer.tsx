@@ -3707,17 +3707,23 @@ function Editor({
   const removingReminder = useRef(false);
   const draftID = history.present.id;
   const reminder = reminderOf(readReminder, draftID, draftProfile);
+  // Read again after each stored change, such as one another device synchronized; only the
+  // latest read applies.
   useEffect(() => {
-    let current = true;
+    let latest = 0;
     const read = async () => {
+      latest += 1;
+      const mine = latest;
       const listed = await sendReminders.reminders(draftProfile);
-      if (current && listed !== undefined) {
+      if (mine === latest && listed !== undefined) {
         setReadReminder(listed.find((each) => each.draft === draftID));
       }
     };
     void read();
+    const unsubscribe = sendReminders.subscribe(() => void read());
     return () => {
-      current = false;
+      unsubscribe();
+      latest += 1;
     };
   }, [sendReminders, draftProfile, draftID]);
   const caret = useRef<number | undefined>(undefined);

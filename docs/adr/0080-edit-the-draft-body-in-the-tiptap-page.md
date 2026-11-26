@@ -86,8 +86,9 @@ recommendation and the decision it supports. Facts link to their evidence;
   two Mac windows, racing imports, refused saves and another Product Account;
   the native Mac two-window run passed
   ([#2938](https://github.com/unwired-dev/product/issues/2938)), as did Mac
-  force-quit recovery ([#2933](https://github.com/unwired-dev/product/issues/2933));
-  native iPhone and iPad app-termination runs are outstanding.
+  force-quit recovery ([#2933](https://github.com/unwired-dev/product/issues/2933))
+  and iPhone and iPad termination recovery
+  ([#2944](https://github.com/unwired-dev/product/issues/2944)).
 - **Assistance.** Rewrites, translation and reply suggestions run through the
   current on-device capture and review, and the page refuses a result for another
   body revision. No vendor AI, Yjs or CRDT collaboration is enabled or adopted.
@@ -137,16 +138,19 @@ release limit:
    Draft, run natively. On Mac, Command-W and **Quit** passed in
    [#2876](https://github.com/unwired-dev/product/issues/2876), and the window's
    close button and two windows on one Draft in #2938
-   ([evidence](../draft-editor-evaluation.md#save-ordering-821)). On iPhone and iPad the evaluation loses open edits when the
-   app ends before **Save Draft**; production must journal them to the encrypted
+   ([evidence](../draft-editor-evaluation.md#save-ordering-821)). Production must
+   journal open edits to the encrypted
    recovery record of [ADR 0077](0077-remove-friction-that-privacy-does-not-require.md)
-   and prove that they restore after a forced termination. On Mac the page journals
-   them and restores them after a force quit since
-   [#2933](https://github.com/unwired-dev/product/issues/2933).
-3. The Mac Inline Image journey, file drops on every host, and **Paste Image**
-   and in-page paste on a device. Image paste on Mac is met by
+   and prove that they restore after a forced termination. The page does so on Mac
+   since [#2933](https://github.com/unwired-dev/product/issues/2933) and on iPhone
+   and iPad since [#2944](https://github.com/unwired-dev/product/issues/2944).
+3. File drops on every host, and **Paste Image** and in-page paste on a device.
+   Image paste on Mac is met by
    [#2929](https://github.com/unwired-dev/product/issues/2929): native code reads
-   the pasteboard, and the Mac journey pastes an image that reopens in place.
+   the pasteboard, and the Mac journey pastes an image that reopens in place. The
+   Mac Inline Image journey passed natively in
+   [#2948](https://github.com/unwired-dev/product/issues/2948)
+   ([evidence](../draft-editor-evaluation.md#inline-images-820)).
 4. WebKit website data after account removal and a network capture of a journey.
    Met by [#2922](https://github.com/unwired-dev/product/issues/2922) on iPhone
    and iPad Simulators and the Mac: no sample found website data during the
@@ -162,10 +166,14 @@ release limit:
    and the current composer's interactions the page lacks. The Slash Command
    Menu is met on iPhone and iPad Simulators by
    [#2952](https://github.com/unwired-dev/product/issues/2952); the Mac menu, the
-   #822 measurements and physical devices remain. On Mac,
+   other #822 measurements and physical devices remain. On Mac,
    [#2955](https://github.com/unwired-dev/product/issues/2955) timed opening a new
    message and a saved Draft in both composers on a loaded host; repeat it on an
    idle one ([results](../draft-editor-evaluation.md#composer-opening-2955)).
+   [#2953](https://github.com/unwired-dev/product/issues/2953) measured packaged
+   size: the page adds about 0.86 MB to the iPhone and iPad app and to the Mac
+   app, and about 0.16 MB compressed
+   ([evidence](../draft-editor-evaluation.md#packaged-size-2953)).
 6. The Tiptap and ProseMirror notices in the distributed app; the licence
    inventory must list the page's packages. Met by
    [#2916](https://github.com/unwired-dev/product/issues/2916): every bundle that

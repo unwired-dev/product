@@ -1083,8 +1083,10 @@ the same; while a file is still being added its dimmed row reads
 "Send Now — waiting for terms.pdf".
 
 Removing a reminder on Send, Discard or an empty Close reaches the other devices
-when they synchronize. A composer already open shows another device's change once
-the Draft is opened again. Reminders schedule no notification yet, and a reminder whose
+when they synchronize. A composer already open shows a reminder another device set,
+changed or removed as soon as this device synchronizes
+([#2897](https://github.com/unwired-dev/product/issues/2897)). Reminders schedule no
+notification yet, and a reminder whose
 removal storage refused after Send or Discard stays stored; later #658 slices add
 those.
 
