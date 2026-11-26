@@ -185,6 +185,7 @@ function forwarded(t: Translate, source: ResponseSource) {
   const files = attachments.map((file) => ({
     asset: prepare(file),
     source: file.source,
+    download: file.download,
   }));
   const fields = [
     t('drafts.response.forwardedFrom', { value: senderOf(source) }),
@@ -374,6 +375,20 @@ export async function forwardedAttachments(
       .map(({ locator }) => inbox.downloadAttachment(id, locator)),
   );
   const held: Array<() => void> = [];
+  const sourceOf = (
+    saved: Readonly<ReturnType<typeof inbox.holdAttachmentFile>>,
+  ): AssetSource =>
+    saved === undefined
+      ? { kind: 'unavailable' }
+      : {
+          kind: 'received',
+          mailbox: {
+            connection: mailbox,
+            address: saved.address,
+            generation: saved.generation,
+          },
+          file: saved.file,
+        };
   const files = listed.map(({ locator, name, mimeType, state }): PickedFile => {
     if (state.kind === 'oversized') {
       return { name, type: mimeType, source: { kind: 'oversized' } };
@@ -385,18 +400,16 @@ export async function forwardedAttachments(
     return {
       name,
       type: mimeType,
-      source:
-        saved === undefined
-          ? { kind: 'unavailable' }
-          : {
-              kind: 'received',
-              mailbox: {
-                connection: mailbox,
-                address: saved.address,
-                generation: saved.generation,
-              },
-              file: saved.file,
-            },
+      source: sourceOf(saved),
+      // Try Again downloads it again from this mailbox, which the Draft's Mail Profile keeps.
+      download: async () => {
+        await inbox.downloadAttachment(id, locator).catch(() => undefined);
+        const again = inbox.holdAttachmentFile(id, locator);
+        return {
+          source: sourceOf(again),
+          release: again?.release ?? (() => undefined),
+        };
+      },
     };
   });
   return {

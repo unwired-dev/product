@@ -6811,6 +6811,12 @@ describe('adding files and images to a Draft', () => {
     ).resolves.toBeOnTheScreen();
     expect(screen.getByLabelText('Cancel adding notes.txt')).toBeOnTheScreen();
     expect(screen.queryByLabelText('Try Again to add notes.txt')).toBeNull();
+    // Named above the body even while To says why Send is unavailable.
+    expect(
+      screen.getByLabelText(
+        '“notes.txt” is still importing. Wait for it, or remove it, to send.',
+      ),
+    ).toBeOnTheScreen();
     await act(async () => {
       storage.releaseImports();
     });

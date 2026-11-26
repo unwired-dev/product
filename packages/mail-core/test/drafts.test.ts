@@ -4,7 +4,13 @@ import { setImmediate } from 'node:timers/promises';
 import { createLocalization, english } from '@private-email/localization';
 import * as Schema from 'effect/Schema';
 
-import type { Draft, DraftsState, SlashCommand } from '../src/drafts.ts';
+import type {
+  AssetSource,
+  Download,
+  Draft,
+  DraftsState,
+  SlashCommand,
+} from '../src/drafts.ts';
 import type { RegistrationSnapshot } from '../src/registration.ts';
 import type {
   Asset,
@@ -3660,14 +3666,17 @@ describe('adding files and images to Drafts', () => {
     expect(unsendableAssets(reopened)).toHaveLength(3);
   });
 
-  it('reads a failed file again on Try Again, and its copy goes once added, removed or discarded', async () => {
+  it('reads a failed file again on Try Again, keeping its copy while its Draft holds it', async () => {
     expect.hasAssertions();
     const { storage, drafts, id, draft } = await opened();
     const pick = { kind: 'file', uri: 'file:///notes.txt' } as const;
     storage.addFile(pick.uri, 'notes');
-    const attachFailing = async (code: string) => {
+    const attachFailing = async (target: string, code: string) => {
       const asset = drafts.prepare({ name: 'notes.txt', type: 'text/plain' });
-      const before = draft();
+      const before = present(
+        draftOf(drafts.getSnapshot(), target),
+        'the Draft',
+      );
       await drafts.update(
         { ...before, attachments: [...assetsOf(before), asset] },
         before,
@@ -3678,7 +3687,7 @@ describe('adding files and images to Drafts', () => {
     };
 
     // A failed import keeps the picked copy, and Try Again adds it without a picker.
-    const retried = await attachFailing('locked');
+    const retried = await attachFailing(id, 'locked');
     expect(assetsOf(draft())[0]).toStrictEqual({
       ...retried,
       state: 'failed',
@@ -3697,8 +3706,9 @@ describe('adding files and images to Drafts', () => {
     await expect(drafts.retryImport(retried.id)).resolves.toBe(false);
     expect(storage.discardedPicks()).toStrictEqual([]);
 
-    // Removing the file deletes its copy.
-    const removed = await attachFailing('locked');
+    // Like a removed file's bytes, a removed file's copy stays while its Draft exists, for Undo;
+    // creating another Draft keeps it too. Discarding the Draft deletes it.
+    const removed = await attachFailing(id, 'locked');
     const before = draft();
     await drafts.update(
       {
@@ -3709,18 +3719,28 @@ describe('adding files and images to Drafts', () => {
       },
       before,
     );
+    const other = present(await drafts.create(alex), 'another Draft');
+    expect(drafts.getRetries().has(removed.id)).toBe(true);
+    expect(storage.discardedPicks()).toStrictEqual([]);
+    await expect(drafts.discard(id)).resolves.toBe(true);
     expect(drafts.getRetries().size).toBe(0);
     expect(storage.discardedPicks()).toStrictEqual([pick.uri]);
 
     // A file too large for Drafts can't be tried again, so its copy goes at once.
-    await attachFailing('too-large');
+    await attachFailing(other, 'too-large');
     expect(drafts.getRetries().size).toBe(0);
     expect(storage.discardedPicks()).toStrictEqual([pick.uri, pick.uri]);
 
-    // Discarding the Draft deletes the copy too.
-    await attachFailing('locked');
-    expect(drafts.getRetries().size).toBe(1);
-    await expect(drafts.discard(id)).resolves.toBe(true);
+    // An import that fails after its Draft was discarded leaves no copy behind.
+    const asset = drafts.prepare({ name: 'notes.txt', type: 'text/plain' });
+    const last = present(draftOf(drafts.getSnapshot(), other), 'the Draft');
+    await drafts.update({ ...last, attachments: [asset] }, last);
+    storage.holdImports();
+    storage.failNextImport('locked');
+    const importing = drafts.importAsset(asset, pick);
+    await expect(drafts.discard(other)).resolves.toBe(true);
+    storage.releaseImports();
+    await importing;
     expect(drafts.getRetries().size).toBe(0);
     expect(storage.discardedPicks()).toStrictEqual([
       pick.uri,
@@ -3729,46 +3749,60 @@ describe('adding files and images to Drafts', () => {
     ]);
   });
 
-  it('names why each file was left out when Send asks', async () => {
+  it('names why each file was left out, and downloads a forwarded attachment again on Try Again', async () => {
     expect.hasAssertions();
     const { storage, drafts, id, draft } = await opened();
-    // A received attachment no longer on this device, and a forward whose file never downloaded.
+    const mailbox = {
+      connection: alex.id,
+      address: alex.address,
+      generation: 'generation-1',
+    };
+    // A Downloaded Attachment no longer on this device, and a forward whose file didn't download.
     storage.failNextImport('attachment-missing');
     await drafts.attach(id, [
       {
         name: 'invoice.pdf',
         type: 'application/pdf',
+        source: { kind: 'received', mailbox, file: 'downloaded-file' },
+      },
+    ]);
+    const release = vi.fn<() => void>();
+    const download = vi.fn<Download>(async () => {
+      storage.addFile('downloaded-again', 'plan');
+      return {
         source: {
           kind: 'received',
-          mailbox: {
-            connection: alex.id,
-            address: alex.address,
-            generation: 'generation-1',
-          },
-          file: 'downloaded-file',
-        },
-      },
-      {
-        name: 'plan.key',
-        type: 'application/x-iwork-keynote-sffkey',
-        source: { kind: 'unavailable' },
-      },
-    ]);
+          mailbox,
+          file: 'downloaded-again',
+        } satisfies AssetSource,
+        release,
+      };
+    });
+    const plan = drafts.prepare({
+      name: 'plan.key',
+      type: 'application/x-iwork-keynote-sffkey',
+    });
+    await drafts.fill(
+      id,
+      (each) => ({ ...each, attachments: [...assetsOf(each), plan] }),
+      [{ asset: plan, source: { kind: 'unavailable' }, download }],
+    );
     await vi.waitFor(() => {
-      expect(assetsOf(draft()).map(({ state }) => state)).toStrictEqual([
-        'failed',
-        'failed',
+      expect(assetsOf(draft())).toMatchObject([
+        { state: 'failed', notDownloaded: true },
+        { state: 'failed', notDownloaded: true },
       ]);
     });
-    expect(assetsOf(draft())).toMatchObject([
-      { reason: 'not-downloaded' },
-      { reason: 'not-downloaded' },
-    ]);
-    // Reading a received attachment again could succeed once it downloads.
-    expect(drafts.getRetries().size).toBe(1);
     expect(leftOutQuestion(english, draft(), new Set())?.detail).toBe(
       'invoice.pdf couldn’t be downloaded and plan.key couldn’t be downloaded. No attachments will be sent.',
     );
+
+    // Reading the same missing file again can't succeed; downloading the forward again can.
+    expect([...drafts.getRetries()]).toStrictEqual([plan.id]);
+    await expect(drafts.retryImport(plan.id)).resolves.toBe(true);
+    expect(download).toHaveBeenCalledWith();
+    expect(release).toHaveBeenCalledWith();
+    expect(assetsOf(draft())[1]).toMatchObject({ state: 'complete', size: 4 });
   });
 
   it('refuses files over the limits and reports damaged or missing bytes', async () => {

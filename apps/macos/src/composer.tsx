@@ -1330,7 +1330,7 @@ const assetStatus = (
     return t('drafts.assets.status.tooLarge');
   }
   return t(
-    asset.state === 'failed' && asset.reason === 'not-downloaded'
+    asset.state === 'failed' && asset.notDownloaded === true
       ? 'drafts.assets.status.notDownloaded'
       : 'drafts.assets.status.notAdded',
   );
@@ -2234,7 +2234,8 @@ function SendRefusalNotice({
     ({ id }) => id === connection,
   )?.provider;
   const shown = blocked ?? refused;
-  if (blocked === 'assets' && waiting !== undefined) {
+  // A file still importing is named even while To, Cc, Bcc or From say why Send is unavailable.
+  if (waiting !== undefined && (shown === undefined || shown === 'assets')) {
     return (
       <Notice style={[styles.sendReason, { color: colors.textSecondary }]}>
         {t('drafts.assets.stillImporting', { name: waiting })}
