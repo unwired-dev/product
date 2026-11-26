@@ -69,7 +69,6 @@ assert.deepEqual(
 assert.deepEqual(
   Object.keys(dependencies).toSorted(),
   [
-    '@react-native-masked-view/masked-view',
     'expo',
     'react-native-gesture-handler',
     'react-native-keyboard-controller',
