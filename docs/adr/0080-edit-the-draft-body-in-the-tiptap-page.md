@@ -191,12 +191,11 @@ release limit:
    ([review note](https://github.com/unwired-dev/product/issues/822#issuecomment-6114571758)),
    and the current composer's interactions the page lacks. The Slash Command
    Menu is met on iPhone and iPad Simulators by
-   [#2952](https://github.com/unwired-dev/product/issues/2952). On Mac,
-   [#3010](https://github.com/unwired-dev/product/issues/3010) adds the menu's
-   Basic Blocks with host tests; its native journey and Light and Dark design
-   check remain, and its Insert and Writing tools wait on the Mac composer
-   having them ([#2791](https://github.com/unwired-dev/product/issues/2791)).
-   Startup and physical devices remain. Typing and formatting feedback in Mac
+   [#2952](https://github.com/unwired-dev/product/issues/2952) and on Mac by
+   [#3010](https://github.com/unwired-dev/product/issues/3010), whose Insert and
+   Writing tools wait on the Mac composer having them
+   ([#2791](https://github.com/unwired-dev/product/issues/2791)); startup and
+   physical devices remain. Typing and formatting feedback in Mac
    `Testing` builds is measured by
    [#2962](https://github.com/unwired-dev/product/issues/2962): the page's p95
    to edit was 17.1 ms from key press for typing and 21.9 ms from button release
