@@ -2577,7 +2577,9 @@ export function createDrafts(
         | undefined;
     }>,
   ) {
-    if (retry !== undefined && live(current)) {
+    // Whether Try Again took the source, which is then its to release.
+    const kept = retry !== undefined && live(current);
+    if (kept) {
       retained.set(asset.id, { asset, ...retry });
     }
     yield* settle(
@@ -2595,6 +2597,7 @@ export function createDrafts(
       setRetries();
       releaseRemoved(state.drafts);
     }
+    return kept;
   });
 
   // A failed import fails its asset, unless it was cancelled or its account left meanwhile, and
@@ -2626,16 +2629,17 @@ export function createDrafts(
     const retry =
       code !== 'too-large' &&
       (download !== undefined || retryable(source, code, keep));
-    if (wanted) {
-      // A file gone from the device, or saved for a mailbox generation that ended, is downloaded.
-      const again =
-        code === 'attachment-missing' || code === 'mailbox-invalidated';
-      yield* failAsset(current, asset, {
+    // A file gone from the device, or saved for a mailbox generation that ended, is downloaded.
+    const again =
+      code === 'attachment-missing' || code === 'mailbox-invalidated';
+    const kept =
+      wanted &&
+      (yield* failAsset(current, asset, {
         ...failedFields(source, code),
         retry: retry ? { source, download, again } : undefined,
-      });
-    }
-    if (!wanted || !retry) {
+      }));
+    // A copy Try Again doesn't own, as when the account left while the asset failed, goes.
+    if (!kept) {
       yield* discardCopy(source);
     }
   });
