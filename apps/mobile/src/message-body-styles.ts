@@ -90,6 +90,13 @@ export const styles = StyleSheet.create({
   },
   // A system alert's anchor takes no room in the banner.
   alertAnchor: { position: 'absolute' },
+  // The Unsubscribe banner's lines as its Schedule Banner frames set them (#2985); on iPhone it
+  // sits 4pt lower under the subject.
+  unsubscribeBanner: { marginTop: spacing.xs },
+  unsubscribeTitle: { lineHeight: 13 },
+  unsubscribeText: { lineHeight: 16, marginTop: spacing.xs },
+  padUnsubscribeTitle: { lineHeight: 15 },
+  padUnsubscribeText: { marginTop: spacing.xs * ipadListScale },
   marker: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
   bannerTitle: { ...textStyles.footnote, fontWeight: '500' },
   bannerText: { ...textStyles.footnote },

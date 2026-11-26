@@ -1323,7 +1323,8 @@ export function BannerButton({
               : font({ textStyle: 'footnote', weight: 'semibold' }),
             foregroundStyle(colors.textPrimary),
             padding({
-              horizontal: spacing.m * scale,
+              // 1pt wider than the frames' padding: SwiftUI sets the label about 2pt narrower.
+              horizontal: spacing.m * scale + 1,
               vertical: 6 * scale,
             }),
             background(colors.fillTrack, shapes.capsule()),

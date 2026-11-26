@@ -206,7 +206,8 @@ function Banner({
     if (outcome?.kind === 'sent') {
       return t('unsubscribe.sentDetail', {
         sender: message.sender,
-        date: day.format(outcome.at),
+        // A locale whose date ends in a period, such as "26. 11.", ends the sentence with it.
+        date: day.format(outcome.at).replace(/\.$/u, ''),
       });
     }
     return outcome === undefined
@@ -259,14 +260,16 @@ function Banner({
   return (
     <View
       style={[
-        ipad ? styles.padBanner : styles.banner,
+        ipad ? styles.padBanner : [styles.banner, styles.unsubscribeBanner],
         { backgroundColor: colors.fillQuiet },
       ]}>
       {/* VoiceOver reads the label, then the summary, as one element before the buttons. */}
       <View accessible>
         <NativeText
           style={[
-            ipad ? styles.padBannerTitle : styles.bannerTitle,
+            ipad
+              ? [styles.padBannerTitle, styles.padUnsubscribeTitle]
+              : [styles.bannerTitle, styles.unsubscribeTitle],
             { color: colors.textPrimary },
           ]}>
           {marker(outcome)}
@@ -274,7 +277,9 @@ function Banner({
         {shown === undefined ? null : (
           <NativeText
             style={[
-              ipad ? styles.padBannerText : styles.bannerText,
+              ipad
+                ? [styles.padBannerText, styles.padUnsubscribeText]
+                : [styles.bannerText, styles.unsubscribeText],
               { color: colors.textSecondary },
             ]}>
             {shown}
