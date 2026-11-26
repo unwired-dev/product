@@ -1707,6 +1707,39 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(app.buttons["Remove Reminder"].exists)
     XCTAssertTrue(app.otherElements["composer-overlay"].exists, "Setting a reminder closed the composer")
     capture("Draft with a Send Reminder")
+
+    // #2979: Change, then Choose Date and Time…, shows the system calendar from the stored
+    // reminder. Today at 8:00 has passed later in the day, so Set Reminder waits; tomorrow sets it.
+    app.buttons["Change"].tap()
+    let choose = app.buttons["Choose Date and Time…"]
+    XCTAssertTrue(choose.waitForExistence(timeout: 15))
+    choose.tap()
+    let picker = app.datePickers.firstMatch
+    XCTAssertTrue(picker.waitForExistence(timeout: 15))
+    XCTAssertTrue(app.buttons["Back"].exists)
+    capture("Choose Date and Time")
+    let day = { (date: Date) in
+      picker.buttons.matching(NSPredicate(
+        format: "label CONTAINS %@",
+        date.formatted(.dateTime.month(.wide).day().locale(Locale(identifier: "en")))
+      )).firstMatch
+    }
+    let set = app.buttons["Set Reminder"]
+    // The calendar shows tomorrow's month, so today is in it except on a month's last day.
+    if calendar.component(.hour, from: Date()) >= 8,
+      calendar.isDate(Date(), equalTo: morning, toGranularity: .month)
+    {
+      day(Date()).tap()
+      XCTAssertTrue(labelled("That time has passed.").waitForExistence(timeout: 10))
+      XCTAssertFalse(set.isEnabled)
+      capture("Choose Date and Time, time has passed")
+    }
+    day(morning).tap()
+    XCTAssertTrue(set.waitForExistence(timeout: 10))
+    waitUntil { set.isEnabled }
+    set.tap()
+    XCTAssertTrue(labelled("Reminder for tomorrow, ").waitForExistence(timeout: 15))
+    XCTAssertFalse(picker.exists)
   }
 
   // Linking verifies both identities; the Gmail grant never becomes a sign-in method.
