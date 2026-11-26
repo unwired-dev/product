@@ -70,6 +70,7 @@ import {
 import { NewLabel } from './new-label.tsx';
 import { usePinAction, usePinned } from './pins.tsx';
 import { textStyles, usePalette } from './theme.ts';
+import { useUnsubscribeItems } from './unsubscribe.tsx';
 
 const styles = StyleSheet.create({
   bar: {
@@ -526,6 +527,7 @@ function ImapMessageActions({
   const mailbox = useMailbox();
   const anchor = useRef<View>(null);
   const pinFor = usePinFor(anchor);
+  const unsubscribe = useUnsubscribeItems(inbox, id);
   const message = useSyncExternalStore(inbox.subscribe, () =>
     inbox.message(id),
   );
@@ -587,7 +589,7 @@ function ImapMessageActions({
             />
           )
         }
-        more={moreMenu(t, target, undefined)}>
+        more={[...moreMenu(t, target, undefined), ...unsubscribe]}>
         {children}
       </Toolbar>
     </>
@@ -616,6 +618,7 @@ function GmailMessageActions({
   const provider = mailbox?.provider ?? 'gmail';
   const anchor = useRef<View>(null);
   const pinFor = usePinFor(anchor);
+  const unsubscribe = useUnsubscribeItems(store, id);
   // The message New Label… last opened Labels for, and how often it was chosen.
   const [labelling, setLabelling] =
     useState<Readonly<{ message: GmailMessage; opening: number }>>();
@@ -646,7 +649,7 @@ function GmailMessageActions({
         ref={anchor}
         actions={[]}
         pin={pinFor(message)}
-        more={[]}>
+        more={unsubscribe}>
         {children}
       </Toolbar>
     );
@@ -737,42 +740,45 @@ function GmailMessageActions({
           )
         }
         // A Microsoft message is in one folder: it moves, but has no labels to add or remove.
-        more={moreMenu(
-          t,
-          target,
-          provider === 'gmail'
-            ? [
-                {
-                  items: state.labels.map(({ id: label, name }) => ({
-                    key: `${target}\nlabel\n${label}`,
-                    title: name,
-                    checked: applied.has(label),
-                    run: () => {
-                      act(
-                        applied.has(label)
-                          ? gmailAction.unlabel(label)
-                          : gmailAction.label(label),
-                      );
-                    },
-                  })),
-                },
-                {
-                  items: [
-                    {
-                      key: `${target}\nnewLabel`,
-                      title: t('gmailActions.newLabel'),
+        more={[
+          ...moreMenu(
+            t,
+            target,
+            provider === 'gmail'
+              ? [
+                  {
+                    items: state.labels.map(({ id: label, name }) => ({
+                      key: `${target}\nlabel\n${label}`,
+                      title: name,
+                      checked: applied.has(label),
                       run: () => {
-                        setLabelling((last) => ({
-                          message,
-                          opening: (last?.opening ?? 0) + 1,
-                        }));
+                        act(
+                          applied.has(label)
+                            ? gmailAction.unlabel(label)
+                            : gmailAction.label(label),
+                        );
                       },
-                    },
-                  ],
-                },
-              ]
-            : undefined,
-        )}>
+                    })),
+                  },
+                  {
+                    items: [
+                      {
+                        key: `${target}\nnewLabel`,
+                        title: t('gmailActions.newLabel'),
+                        run: () => {
+                          setLabelling((last) => ({
+                            message,
+                            opening: (last?.opening ?? 0) + 1,
+                          }));
+                        },
+                      },
+                    ],
+                  },
+                ]
+              : undefined,
+          ),
+          ...unsubscribe,
+        ]}>
         {children}
       </Toolbar>
     </>
