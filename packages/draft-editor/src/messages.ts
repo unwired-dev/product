@@ -23,7 +23,8 @@ const Offset = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
 // The page's messages. After every edit or selection change it reports the formatting at the
 // selection, and the body and Attachments when they changed; `revision` counts its body edits. A
 // paste or drop carrying files asks the host to read the pasteboard instead: the page never reads
-// them.
+// them. While the host's Slash Command Menu shows, the keys that drive it reach the host instead of the
+// body.
 const PageMessageSchema = Schema.fromJsonString(
   Schema.Union([
     Schema.Struct({
@@ -40,9 +41,22 @@ const PageMessageSchema = Schema.fromJsonString(
       kind: BlockKindSchema,
       undo: Schema.Boolean,
       redo: Schema.Boolean,
+      // An Undo or Redo made this edit, not typing.
+      restored: Schema.optionalKey(Schema.Literal(true)),
+      // The host's replacement computed from this revision made this edit.
+      replaced: Schema.optionalKey(Offset),
+      // The caret's line in the page's viewport, while that line starts with `/`, for the Slash
+      // Command Menu to hang from.
+      caret: Schema.optionalKey(
+        Schema.Struct({ top: Schema.Finite, bottom: Schema.Finite }),
+      ),
     }),
     Schema.Struct({ type: Schema.Literal('paste') }),
     Schema.Struct({ type: Schema.Literal('drop') }),
+    Schema.Struct({
+      type: Schema.Literal('key'),
+      key: Schema.Literals(['Enter', 'Tab', 'ArrowUp', 'ArrowDown', 'Escape']),
+    }),
   ]),
 );
 export type PageMessage = typeof PageMessageSchema.Type;
@@ -63,6 +77,8 @@ export type Command =
   | Readonly<{ type: 'blur' }>
   | Readonly<{ type: 'focus' }>
   | Readonly<{ type: 'editable'; editable: boolean }>
+  // Whether the Slash Command Menu shows, so the page hands its keys to the host.
+  | Readonly<{ type: 'menu'; open: boolean }>
   | Readonly<{
       type: 'replace';
       revision: number;

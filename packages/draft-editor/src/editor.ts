@@ -31,7 +31,7 @@ import Strike from '@tiptap/extension-strike';
 import Text from '@tiptap/extension-text';
 import Underline from '@tiptap/extension-underline';
 import { UndoRedo } from '@tiptap/extensions';
-import { closeHistory } from '@tiptap/pm/history';
+import { closeHistory, isHistoryTransaction } from '@tiptap/pm/history';
 import { Fragment, Node as ProseMirrorNode, Slice } from '@tiptap/pm/model';
 import {
   NodeSelection,
@@ -1213,6 +1213,42 @@ const DraftBehavior = Extension.create<unknown, { typing: boolean }>({
   addStorage: () => ({ typing: false }),
 });
 
+// While the host's Slash Command Menu shows, Return, Tab, Up Arrow, Down Arrow and Escape reach the
+// host, which chooses, moves or closes, instead of editing, ahead of every other key handler.
+// Leaving the body closes the menu as Escape does, even one the host opened as the body left.
+let menuOpen = false;
+const postKey = (key: string) => {
+  globalThis.ReactNativeWebView?.postMessage(
+    JSON.stringify({ type: 'key', key }),
+  );
+};
+const menuKey = (key: string) => {
+  if (menuOpen) {
+    postKey(key);
+  }
+  return menuOpen;
+};
+const SlashMenuKeys = Extension.create({
+  name: 'slashMenuKeys',
+  priority: 1100,
+  onBlur: () => {
+    postKey('Escape');
+  },
+  addKeyboardShortcuts: () =>
+    Object.fromEntries(
+      (['Enter', 'Tab', 'ArrowUp', 'ArrowDown', 'Escape'] as const).map(
+        (key) => [key, () => menuKey(key)],
+      ),
+    ),
+});
+
+// Where the line at editor position `at` is in the page's viewport.
+// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Tiptap's editor is a class; this only reads it.
+const caretLine = (editor: TiptapEditor, at: number) => {
+  const { top, bottom } = editor.view.coordsAtPos(at);
+  return { top, bottom };
+};
+
 // The identifiers of the document's Attachments.
 // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ProseMirror's state and transaction are classes; this only reads them.
 const attachmentsOf = ({ doc }: EditorState | Transaction): string[] => {
@@ -1244,11 +1280,20 @@ if (draftEditor !== undefined && element !== null) {
       revision += 1;
     }
     const lines = linesOfDocument(editor.state.doc);
-    const { from, to } = editor.state.selection;
+    const { from, to, $from } = editor.state.selection;
+    // The caret's line, while its text before the caret starts with `/`, as a slash query does.
+    const slashLine =
+      from === to &&
+      /^\s*\//u.test(
+        $from.parent.textBetween(0, $from.parentOffset, undefined, '\uFFFC'),
+      );
+    const replaced: unknown = transaction.getMeta('replaced');
     const update: Update = {
       type: 'update',
       revision,
       ...(frozen ? { frozen: true as const } : {}),
+      ...(isHistoryTransaction(transaction) ? { restored: true as const } : {}),
+      ...(typeof replaced === 'number' ? { replaced } : {}),
       ...(transaction.docChanged || frozen
         ? {
             document: fromEditor(editor.getJSON(), assets),
@@ -1267,6 +1312,7 @@ if (draftEditor !== undefined && element !== null) {
       kind: [...kindsIn(editor)][0] ?? 'paragraph',
       undo: editor.can().undo(),
       redo: editor.can().redo(),
+      ...(slashLine ? { caret: caretLine(editor, from) } : {}),
     };
     // oxlint-disable-next-line unicorn/require-post-message-target-origin -- The native bridge, not a window.
     ReactNativeWebView?.postMessage(JSON.stringify(update));
@@ -1329,6 +1375,7 @@ if (draftEditor !== undefined && element !== null) {
       Tables,
       UndoRedo.configure({ newGroupDelay: Number.MAX_SAFE_INTEGER }),
       DraftBehavior,
+      SlashMenuKeys,
     ],
     enableInputRules: false,
     enablePasteRules: false,
@@ -1354,11 +1401,13 @@ if (draftEditor !== undefined && element !== null) {
       return;
     }
     const { state, view } = editor;
-    const tr = state.tr.replaceWith(
-      0,
-      state.doc.content.size,
-      ProseMirrorNode.fromJSON(state.schema, toEditor(body)).content,
-    );
+    const tr = state.tr
+      .replaceWith(
+        0,
+        state.doc.content.size,
+        ProseMirrorNode.fromJSON(state.schema, toEditor(body)).content,
+      )
+      .setMeta('replaced', base);
     const lines = linesOfDocument(tr.doc);
     view.dispatch(
       tr.setSelection(
@@ -1468,6 +1517,10 @@ if (draftEditor !== undefined && element !== null) {
   };
   // fallow-ignore-next-line complexity -- One dispatcher maps each host command to its page edit.
   globalThis.draftCommand = (command) => {
+    if (command.type === 'menu') {
+      menuOpen = command.open;
+      return;
+    }
     if (
       !editor.isEditable &&
       command.type !== 'editable' &&
@@ -1509,6 +1562,14 @@ if (draftEditor !== undefined && element !== null) {
       replace(command);
     }
   };
+  // The Slash Command Menu follows its line as the page scrolls or resizes, which can rewrap it.
+  const follow = () => {
+    if (menuOpen) {
+      post(editor, editor.state.tr);
+    }
+  };
+  globalThis.addEventListener('scroll', follow, { passive: true });
+  globalThis.addEventListener('resize', follow);
   // The host offers its controls once the page reports, so no command arrives before this.
   post(editor, editor.state.tr);
 }

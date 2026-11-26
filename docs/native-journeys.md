@@ -84,6 +84,40 @@ query overhead, the synthetic press duration and every session stall. It
 measures neither Mail View switching, keyboard or accessibility journeys, nor the
 iPhone and iPad references.
 
+## Mac composer opening journey
+
+The `testComposerOpening` journey compares how long both Mac composers take to
+open a body ([#2955](https://github.com/unwired-dev/product/issues/2955)). It runs
+the current composer in a `registration-performance` `Testing` build, signed in as
+the [performance journey](#mac-performance-journey) is, and the Draft editor page
+in a `registration-draft-editor` `Testing` build, with the signed
+[Mac runner](mock-mail-sessions.md#native-mac-entry-point). Both builds use one app
+path, so the loop stops at the first failure:
+
+```sh
+(for scenario in registration-performance registration-draft-editor; do
+  UNWIRED_MOCK_SCENARIO=$scenario \
+  mise exec -- pnpm --filter @private-email/macos native:build Testing || exit
+  mise exec -- pnpm --filter @private-email/macos test:native \
+    "$PWD/artifacts/macos-inbox/DerivedData/Build/Products/Testing/UnwiredMail.app" \
+    testComposerOpening || exit
+done)
+```
+
+It opens a new message 10 times, then saves a Draft whose body holds one
+paragraph and opens it 10 times, closing the composer after each sample. A sample
+runs from the mouse release the app records until an accessibility query finds
+the body and the format bar's **Undo**, which the page shows once it is ready; for
+the Draft, the body must also show its paragraph. Like the performance journey's
+click samples, these include XCUITest's event completion and queries, so they are
+upper bounds. They are compared with the
+[performance budgets](agents/native-validation.md#performance-qualification) for
+an empty composer (300 ms) and a warm composer (200 ms).
+
+The journey writes one `PERFORMANCE` JSON line per interaction, with the
+composer, to `xcodebuild.log` and as an XCTest attachment, in the performance
+journey's format.
+
 ## Mac keyboard and accessibility journey
 
 The `testKeyboardAndAccessibility` journey uses the same `registration-performance`
@@ -520,6 +554,17 @@ The captures "List Indent" and "List Indent third level" are named with the
 appearance. Indenting several selected items and sent HTML are covered by the
 mail-core tests.
 
+## Mac Draft editor page journey
+
+In the `registration-draft-editor` `Testing` build, `testIndependentWindowsCloseReopenAndQuit`
+runs the [Draft editor evaluation](draft-editor-evaluation.md) journey instead;
+that guide has the build and run commands. Its last part
+([#2938](https://github.com/unwired-dev/product/issues/2938)) relaunches the app,
+opens the saved Draft in two windows and appends different text in each. The first
+window saves. The second window's close button asks; **Cancel** keeps the window
+and its text, and **Save** closes it and keeps its version as a conflicting copy.
+After a relaunch, each Draft holds the saved body and only its own window's text.
+
 ## iPhone and iPad IMAP Spam and Trash folder journey
 
 The Expo native journey for a `registration-imap-folders` Release build signs in
@@ -553,10 +598,17 @@ Once the connection joins All Mail, its message's **Folders** lists the connecti
 ([#2902](https://github.com/unwired-dev/product/issues/2902)), with its own Inbox selected and
 unavailable: in the system popover on iPad, which one tap outside and Command-period, UIKit's
 Escape, each close, and in the system Move sheet on iPhone, which **Close** and a downward swipe
-each close. **Move to Bulk Mail** then requests the move: the reader closes and the list reports
+each close. Before the first close the picker turns to Landscape and back to Portrait, and after
+each turn it is still shown with its folders, and on iPhone **Close**, in reach
+([#2931](https://github.com/unwired-dev/product/issues/2931)). On iPhone the sheet then opens
+again, and "bulk" is typed into its search at the sheet's foot: the other folders, the selected
+Inbox among them, leave the list, and the search field and **Move to Bulk Mail** stay above the
+software keyboard ([#2943](https://github.com/unwired-dev/product/issues/2943)).
+**Move to Bulk Mail** then requests the move: the reader closes and the list reports
 **Moved: “Welcome to IMAP”.** at once, before the server answers. The synthetic server discards
 moves, so what the server keeps is left to the mail-core IMAP organize tests. The captures
-"Folders popover" or "Move sheet" and "Moved to Spam" are named with the appearance.
+"Folders popover" or "Move sheet", the same in Landscape, on iPhone "Move sheet search", and "Moved
+to Spam" are named with the appearance.
 
 Settings › Signatures then lists the IMAP Sending Identity with None
 ([#2059](https://github.com/unwired-dev/product/issues/2059)). Its signature is typed,
@@ -625,10 +677,11 @@ frame has settled, then closes it with its own control. On iPhone: the Filters s
 confirmation alert, the Reply sheet, the Labels sheet and the New Label sheet. On iPad: the New
 Message card, the link confirmation alert, the toolbar's Labels popover, New Label in its place and
 the docked reply. iPad's **More** system menu closes at each turn, as the system closes a menu, and
-opens again from **More** in Landscape. The link confirmation turns only to Landscape: the turn
-back to Portrait can close it ([#2909](https://github.com/unwired-dev/product/issues/2909)). The
+opens again from **More** in Landscape. The link confirmation stays shown through both turns too
+([#2909](https://github.com/unwired-dev/product/issues/2909)). The
 iPad Filters popover (the `open-read-relaunch` journey) and the iPhone composer
-(`testComposerSheet`) are covered elsewhere; the Move picker needs IMAP mail. A capture of each
+(`testComposerSheet`) are covered elsewhere, and the Move picker by the
+[IMAP folders journey](#iphone-and-ipad-imap-spam-and-trash-folder-journey). A capture of each
 presenter in Portrait and in Landscape, named with the appearance, is kept.
 
 ## iPhone and iPad Send Now journey
@@ -682,6 +735,19 @@ filtered", "Heading 2 from the Slash Command Menu", "Slash Command Menu Insert",
 Insert filtered", "Slash Command Menu Writing tools", "Slash Command Menu Writing tools filtered"
 and "Shorten Text from the Slash Command Menu" are named with the appearance. VoiceOver speech and the
 other blocks are covered by Jest and the mail-core tests.
+
+`testDraftEditorSlashMenu` runs the same menu in the Draft editor page
+([#2952](https://github.com/unwired-dev/product/issues/2952)) on a
+`registration-draft-editor` Release build with `UNWIRED_JOURNEY=testDraftEditorSlashMenu`.
+After signing in and turning Mail Assistance on, a `/` typed on a New Message body's second line
+opens the menu with its Basic Blocks. Typing `heading 2` filters it to **Heading 2**, selected,
+and Return from the software keyboard makes the line a Heading 2 without the typed text. On the
+next line, a tap on **Heading 2** after `/he` does the same, and one **Undo** restores `/he`.
+Typing `/sho` on a new line filters to **Shorten Text**, whose tap removes the query and opens the
+synthetic model's review panel. The captures "Draft editor page Slash Command Menu", "… filtered",
+"Heading 2 from the Draft editor page Slash Command Menu", "… Writing tools filtered" and "Shorten
+Text from the Draft editor page Slash Command Menu" are named with the appearance. Escape, the
+arrows, Tab and Attach File… are covered by Jest and the page tests.
 
 ## iPhone composer sheet journey
 

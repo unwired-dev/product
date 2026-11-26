@@ -966,13 +966,18 @@ describe('the Tiptap evaluation composer', () => {
       });
     });
     expect(lastSent()).toStrictEqual(converted);
-    // The page refused a paste carrying images; the Mac adds nothing for it yet.
+    // A paste carrying images is read from the pasteboard by native code, and a pasted image
+    // without a name of its own is named as in the current composer.
+    storage.addFile('file:///image.png', 'pasted');
+    storage.pickNext('paste', [
+      { uri: 'file:///image.png', name: '', type: 'image/png' },
+    ]);
     await act(async () => {
       await fireEvent(screen.getByTestId('message-webview'), 'message', {
         nativeEvent: { data: '{"type":"paste"}' },
       });
     });
-    const pasted = lastSent();
+    const pasted = lastAdded();
     // Files dropped on the page are read from the drag pasteboard and attached, images too, as on
     // the current composer.
     storage.addFile('file:///scan.png', 'scan');
@@ -1006,7 +1011,7 @@ describe('the Tiptap evaluation composer', () => {
       attached: attached.images,
       converted,
       resized,
-      pasted,
+      pasted: pasted.images.map(({ name }) => name),
       dropped: {
         images: dropped.images,
         attachments: dropped.attachments.map(({ name }) => name),
@@ -1017,7 +1022,7 @@ describe('the Tiptap evaluation composer', () => {
       attached: [],
       converted: { type: 'convert', id: chart.id },
       resized: commandScript({ type: 'resize', id: chart.id, width: 1024 }),
-      pasted: converted,
+      pasted: ['Pasted image'],
       dropped: { images: [], attachments: ['scan.png'] },
       removed: { type: 'remove', id: plan.id },
       stored: {
