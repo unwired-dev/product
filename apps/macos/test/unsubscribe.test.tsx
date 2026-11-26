@@ -105,6 +105,8 @@ async function opened({
       requests.push(owner);
       return outcomes[requests.length - 1]?.() ?? Promise.resolve('failed');
     },
+    // These messages offer one-click requests only.
+    email: () => Promise.resolve(),
   };
   const mailboxes = [
     {
@@ -382,18 +384,5 @@ describe('the reader’s one-click Unsubscribe', () => {
     await expect(
       screen.findByText('Unsubscribe request sent'),
     ).resolves.toBeOnTheScreen();
-  });
-
-  it('offers nothing for a mailto-only message', async () => {
-    expect.hasAssertions();
-    const { menu } = await opened({
-      headers: {
-        'List-Id': oneClick['List-Id'],
-        'List-Unsubscribe': '<mailto:leave@alza.example>',
-      },
-    });
-    expect(screen.queryByText('Alza.cz newsletter')).toBeNull();
-    expect(screen.queryByRole('button', { name: 'Unsubscribe…' })).toBeNull();
-    expect(menu()).toStrictEqual([]);
   });
 });

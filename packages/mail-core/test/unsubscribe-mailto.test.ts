@@ -2,6 +2,7 @@ import PostalMime from 'postal-mime';
 
 import type { MailtoUnsubscribe } from '../src/outbox.ts';
 import type { RegistrationSnapshot } from '../src/registration.ts';
+import type { MailtoProgress } from '../src/unsubscribe.ts';
 
 import { createMailboxes } from '../src/mailboxes.ts';
 import { createOutbox, undoSendWindow } from '../src/outbox.ts';
@@ -10,6 +11,7 @@ import { syntheticConnections } from '../src/testing/gmail-mailbox.ts';
 import { createSyntheticGmail } from '../src/testing/gmail-mailbox.ts';
 import { createSyntheticGraph } from '../src/testing/graph-mailbox.ts';
 import { createSyntheticImap } from '../src/testing/imap-mailbox.ts';
+import { createUnsubscribe } from '../src/unsubscribe.ts';
 import { device, present } from './draft-sync-fixture.ts';
 import { account } from './outbox-fixture.ts';
 
@@ -102,7 +104,7 @@ async function receiver(provider: Provider, state = 'connected', smtp = true) {
   const become = (now: string) => {
     phone.change(snapshot(now));
   };
-  return { ...phone, server, outbox, sent, filed, become };
+  return { ...phone, server, gmail, outbox, sent, filed, become };
 }
 
 // The Outbox identifier of a request waiting out the Undo Send Window.
@@ -301,6 +303,169 @@ describe('a mailto unsubscribe request', () => {
         phone.outbox.unsubscribe('connection-removed', offer),
       ).resolves.toStrictEqual({ kind: 'failed' });
       expect(phone.drafts.getOutbox()).toStrictEqual([]);
+    } finally {
+      phone.outbox.dispose();
+    }
+  });
+});
+
+// The receiving device's unsubscribe store, keeping its sent requests in memory as native storage
+// would for the signed-in account.
+const recording = (phone: Awaited<ReturnType<typeof receiver>>) => {
+  const kept = { revision: 0, document: null as string | null };
+  return {
+    kept,
+    unsubscribe: createUnsubscribe(
+      {
+        requestUnsubscribe: async () => ({ outcome: 'failed' }),
+        openUnsubscribeRequests: async () => ({ owner: account, ...kept }),
+        commitUnsubscribeRequests: async (
+          owner,
+          expectedRevision,
+          document,
+        ) => {
+          Object.assign(kept, { revision: expectedRevision + 1, document });
+          return { owner, revision: kept.revision };
+        },
+      },
+      phone.registration,
+      phone.outbox,
+    ),
+  };
+};
+
+describe('following a mailto unsubscribe request', () => {
+  const listed = { ...offer, identity: 'newsletter.alza.example' };
+  // oxlint-disable-next-line vitest/no-hooks -- Every journey runs on the same controlled clock.
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    clock.now = Date.UTC(2026, 10, 25, 12);
+    vi.setSystemTime(clock.now);
+  });
+  // oxlint-disable-next-line vitest/no-hooks -- Every journey runs on the same controlled clock.
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  // Starts the request, which resolves once it waits in the Outbox, with everything it reported.
+  const start = async (phone: Awaited<ReturnType<typeof receiver>>) => {
+    const store = recording(phone);
+    const progress: MailtoProgress[] = [];
+    await store.unsubscribe.email(
+      { profile: 'work', connection: receiving.gmail.id, offer: listed },
+      (each) => {
+        progress.push(each);
+      },
+      () => clock.now,
+    );
+    const [admitted] = progress;
+    return {
+      ...store,
+      progress,
+      id: admitted?.kind === 'waiting' ? admitted.id : '',
+    };
+  };
+
+  it('reports it waiting, then sent once delivered, and records it for the Profile', async () => {
+    expect.hasAssertions();
+    const phone = await receiver('gmail');
+    try {
+      const { unsubscribe, progress, id } = await start(phone);
+      later(undoSendWindow);
+      await phone.outbox.process();
+
+      await vi.waitFor(() => {
+        expect(progress).toStrictEqual([
+          { kind: 'waiting', id },
+          { kind: 'sent', at: clock.now },
+        ]);
+      });
+      await expect(
+        unsubscribe.sentRequest('work', listed, clock.now),
+      ).resolves.toStrictEqual({
+        profile: 'work',
+        identity: listed.identity,
+        list: listed.list,
+        sentAt: clock.now,
+      });
+    } finally {
+      phone.outbox.dispose();
+    }
+  });
+
+  it('reports it undone at Undo and records nothing', async () => {
+    expect.hasAssertions();
+    const phone = await receiver('gmail');
+    try {
+      const { kept, progress, id } = await start(phone);
+      await phone.outbox.undo(id, 'waiting');
+
+      expect({ progress, document: kept.document }).toStrictEqual({
+        progress: [{ kind: 'waiting', id }, { kind: 'undone' }],
+        document: null,
+      });
+    } finally {
+      phone.outbox.dispose();
+    }
+  });
+
+  it('reports a refusal as failed, which leaving the Outbox keeps', async () => {
+    expect.hasAssertions();
+    const phone = await receiver('gmail');
+    try {
+      const { kept, progress, id } = await start(phone);
+      phone.become('authorization');
+      later(undoSendWindow);
+      await phone.outbox.process();
+      await phone.outbox.undo(id);
+
+      expect({ progress, document: kept.document }).toStrictEqual({
+        progress: [{ kind: 'waiting', id }, { kind: 'failed' }],
+        document: null,
+      });
+    } finally {
+      phone.outbox.dispose();
+    }
+  });
+
+  it('reports an unknown delivery as uncertain, then sent once Check Again finds it', async () => {
+    expect.hasAssertions();
+    const phone = await receiver('gmail');
+    try {
+      const { unsubscribe, progress, id } = await start(phone);
+      phone.gmail.failSend({ lost: true });
+      later(undoSendWindow);
+      await phone.outbox.process();
+      expect(progress).toStrictEqual([
+        { kind: 'waiting', id },
+        { kind: 'uncertain' },
+      ]);
+
+      await phone.outbox.check(id);
+
+      await vi.waitFor(() => {
+        expect(progress.at(-1)).toStrictEqual({ kind: 'sent', at: clock.now });
+      });
+      await expect(
+        unsubscribe.sentRequest('work', listed, clock.now),
+      ).resolves.toMatchObject({ sentAt: clock.now });
+    } finally {
+      phone.outbox.dispose();
+    }
+  });
+
+  it('reports why a connection that cannot send sends nothing', async () => {
+    expect.hasAssertions();
+    const phone = await receiver('gmail', 'authorization');
+    try {
+      const progress: MailtoProgress[] = [];
+      await recording(phone).unsubscribe.email(
+        { profile: 'work', connection: receiving.gmail.id, offer: listed },
+        (each) => {
+          progress.push(each);
+        },
+      );
+      expect(progress).toStrictEqual([{ kind: 'authorization' }]);
     } finally {
       phone.outbox.dispose();
     }

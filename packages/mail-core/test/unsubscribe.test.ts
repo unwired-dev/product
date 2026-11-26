@@ -352,7 +352,13 @@ const storage = () => {
   return {
     state,
     native,
-    relaunch: () => createUnsubscribe(native, registration),
+    relaunch: () =>
+      createUnsubscribe(native, registration, {
+        subscribe: () => () => undefined,
+        getSnapshot: () => [],
+        unsubscribe: async () => ({ kind: 'failed' }),
+        delivered: () => false,
+      }),
   };
 };
 

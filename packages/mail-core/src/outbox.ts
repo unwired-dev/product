@@ -103,7 +103,9 @@ export type MailtoUnsubscribe =
 
 // Why `mailbox`, the connection that received a `mailto:` offer, cannot send its request: it
 // receives only or needs authorization again.
-const unsendable = (mailbox: MailboxConnection) => {
+export const unsendable = (
+  mailbox: MailboxConnection,
+): 'receive-only' | 'authorization' | undefined => {
   if (mailbox.provider === 'imap' && mailbox.smtp === undefined) {
     return 'receive-only';
   }
@@ -230,6 +232,7 @@ export function createOutbox({
     Drafts,
     | 'getSnapshot'
     | 'getOutbox'
+    | 'getSent'
     | 'admit'
     | 'enqueue'
     | 'deliver'
@@ -1308,6 +1311,8 @@ export function createOutbox({
         }));
       return admitted ? { kind: 'waiting', id: draft.id } : { kind: 'failed' };
     },
+    // Whether the message `id` left the Outbox confirmed as sent, among the latest sends.
+    delivered: (id: string) => drafts.getSent().some((sent) => sent.id === id),
     // Returns a message to the Drafts, as Undo, after a refusal, or when the person chooses to
     // edit one whose delivery is unknown; only while it is `only` when given. An Invitation
     // Response or an unsubscribe request only leaves the Outbox. Resolves the Draft's identifier,

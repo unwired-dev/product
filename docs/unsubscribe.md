@@ -8,9 +8,9 @@ request, [#2823](https://github.com/unwired-dev/product/issues/2823) remembers e
 request that was sent, and [#2824](https://github.com/unwired-dev/product/issues/2824)
 sends a `mailto:` request through the Outbox.
 [#2967](https://github.com/unwired-dev/product/issues/2967) adds the Mac reader's
-banner, confirmation and outcomes for one-click offers; the `mailto:` states
-follow in [#2968](https://github.com/unwired-dev/product/issues/2968), under
-[ADR 0044](adr/0044-isolate-standards-based-unsubscribe-actions.md).
+banner, confirmation and outcomes for one-click offers and
+[#2968](https://github.com/unwired-dev/product/issues/2968) its `mailto:` states,
+under [ADR 0044](adr/0044-isolate-standards-based-unsubscribe-actions.md).
 
 ## Finding the offer
 
@@ -107,7 +107,7 @@ the connection cannot send.
 
 ## Remembering a sent request
 
-`createUnsubscribe(native, registration)` returns the host's `unsubscribe`.
+`createUnsubscribe(native, registration, outbox)` returns the host's `unsubscribe`.
 Its `request(profile, offer)` sends the request as above and, when it ends
 `sent`, records it for `profile`, the Mail Profile that owns the receiving
 connection, and for the Product Account signed in when the request started: the
@@ -124,6 +124,15 @@ reader can show it as sent on that date. After that, for another Profile or for
 an offer without a Mailing List Identity, it returns nothing and the message offers Unsubscribe again, as
 [ADR 0044](adr/0044-isolate-standards-based-unsubscribe-actions.md) allows.
 
+`email({ profile, connection, offer }, tell)` admits a `mailto:` request through
+`outbox.unsubscribe` and follows its Outbox entry until it leaves the Outbox,
+telling `tell` each change: `waiting` with the entry's `id`, `failed` for a
+refusal, `uncertain` for an unknown delivery, `sent` with its time once the
+Outbox confirms the send, or `undone` when it leaves unsent. A confirmed send is
+recorded for `profile` like a one-click request before `sent` is told; Undo
+records nothing. `receive-only` and `authorization` come from the admission as
+above. Once another Product Account signs in, nothing more is told.
+
 Native code keeps the records in `unsubscribe-requests.enc`, a document sealed
 for the signed-in Product Account like its Pins and removed by an account purge.
 They stay on the device: never logged, sent to Convex or included in Product
@@ -135,13 +144,13 @@ neither shows a false Sent state.
 
 A message with a one-click offer shows the Unsubscribe banner under its header
 (`apps/macos/src/unsubscribe.tsx`), and the reader's More menu (⋯) adds
-**Unsubscribe…**. A message whose only offer is `mailto:` shows neither until
-#2968. The banner names the list. The approved frame's count line (how many
+**Unsubscribe…**; a `mailto:` offer shows both too. The banner names the list. The approved frame's count line (how many
 messages the list sent and how many were opened) is left out until
 [#2978](https://github.com/unwired-dev/product/issues/2978) defines it.
 
 **Unsubscribe…** opens a confirmation popover that names the list, the sender
-and the receiving address: from the banner's button, or, from the menu, below the
+and the receiving address, or for a `mailto:` offer the address it emails, the
+receiving address and that the email appears in Sent: from the banner's button, or, from the menu, below the
 toolbar's More group, since the banner may be scrolled out of view. Each reader
 window keeps its own confirmation, which closes once a request was sent. **Cancel** sends
 nothing. **Unsubscribe** calls `unsubscribe.request` once, for the window's Mail
@@ -163,10 +172,26 @@ list (`sentRequest`) within 14 days before the message arrived shows as sent on
 the date it was sent. A sent request with no Mailing List Identity, or one
 storage refused to record, still shows as sent for the rest of the session.
 
+A `mailto:` request goes through `unsubscribe.email` instead, from the
+receiving connection only:
+
+| State         | Banner                                                                                                                                                                             |
+| ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Waiting       | **Unsubscribe request waiting to send**, with the countdown, the two addresses and no action. The reader's Undo Send toast offers **Undo**, which returns the banner to the offer. |
+| Sent          | **Unsubscribe request sent**, dated, saying the email is in Sent.                                                                                                                  |
+| Refused       | **Couldn’t send the request**, as for one-click.                                                                                                                                   |
+| Unknown       | **No clear answer to the request**, as for one-click.                                                                                                                              |
+| Needs sign-in | In place of **Unsubscribe…**, why the connection cannot send and **Sign In…**, which asks its provider again; an IMAP connection's password is entered in its mailbox settings.    |
+| Receive-only  | In place of **Unsubscribe…**, that the IMAP connection has no outgoing server and that Unwired never uses another address, with **Mailbox Settings…**.                             |
+
+After the toast ends, the Outbox row keeps the waiting request's **Undo**. The
+Mac's ⌘Z undoes organizing only, not a send, so the frames' note that ⌘Z undoes
+the request waits for a Mac Undo Send shortcut.
+
 ## Verification
 
 ```sh
-mise exec -- pnpm --dir packages/mail-core exec vitest run test/unsubscribe.test.ts
+mise exec -- pnpm --dir packages/mail-core exec vitest run test/unsubscribe.test.ts test/unsubscribe-mailto.test.ts
 ```
 
 The tests open a message from synthetic Gmail, Graph and IMAP mailboxes and
@@ -174,15 +199,20 @@ cover each offer, refusal, list name and identity, how a native answer becomes
 an outcome, and which outcomes are recorded and for how long.
 `test/unsubscribe-mailto.test.ts` sends a `mailto:` request from synthetic
 Gmail, Graph and IMAP connections and covers Undo, a refused handoff and
-connections that cannot send. On the Mac,
+connections that cannot send, and how `unsubscribe.email` follows the request
+to sent, Undo, a refusal and an unknown delivery. On the Mac,
 `apps/macos/test/unsubscribe.test.tsx` opens a synthetic Gmail message in the
 reader and covers the banner, the menu item, Cancel, one request per
 confirmation, each outcome, Try Again, the dated Sent state with the lookup's
 Profile and arrival time, the disabled state until that lookup answers, a late
-result after the reader moved to another message and a `mailto:`-only message:
+result after the reader moved to another message.
+`apps/macos/test/unsubscribe-mailto.test.tsx` opens a synthetic iCloud Mail
+message whose offer is `mailto:` through the real Outbox and covers the
+confirmation, the waiting banner and toast, the sent request in SMTP and the
+dated banner, the toast's Undo, and the needs-sign-in and receive-only banners:
 
 ```sh
-mise exec -- pnpm --dir apps/macos exec jest test/unsubscribe.test.tsx
+mise exec -- pnpm --dir apps/macos exec jest test/unsubscribe.test.tsx test/unsubscribe-mailto.test.tsx
 ```
 
 The native tests cover the request bytes, redirects and every outcome,

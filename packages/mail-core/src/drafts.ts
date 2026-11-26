@@ -2894,6 +2894,8 @@ export function createDrafts(
     getSnapshot: () => state,
     // The Outbox of the open Product Account, oldest Send first.
     getOutbox: () => outbox,
+    // The latest sends confirmed for the open Product Account.
+    getSent: () => sent,
     getDeliveryCleanup: () =>
       cleanup.filter(({ id }) => {
         const entry = outbox.find((each) => each.id === id);
