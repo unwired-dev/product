@@ -125,8 +125,9 @@ entry leaves, so a relaunch in between loses neither the request nor its
 record. While storage refuses the record, the entry stays in the Outbox with the
 time the provider confirmed it, saved again later and after a relaunch with that
 same time, and is never sent again; the reader shows it sent at once. An IMAP
-request confirmed while filing its Sent copy never files it again, so a copy
-the person moved or deleted meanwhile stays that way. A record
+request keeps that time as soon as its Sent copy is filed and never files it
+again, even after a refused step or a relaunch, so a copy the person moved or
+deleted meanwhile stays that way. A record
 older than the one storage holds for the Profile and list leaves the newer one
 in place and counts as saved. `pendingUnsubscribe(snapshot, connection, { identity, message, epoch })` finds
 the newest request the Outbox holds for the list with that Mailing List
