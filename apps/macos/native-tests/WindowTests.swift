@@ -511,8 +511,10 @@ final class WindowTests: XCTestCase {
     // The toolbar appears once the page is ready and moves the page down; focus it after that.
     XCTAssertTrue(window.buttons["Undo"].waitForExistence(timeout: 30))
     body.click()
-    body.typeText("Before ")
-    XCTAssertTrue(webText("Before", in: window).waitForExistence(timeout: 10))
+    // The caret goes back between the words, so an image added at the end would not pass.
+    body.typeText("Before after")
+    XCTAssertTrue(webText("Before after", in: window).waitForExistence(timeout: 10))
+    for _ in 0..<" after".count { body.typeKey(.leftArrow, modifierFlags: []) }
     window.buttons["Insert Image…"].click()
     let panel = window.sheets.firstMatch
     XCTAssertTrue(panel.waitForExistence(timeout: 15))
@@ -536,8 +538,7 @@ final class WindowTests: XCTestCase {
     let inline = body.images.firstMatch
     XCTAssertTrue(inline.waitForExistence(timeout: 30))
     waitUntil { inline.frame.width > 60 }
-    // At the selection: after the text typed before it.
-    XCTAssertGreaterThan(inline.frame.minX, webText("Before", in: window).frame.minX)
+    assertBetweenWords(inline, in: window)
     capture("Draft editor page inline image")
 
     row.rightClick()
@@ -546,10 +547,14 @@ final class WindowTests: XCTestCase {
     capture("Draft editor page image context menu")
     toAttachment.click()
     waitUntil { body.images.count == 0 }
-    XCTAssertTrue(row.waitForExistence(timeout: 15))
-    row.rightClick()
+    // The row keeps its label as an Attachment and can still show the inline menu for a moment.
     let toInline = app.menuItems["Show Inline"]
-    XCTAssertTrue(toInline.waitForExistence(timeout: 10))
+    for _ in 0..<5 {
+      row.rightClick()
+      if toInline.waitForExistence(timeout: 3) { break }
+      window.typeKey(.escape, modifierFlags: [])
+    }
+    XCTAssertTrue(toInline.exists)
     capture("Draft editor page image as Attachment")
     toInline.click()
     waitUntil { body.images.count == 1 }
@@ -567,18 +572,30 @@ final class WindowTests: XCTestCase {
 
     // Reopened from encrypted storage, the image keeps its place and shows its thumbnail again.
     reopenDraft(app)
-    let before = webText("Before", in: window)
-    XCTAssertTrue(before.waitForExistence(timeout: 15))
     let reopened = window.webViews.textViews["Message body"].images.firstMatch
     XCTAssertTrue(reopened.waitForExistence(timeout: 30))
     waitUntil { reopened.frame.width > 60 }
-    XCTAssertGreaterThan(reopened.frame.minX, before.frame.minX)
+    assertBetweenWords(reopened, in: window)
     XCTAssertTrue(window.images["Inline image inline-photo.png"].waitForExistence(timeout: 30))
     capture("Draft editor page inline image after relaunch")
     // Reopening changed nothing, so Close needs no save choice.
     window.buttons["Close"].click()
     waitUntil { window.webViews.count == 0 }
     XCTAssertFalse(window.sheets.firstMatch.exists)
+  }
+
+  // The image splits "Before after" into two texts, one on each side of it.
+  private func assertBetweenWords(_ image: XCUIElement, in window: XCUIElement) {
+    let texts = window.webViews.staticTexts
+    let before = texts.matching(NSPredicate(format: "value BEGINSWITH %@", "Before")).firstMatch
+    let after = texts.matching(NSPredicate(format: "value ENDSWITH %@", "after")).firstMatch
+    XCTAssertTrue(before.waitForExistence(timeout: 15))
+    XCTAssertTrue(after.waitForExistence(timeout: 15))
+    XCTAssertNotEqual(before.value as? String, after.value as? String)
+    XCTAssertLessThanOrEqual(before.frame.maxX, image.frame.minX + 1)
+    // The text after the image follows it on its line, or wraps below it.
+    XCTAssertTrue(
+      after.frame.minX >= image.frame.maxX - 1 || after.frame.minY >= image.frame.maxY - 1)
   }
 
   // Moving the entry into the reader must keep the open query and command rows in the window.

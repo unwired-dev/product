@@ -527,12 +527,13 @@ mise exec -- pnpm --filter @private-email/macos test:native \
   testDraftEditorInlineImage
 ```
 
-After signing in, a New Message gets body text, then **Insert Image…** chooses a
+After signing in, a New Message gets two words with the caret between them, then
+**Insert Image…** chooses a
 PNG the journey wrote beside the mock copy, through the system open panel's Go to
-Folder. The page shows the image after the text with its native thumbnail.
+Folder. The page shows the image between the words with its native thumbnail.
 **Attach Instead** and **Show Inline** from the row's context menu convert it, two
 **Undo** and two **Redo** step through both conversions, and after **Save**, a
-relaunch and reopening the image is in place with its thumbnail. The inserted
+relaunch and reopening the image is still between the words with its thumbnail. The inserted
 image, the context menu, the Attachment and the reopened Draft are kept as
 attachments.
 

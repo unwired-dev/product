@@ -652,8 +652,8 @@ On the Mac, `testDraftEditorInlineImage`
 [Mac Draft editor Inline Image journey](native-journeys.md#mac-draft-editor-inline-image-journey))
 passed on 2026-11-26 with Xcode 27.2 (`27B52`) on macOS 27.2.1, in a signed
 `registration-draft-editor` `Testing` build from main at `01c50416b`. **Insert Image…**
-placed a PNG chosen in the system open panel after the typed text, and the page showed
-its native thumbnail; **Attach Instead** and **Show Inline** from the row's context menu
+placed a PNG chosen in the system open panel at the caret between two typed words, and
+the page showed its native thumbnail; **Attach Instead** and **Show Inline** from the row's context menu
 converted it, and two **Undo** and two **Redo** stepped back and forward through both
 conversions; after **Save**, a relaunch and reopening, the image was in place with its
 thumbnail. The journey's mock copy needed the app's own user-selected file entitlement
