@@ -134,7 +134,11 @@ release limit:
    recovery record of [ADR 0077](0077-remove-friction-that-privacy-does-not-require.md)
    and prove that they restore after a forced termination. On Mac the page journals
    them and restores them after a force quit since
-   [#2933](https://github.com/unwired-dev/product/issues/2933).
+   [#2933](https://github.com/unwired-dev/product/issues/2933). On iPhone the
+   page composer is the system sheet over the Inbox, so **Back** and edge swipes
+   cannot reach it; its downward swipe closes it as **Close** does, run natively on
+   the iPhone Simulator by [#2961](https://github.com/unwired-dev/product/issues/2961).
+   A compact iPad window has not run it.
 3. The Mac Inline Image journey, image paste on Mac, file drops on every host,
    and **Paste Image** and in-page paste on a device.
 4. WebKit website data after account removal and a network capture of a journey.

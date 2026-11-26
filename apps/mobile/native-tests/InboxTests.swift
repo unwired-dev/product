@@ -2587,10 +2587,8 @@ final class InboxTests: XCTestCase {
     add(shot)
   }
 
-  // The Tiptap evaluation editor (#818, #819, #820): a new Draft is typed into the packaged page,
-  // formatted and edited with assistance, saved with Save Draft through the encrypted Draft store,
-  // and reopened after relaunch. Focus, resize and teardown are recorded.
-  private func draftEditorJourney(_ app: XCUIApplication) {
+  // A `registration-draft-editor` build's new Product Account connects the synthetic Gmail mailbox.
+  private func signInToDraftEditor(_ app: XCUIApplication) {
     app.buttons["Continue"].tap()
     app.buttons["Sign in with Google"].tap()
     let recoveryKey = app.staticTexts["recovery-key"]
@@ -2603,6 +2601,13 @@ final class InboxTests: XCTestCase {
     app.buttons["Confirm Recovery Key"].tap()
     XCTAssertTrue(
       app.buttons["Unread. Rowan Hale. Garden plans for spring"].waitForExistence(timeout: 20))
+  }
+
+  // The Tiptap evaluation editor (#818, #819, #820): a new Draft is typed into the packaged page,
+  // formatted and edited with assistance, saved with Save Draft through the encrypted Draft store,
+  // and reopened after relaunch. Focus, resize and teardown are recorded.
+  private func draftEditorJourney(_ app: XCUIApplication) {
+    signInToDraftEditor(app)
     enableAssistance(app)
     // The disposable Draft belongs to this run's synthetic Product Account only.
     app.buttons["New Message"].tap()
@@ -4961,6 +4966,76 @@ final class InboxTests: XCTestCase {
     // Send admitted the message: the Outbox offers its Undo inside the Undo Send Window.
     openOutbox(app)
     XCTAssertTrue(app.buttons["Undo"].waitForExistence(timeout: 15))
+  }
+
+  // #2961: the Draft editor page's composer is the same system sheet, and its downward swipe is
+  // Close too: an untouched Draft closes, and typed text asks first while the sheet stays.
+  func testDraftEditorSheet() throws {
+    try XCTSkipIf(UIDevice.current.userInterfaceIdiom != .phone, "The sheet is iPhone's")
+    continueAfterFailure = false
+    let environment = ProcessInfo.processInfo.environment
+    XCTAssertEqual(environment["UNWIRED_TEST_SCENARIO"], "registration-draft-editor")
+    let app = XCUIApplication(bundleIdentifier: try XCTUnwrap(environment["UNWIRED_BUNDLE_ID"]))
+    addTeardownBlock { if app.state != .notRunning { app.terminate() } }
+    app.launch()
+    XCTAssertTrue(app.staticTexts["Your mail,\non your devices."].waitForExistence(timeout: 60))
+    signInToDraftEditor(app)
+    let row = app.buttons["Unread. Rowan Hale. Garden plans for spring"]
+    let composer = app.otherElements["composer-overlay"]
+    let body = app.webViews.textViews["Message body"]
+    let swipeDown = {
+      let start = composer.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0))
+        .withOffset(CGVector(dx: 0, dy: 30))
+      start.press(forDuration: 0.1, thenDragTo: start.withOffset(CGVector(dx: 0, dy: 500)))
+    }
+    app.buttons["New Message"].tap()
+    XCTAssertTrue(body.waitForExistence(timeout: 30))
+    waitUntil({ self.pageReady(app) }, timeout: 30)
+    // The sheet covers the Inbox, so no Back or edge swipe reaches it.
+    XCTAssertFalse(row.isHittable)
+    swipeDown()
+    XCTAssertTrue(composer.waitForNonExistence(timeout: 10))
+    XCTAssertTrue(row.isHittable)
+    app.buttons["New Message"].tap()
+    XCTAssertTrue(body.waitForExistence(timeout: 30))
+    waitUntil({ self.pageReady(app) }, timeout: 30)
+    // The empty editor fills the page; focus its first paragraph, again if a loaded host's first
+    // tap lands before the page's editor takes focus.
+    let firstParagraph = body.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 0))
+      .withOffset(CGVector(dx: 24, dy: 24))
+    for _ in 0..<3 where !app.keyboards.firstMatch.exists {
+      firstParagraph.tap()
+      _ = app.keyboards.firstMatch.waitForExistence(timeout: 10)
+    }
+    body.typeText("Kept by the sheet")
+    let typed = webText("Kept by the sheet", in: app)
+    XCTAssertTrue(typed.waitForExistence(timeout: 20))
+    swipeDown()
+    let save = app.buttons["Save Draft"]
+    XCTAssertTrue(save.waitForExistence(timeout: 10))
+    XCTAssertTrue(app.buttons["Delete Draft"].exists)
+    XCTAssertTrue(composer.exists)
+    attachScreen("Draft editor sheet asks before closing", of: app, to: self)
+    // Keep Editing, outside the question, keeps the sheet and the page's text.
+    app.buttons["Keep Editing"].tap()
+    XCTAssertTrue(save.waitForNonExistence(timeout: 10))
+    XCTAssertTrue(typed.exists)
+    swipeDown()
+    XCTAssertTrue(save.waitForExistence(timeout: 10))
+    save.tap()
+    XCTAssertTrue(composer.waitForNonExistence(timeout: 15))
+    let draft = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Draft.")).firstMatch
+    XCTAssertTrue(draft.waitForExistence(timeout: 20))
+    draft.tap()
+    XCTAssertTrue(body.waitForExistence(timeout: 30))
+    XCTAssertTrue(typed.waitForExistence(timeout: 20))
+    waitUntil({ self.pageReady(app) }, timeout: 30)
+    attachScreen("Draft editor sheet reopened", of: app, to: self)
+    // The reopened Draft is unchanged, so the swipe closes it without asking.
+    swipeDown()
+    XCTAssertTrue(composer.waitForNonExistence(timeout: 10))
+    XCTAssertFalse(save.exists)
+    XCTAssertTrue(draft.exists)
   }
 
   // #2891: in a regular-width iPad window New Message's card rises above the software keyboard, with
