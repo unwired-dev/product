@@ -537,6 +537,17 @@ The captures "List Indent" and "List Indent third level" are named with the
 appearance. Indenting several selected items and sent HTML are covered by the
 mail-core tests.
 
+## Mac Draft editor page journey
+
+In the `registration-draft-editor` `Testing` build, `testIndependentWindowsCloseReopenAndQuit`
+runs the [Draft editor evaluation](draft-editor-evaluation.md) journey instead;
+that guide has the build and run commands. Its last part
+([#2938](https://github.com/unwired-dev/product/issues/2938)) relaunches the app,
+opens the saved Draft in two windows and appends different text in each. The first
+window saves. The second window's close button asks; **Cancel** keeps the window
+and its text, and **Save** closes it and keeps its version as a conflicting copy.
+After a relaunch, each Draft holds the saved body and only its own window's text.
+
 ## iPhone and iPad IMAP Spam and Trash folder journey
 
 The Expo native journey for a `registration-imap-folders` Release build signs in
