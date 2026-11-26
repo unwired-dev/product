@@ -117,17 +117,25 @@ const s = composerStyles;
 const styles = StyleSheet.create({
   scroll: { flexGrow: 1 },
   // The regular composer's minimum body height.
-  body: { flex: 1, minHeight: 160 },
+  // Over the fields below, for the Slash Command Menu.
+  body: { flex: 1, minHeight: 160, zIndex: 1 },
   page: { flex: 1, backgroundColor: 'transparent' },
   // The Slash Command Menu floats over the body, from the caret's line.
-  slashMenu: {
+  slashLine: {
     position: 'absolute',
     zIndex: 1,
     left: 0,
     right: 0,
     pointerEvents: 'box-none',
   },
-  slashMenuAbove: { paddingBottom: spacing.xs },
+  slashMenuBelow: { position: 'absolute', top: '100%', left: 0, right: 0 },
+  slashMenuAbove: {
+    position: 'absolute',
+    bottom: '100%',
+    left: 0,
+    right: 0,
+    paddingBottom: spacing.xs,
+  },
   notice: { ...textStyles.subheadline, paddingHorizontal: spacing.l },
   // Menus float over the content below or above their control.
   // Over the body, and under the Close question, whose outside tap must reach it first.
@@ -204,10 +212,12 @@ function usePageSlashMenu(
 }
 
 // The page's Slash Command Menu under the caret's line, or over it when only there is room for it,
-// staying inside the body's `height`, as the current composer places it.
+// staying inside the editor's `viewport` less `reserve` at its bottom, as the current composer
+// places it.
 function PageSlashMenu({
   page,
-  height,
+  viewport,
+  reserve,
   shown,
   ...panel
 }: Omit<
@@ -215,33 +225,52 @@ function PageSlashMenu({
   'shown' | 'origin' | 'maxHeight' | 'onContentHeight'
 > & {
   readonly page: PageState | undefined;
-  readonly height: number;
+  readonly viewport: Readonly<{ current: ViewInstance | null }>;
+  readonly reserve: number;
   readonly shown: ComponentProps<typeof SlashMenuPanel>['shown'] | undefined;
 }) {
+  const line = useRef<ViewInstance>(null);
   const [rows, setRows] = useState(0);
+  const [room, setRoom] =
+    useState<Readonly<{ below: number; above: number }>>();
   const caret = page?.caret;
   if (shown === undefined || caret === undefined) {
     return null;
   }
-  // Room less the menu's padding and margin.
-  const below = height - caret.bottom - 24;
-  const above = caret.top - spacing.s - 24;
-  const flipped = rows > below && above > below;
+  const measure = () => {
+    const view = viewport.current?.getBoundingClientRect();
+    const at = line.current?.getBoundingClientRect();
+    if (view !== undefined && at !== undefined) {
+      // Room less the menu's padding and margin.
+      setRoom({
+        below: view.bottom - reserve - at.bottom - 24,
+        above: at.top - view.top - spacing.s - 24,
+      });
+    }
+  };
+  const flipped =
+    room !== undefined && rows > room.below && room.above > room.below;
   return (
     <View
+      ref={line}
+      onLayout={measure}
       style={[
-        styles.slashMenu,
-        flipped
-          ? [styles.slashMenuAbove, { bottom: height - caret.top }]
-          : { top: caret.bottom },
+        styles.slashLine,
+        { top: caret.top, height: caret.bottom - caret.top },
       ]}>
-      <SlashMenuPanel
-        {...panel}
-        shown={shown}
-        origin={flipped ? 'bottom left' : 'top left'}
-        maxHeight={Math.max(flipped ? above : below, 0)}
-        onContentHeight={setRows}
-      />
+      <View style={flipped ? styles.slashMenuAbove : styles.slashMenuBelow}>
+        <SlashMenuPanel
+          {...panel}
+          shown={shown}
+          origin={flipped ? 'bottom left' : 'top left'}
+          maxHeight={
+            room === undefined
+              ? undefined
+              : Math.max(flipped ? room.above : room.below, 0)
+          }
+          onContentHeight={setRows}
+        />
+      </View>
     </View>
   );
 }
@@ -312,8 +341,8 @@ function EvaluationEditor({
     answer?.(allowed);
   }, []);
   const [stopped, setStopped] = useState(false);
-  // The body's height, which the Slash Command Menu stays inside.
-  const [bodyHeight, setBodyHeight] = useState(0);
+  // The editor's visible area, which the Slash Command Menu stays inside.
+  const viewport = useRef<ViewInstance>(null);
   const mounted = useRef(true);
   const onRebindNow = useRef(onRebind);
   useLayoutEffect(() => {
@@ -829,7 +858,9 @@ function EvaluationEditor({
         enabled={layout.avoidKeyboard}
         keyboardVerticalOffset={layout.top}
         style={s.fill}>
-        <View style={s.fill}>
+        <View
+          ref={viewport}
+          style={s.fill}>
           <EditorHeader
             subject={draft.subject}
             busy={closing === 'saving'}
@@ -925,11 +956,7 @@ function EvaluationEditor({
             {stopped ? (
               <View style={s.fill} />
             ) : (
-              <View
-                style={styles.body}
-                onLayout={({ nativeEvent }) => {
-                  setBodyHeight(nativeEvent.layout.height);
-                }}>
+              <View style={styles.body}>
                 <WebView
                   ref={view}
                   allowsInlineMediaPlayback={false}
@@ -1027,7 +1054,9 @@ function EvaluationEditor({
                 />
                 <PageSlashMenu
                   page={pageState}
-                  height={bodyHeight}
+                  viewport={viewport}
+                  // On iPhone the menu ends 8pt above the floating controls.
+                  reserve={Math.max(phoneControlsInset(phone, open), spacing.s)}
                   shown={slashMenu.shown}
                   titleOf={slashMenu.titleOf}
                   onChoose={chooseSlash}
