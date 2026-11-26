@@ -347,7 +347,7 @@ export function SendMenu({
   readonly below: boolean;
   readonly disabled: boolean;
   readonly sendable: boolean;
-  // The file Send Now waits for while it is still being added.
+  // The file Send and Send Now wait for while it is still being added; Send's help names it.
   readonly waiting: string | undefined;
   // The Draft's stored reminder, where Choose Date and Time… starts.
   readonly reminder: SendReminder | undefined;
@@ -406,6 +406,11 @@ export function SendMenu({
         <Button
           disabled={disabled || !sendable}
           label={t('drafts.send')}
+          help={
+            waiting === undefined
+              ? undefined
+              : t('drafts.assets.stillImporting', { name: waiting })
+          }
           fill="accent"
           onPress={onSend}
         />

@@ -204,6 +204,7 @@ struct DraftTests {
       _ = try await store.importDraftAsset(
         owner: "another-account", id: "plan00002", source: ["kind": "file", "uri": other.path])
     }
+    RegistrationStore.discardPickedDraftFile(other)
     #expect(throws: PrivateInboxError.invalidStore) {
       _ = try cache.readDraftAsset(owner: "another-account", id: "plan00001", digest: digest)
     }
@@ -783,7 +784,8 @@ struct DraftTests {
         owner: owner, id: "plaintext", source: ["kind": "file", "uri": plaintext.absoluteString])
     }
 
-    // A picker's copy over the per-file limit is refused before it is read, and removed.
+    // A picker's copy over the per-file limit is refused before it is read. Like any failed
+    // import's, the copy stays for Try Again until JavaScript discards it.
     let large = try session.picked("large.bin")
     let handle = try FileHandle(forWritingTo: large)
     try handle.truncate(atOffset: UInt64(PrivateInboxStore.draftAssetLimit + 1))
@@ -792,6 +794,8 @@ struct DraftTests {
       _ = try await store.importDraftAsset(
         owner: owner, id: "large0001", source: ["kind": "file", "uri": large.absoluteString])
     }
+    #expect(FileManager.default.fileExists(atPath: large.path))
+    RegistrationStore.discardPickedDraftFile(large)
     #expect(!FileManager.default.fileExists(atPath: large.deletingLastPathComponent().path))
 
     // A similarly named folder beside the picker root is not the picker's: it is neither read

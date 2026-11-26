@@ -28,7 +28,7 @@ contacts no provider. Only this build contains the corpus run and its evidence
 recorder; `verify:bundle` rejects the run in any other bundle, and TestFlight
 uploads refuse mock builds.
 
-Each interactive launch runs version 4 of the synthetic corpus once, through the
+Each interactive launch runs version 5 of the synthetic corpus once, through the
 same shared stores the reader and composer use and the real native module:
 
 - summaries of English, Czech and German messages, a message that tells the model
@@ -37,6 +37,18 @@ same shared stores the reader and composer use and the real native module:
   Czech line, of a short note that reads like a request to expand it, and of
   authored text just inside the input limit, to show whether the model's context
   window holds it;
+- notes each clarifying Writing tool must still edit: open questions, an unclear
+  pronoun, a date with two readings, a short thank-you, requests the clarification
+  check's guardrails may reject (a money transfer, shutting down a build server),
+  French, German and Spanish questions and requests, a list, a link, a quote, amounts,
+  paragraphs and a corrected detail, across Rewrite, Expand, Shorten, Make More
+  Friendly and Make More Neutral. Seven must ask for clarification instead: English
+  and German self-contradicting instructions, contradicting times, contradictions
+  under Expand and Make More Friendly, and unreadable notes under Shorten and Make
+  More Neutral. Four more, two of each kind, were held out: written after the
+  check's prompt was tuned and first run in the qualification build. An unexpected
+  or missed clarification fails its case. Only this build runs the
+  clarification check ([#2849](https://github.com/unwired-dev/product/issues/2849));
 - reply suggestions with authored text, without authored text for a German
   message, and with a quoted message cut at the limit;
 - translations between installed or missing language pairs, and the same-language
@@ -204,3 +216,27 @@ the issue. Older evidence containing an `evidence` path must have that field
 removed before attachment. The review
 agent carries the results into the platform qualification record. A missing
 configuration remains a required release check.
+
+## Clarification check results
+
+[#2849](https://github.com/unwired-dev/product/issues/2849) compared the separate
+clarification check with the plain edit on corpus v5 on the Mac mini with Apple
+M4 (macOS 27.2.1, build 26B131), on 26 November 2026: one `qualify:assistance` run of
+the qualification build, and one of the same build with the check compiled out.
+
+- **Edits:** all 29 cases that both runs edited came back byte-identical. The
+  check never changes an edit's text.
+- **Flags:** 8 of the 9 cases that must ask did, including both held-out ones. The
+  check missed "Bitte schick Anna den Vertrag. Schick Anna den Vertrag auf keinen
+  Fall.", so its case fails and the run is not qualified; the plain edit kept both
+  sentences. None of the 28 ordinary texts the model edited was flagged.
+- **Latency:** the check added a median of 595 ms to an edit (90th percentile
+  842 ms, at most 1.8 s). A clarification answered in a median of 570 ms.
+- A standalone probe before the runs, with the same instructions, also refused
+  "Pay the supplier the 500 euros today. Do not pay the supplier." in both the
+  check and the plain edit: guardrails, not the check, decide such text.
+
+The check qualifies only when every case that must ask comes back as a
+clarification and no ordinary text is flagged; a `limited` case leaves it
+unqualified on that device. Until the owner accepts this result, or a later model
+or prompt meets that bar, only the qualification build runs the check.
