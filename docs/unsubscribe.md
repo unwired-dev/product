@@ -124,12 +124,16 @@ Check Again finds it in Sent, the Outbox records the request through the
 entry leaves, so a relaunch in between loses neither the request nor its
 record. While storage refuses the record, the entry stays in the Outbox with the
 time the provider confirmed it, saved again later and after a relaunch with that
-same time, and is never sent again; the reader shows it sent at once. A record
+same time, and is never sent again; the reader shows it sent at once. An IMAP
+request confirmed while filing its Sent copy files it again, which finds the
+copy, and then leaves. A record
 older than the one storage holds for the Profile and list leaves the newer one
-in place and counts as saved. `pendingUnsubscribe(snapshot, connection, { identity, message })` finds
+in place and counts as saved. `pendingUnsubscribe(snapshot, connection, { identity, message, epoch })` finds
 the newest request the Outbox holds for the list with that Mailing List
 Identity, or, for a list without one, for that message, so two lists sharing an
-address never take each other's state. `outbox.delivered(id)` says when one
+address never take each other's state. It looks only at the connection's
+current incarnation (`epoch`): a request from before the mailbox was removed and
+added again is refused, and never tried again for the new one. `outbox.delivered(id)` says when one
 that left was confirmed and, for a request confirmed this session, to whom, even
 after the capped Sent history forgets it. `outbox.emailedUnsubscribe(connection,
 { profile, message })` says the same of a request confirmed this session in that

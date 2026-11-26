@@ -114,21 +114,27 @@ export const unsendable = (
   return mailbox.state === 'authorization' ? 'authorization' : undefined;
 };
 
-// The newest `mailto:` unsubscribe request `connection` holds in `outbox` for the list with
-// `identity`, or for `message` when the list has none, which the reader shows until it leaves the
-// Outbox, across relaunches; an unknown one a confirmed retry answered no longer stands for it.
+// The newest `mailto:` unsubscribe request `connection`, in its incarnation `epoch`, holds in
+// `outbox` for the list with `identity`, or for `message` when the list has none, which the reader
+// shows until it leaves the Outbox, across relaunches; an unknown one a confirmed retry answered no
+// longer stands for it, and one from before the connection was added again never does.
 export const pendingUnsubscribe = <
-  E extends Pick<OutboxEntry, 'draft' | 'unsubscribe'>,
+  E extends Pick<OutboxEntry, 'draft' | 'unsubscribe' | 'epoch'>,
 >(
   outbox: readonly E[],
   connection: string,
-  { identity, message }: Readonly<{ identity?: string; message: string }>,
+  {
+    identity,
+    message,
+    epoch,
+  }: Readonly<{ identity?: string; message: string; epoch?: string }>,
 ) =>
   Arr.reverse(outbox).find(
-    ({ draft, unsubscribe }) =>
+    ({ draft, unsubscribe, epoch: incarnation }) =>
       unsubscribe !== undefined &&
       unsubscribe.answered !== true &&
       draft.connection === connection &&
+      (incarnation ?? 'legacy') === (epoch ?? 'legacy') &&
       (identity === undefined
         ? unsubscribe.identity === undefined && unsubscribe.message === message
         : unsubscribe.identity === identity),
@@ -736,9 +742,11 @@ export function createOutbox({
       return false;
     }
     unrecorded.delete(entry.id);
-    if (awaitingOutcome(entry.state)) {
-      yield* keep(entry.id, outcome);
+    // A confirmed request still filing its Sent copy files it again, which finds the copy.
+    if (!awaitingOutcome(entry.state)) {
+      return false;
     }
+    yield* keep(entry.id, outcome);
     return true;
   });
 
@@ -1398,18 +1406,19 @@ export function createOutbox({
     offer: Extract<UnsubscribeOffer, { kind: 'mailto' }>,
     { message: source, retrying = [] }: UnsubscribeSource,
   ): Promise<MailtoUnsubscribe> => {
+    const mailbox = mailboxesOf(registration.getSnapshot().snapshot).find(
+      ({ id }) => id === connection,
+    );
     const held = pendingUnsubscribe(drafts.getOutbox(), connection, {
       ...offer,
       message: source,
+      ...(mailbox?.epoch === undefined ? {} : { epoch: mailbox.epoch }),
     });
     const standing = standingOf(held, retrying);
     if (standing !== undefined) {
       return standing;
     }
     const account = ownerOf(registration);
-    const mailbox = mailboxesOf(registration.getSnapshot().snapshot).find(
-      ({ id }) => id === connection,
-    );
     if (mailbox === undefined || account === undefined) {
       return { kind: 'failed' };
     }

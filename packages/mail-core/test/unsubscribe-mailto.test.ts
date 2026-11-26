@@ -67,11 +67,17 @@ const listed = (provider: Provider, state: string, smtp: boolean) => ({
 async function receiver(provider: Provider, state = 'connected', smtp = true) {
   const server = createSyntheticProductSync();
   const phone = await device(server, account, 'phone');
-  const snapshot = (now: string): RegistrationSnapshot => ({
+  // In `epoch`, the incarnation a connection added again lists.
+  const snapshot = (now: string, epoch?: string): RegistrationSnapshot => ({
     kind: 'connected',
     productAccountId: account,
     signInProvider: 'apple',
-    mailboxes: JSON.stringify([listed(provider, now, smtp)]),
+    mailboxes: JSON.stringify([
+      {
+        ...listed(provider, now, smtp),
+        ...(epoch === undefined ? {} : { epoch }),
+      },
+    ]),
   });
   phone.change(snapshot(state));
   const gmail = createSyntheticGmail();
@@ -151,8 +157,8 @@ async function receiver(provider: Provider, state = 'connected', smtp = true) {
         .length,
     })[provider];
   // The receiving connection moves to state `now`.
-  const become = (now: string) => {
-    phone.change(snapshot(now));
+  const become = (now: string, epoch?: string) => {
+    phone.change(snapshot(now, epoch));
   };
   return {
     ...phone,
@@ -738,31 +744,74 @@ describe('recording a mailto unsubscribe request', () => {
     }
   });
 
-  it('keeps a confirmed request in the Outbox until storage records it, without sending it again', async () => {
+  it.each(['gmail', 'imap'] as const)(
+    'keeps a confirmed request from %s in the Outbox until storage records it, without sending it again',
+    async (provider) => {
+      expect.hasAssertions();
+      const phone = await receiver(provider);
+      try {
+        const id = await start(phone, provider);
+        const profile = profileOf(pending(phone, provider));
+        phone.kept.owner = 'another-product-account';
+        later(undoSendWindow);
+        await phone.outbox.process();
+        const confirmedAt = clock.now;
+        await vi.waitFor(() => {
+          expect(pending(phone, provider)?.unsubscribe?.sentAt).toBe(
+            confirmedAt,
+          );
+        });
+        expect(phone.outbox.delivered(id)).toMatchObject({ at: confirmedAt });
+
+        later(86_400_000);
+        phone.kept.owner = account;
+        await phone.outbox.process();
+        await vi.waitFor(() => {
+          expect(pending(phone, provider)).toBeUndefined();
+        });
+        await expect(
+          phone.unsubscribe.sentRequest(profile, listed, clock.now),
+        ).resolves.toMatchObject({ sentAt: confirmedAt, to: listed.address });
+        expect([phone.sent().length, phone.filed()]).toStrictEqual([1, 1]);
+      } finally {
+        phone.outbox.dispose();
+      }
+    },
+  );
+
+  it('never tries a request again for a connection added again since, whose message offers another address', async () => {
     expect.hasAssertions();
     const phone = await receiver('gmail');
     try {
-      const id = await start(phone);
-      const profile = profileOf(pending(phone));
-      phone.kept.owner = 'another-product-account';
+      const old = await start(phone);
+      phone.become('connected', 'added-again');
       later(undoSendWindow);
       await phone.outbox.process();
-      const confirmedAt = clock.now;
-      await vi.waitFor(() => {
-        expect(pending(phone)?.unsubscribe?.sentAt).toBe(confirmedAt);
-      });
-      expect(phone.outbox.delivered(id)).toMatchObject({ at: confirmedAt });
+      expect(pending(phone)?.state).toBe('failed');
+      const current = { ...listed, message: source, epoch: 'added-again' };
+      expect(
+        pendingUnsubscribe(
+          phone.outbox.getSnapshot(),
+          receiving.gmail.id,
+          current,
+        ),
+      ).toBeUndefined();
 
-      later(86_400_000);
-      phone.kept.owner = account;
-      await phone.outbox.process();
-      await vi.waitFor(() => {
-        expect(pending(phone)).toBeUndefined();
-      });
-      await expect(
-        phone.unsubscribe.sentRequest(profile, listed, clock.now),
-      ).resolves.toMatchObject({ sentAt: confirmedAt, to: listed.address });
-      expect(phone.gmail.sends).toHaveLength(1);
+      const fresh = waitingId(
+        await phone.outbox.unsubscribe(
+          receiving.gmail.id,
+          { ...listed, address: 'other@lists.alza.example' },
+          { message: source, retrying: [old] },
+        ),
+      );
+      expect(fresh).not.toBe(old);
+      expect(
+        pendingUnsubscribe(
+          phone.outbox.getSnapshot(),
+          receiving.gmail.id,
+          current,
+        )?.draft.to,
+      ).toStrictEqual([{ address: 'other@lists.alza.example' }]);
     } finally {
       phone.outbox.dispose();
     }

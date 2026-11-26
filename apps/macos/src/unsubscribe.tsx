@@ -294,12 +294,17 @@ function useOffer(inbox: Source, id: string) {
   const offer = useMemo(() => unsubscribeOf(document), [document]);
   const connection = mailbox?.id ?? '';
   const receiving = signedIn?.mailboxes.find((each) => each.id === mailbox?.id);
-  const key = `${account}\n${profile}\n${mailbox?.id}\n${id}`;
+  // A connection added again is another incarnation, which never takes an earlier one's requests.
+  const key = `${account}\n${profile}\n${mailbox?.id}\n${receiving?.epoch}\n${id}`;
   const entry =
     useSyncExternalStore(subscribe, () => entries.get(key)) ?? nothing;
   const pending =
     offer?.kind === 'mailto'
-      ? pendingUnsubscribe(queued, connection, { ...offer, message: id })
+      ? pendingUnsubscribe(queued, connection, {
+          ...offer,
+          message: id,
+          ...(receiving?.epoch === undefined ? {} : { epoch: receiving.epoch }),
+        })
       : undefined;
   const { blocked, refused, waiting } = pendingStateOf(
     offer,
