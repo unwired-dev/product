@@ -1562,6 +1562,14 @@ describe('entering Draft recipients', () => {
       recent: [],
       contacts: [{ name: 'Lena Fischer', address: 'lena@example.com' }],
     });
+    // A Mail Profile address already on the Draft, such as a self-Bcc, is listed with its role.
+    expect(
+      bodySuggestionSections(
+        { ...onDraft, bcc: [{ address: 'me@example.com' }] },
+        { start: 0, end: 3, text: 'me' },
+        { correspondents, contacts: [], excluded: ['me@example.com'] },
+      ).recent,
+    ).toStrictEqual([{ name: 'Me', address: 'me@example.com' }]);
     expect(
       recipientSuggestions({ ...onDraft, entries: { to: 't' } }, 'to', {
         correspondents,

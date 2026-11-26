@@ -2671,6 +2671,25 @@ describe('composing Drafts', () => {
       ]);
       expect(tomas()).toHaveLength(1);
       expect(announce).toHaveBeenLastCalledWith('Inserted Tomáš Dvořák');
+
+      // Typing @ over a selected word opens the suggestions too.
+      const done = 'Hi Tomáš,\nI’ll ask Ana and Tomáš Dvořák';
+      const ana = done.indexOf('Ana');
+      await fireEvent(body(), 'selectionChange', {
+        nativeEvent: { selection: { start: ana, end: ana + 3 } },
+      });
+      await fireEvent.changeText(
+        body(),
+        `${done.slice(0, ana)}@${done.slice(ana + 3)}`,
+      );
+      await fireEvent(body(), 'selectionChange', {
+        nativeEvent: { selection: { start: ana + 1, end: ana + 1 } },
+      });
+      await expect(
+        screen.findByRole('button', {
+          name: 'Tomáš Dvořák, tomas@example.invalid, in To',
+        }),
+      ).resolves.toBeOnTheScreen();
     } finally {
       modules.mockRestore();
       Object.assign(appleContacts, { granted: false, addresses: [] });

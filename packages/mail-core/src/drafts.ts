@@ -502,12 +502,17 @@ export function bodySuggestionSections(
 ) {
   const typed = query.text.toLowerCase();
   const present = [...draft.to, ...draft.cc, ...draft.bcc];
+  // A Mail Profile address someone put on the Draft, such as a self-Bcc, is listed too.
+  const onDraft = new Set(addressesOf(draft).map((each) => each.toLowerCase()));
+  const kept = [...excluded].filter(
+    (address) => !onDraft.has(address.toLowerCase()),
+  );
   const recent = suggestionsFor(typed, {
     correspondents: [
       ...correspondents,
       ...present.map(({ name = '', address }) => ({ sender: name, address })),
     ],
-    excluded,
+    excluded: kept,
     limit: 4,
   });
   const matched =
@@ -515,7 +520,7 @@ export function bodySuggestionSections(
       ? []
       : suggestionsFor(typed, {
           correspondents: contacts,
-          excluded: [...excluded, ...recent.map(({ address }) => address)],
+          excluded: [...kept, ...recent.map(({ address }) => address)],
           limit: 4,
         });
   const shown = recent.slice(0, matched.length === 0 ? 4 : 3);

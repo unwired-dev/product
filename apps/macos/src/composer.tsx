@@ -3588,7 +3588,7 @@ function Editor({
     recipientMenu.typed(
       result.document,
       { start: caret.current, end: caret.current },
-      text.slice(at.start, at.start + text.length - textBefore.length),
+      text.slice(at.start, at.end + text.length - textBefore.length),
     );
   };
   const format = (mark: Mark) => {
