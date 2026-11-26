@@ -253,15 +253,18 @@ export const graphLabels = (
 const categoryPrefix = 'CATEGORY_';
 const categoryLabel = (name: string) =>
   `${categoryPrefix}${Base64Url.encode(name)}`;
-// A name too long for a label stays on the message in Graph, unlisted.
+// A name longer than Outlook allows stays on the message in Graph, unlisted.
 export const categoryLabels = (names: readonly string[] = []) =>
-  names.map(categoryLabel).filter((label) => label.length <= 512);
-const categoryName = (label: string) =>
-  label.startsWith(categoryPrefix)
+  names.filter((name) => name.length <= 255).map(categoryLabel);
+// A label's category name, only from the one label that name has.
+const categoryName = (label: string) => {
+  const name = label.startsWith(categoryPrefix)
     ? Result.getOrUndefined(
         Base64Url.decodeString(label.slice(categoryPrefix.length)),
       )
     : undefined;
+  return name !== undefined && categoryLabel(name) === label ? name : undefined;
+};
 const categoryNames = (labels: readonly string[]) => {
   const names = labels.map(categoryName);
   return names.every(
@@ -326,14 +329,18 @@ export const graphChange = (action: GmailAction): GraphChange | undefined => {
   }
   const [chosen] = action.add;
   const folder = action.kind === 'move' ? chosen : folderMoves[action.kind];
-  return folder === undefined ? undefined : { folder };
+  // A category is never a folder to move to.
+  return folder === undefined || folder.startsWith(categoryPrefix)
+    ? undefined
+    : { folder };
 };
 
 const GraphPlacementSchema = Schema.Struct({
   id: GraphId,
   parentFolderId: GraphId,
   isRead: Schema.Boolean,
-  categories: Schema.optionalKey(Schema.Array(Schema.String)),
+  // Graph always reports them, so a reply without them is not trusted to overwrite them.
+  categories: Schema.Array(Schema.String),
 });
 // A message after a change, or as organizing reads it back.
 export const decodeGraphPlacement = json(GraphPlacementSchema);

@@ -488,6 +488,72 @@ describe('organizing Microsoft mail through Graph', () => {
     expect(message(authorized, kept).labels).toStrictEqual(['INBOX', 'UNREAD']);
   });
 
+  it.each([
+    { reply: 'omits categories', fields: {} },
+    {
+      reply: 'is about another message',
+      fields: { id: 'AAMkOther=', categories: ['Other'] },
+    },
+  ])(
+    'writes no categories while the Graph read before the change $reply',
+    async ({ fields }) => {
+      expect.hasAssertions();
+      const graph = createSyntheticGraph({ messages: 0 });
+      const target = graph.deliver({ categories: ['Travel'] });
+      const inbox = await opened(graph);
+      const [finance = ''] = categoryLabels(['Finance']);
+      // The change's first Graph request reads the message's categories.
+      const read = vi.spyOn(graph.native, 'graphRequest');
+      read.mockResolvedValueOnce({
+        status: 200,
+        body: JSON.stringify({
+          id: target,
+          parentFolderId: 'AQMkFolder-inbox=',
+          isRead: false,
+          ...fields,
+        }),
+      });
+
+      await inbox.organize(message(inbox, target), gmailAction.label(finance));
+      expect(ready(inbox.getSnapshot())).toMatchObject({
+        pending: 1,
+        sync: 'retry',
+      });
+      expect(graph.modifies).toStrictEqual([]);
+      const relaunched = await opened(graph);
+      expect(ready(relaunched.getSnapshot()).pending).toBe(0);
+      expect(graph.categoriesOf(target)).toStrictEqual(['Travel', 'Finance']);
+    },
+  );
+
+  it("keeps a category named at Outlook's length limit through a relaunch and its removal", async () => {
+    expect.hasAssertions();
+    // 255 characters of three UTF-8 bytes each, and one name longer than Outlook allows.
+    const longest = '分'.repeat(255);
+    const tooLong = 'x'.repeat(256);
+    const graph = createSyntheticGraph({ messages: 0 });
+    const target = graph.deliver({ categories: [longest, tooLong] });
+    await opened(graph);
+    const relaunched = await opened(graph);
+    const [label = ''] = categoryLabels([longest]);
+    expect(message(relaunched, target).labels).toStrictEqual([
+      'INBOX',
+      'UNREAD',
+      label,
+    ]);
+
+    await relaunched.organize(
+      message(relaunched, target),
+      gmailAction.unlabel(label),
+    );
+    expect(ready(relaunched.getSnapshot()).pending).toBe(0);
+    expect(graph.categoriesOf(target)).toStrictEqual([tooLong]);
+    expect(message(relaunched, target).labels).toStrictEqual([
+      'INBOX',
+      'UNREAD',
+    ]);
+  });
+
   it('lists categories in search results and a delta round', async () => {
     expect.hasAssertions();
     const graph = createSyntheticGraph({ messages: 0 });

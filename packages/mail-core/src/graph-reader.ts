@@ -626,18 +626,24 @@ export function createGraphReader(
     );
   });
 
+  type Placement = Effect.Success<ReturnType<typeof decodeGraphPlacement>>;
+  // Graph's reply about the message asked for; one about another message is retried.
+  const sameMessage = (id: string, message: Placement) =>
+    message.id === id
+      ? Effect.succeed(message)
+      : Effect.fail(
+          new SyncFailure({
+            kind: 'retry',
+            cause: 'message mismatch',
+            diagnostic: 'another message',
+          }),
+        );
   const placed = Effect.fnUntraced(function* (
     scope: MailboxScope,
     id: string,
-    message: Effect.Success<ReturnType<typeof decodeGraphPlacement>>,
+    reply: Placement,
   ) {
-    if (message.id !== id) {
-      return yield* new SyncFailure({
-        kind: 'retry',
-        cause: 'message mismatch',
-        diagnostic: 'another message',
-      });
-    }
+    const message = yield* sameMessage(id, reply);
     const roles = yield* folderRoles(scope);
     return [
       ...graphLabels(message.parentFolderId, message.isRead, roles),
@@ -723,7 +729,10 @@ export function createGraphReader(
     return found === undefined
       ? undefined
       : {
-          categories: changedCategories(found.categories ?? [], requested),
+          categories: changedCategories(
+            (yield* sameMessage(id, found)).categories,
+            requested,
+          ),
         };
   });
 
