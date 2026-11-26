@@ -631,6 +631,54 @@ describe('replying to and forwarding a received message', () => {
     }
   });
 
+  it('downloads a forwarded attachment again on Try Again, also once its reader closed', async () => {
+    expect.hasAssertions();
+    const { start, draft, storage, gmail, drafts, close } = await reader({
+      content: {
+        text: 'See attached',
+        attachments: [
+          {
+            filename: 'report.pdf',
+            mimeType: 'application/pdf',
+            bytes: report,
+          },
+        ],
+      },
+    });
+    storage.readSavedAttachments(gmail.savedFiles);
+    // The device removes the Downloaded Attachments before Draft storage copies them.
+    storage.holdImports();
+    const forward = draft(await start('forward'));
+    gmail.savedFiles.clear();
+    storage.releaseImports();
+    const failed = () =>
+      assetsOf(draft(forward.id)).filter(({ state }) => state === 'failed');
+    await vi.waitFor(() => {
+      expect(failed()).toMatchObject([
+        { name: 'notes.txt', notDownloaded: true },
+        { name: 'report.pdf', notDownloaded: true },
+      ]);
+    });
+    const [notes, pdf] = failed().map(({ id }) => id);
+    expect([...drafts.getRetries()]).toStrictEqual([notes, pdf]);
+
+    // With the reader open, Try Again downloads the file again rather than reusing the removed one.
+    await expect(drafts.retryImport(present(notes, 'notes.txt'))).resolves.toBe(
+      true,
+    );
+    // Once the reader closed, Try Again reads the message again to download it.
+    close();
+    await expect(drafts.retryImport(present(pdf, 'report.pdf'))).resolves.toBe(
+      true,
+    );
+    expect(
+      assetsOf(draft(forward.id)).map(({ name, state }) => ({ name, state })),
+    ).toStrictEqual([
+      { name: 'notes.txt', state: 'complete' },
+      { name: 'report.pdf', state: 'complete' },
+    ]);
+  });
+
   it('starts no forward when its reader, destination, sender or account changes while attachments download', async () => {
     expect.hasAssertions();
     type Opened = Awaited<ReturnType<typeof reader>>;

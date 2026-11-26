@@ -415,7 +415,10 @@ export function createSyntheticDrafts(
       }
       const bytes = bytesOf(source);
       if (bytes === undefined) {
-        return rejection('unavailable');
+        // As native code, a Downloaded Attachment the device no longer has is missing.
+        return rejection(
+          source.kind === 'received' ? 'attachment-missing' : 'unavailable',
+        );
       }
       if (bytes.length > assetLimit || used() + bytes.length > outgoingLimit) {
         return rejection('too-large');

@@ -1538,7 +1538,7 @@ export function createDrafts(
   let retries: ReadonlySet<string> = new Set<string>();
   // The complete assets each Draft has used in this account's session, kept in storage while that
   // Draft exists so Undo can restore a removed image or file. A relaunch forgets them. Failed
-  // imports Try Again can read again are held the same way.
+  // imports Try Again can read again are noted the same way, so an open editor keeps them.
   const held = new Map<string, Set<string>>();
   const remember = (draft: Draft) => {
     const assets = held.get(draft.id) ?? new Set<string>();
@@ -1599,11 +1599,14 @@ export function createDrafts(
     }
   };
 
+  // Failed imports a Draft or queued message has listed; removing them there releases them.
+  const listedRetries = new Set<string>();
   // Forgets the failed imports in `ids`, deleting their copies.
   const release = (ids: readonly string[]) => {
     const sources = ids.flatMap((id) => {
       const entry = retained.get(id);
       retained.delete(id);
+      listedRetries.delete(id);
       return entry === undefined ? [] : [entry.source];
     });
     if (sources.length > 0) {
@@ -1612,14 +1615,31 @@ export function createDrafts(
     }
   };
 
-  // A failed import stays retryable while a Draft, queued message or open editor holds its asset,
-  // as a removed file's bytes stay for Undo, so discarding or sending the Draft deletes its copy.
+  // A failed import stays retryable while a Draft or queued message lists its file, so removing
+  // it, or discarding or sending its Draft, deletes its copy. One only an open editor has shown,
+  // before it saved, stays until that editor closes.
   const releaseRemoved = (drafts: readonly Draft[]) => {
     if (retained.size === 0) {
       return;
     }
-    const kept = new Set(keepOf(drafts));
-    release([...retained.keys()].filter((id) => !kept.has(id)));
+    const listed = new Set(
+      [...drafts, ...outbox.map((entry) => entry.draft)].flatMap((draft) =>
+        assetsOf(draft).map(({ id }) => id),
+      ),
+    );
+    const editing = new Set(
+      [...editors.keys()].flatMap((draft) => [...(held.get(draft) ?? [])]),
+    );
+    for (const id of listed) {
+      if (retained.has(id)) {
+        listedRetries.add(id);
+      }
+    }
+    release(
+      [...retained.keys()].filter(
+        (id) => !listed.has(id) && (listedRetries.has(id) || !editing.has(id)),
+      ),
+    );
   };
 
   const publish = (next: DraftsState, notify?: () => void) => {
@@ -2507,7 +2527,7 @@ export function createDrafts(
     }).pipe(Effect.asVoid, Effect.catchTag('DraftStorageFailure', report));
 
   // Fails an asset wherever it is still importing. Given `retry`, Try Again can read it again while
-  // a Draft or open editor holds it; held before the asset fails there, so they keep it.
+  // a Draft or open editor holds it; retained before the asset fails there, so they keep it.
   const failAsset = Effect.fnUntraced(function* (
     current: number,
     asset: Asset,
@@ -2660,19 +2680,20 @@ export function createDrafts(
         ),
       );
       fetched?.release();
-      const wanted = stopImporting(current, asset.id);
       if (Result.isFailure(outcome)) {
-        // Failed first, so no editor sees the asset neither importing nor failed meanwhile. Native
-        // code may have written the bytes before rejecting, as when the device locked.
-        yield* importFailed(current, {
+        // Native code may have written the bytes before rejecting, as when the device locked; they
+        // go before Try Again can import under the same asset. Importing until then, so no editor
+        // sees the asset neither importing nor failed meanwhile.
+        yield* discardBytes(account, asset.id);
+        return yield* importFailed(current, {
           asset,
           source: read,
           download,
           failure: outcome.failure,
-          wanted,
+          wanted: stopImporting(current, asset.id),
         });
-        return yield* discardBytes(account, asset.id);
       }
+      const wanted = stopImporting(current, asset.id);
       if (!wanted || outcome.success.owner !== account) {
         return yield* discardBytes(account, asset.id);
       }
@@ -3410,12 +3431,16 @@ export function createDrafts(
       bindEditor(id, moved);
     },
     // Stops moving an editor that unmounted; its unsaved edits stay in memory for the next save.
+    // Failed imports only it held are released.
     release: (moved: (id: string) => void) => {
       for (const [id, bindings] of editors) {
         bindings.delete(moved);
         if (bindings.size === 0) {
           editors.delete(id);
         }
+      }
+      if (state.kind === 'ready') {
+        releaseRemoved(state.drafts);
       }
     },
     // Deletes the Draft named by `target`, which a function resolves once earlier saves land.

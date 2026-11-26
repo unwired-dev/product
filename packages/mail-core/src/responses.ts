@@ -362,7 +362,11 @@ export const typedReply = (
 export async function forwardedAttachments(
   inbox: Pick<
     GmailInbox | ImapInbox,
-    'messageAttachments' | 'downloadAttachment' | 'holdAttachmentFile'
+    | 'messageAttachments'
+    | 'downloadAttachment'
+    | 'holdAttachmentFile'
+    | 'retainMessage'
+    | 'readMessage'
   >,
   { mailbox, id }: Readonly<{ mailbox: string; id: string }>,
 ) {
@@ -401,14 +405,23 @@ export async function forwardedAttachments(
       name,
       type: mimeType,
       source: sourceOf(saved),
-      // Try Again downloads it again from this mailbox, which the Draft's Mail Profile keeps.
+      // Try Again downloads it again from this mailbox, which the Draft's Mail Profile keeps,
+      // reading the message meanwhile in case its reader closed.
       download: async () => {
-        await inbox.downloadAttachment(id, locator).catch(() => undefined);
-        const again = inbox.holdAttachmentFile(id, locator);
-        return {
-          source: sourceOf(again),
-          release: again?.release ?? (() => undefined),
-        };
+        const reading = inbox.retainMessage(id);
+        try {
+          await inbox.readMessage(id);
+          await inbox
+            .downloadAttachment(id, locator, { again: true })
+            .catch(() => undefined);
+          const again = inbox.holdAttachmentFile(id, locator);
+          return {
+            source: sourceOf(again),
+            release: again?.release ?? (() => undefined),
+          };
+        } finally {
+          reading();
+        }
       },
     };
   });
@@ -443,6 +456,8 @@ export async function startResponse(
       | 'messageAttachments'
       | 'downloadAttachment'
       | 'holdAttachmentFile'
+      | 'retainMessage'
+      | 'readMessage'
     >;
   }>,
   t: Translate,

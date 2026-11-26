@@ -681,6 +681,21 @@ describe('sending a Draft', () => {
         'help',
         waiting,
       );
+      // It stays beside another reason Send is unavailable.
+      await fireEvent.changeText(
+        screen.getByLabelText('To'),
+        'jürgen@example.invalid',
+      );
+      expect(
+        screen.getByText(
+          'An address in this message uses characters this app cannot send yet. Use a plain email address.',
+        ),
+      ).toBeOnTheScreen();
+      expect(screen.getByLabelText(waiting)).toBeOnTheScreen();
+      await fireEvent.changeText(
+        screen.getByLabelText('To'),
+        'sam@example.invalid',
+      );
       await act(async () => {
         sender.storage.releaseImports();
       });

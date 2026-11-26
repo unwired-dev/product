@@ -51,6 +51,7 @@ import {
   sendingMailboxes,
   sendingStateOf,
   unsendableAssets,
+  withAsset,
   withSender,
 } from '../src/drafts.ts';
 import { defaultProfile, mailboxesOf } from '../src/registration.ts';
@@ -3605,13 +3606,19 @@ describe('adding files and images to Drafts', () => {
     expect(assetsOf(draft())[0]).toMatchObject({ state: 'cancelled' });
     expect(storage.assets()).toStrictEqual([]);
 
-    // Unreadable source bytes fail the import, which reads as failed before its bytes are
-    // discarded, never as neither importing nor failed.
-    const seen: Asset[] = [];
+    // Unreadable source bytes fail the import once its bytes are discarded; until then it reads
+    // as importing, never as neither importing nor failed, and Try Again waits.
+    const seen: Array<
+      Readonly<{ state: string; importing: boolean; retry: boolean }>
+    > = [];
     const discard = vi
       .spyOn(storage.native, 'discardDraftAsset')
       .mockImplementationOnce(() => {
-        seen.push(...assetsOf(draft()).slice(1, 2));
+        seen.push({
+          state: present(assetsOf(draft())[1], 'the failing file').state,
+          importing: drafts.getImports().has(failing.id),
+          retry: drafts.getRetries().has(failing.id),
+        });
         return Promise.resolve({});
       });
     await drafts.importAsset(failing, {
@@ -3619,7 +3626,9 @@ describe('adding files and images to Drafts', () => {
       uri: 'file:///missing.txt',
     });
     discard.mockRestore();
-    expect(seen.map(({ state }) => state)).toStrictEqual(['failed']);
+    expect(seen).toStrictEqual([
+      { state: 'importing', importing: true, retry: false },
+    ]);
     expect(assetsOf(draft())[1]).toMatchObject({ state: 'failed' });
     // Bytes written before native code rejected the import are discarded, so they never hold
     // the Outgoing Content Store's space until relaunch.
@@ -3666,7 +3675,7 @@ describe('adding files and images to Drafts', () => {
     expect(unsendableAssets(reopened)).toHaveLength(3);
   });
 
-  it('reads a failed file again on Try Again, keeping its copy while its Draft holds it', async () => {
+  it('reads a failed file again on Try Again, deleting its copy once no Draft lists it', async () => {
     expect.hasAssertions();
     const { storage, drafts, id, draft } = await opened();
     const pick = { kind: 'file', uri: 'file:///notes.txt' } as const;
@@ -3706,8 +3715,7 @@ describe('adding files and images to Drafts', () => {
     await expect(drafts.retryImport(retried.id)).resolves.toBe(false);
     expect(storage.discardedPicks()).toStrictEqual([]);
 
-    // Like a removed file's bytes, a removed file's copy stays while its Draft exists, for Undo;
-    // creating another Draft keeps it too. Discarding the Draft deletes it.
+    // Removing a failed file deletes its copy at once.
     const removed = await attachFailing(id, 'locked');
     const before = draft();
     await drafts.update(
@@ -3719,17 +3727,45 @@ describe('adding files and images to Drafts', () => {
       },
       before,
     );
-    const other = present(await drafts.create(alex), 'another Draft');
-    expect(drafts.getRetries().has(removed.id)).toBe(true);
-    expect(storage.discardedPicks()).toStrictEqual([]);
-    await expect(drafts.discard(id)).resolves.toBe(true);
     expect(drafts.getRetries().size).toBe(0);
     expect(storage.discardedPicks()).toStrictEqual([pick.uri]);
+
+    // A failed file its Draft still lists keeps its copy when another Draft is created, and
+    // discarding its Draft deletes it, also while an editor holds that Draft.
+    const kept = await attachFailing(id, 'locked');
+    const other = present(await drafts.create(alex), 'another Draft');
+    expect([...drafts.getRetries()]).toStrictEqual([kept.id]);
+    const editor = vi.fn<(id: string) => void>();
+    drafts.hold(id, editor);
+    await expect(drafts.discard(id)).resolves.toBe(true);
+    expect(drafts.getRetries().size).toBe(0);
+    expect(storage.discardedPicks()).toStrictEqual([pick.uri, pick.uri]);
+    drafts.release(editor);
+
+    // A failed file only an open editor shows, before it saved, keeps its copy until that editor
+    // closes.
+    const unsaved = drafts.prepare({ name: 'notes.txt', type: 'text/plain' });
+    const shown = present(draftOf(drafts.getSnapshot(), other), 'the Draft');
+    let history: readonly Draft[] = [{ ...shown, attachments: [unsaved] }];
+    const showing = vi.fn<(id: string) => void>();
+    drafts.hold(other, showing);
+    const stop = drafts.onSettle((asset, next) => {
+      history = history.map((each) => withAsset(each, asset, next));
+      return history;
+    });
+    storage.failNextImport('locked');
+    await drafts.importAsset(unsaved, pick);
+    expect([...drafts.getRetries()]).toStrictEqual([unsaved.id]);
+    expect(storage.discardedPicks()).toHaveLength(2);
+    stop();
+    drafts.release(showing);
+    expect(drafts.getRetries().size).toBe(0);
+    expect(storage.discardedPicks()).toHaveLength(3);
 
     // A file too large for Drafts can't be tried again, so its copy goes at once.
     await attachFailing(other, 'too-large');
     expect(drafts.getRetries().size).toBe(0);
-    expect(storage.discardedPicks()).toStrictEqual([pick.uri, pick.uri]);
+    expect(storage.discardedPicks()).toHaveLength(4);
 
     // An import that fails after its Draft was discarded leaves no copy behind.
     const asset = drafts.prepare({ name: 'notes.txt', type: 'text/plain' });
@@ -3742,11 +3778,7 @@ describe('adding files and images to Drafts', () => {
     storage.releaseImports();
     await importing;
     expect(drafts.getRetries().size).toBe(0);
-    expect(storage.discardedPicks()).toStrictEqual([
-      pick.uri,
-      pick.uri,
-      pick.uri,
-    ]);
+    expect(storage.discardedPicks()).toHaveLength(5);
   });
 
   it('names why each file was left out, and downloads a forwarded attachment again on Try Again', async () => {

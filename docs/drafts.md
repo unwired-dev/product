@@ -728,9 +728,9 @@ sent. On the Mac the row names the reason ("Couldn’t be downloaded"), or says
 its picked or dropped copy on the device while it can be retried, and Try Again
 (`retryImport`, listed by `getRetries`) reads the same file, pasted image or
 Downloaded Attachment again without a picker, and downloads a forwarded attachment
-again. The copy is deleted once the file is added, once no Draft, queued message or
-open composer holds it (a removed file stays for Undo while its Draft does), on
-sign-out and at launch; a file too large for Drafts is not retried. Only complete files can be sent: `unsendableAssets` in
+again. The copy is deleted once the file is added or removed, when its Draft is
+discarded or sent, when a composer that never saved it closes, on sign-out and at
+launch; a file too large for Drafts is not retried. Only complete files can be sent: `unsendableAssets` in
 `@private-email/mail-core/drafts` lists everything else, which [Send](outbox.md) refuses.
 While a file is still being added, Send stays unavailable; on the Mac the reason
 above the body names the file ("“plan.pdf” is still importing. Wait for it, or remove

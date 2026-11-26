@@ -2238,23 +2238,26 @@ function SendRefusalNotice({
     ({ id }) => id === connection,
   )?.provider;
   const shown = blocked ?? refused;
-  // A file still importing is named even while To, Cc, Bcc or From say why Send is unavailable.
-  if (waiting !== undefined && (shown === undefined || shown === 'assets')) {
-    return (
-      <Notice style={[styles.sendReason, { color: colors.textSecondary }]}>
-        {t('drafts.assets.stillImporting', { name: waiting })}
-      </Notice>
-    );
-  }
-  return shown === undefined ? null : (
-    <Alert
-      outcome={shown === refused}
-      message={t(
-        shown === 'too-large'
-          ? tooLarge[provider ?? 'gmail']
-          : `drafts.sendRefused.${shown}`,
+  // A file still importing is named alongside any other reason Send is unavailable.
+  return (
+    <>
+      {shown === undefined ||
+      (shown === 'assets' && waiting !== undefined) ? null : (
+        <Alert
+          outcome={shown === refused}
+          message={t(
+            shown === 'too-large'
+              ? tooLarge[provider ?? 'gmail']
+              : `drafts.sendRefused.${shown}`,
+          )}
+        />
       )}
-    />
+      {waiting === undefined ? null : (
+        <Notice style={[styles.sendReason, { color: colors.textSecondary }]}>
+          {t('drafts.assets.stillImporting', { name: waiting })}
+        </Notice>
+      )}
+    </>
   );
 }
 
