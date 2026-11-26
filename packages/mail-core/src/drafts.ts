@@ -846,8 +846,9 @@ export type PickedFile = Readonly<{
   type: string;
   source: AssetSource;
 }>;
-// Photos and files from the system pickers, or images on the pasteboard.
-export type PickSource = 'photos' | 'files' | 'paste';
+// Photos and files from the system pickers, images on the pasteboard, or, on Mac, files just
+// dropped on the Draft editor page.
+export type PickSource = 'photos' | 'files' | 'paste' | 'drop';
 
 // What a complete asset's bytes are on this device when read back: an image to show, bytes that
 // verified without being shown, or why they are unavailable.
