@@ -13,7 +13,13 @@ import {
 import { syntheticConnections } from '@private-email/mail-core/testing/gmail-mailbox';
 import { createSyntheticImap } from '@private-email/mail-core/testing/imap-mailbox';
 import { createUnsubscribe } from '@private-email/mail-core/unsubscribe';
-import { act, fireEvent, render, screen } from '@testing-library/react-native';
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from '@testing-library/react-native';
 
 import type { SettingsDestination } from '../src/settings.tsx';
 
@@ -292,6 +298,35 @@ describe('the reader’s mailto: Unsubscribe on the Mac', () => {
       screen.findByText('Unsubscribe request sent'),
     ).resolves.toBeOnTheScreen();
     expect(mail.outbox.getSnapshot()).toMatchObject([{ state: 'unknown' }]);
+  });
+
+  it('keeps the retry’s receipt when Check Again later finds the unknown attempt in Sent', async () => {
+    expect.hasAssertions();
+    const mail = await device();
+    await confirm();
+    mail.imap.smtp.lost = true;
+    await mail.deliver();
+    await press('Try Again');
+    await mail.deliver();
+    const receipt = `Emailed to ${to} on Nov 24. It’s in Sent. If their mail keeps coming after 14 days, you can try again.`;
+    await expect(screen.findByText(receipt)).resolves.toBeOnTheScreen();
+    const { id } = waiting(mail.outbox.getSnapshot());
+    // The server had filed the lost attempt in Sent after all.
+    mail.imap.deliver('Sent', {
+      subject: 'unsubscribe',
+      raw: waiting(mail.imap.smtp.accepted).raw,
+    });
+
+    clock.now += 86_400_000;
+    jest.setSystemTime(clock.now);
+    await act(async () => {
+      await mail.outbox.check(id);
+    });
+
+    await waitFor(() => {
+      expect(mail.outbox.getSnapshot()).toStrictEqual([]);
+    });
+    expect(screen.getByText(receipt)).toBeOnTheScreen();
   });
 
   it('shows a request without a list identity sent before the reader first opened it', async () => {

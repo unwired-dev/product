@@ -92,9 +92,9 @@ time: while the Outbox holds a request for the same connection and list, a
 second confirmation, as from another window, answers with that request, and
 only a refused or unknown one is tried again. Trying one again sends the same
 recipient, subject and body, never another message's offer for the list, and a
-refused one leaves the Outbox once its retry is admitted. A retry keeps the
-identifiers of the unknown requests it tries again, also through a refused
-retry: once one of them is confirmed, a further confirmation answers with that
+refused one leaves the Outbox once its retry is admitted, or, while storage
+keeps it, once the retry is confirmed. A retry keeps the identifiers of the
+requests it tries again, also through a refused retry: once one of them is confirmed, a further confirmation answers with that
 one, and a retry not yet handed off leaves the Outbox unsent, answering as that
 one did; the handoff checks again as it marks the retry sending and just before
 the provider sees it. The reader passes the requests it showed for the message
@@ -104,8 +104,10 @@ confirmed, the unknown requests it tried again are marked answered: they stay
 in the Outbox for Check Again but no longer stand for the list, so a message the
 list sends after the 14 days offers a fresh request with its own recipient. The
 retry stays in the Outbox until each mark holds in storage, and Check Again
-finding an answered request in Sent retires it without recording it again, so
-the list's 14 days still run from the retry.
+finding an answered request in Sent, or one a confirmed retry still in the
+Outbox tried again, retires it without recording it again, so the list's 14
+days still run from the retry. The reader keeps showing the retry's receipt,
+with its recipient, rather than the answered request's date.
 
 It waits in the Outbox under the Undo Send Window and is then claimed and sent
 like any message, so it appears in the connection's Sent mailbox and an

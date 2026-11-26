@@ -110,12 +110,13 @@ async function receiver(provider: Provider, state = 'connected', smtp = true) {
     },
     phone.registration,
   );
-  // `before` may answer 'refuse' to have storage refuse the step.
+  // `before` and `restoring` may answer 'refuse' to have storage refuse the step or removal.
   const stepping = {
     before: async (
       _id: string,
       _step: Parameters<typeof phone.drafts.deliver>[1],
     ) => undefined as unknown,
+    restoring: async (_id: string) => undefined as unknown,
   };
   const outbox = createOutbox({
     // Each Outbox step waits for `stepping` first, as a competing writer would delay it.
@@ -125,6 +126,10 @@ async function receiver(provider: Provider, state = 'connected', smtp = true) {
         (await stepping.before(id, step)) === 'refuse'
           ? false
           : phone.drafts.deliver(id, step),
+      restore: async (id, only) =>
+        (await stepping.restoring(id)) === 'refuse'
+          ? false
+          : phone.drafts.restore(id, only),
     },
     mailboxes,
     registration: phone.registration,
@@ -846,6 +851,14 @@ describe('recording a mailto unsubscribe request', () => {
     }
   });
 
+  // Storage refuses to take `id` out of the Outbox.
+  const refuseRemoving = (
+    phone: Awaited<ReturnType<typeof receiver>>,
+    refused: string,
+  ) => {
+    phone.stepping.restoring = async (id) =>
+      id === refused ? 'refuse' : undefined;
+  };
   // Storage refuses to mark `original` answered.
   const refuseAnswered = (
     phone: Awaited<ReturnType<typeof receiver>>,
@@ -915,6 +928,63 @@ describe('recording a mailto unsubscribe request', () => {
       await expect(
         phone.unsubscribe.sentRequest(profile, listed, clock.now),
       ).resolves.toBeUndefined();
+    } finally {
+      phone.outbox.dispose();
+    }
+  });
+
+  it('keeps the list’s 14 days from a confirmed retry whose answered mark storage refused when Check Again finds the unknown request sent', async () => {
+    expect.hasAssertions();
+    const phone = await receiver('gmail');
+    try {
+      const original = await lose(phone);
+      const profile = profileOf(pending(phone));
+      const retry = await start(phone);
+      refuseAnswered(phone, original);
+      later(undoSendWindow);
+      await phone.outbox.process();
+      await vi.waitFor(() => {
+        expect(phone.outbox.delivered(retry)).toBeDefined();
+      });
+
+      later(15 * 86_400_000);
+      await phone.outbox.check(original);
+      await vi.waitFor(() => {
+        expect(phone.outbox.getSnapshot()).toStrictEqual([]);
+      });
+      await expect(
+        phone.unsubscribe.sentRequest(profile, listed, clock.now),
+      ).resolves.toBeUndefined();
+    } finally {
+      phone.outbox.dispose();
+    }
+  });
+
+  it('takes a refused request storage kept at its retry out of the Outbox once the retry is confirmed', async () => {
+    expect.hasAssertions();
+    const phone = await receiver('gmail');
+    try {
+      const refused = await start(phone);
+      phone.become('authorization');
+      later(undoSendWindow);
+      await phone.outbox.process();
+      expect(pending(phone)?.state).toBe('failed');
+      phone.become('connected');
+      refuseRemoving(phone, refused);
+      const retry = await start(phone);
+      expect(phone.outbox.getSnapshot().map(({ id }) => id)).toStrictEqual([
+        refused,
+        retry,
+      ]);
+
+      phone.stepping.restoring = async () => undefined;
+      later(undoSendWindow);
+      await phone.outbox.process();
+      await vi.waitFor(() => {
+        expect(phone.outbox.getSnapshot()).toStrictEqual([]);
+      });
+      expect(pending(phone)).toBeUndefined();
+      expect(phone.gmail.sends).toHaveLength(1);
     } finally {
       phone.outbox.dispose();
     }

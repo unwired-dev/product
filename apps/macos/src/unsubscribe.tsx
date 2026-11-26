@@ -246,9 +246,9 @@ const emailed = (at: number, to: string | undefined): Outcome => ({
   ...(to === undefined ? {} : { to }),
 });
 
-// The first of the message `key` names' `requests` the Outbox confirmed, else a request the Outbox
-// confirmed this session from `connection` in `profile` for the message, and to whom when it knows;
-// kept for the session once found.
+// The first of the message `key` names' `requests` the Outbox confirmed with its recipient, else a
+// request the Outbox confirmed this session from `connection` in `profile` for the message, else
+// the first confirmed without one; kept for the session once found.
 function useConfirmed(
   key: string,
   requests: readonly string[] | undefined,
@@ -258,9 +258,11 @@ function useConfirmed(
   }: Readonly<{ connection: string; profile: string; message: string }>,
 ): Outcome {
   const outbox = useOutbox();
+  const delivered = (requests ?? []).map(outbox.delivered);
   const found =
-    requests?.map(outbox.delivered).find((each) => each !== undefined) ??
-    outbox.emailedUnsubscribe(connection, message);
+    delivered.find((each) => each?.to !== undefined) ??
+    outbox.emailedUnsubscribe(connection, message) ??
+    delivered.find((each) => each !== undefined);
   const at = found?.at;
   const to = found?.to;
   useEffect(() => {

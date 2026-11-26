@@ -157,7 +157,7 @@ const messageKey = (
 const retriesOf = (held: OutboxEntry | undefined) => {
   const retries = [
     ...(held?.unsubscribe?.retries ?? []),
-    ...(held?.state === 'unknown' ? [held.id] : []),
+    ...(held?.state === 'unknown' || held?.state === 'failed' ? [held.id] : []),
   ];
   return retries.length === 0 ? {} : { retries };
 };
@@ -523,11 +523,31 @@ export function createOutbox({
     yield* Effect.promise(() => drafts.restore(id, 'queued'));
     return true;
   });
-  // Whether the unknown unsubscribe request `id` still stands for its list.
+  // Whether the unsubscribe request `id` a retry tried again still stands for its list.
   const unanswered = (id: string) => {
     const request = entryOf(id)?.unsubscribe;
     return request !== undefined && request.answered !== true;
   };
+  // Takes the refused request `id` a confirmed retry tried again out of the Outbox, or marks the
+  // unknown one answered.
+  const answerFor = (id: string) =>
+    entryOf(id)?.state === 'failed'
+      ? Effect.promise(() => drafts.restore(id, 'failed'))
+      : write(id, (each) =>
+          each.unsubscribe === undefined || each.unsubscribe.answered === true
+            ? undefined
+            : { ...each, unsubscribe: { ...each.unsubscribe, answered: true } },
+        );
+  // Whether a retry confirmed for the unknown request `id` waits in the Outbox, answering for it
+  // though its mark may not hold yet.
+  const retriedFor = (id: string) =>
+    drafts
+      .getOutbox()
+      .some(
+        ({ unsubscribe }) =>
+          unsubscribe?.sentAt !== undefined &&
+          unsubscribe.retries?.includes(id) === true,
+      );
   // A confirmed unsubscribe request is recorded before it leaves the Outbox, so a relaunch cannot
   // lose it. Resolves false while storage refuses the record, so the confirmed outcome is saved
   // again later rather than retiring the entry without it.
@@ -541,7 +561,7 @@ export function createOutbox({
     const { account, profile, list, identity, message } = request;
     // An unknown request found sent after its retry answered for the list leaves without
     // restarting the list's 14 days.
-    if (request.answered === true) {
+    if (request.answered === true || retriedFor(entry.id)) {
       return true;
     }
     // A record saved again keeps the time the provider first confirmed the request.
@@ -559,13 +579,10 @@ export function createOutbox({
     );
     publish();
     // The unknown requests it tried again no longer stand for the list, though they stay for
-    // Check Again. It stays in the Outbox until each one is marked.
+    // Check Again, and a refused one still held leaves. It stays in the Outbox until each one is
+    // marked or gone.
     for (const id of (request.retries ?? []).filter(unanswered)) {
-      yield* write(id, (each) =>
-        each.unsubscribe === undefined || each.unsubscribe.answered === true
-          ? undefined
-          : { ...each, unsubscribe: { ...each.unsubscribe, answered: true } },
-      );
+      yield* answerFor(id);
     }
     const recorded =
       !(request.retries ?? []).some(unanswered) &&
