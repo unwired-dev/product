@@ -298,6 +298,8 @@ const styles = StyleSheet.create({
   assetMeta: { flexShrink: 1 },
   assetName: { ...textStyles.bodyEmphasized },
   assetStatusRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  // The warning glyph sits 4 pt from its reason, as in the #2991 frames.
+  assetWarningRow: { gap: 3 },
   assetStatus: { ...textStyles.subheadline, flexShrink: 1 },
   // The small indicator's 20 pt box fits the 14 pt status line, so a checking chip keeps its height.
   assetChecking: { marginVertical: -3 },
@@ -1516,7 +1518,8 @@ function AssetStatus({
     statusColor = colors.statusWarning;
   }
   return (
-    <View style={styles.assetStatusRow}>
+    <View
+      style={[styles.assetStatusRow, failed ? styles.assetWarningRow : null]}>
       {checking ? (
         <ActivityIndicator
           size="small"
@@ -1792,8 +1795,9 @@ function AssetRow({
         />
       ) : null}
       {onTryAgain === undefined || running ? null : (
+        // Its label keeps the frame's 9 pt from the reason; the capsule reaches past it.
         <Action
-          variant="composer"
+          variant="reader"
           disabled={!editable}
           accessibilityLabel={t('drafts.assets.retryImportLabel', {
             name: asset.name,
