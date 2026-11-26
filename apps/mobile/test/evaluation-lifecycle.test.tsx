@@ -131,6 +131,69 @@ describe('evaluation composer lifetime', () => {
     expect(allowed).toBeUndefined();
   });
 
+  it('journals unsaved edits and restores them in the page (#2944)', async () => {
+    expect.hasAssertions();
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    const first = await render(<App drafts={drafts} />);
+    await press('New Message');
+    await fireEvent.changeText(
+      screen.getByLabelText('Subject'),
+      'Unsaved plan',
+    );
+    await simulatedPage().typed('Typed before the app ended');
+    // A few seconds after the edits, the editor journals them without storing the Draft.
+    await waitFor(
+      () => {
+        expect(storage.recoveryRecords().size).toBe(1);
+      },
+      { timeout: 4000 },
+    );
+    // The app ends without Close.
+    await first.unmount();
+    const reopened = createDrafts(storage.native, registration);
+    await reopened.load();
+    const records = await reopened.recovered();
+    ok(records, 'Expected storage to read the recovery records');
+    const [record] = records;
+    ok(record?.base, 'Expected a recovery record with its stored version');
+    expect(record.base.subject).toBe('');
+    // Restore, as the launch's offer answers it, opens the page on the recovered edits.
+    reopened.take(record.version.id);
+    await render(
+      <App
+        drafts={reopened}
+        restore={{ version: record.version, base: record.base }}
+      />,
+    );
+    expect(
+      screen.getByTestId('message-webview').props
+        .injectedJavaScriptBeforeContentLoaded,
+    ).toContain('"spans":[{"text":"Typed before the app ended"}]');
+    expect(screen.getByLabelText('Subject')).toHaveProp(
+      'value',
+      'Unsaved plan',
+    );
+    // Close asks to save them, and Save Draft stores them and removes the record.
+    await simulatedPage().report({});
+    await press('Close');
+    await press('Save Draft');
+    await waitFor(() => {
+      expect(storage.recoveryRecords().size).toBe(0);
+    });
+    expect(draftsOf(reopened.getSnapshot())).toMatchObject([
+      {
+        subject: 'Unsaved plan',
+        body: [
+          {
+            kind: 'paragraph',
+            spans: [{ text: 'Typed before the app ended' }],
+          },
+        ],
+      },
+    ]);
+  }, 15_000);
+
   it('continues pending navigation after the current Draft is saved', async () => {
     expect.hasAssertions();
     const storage = createSyntheticDrafts(() => 'synthetic-product-account');

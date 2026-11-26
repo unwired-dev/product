@@ -3109,7 +3109,7 @@ const savedOf = (state: DraftsState) =>
 // editor closes on and resolves once its records are gone. The
 // second journals at once, as after a save that keeps the editor open; the third too, unless
 // unsaved edits have a write scheduled.
-function useRecoveryJournal(
+export function useRecoveryJournal(
   edited: unknown,
   unsaved: () => Recovery | undefined,
   editor: (id: string) => void,

@@ -82,7 +82,7 @@ recommendation and the decision it supports. Facts link to their evidence;
 - **Draft synchronization.** The page uses the existing Draft store, save model,
   and conflicting copies. Component journeys cover late page reports,
   two Mac windows, racing imports, refused saves and another Product Account;
-  native two-window and app-termination runs are outstanding.
+  the native two-window run is outstanding.
 - **Assistance.** Rewrites, translation and reply suggestions run through the
   current on-device capture and review, and the page refuses a result for another
   body revision. No vendor AI, Yjs or CRDT collaboration is enabled or adopted.
@@ -129,12 +129,11 @@ release limit:
 2. Native exits as [#778](https://github.com/unwired-dev/product/issues/778)
    guards them for the current composer (iPhone **Back** and edge swipes, Mac
    window close, Command-W and **Quit**), and the Mac two-window journey on one
-   Draft, run natively. On iPhone and iPad the evaluation loses open edits when the
-   app ends before **Save Draft**; production must journal them to the encrypted
+   Draft, run natively. Production must journal open edits to the encrypted
    recovery record of [ADR 0077](0077-remove-friction-that-privacy-does-not-require.md)
-   and prove that they restore after a forced termination. On Mac the page journals
-   them and restores them after a force quit since
-   [#2933](https://github.com/unwired-dev/product/issues/2933).
+   and prove that they restore after a forced termination. The page does so on Mac
+   since [#2933](https://github.com/unwired-dev/product/issues/2933) and on iPhone
+   and iPad since [#2944](https://github.com/unwired-dev/product/issues/2944).
 3. The Mac Inline Image journey, image paste on Mac, file drops on every host,
    and **Paste Image** and in-page paste on a device.
 4. WebKit website data after account removal and a network capture of a journey.
