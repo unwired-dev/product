@@ -579,6 +579,7 @@ describe('the Tiptap evaluation page', () => {
     expect(page.posted.at(-1)?.caret).toStrictEqual({
       top: expect.any(Number),
       bottom: expect.any(Number),
+      left: expect.any(Number),
     });
     press(page, 'Enter');
     expect(page.posted.at(-1)?.caret).toBeUndefined();

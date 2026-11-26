@@ -177,8 +177,11 @@ the current composer's:
   tool removes it and runs as from the format bar, once the page reports that its
   replacement made the edit, so a removal the page refused as stale runs neither.
   Moving the caret or leaving the body closes the menu, and an Undo or Redo that
-  restores a `/` does not open it. The Mac page has none yet; the Mac composer's menu
-  ([#2789](https://github.com/unwired-dev/product/issues/2789)) is its reference.
+  restores a `/` does not open it. On the Mac the page opens the Mac composer's
+  menu ([#2789](https://github.com/unwired-dev/product/issues/2789),
+  [#3010](https://github.com/unwired-dev/product/issues/3010)): its Basic Blocks,
+  7pt right of the `/`, whose left edge the page reports with the caret's line, and
+  the same keys, choice and closing.
 - **Inline predictions.** On the Mac, WebKit may offer the rest of a word by
   replacing the word before the caret and ending the change at once with a
   `compositionend`. The page cancels that replacement, so the prediction stays
@@ -887,8 +890,7 @@ system's inline predictions on, three key presses after "feedb" arrived about 5 
 late in the page ([#2966](https://github.com/unwired-dev/product/issues/2966)), so
 both runs turn them off. These are `Testing` builds on one host, one run each,
 with XCUITest's synthesized keys and clicks. A Release comparison, physical
-iPhone and iPad, hardware keyboards, startup and the interactions the page
-lacks, such as the Slash Command Menu, remain outstanding.
+iPhone and iPad, hardware keyboards and startup remain outstanding.
 
 ### Composer opening (#2955)
 
@@ -1109,8 +1111,7 @@ commit and Fabric's mount, but not the display frame that draws the result. No
 selection budget exists; every sample stayed under the 200 ms interaction
 budgets. These are `Testing` builds on one host, one run each; a Release
 comparison is not measured. Physical iPhone and iPad, the rest of #822's
-comparison (startup, memory and packaged size) and the
-interactions the page lacks, such as the Mac Slash Command Menu, remain outstanding.
+comparison (startup, memory and packaged size) remain outstanding.
 
 ### Memory (#2957)
 

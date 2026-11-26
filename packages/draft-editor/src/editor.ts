@@ -1308,11 +1308,12 @@ const SlashMenuKeys = Extension.create({
     ),
 });
 
-// Where the line at editor position `at` is in the page's viewport.
+// Where the line at editor position `at` is in the page's viewport, and where the character at
+// `slash` starts.
 // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Tiptap's editor is a class; this only reads it.
-const caretLine = (editor: TiptapEditor, at: number) => {
+const caretLine = (editor: TiptapEditor, at: number, slash: number) => {
   const { top, bottom } = editor.view.coordsAtPos(at);
-  return { top, bottom };
+  return { top, bottom, left: editor.view.coordsAtPos(slash, 1).left };
 };
 
 // The identifiers of the document's Attachments.
@@ -1348,11 +1349,18 @@ if (draftEditor !== undefined && element !== null) {
     const lines = linesOfDocument(editor.state.doc);
     const { from, to, $from } = editor.state.selection;
     // The caret's line, while its text before the caret starts with `/`, as a slash query does.
+    // Each leaf is one character there, so the match ends just after the `/`.
     const slashLine =
-      from === to &&
-      /^\s*\//u.test(
-        $from.parent.textBetween(0, $from.parentOffset, undefined, '\uFFFC'),
-      );
+      from === to
+        ? /^\s*\//u.exec(
+            $from.parent.textBetween(
+              0,
+              $from.parentOffset,
+              undefined,
+              '\uFFFC',
+            ),
+          )?.[0].length
+        : undefined;
     const replaced: unknown = transaction.getMeta('replaced');
     const update: Update = {
       type: 'update',
@@ -1378,7 +1386,9 @@ if (draftEditor !== undefined && element !== null) {
       kind: [...kindsIn(editor)][0] ?? 'paragraph',
       undo: editor.can().undo(),
       redo: editor.can().redo(),
-      ...(slashLine ? { caret: caretLine(editor, from) } : {}),
+      ...(slashLine === undefined
+        ? {}
+        : { caret: caretLine(editor, from, $from.start() + slashLine - 1) }),
     };
     // oxlint-disable-next-line unicorn/require-post-message-target-origin -- The native bridge, not a window.
     ReactNativeWebView?.postMessage(JSON.stringify(update));
