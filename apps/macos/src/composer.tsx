@@ -2910,7 +2910,7 @@ function useBodyRecipients(
                     body.width - styles.bodySuggestions.width,
                   ),
                 ),
-              top: body.y + anchor.top + spacing.xs,
+              top: body.y + anchor.top + spacing.s,
             },
           ],
           empty: t('drafts.bodyRecipient.noMatches'),

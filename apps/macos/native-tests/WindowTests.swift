@@ -113,6 +113,10 @@ final class WindowTests: XCTestCase {
     let present = window.buttons["Jordan Lee, jordan@example.invalid, in To"]
     XCTAssertTrue(present.waitForExistence(timeout: 10))
     attach("Body Recipient Shortcut role")
+    // The role keeps its secondary colour on a row that is not highlighted.
+    app.typeKey(.downArrow, modifierFlags: [])
+    attach("Body Recipient Shortcut role unhighlighted")
+    app.typeKey(.upArrow, modifierFlags: [])
     app.typeKey(.return, modifierFlags: [])
     waitUntil { body.value as? String == "Hi team, I will ask Jordan Lee and Jordan Lee" }
     XCTAssertEqual(token.count, 1)

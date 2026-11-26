@@ -2614,7 +2614,8 @@ describe('composing Drafts', () => {
       const written = 'Hi Tomáš,\nI’ll ask ';
 
       // After a space in written text, @ opens the suggestions; a person already on the Draft
-      // shows their role. An @ near the body's trailing edge keeps the menu inside the body.
+      // shows their role. Near the body's trailing edge the menu stays inside the body, 8 pt
+      // under the @'s line.
       await fireEvent(body(), 'layout', {
         nativeEvent: { layout: { x: 0, y: 0, width: 500, height: 300 } },
       });
@@ -2625,7 +2626,7 @@ describe('composing Drafts', () => {
           name: 'Tomáš Dvořák, tomas@example.invalid, in To',
         }),
       ).resolves.toBeOnTheScreen();
-      expect(menu()).toHaveStyle({ left: 180 });
+      expect(menu()).toHaveStyle({ left: 180, top: 24 });
       expect(screen.getByText('To')).toBeOnTheScreen();
       expect(
         screen.getByRole('button', { name: 'Ana Kovač, ana@example.invalid' }),
