@@ -1705,14 +1705,27 @@ describe('the Tiptap evaluation page', () => {
       ],
       16,
     ]);
-    // A pick the caret moved away from, or one still pending when Save or Send freezes the
-    // page, stays out of the body.
+    // A pick the caret moved away from, one over a body the host replaced, or one still pending
+    // when Save or Send freezes the page, stays out of the body.
     const moved = await open(paragraphs('typing feedba'));
     expect(
       complete(moved, () => {
         moved.editor.commands.setTextSelection(1);
       }),
     ).toStrictEqual([false, undefined, 1]);
+    const replaced = await open(paragraphs('typing feedba'));
+    expect(
+      complete(replaced, () => {
+        const revision = replaced.posted.at(-1)?.revision;
+        ok(revision !== undefined, 'Expected the revision');
+        replaced.command({
+          type: 'replace',
+          revision,
+          document: paragraphs('typing phrase'),
+          selection: { start: 13, end: 13 },
+        });
+      }),
+    ).toStrictEqual([false, paragraphs('typing phrase'), 14]);
     const frozen = await open(paragraphs('typing feedba'));
     expect(
       complete(frozen, () => {
