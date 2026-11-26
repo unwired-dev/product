@@ -69,6 +69,8 @@ const styles = StyleSheet.create({
   // The time field keeps AppKit's width, which depends on the region, at this view's trailing edge.
   time: { width: 120, height: 24 },
   note: { flexDirection: 'row', alignItems: 'flex-start', gap: 6 },
+  // The triangle draws wider than the clock at a size, so a smaller one keeps the clock's slot.
+  warning: { width: 12, height: 12 },
   noteText: { flex: 1 },
   separator: { height: StyleSheet.hairlineWidth },
   buttons: { flexDirection: 'row', justifyContent: 'flex-end', gap: spacing.s },
@@ -249,8 +251,9 @@ function ReminderPicker({
           <View style={styles.note}>
             <SFSymbol
               name="exclamationmark.triangle.fill"
-              size={12}
+              size={10}
               color={colors.statusDestructive}
+              style={styles.warning}
             />
             <View style={styles.noteText}>
               <AnnouncedAlert
