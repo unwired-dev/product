@@ -20,7 +20,11 @@ import {
 import { createInboxStore } from '../src/inbox-store.ts';
 import { attachmentLimit } from '../src/message-body.ts';
 import { defaultProfile } from '../src/registration.ts';
-import { respond, startResponse } from '../src/responses.ts';
+import {
+  forwardedAttachments,
+  respond,
+  startResponse,
+} from '../src/responses.ts';
 import {
   emptyDocument,
   imageCharacter,
@@ -664,7 +668,7 @@ describe('replying to and forwarding a received message', () => {
 
     // With the reader open, Try Again downloads the file again rather than reusing the removed one.
     // A storage failure then keeps that download, which the next Try Again reads without
-    // downloading it again.
+    // downloading it again, also once the reader closed.
     const downloads = () =>
       gmail.requests.filter(({ path }) => path.includes('/attachments/'))
         .length;
@@ -677,18 +681,12 @@ describe('replying to and forwarding a received message', () => {
       'report.pdf',
     ]);
     const fetched = downloads();
+    close();
     await expect(drafts.retryImport(present(notes, 'notes.txt'))).resolves.toBe(
       true,
     );
     expect(downloads()).toBe(fetched);
-    // Once the reader closed, Try Again reads the message again to download it. After a storage
-    // failure, the next Try Again holds the file again rather than reading the one it released.
-    close();
-    storage.failNextImport('locked');
-    await expect(drafts.retryImport(present(pdf, 'report.pdf'))).resolves.toBe(
-      true,
-    );
-    expect(failed().map(({ name }) => name)).toStrictEqual(['report.pdf']);
+    // Once the reader closed, Try Again reads the message again to download it.
     await expect(drafts.retryImport(present(pdf, 'report.pdf'))).resolves.toBe(
       true,
     );
@@ -698,6 +696,57 @@ describe('replying to and forwarding a received message', () => {
       { name: 'notes.txt', state: 'complete' },
       { name: 'report.pdf', state: 'complete' },
     ]);
+  });
+
+  it('downloads a forwarded attachment again from its mailbox Inbox now, never another file in its place', async () => {
+    expect.hasAssertions();
+    // An Inbox listing `name` at the forwarded attachment's place, with its file saved.
+    const inboxListing = (name: string) => ({
+      messageAttachments: () => [
+        {
+          locator: '1',
+          name,
+          mimeType: 'text/plain',
+          size: 5,
+          state: { kind: 'available' } as const,
+        },
+      ],
+      downloadAttachment: vi.fn<() => Promise<void>>(async () => undefined),
+      holdAttachmentFile: () => ({
+        name,
+        type: 'text/plain',
+        address: 'work@example.invalid',
+        generation: 'generation',
+        file: `${name} file`,
+        release: () => undefined,
+      }),
+      retainMessage: () => () => undefined,
+      readMessage: vi.fn<() => Promise<void>>(async () => undefined),
+    });
+    const forgotten = inboxListing('notes.txt');
+    let current = inboxListing('notes.txt');
+    const { files } = await forwardedAttachments(forgotten, {
+      mailbox: 'work',
+      id: 'message',
+      inboxOf: () => current,
+    });
+    const download = present(files[0]?.download, 'the download');
+
+    // After the mailbox was authorized again, Try Again downloads from its new Inbox.
+    await expect(download()).resolves.toMatchObject({
+      source: { kind: 'received', file: 'notes.txt file' },
+    });
+    expect(current.downloadAttachment).toHaveBeenCalledWith('message', '1', {
+      again: true,
+    });
+    expect(forgotten.readMessage).not.toHaveBeenCalled();
+
+    // Another file listed in its place is not this attachment.
+    current = inboxListing('other.txt');
+    await expect(download()).resolves.toMatchObject({
+      source: { kind: 'unavailable' },
+    });
+    expect(current.downloadAttachment).not.toHaveBeenCalled();
   });
 
   it('starts no forward when its reader, destination, sender or account changes while attachments download', async () => {

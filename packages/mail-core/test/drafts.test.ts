@@ -3855,7 +3855,7 @@ describe('adding files and images to Drafts', () => {
     // Reading the same missing file again can't succeed; downloading the forward again can.
     expect([...drafts.getRetries()]).toStrictEqual([plan.id]);
     await expect(drafts.retryImport(plan.id)).resolves.toBe(true);
-    expect(download).toHaveBeenCalledWith({ again: true });
+    expect(download).toHaveBeenCalledWith();
     expect(release).toHaveBeenCalledWith();
     expect(assetsOf(draft())[1]).toMatchObject({ state: 'complete', size: 4 });
   });

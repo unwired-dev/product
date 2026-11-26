@@ -916,12 +916,11 @@ export type AssetSource =
       }>;
       file: string;
     }>;
-// Holds a received attachment's file again for Try Again, reusing one still saved for its mailbox
-// and otherwise downloading it; `again` downloads it even then, as when the device removed it.
-// Never rejects: an attachment it cannot download is `unavailable`. The file stays until `release`.
-export type Download = (
-  options: Readonly<{ again: boolean }>,
-) => Promise<Readonly<{ source: AssetSource; release: () => void }>>;
+// Downloads a received attachment again for Try Again, never rejecting: an attachment it cannot
+// download is `unavailable`. Its file stays on the device until `release`.
+export type Download = () => Promise<
+  Readonly<{ source: AssetSource; release: () => void }>
+>;
 export type PickedFile = Readonly<{
   name: string;
   type: string;
@@ -1539,7 +1538,8 @@ export function createDrafts(
       asset: Asset;
       source: AssetSource;
       download?: Download | undefined;
-      // Whether Try Again downloads a forwarded attachment again, as when its file went missing.
+      // Whether Try Again downloads a forwarded attachment again, as when its file went missing
+      // or its mailbox changed.
       again: boolean;
     }>
   >();
@@ -1600,6 +1600,21 @@ export function createDrafts(
         }).pipe(Effect.asVoid, Effect.catchTag('DraftStorageFailure', report))
       : Effect.void;
 
+  // Callers' holds on received files, such as a forward's, each released once its imports settled
+  // and none of its assets can be tried again.
+  const holders = new Set<
+    Readonly<{ ids: readonly string[]; release: () => void }>
+  >();
+  const retriedOrImporting = (id: string) =>
+    retained.has(id) || importing.has(id);
+  const releaseHolders = () => {
+    for (const holder of holders) {
+      if (!holder.ids.some(retriedOrImporting)) {
+        holders.delete(holder);
+        holder.release();
+      }
+    }
+  };
   const setRetries = () => {
     retries = new Set(retained.keys());
     for (const listener of listeners) {
@@ -1622,6 +1637,7 @@ export function createDrafts(
     });
     if (sources.length > 0) {
       setRetries();
+      releaseHolders();
       void runLogged(Effect.forEach(sources, discardCopy, { discard: true }));
     }
   };
@@ -2551,16 +2567,16 @@ export function createDrafts(
       reason?: 'too-large';
       notDownloaded?: true;
       retry?:
-        | Readonly<{ source: AssetSource; download?: Download | undefined }>
+        | Readonly<{
+            source: AssetSource;
+            download?: Download | undefined;
+            again: boolean;
+          }>
         | undefined;
     }>,
   ) {
     if (retry !== undefined && live(current)) {
-      retained.set(asset.id, {
-        asset,
-        ...retry,
-        again: fields.notDownloaded === true,
-      });
+      retained.set(asset.id, { asset, ...retry });
     }
     yield* settle(
       current,
@@ -2609,9 +2625,12 @@ export function createDrafts(
       code !== 'too-large' &&
       (download !== undefined || retryable(source, code, keep));
     if (wanted) {
+      // A file gone from the device, or saved for a mailbox generation that ended, is downloaded.
+      const again =
+        code === 'attachment-missing' || code === 'mailbox-invalidated';
       yield* failAsset(current, asset, {
         ...failedFields(source, code),
-        retry: retry ? { source, download } : undefined,
+        retry: retry ? { source, download, again } : undefined,
       });
     }
     if (!wanted || !retry) {
@@ -2656,10 +2675,48 @@ export function createDrafts(
     return wanted;
   };
 
+  // The source an import reads, or undefined once its asset failed because none can be read. With
+  // `again`, a forwarded attachment is downloaded again first; its file stays while Try Again can
+  // read it.
+  const importSource = Effect.fnUntraced(function* (
+    current: number,
+    asset: Asset,
+    {
+      source,
+      download,
+      again,
+    }: Readonly<{
+      source: AssetSource;
+      download: Download | undefined;
+      again: boolean;
+    }>,
+  ) {
+    let read = source;
+    if (again && download !== undefined) {
+      const fetched = yield* Effect.promise(() => download());
+      holders.add({ ids: [asset.id], release: fetched.release });
+      read = fetched.source;
+    }
+    const failure = unreadable(read);
+    if (failure === undefined) {
+      return read;
+    }
+    // Cancel Import may have stopped Try Again while it downloaded.
+    if (stopImporting(current, asset.id)) {
+      yield* failAsset(current, asset, {
+        ...failure,
+        retry:
+          failure.notDownloaded === true && download !== undefined
+            ? { source: read, download, again: true }
+            : undefined,
+      });
+    }
+    return undefined;
+  });
+
   // Copies an asset's bytes into Draft storage and completes it in every Draft that has it.
-  // `retrying`, for Try Again, turns a failed asset back to importing and holds a forwarded
-  // attachment's file again first, as its mailbox now has it; `again` downloads it once more.
-  // `keep` keeps a failed file's copy for Try Again.
+  // `retrying`, for Try Again, turns a failed asset back to importing; with `again`, it downloads
+  // a forwarded attachment again first. `keep` keeps a failed file's copy for Try Again.
   const importAsset = (
     asset: Asset,
     source: AssetSource,
@@ -2685,20 +2742,12 @@ export function createDrafts(
       if (retrying) {
         yield* settle(current, asset.id, reimporting);
       }
-      const fetched =
-        retrying && download !== undefined
-          ? yield* Effect.promise(() => download({ again }))
-          : undefined;
-      const read = fetched?.source ?? source;
-      const failure = unreadable(read);
-      if (failure !== undefined) {
-        // Cancel Import may have stopped Try Again while it downloaded.
-        if (stopImporting(current, asset.id)) {
-          yield* failAsset(current, asset, {
-            ...failure,
-            retry: download && { source: read, download },
-          });
-        }
+      const read = yield* importSource(current, asset, {
+        source,
+        download,
+        again,
+      });
+      if (read === undefined) {
         return;
       }
       const outcome = yield* Effect.result(
@@ -2707,7 +2756,6 @@ export function createDrafts(
           ImportedSchema,
         ),
       );
-      fetched?.release();
       if (Result.isFailure(outcome)) {
         // Native code may have written the bytes before rejecting, as when the device locked; they
         // go before Try Again can import under the same asset. Importing until then, so no editor
@@ -2733,6 +2781,7 @@ export function createDrafts(
     ...args: Readonly<Parameters<typeof importAsset>>
   ) => {
     await runLogged(importAsset(...args));
+    releaseHolders();
     schedule();
   };
 
@@ -2767,7 +2816,8 @@ export function createDrafts(
     );
   };
 
-  // When it resolves true, `settled` runs once every import it started has settled.
+  // When it resolves true, `settled` runs once every import it started has settled and none of
+  // them can be tried again, so Try Again still finds the caller's files.
   // oxlint-disable-next-line eslint/max-params -- A caller holding the imported files releases them once the imports settle.
   const fill = async (
     draft: string,
@@ -2811,7 +2861,11 @@ export function createDrafts(
     if (settled !== undefined) {
       void (async () => {
         await Promise.allSettled(copies);
-        settled();
+        holders.add({
+          ids: imports.map(({ asset }) => asset.id),
+          release: settled,
+        });
+        releaseHolders();
       })();
     }
     return true;
@@ -2987,6 +3041,7 @@ export function createDrafts(
     if (importing.size > 0) {
       importing = new Set();
     }
+    releaseHolders();
     publish(next === undefined ? { kind: 'closed' } : { kind: 'loading' });
     if (started && next !== undefined) {
       const opened = runLogged(opening(generation, next));
