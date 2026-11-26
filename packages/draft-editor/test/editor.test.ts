@@ -617,6 +617,23 @@ describe('the Tiptap evaluation page', () => {
     expect(page.posted).toHaveLength(posted);
   });
 
+  it('reports the slash line again as the page scrolls or resizes, while the menu shows', async () => {
+    expect.hasAssertions();
+    const page = await open(paragraphs('/he'));
+    const { editor } = page;
+    editor.commands.setTextSelection(nth(textblocks(editor), 0).to);
+    const before = page.posted.length;
+    globalThis.dispatchEvent(new Event('resize'));
+    expect(page.posted).toHaveLength(before);
+    page.command({ type: 'menu', open: true });
+    globalThis.dispatchEvent(new Event('scroll'));
+    globalThis.dispatchEvent(new Event('resize'));
+    expect(
+      page.posted.slice(before).map((update) => update.caret),
+    ).toStrictEqual([expect.any(Object), expect.any(Object)]);
+    page.command({ type: 'menu', open: false });
+  });
+
   it('hands Return, Tab, the arrows and Escape to the host only while its menu shows', async () => {
     expect.hasAssertions();
     const page = await open(paragraphs('/he'));

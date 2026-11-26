@@ -132,7 +132,6 @@ const styles = StyleSheet.create({
   slashMenuBelow: { position: 'absolute', top: '100%', left: 0, right: 0 },
   slashMenuAbove: {
     position: 'absolute',
-    bottom: '100%',
     left: 0,
     right: 0,
     paddingBottom: spacing.xs,
@@ -261,15 +260,19 @@ function PageSlashMenu({
   const line = useRef<ViewInstance>(null);
   const [rows, setRows] = useState(0);
   const [room, setRoom] =
-    useState<Readonly<{ below: number; above: number }>>();
+    useState<Readonly<{ below: number; above: number; lift: number }>>();
   const measure = () => {
     const view = viewport.current?.getBoundingClientRect();
     const at = line.current?.getBoundingClientRect();
     if (view !== undefined && at !== undefined) {
-      // Room less the menu's padding and margin.
+      // The lowest the menu may end, and how far over the line's bottom it ends when it opens over
+      // the line, staying clear of the reserve. Room is less the menu's padding and margin.
+      const floor = view.bottom - reserve;
+      const lift = Math.max(at.height, at.bottom - floor);
       setRoom({
-        below: view.bottom - reserve - at.bottom - 24,
-        above: at.top - view.top - spacing.s - 24,
+        below: floor - at.bottom - 24,
+        above: at.bottom - lift - view.top - spacing.s - 24,
+        lift,
       });
     }
   };
@@ -295,7 +298,9 @@ function PageSlashMenu({
       ]}>
       <View
         style={[
-          flipped ? styles.slashMenuAbove : styles.slashMenuBelow,
+          flipped
+            ? [styles.slashMenuAbove, { bottom: room.lift }]
+            : styles.slashMenuBelow,
           // On iPad the panel keeps the native fields' inset; the page's text starts 16pt in, and
           // the menu 8pt left of it.
           size !== 'compact' && { left: 16 - spacing.s - padFieldInset },

@@ -1552,16 +1552,14 @@ if (draftEditor !== undefined && element !== null) {
       replace(command);
     }
   };
-  // The Slash Command Menu follows its line as the page scrolls.
-  globalThis.addEventListener(
-    'scroll',
-    () => {
-      if (menuOpen) {
-        post(editor, editor.state.tr);
-      }
-    },
-    { passive: true },
-  );
+  // The Slash Command Menu follows its line as the page scrolls or resizes, which can rewrap it.
+  const follow = () => {
+    if (menuOpen) {
+      post(editor, editor.state.tr);
+    }
+  };
+  globalThis.addEventListener('scroll', follow, { passive: true });
+  globalThis.addEventListener('resize', follow);
   // The host offers its controls once the page reports, so no command arrives before this.
   post(editor, editor.state.tr);
 }
