@@ -2044,9 +2044,12 @@ final class WindowTests: XCTestCase {
       page
       ? webText(paragraph, in: window)
       : window.textViews.matching(NSPredicate(format: "value CONTAINS %@", paragraph)).firstMatch
+    // The page hides Undo when Close begins; the composer is gone once Subject is.
+    let subject = window.textFields["Subject"]
     func close() {
       window.buttons["Close"].click()
-      XCTAssertTrue(undo.waitForNonExistence(timeout: 10))
+      XCTAssertTrue(subject.waitForNonExistence(timeout: 10))
+      XCTAssertFalse(undo.exists)
     }
 
     var groups: [PerformanceGroup] = []
@@ -2061,13 +2064,13 @@ final class WindowTests: XCTestCase {
       }
       groups.append((name, budget, windows, firstQueryResults - before, []))
     }
-    XCTAssertFalse(undo.exists)
+    XCTAssertFalse(subject.exists)
     measure("empty-composer", budget: 300, { window.buttons["New Message"].click() }, ready: body)
     // Close asks to save the edit, and the Inbox lists the Draft once Save stores it.
     window.buttons["New Message"].click()
     XCTAssertTrue(undo.waitForExistence(timeout: 30))
-    window.textFields["Subject"].click()
-    window.textFields["Subject"].typeText("Warm composer")
+    subject.click()
+    subject.typeText("Warm composer")
     body.click()
     body.typeText(paragraph)
     XCTAssertTrue(saved.waitForExistence(timeout: 10))
@@ -2075,7 +2078,7 @@ final class WindowTests: XCTestCase {
     let save = window.sheets.firstMatch.buttons["Save"]
     XCTAssertTrue(save.waitForExistence(timeout: 10))
     save.click()
-    XCTAssertTrue(undo.waitForNonExistence(timeout: 10))
+    XCTAssertTrue(subject.waitForNonExistence(timeout: 10))
     let draft = window.buttons.matching(
       NSPredicate(format: "label CONTAINS %@", "Draft. Warm composer")
     ).firstMatch

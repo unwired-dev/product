@@ -747,25 +747,24 @@ interaction.
 
 | Composer | New message p50 / p95 / max | Saved Draft p50 / p95 / max |
 | -------- | --------------------------- | --------------------------- |
-| Current  | 397 / 449 / 449 ms          | 406 / 857 / 857 ms          |
-| Page     | 296 / 1,867 / 1,867 ms      | 374 / 1,636 / 1,636 ms      |
+| Current  | 499 / 1,581 / 1,581 ms      | 334 / 670 / 670 ms          |
+| Page     | 294 / 687 / 687 ms          | 279 / 798 / 798 ms          |
 
 A sample runs from the mouse release the app records until an accessibility query
 finds the body ready: the body and the format bar's **Undo**, which the page shows
 once it is ready, and for the saved Draft its paragraph in the body. It includes
-XCUITest's event completion and queries (about 42–51 ms per query in these runs),
+XCUITest's event completion and queries (about 23–58 ms per query in these runs),
 so each sample is an upper bound, and it leaves out the display frame that draws
-the body. Neither composer met the budgets of 300 ms for an empty composer and
-200 ms for a warm one at p95.
+the body. Both composers' p95 upper bounds exceeded the budgets of 300 ms for an
+empty composer and 200 ms for a warm one, so these runs do not prove either budget.
 
 The host was shared with other agents' builds and journeys: the load average was
-about 115 during the current composer's run and 23 to 70 during the page's, and
-both runs recorded main-queue stalls of 100 ms or longer during samples (the
-page's new message: 480 and 114 ms; the current composer's saved Draft: 131, 125
-and 124 ms). The page's slowest saved-Draft samples overlap no such stall, so its
-tail may come from WebKit's processes under the same load. These runs therefore
-show neither that a composer misses the budgets on an idle host nor which opens
-faster. Repeat
+51 to 114 during the current composer's run and 44 to 263 during the page's. Both
+runs recorded main-queue stalls of 100 ms or longer during new-message samples
+(the current composer: 381, 111 and 127 ms; the page: 169 ms) and none during
+saved-Draft samples, so the saved-Draft tails may come from other processes under
+the same load. These runs therefore show neither that a composer misses the
+budgets on an idle host nor which opens faster. Repeat
 them on an idle host before reading them as a comparison. Physical iPhone and
 iPad, and #822's startup, typing response and memory measurements, are still
 outstanding.

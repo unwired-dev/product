@@ -90,15 +90,17 @@ The `testComposerOpening` journey compares how long both Mac composers take to
 open a body ([#2955](https://github.com/unwired-dev/product/issues/2955)). It runs
 the current composer in a `registration-performance` `Testing` build, signed in as
 the [performance journey](#mac-performance-journey) is, and the Draft editor page
-in a `registration-draft-editor` `Testing` build:
+in a `registration-draft-editor` `Testing` build, with the signed
+[Mac runner](mock-mail-sessions.md#native-mac-entry-point). Both builds use one app
+path, so the loop stops at the first failure:
 
 ```sh
 for scenario in registration-performance registration-draft-editor; do
   UNWIRED_MOCK_SCENARIO=$scenario \
-  mise exec -- pnpm --filter @private-email/macos native:build Testing
+  mise exec -- pnpm --filter @private-email/macos native:build Testing || break
   mise exec -- pnpm --filter @private-email/macos test:native \
     "$PWD/artifacts/macos-inbox/DerivedData/Build/Products/Testing/UnwiredMail.app" \
-    testComposerOpening
+    testComposerOpening || break
 done
 ```
 
