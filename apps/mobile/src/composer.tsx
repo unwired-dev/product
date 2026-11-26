@@ -3659,6 +3659,8 @@ function useBodyRecipients(
         ? t('drafts.bodyRecipient.greetingUnnamed')
         : t('drafts.bodyRecipient.greeting', { name });
     },
+    name: (recipient: Recipient) =>
+      greetingName(recipient, contacts.addresses) ?? recipient.address,
   };
 }
 
@@ -4821,6 +4823,7 @@ function Editor({
       query,
       recipient,
       greeting: recipientMenu.greeting(recipient),
+      name: recipientMenu.name(recipient),
     });
     recipientMenu.close();
     change(result.draft);

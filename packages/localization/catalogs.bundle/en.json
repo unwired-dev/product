@@ -1241,12 +1241,14 @@
       "title": "Recipient suggestions",
       "recent": "Recent",
       "contacts": "Contacts",
-      "named": "{{name}}, {{address}}"
+      "named": "{{name}}, {{address}}",
+      "inRole": "{{label}}, in {{role}}"
     },
     "bodyRecipient": {
       "greeting": "Hi {{name}},",
       "greetingUnnamed": "Hi,",
       "added": "{{name}} added to To",
+      "inserted": "Inserted {{text}}",
       "noMatches": "No Matches",
       "contactsUnsearchable": "Contacts couldn’t be searched. Showing people from recent mail."
     },

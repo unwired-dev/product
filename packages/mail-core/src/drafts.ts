@@ -351,6 +351,18 @@ const startsWith =
       word.toLowerCase().startsWith(query),
     );
 
+const addressesOf = (draft: Draft) =>
+  [...draft.to, ...draft.cc, ...draft.bcc].map(({ address }) => address);
+
+// The options with the Draft's own recipients left out.
+const withoutDraft = (
+  draft: Draft,
+  { excluded = [], ...options }: SuggestionOptions,
+): SuggestionOptions => ({
+  ...options,
+  excluded: [...addressesOf(draft), ...excluded],
+});
+
 // Up to `limit` Recipient Suggestions for the field's unfinished entry, none while it is empty.
 export function recipientSuggestions(
   draft: Draft,
@@ -358,7 +370,9 @@ export function recipientSuggestions(
   options: SuggestionOptions,
 ): readonly Recipient[] {
   const query = entriesOf(entryOf(draft, field)).rest.trim().toLowerCase();
-  return query === '' ? [] : suggestionsFor(draft, query, options);
+  return query === ''
+    ? []
+    : suggestionsFor(query, withoutDraft(draft, options));
 }
 
 type SuggestionOptions = Readonly<{
@@ -368,20 +382,14 @@ type SuggestionOptions = Readonly<{
 }>;
 
 // Up to `limit` correspondents, given newest first, whose address, name or a word of it starts
-// with the lowercase `query`: each address once, under its newest name, leaving out addresses
-// already in the Draft or `excluded`. An empty query matches every one.
+// with the lowercase `query`: each address once, under its newest name, leaving out `excluded`
+// addresses. An empty query matches every one.
 function suggestionsFor(
-  draft: Draft,
   query: string,
   { correspondents, excluded = [], limit = 3 }: SuggestionOptions,
 ): readonly Recipient[] {
   const matches = startsWith(query);
-  const seen = new Set(
-    [
-      ...[...draft.to, ...draft.cc, ...draft.bcc].map(({ address }) => address),
-      ...excluded,
-    ].map((address) => address.toLowerCase()),
-  );
+  const seen = new Set([...excluded].map((address) => address.toLowerCase()));
   const found: Recipient[] = [];
   for (const correspondent of correspondents) {
     if (found.length === limit) {
@@ -473,7 +481,64 @@ export const bodyRecipientSuggestions = (
   draft: Draft,
   query: BodyRecipientQuery,
   options: SuggestionOptions,
-) => suggestionsFor(draft, query.text.toLowerCase(), options);
+) => suggestionsFor(query.text.toLowerCase(), withoutDraft(draft, options));
+
+// Up to four people for the query, as the To field matches them: recent `correspondents`, newest
+// first, then people already on the Draft, and for typed text the `contacts` left over, one row
+// kept for them. People already on the Draft stay listed, so the menu can show their role.
+export function bodySuggestionSections(
+  draft: Draft,
+  query: BodyRecipientQuery,
+  {
+    correspondents,
+    contacts,
+    excluded = [],
+  }: Readonly<{
+    correspondents: Iterable<Readonly<{ sender: string; address: string }>>;
+    contacts: Iterable<Readonly<{ sender: string; address: string }>>;
+    excluded?: Iterable<string>;
+  }>,
+) {
+  const typed = query.text.toLowerCase();
+  const present = [...draft.to, ...draft.cc, ...draft.bcc];
+  const recent = suggestionsFor(typed, {
+    correspondents: [
+      ...correspondents,
+      ...present.map(({ name = '', address }) => ({ sender: name, address })),
+    ],
+    excluded,
+    limit: 4,
+  });
+  const matched =
+    typed === ''
+      ? []
+      : suggestionsFor(typed, {
+          correspondents: contacts,
+          excluded: [
+            ...excluded,
+            ...addressesOf(draft),
+            ...recent.map(({ address }) => address),
+          ],
+          limit: 4,
+        });
+  const shown = recent.slice(0, matched.length === 0 ? 4 : 3);
+  return {
+    query,
+    recent: shown,
+    contacts: matched.slice(0, 4 - shown.length),
+  };
+}
+
+// The field that already holds the address, if any.
+export const recipientRole = (
+  draft: Draft,
+  address: string,
+): RecipientField | undefined =>
+  (['to', 'cc', 'bcc'] as const).find((field) =>
+    draft[field].some(
+      (each) => each.address.toLowerCase() === address.toLowerCase(),
+    ),
+  );
 
 // Slash Command Menu ----------------------------------------------------------------------------
 
@@ -571,25 +636,30 @@ export function greetingName(
   return name;
 }
 
-// The query replaced by the greeting, an empty paragraph and the caret, with the person added
-// to To unless the Draft already has the address, as one edit.
+// The query replaced, with the person added to To unless the Draft already has the address, as
+// one edit: in an otherwise empty body by the greeting, an empty paragraph and the caret, and in
+// written text by the `name` alone (the greetingName, else the address).
 export function addBodyRecipient(
   draft: Draft,
   {
     query,
     recipient,
     greeting,
+    name,
   }: Readonly<{
     query: BodyRecipientQuery;
     recipient: Recipient;
     greeting: string;
+    name: string;
   }>,
 ): Readonly<{ draft: Draft; selection: Selection }> {
-  const edit = replaceSelection(textOf(draft.body), query, `${greeting}\n\n`);
-  const address = recipient.address.toLowerCase();
-  const present = [...draft.to, ...draft.cc, ...draft.bcc].some(
-    (each) => each.address.toLowerCase() === address,
+  const body = textOf(draft.body);
+  const edit = replaceSelection(
+    body,
+    query,
+    onlyQueryIn(body, query) ? `${greeting}\n\n` : name,
   );
+  const present = recipientRole(draft, recipient.address) !== undefined;
   return {
     draft: {
       ...draft,

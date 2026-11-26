@@ -2495,8 +2495,10 @@ describe('composing Drafts', () => {
       await type('@anz ');
       expect(menu()).toBeNull();
 
-      // Text before the @ is content, so it opens nothing.
-      await type('Hi @');
+      // An @ inside a word opens nothing.
+      await type('');
+      await type('Hi');
+      await type('Hi@');
       expect(menu()).toBeNull();
 
       // Down then Return chooses: the query becomes the greeting with the contact's given name,
@@ -2539,6 +2541,132 @@ describe('composing Drafts', () => {
         }),
       ).toBeOnTheScreen();
       expect(appleContacts.requests).toBe(requests);
+    } finally {
+      modules.mockRestore();
+      Object.assign(appleContacts, { granted: false, addresses: [] });
+    }
+  });
+
+  it('puts only the name for @ in written text and lists people already on the Draft with their role', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const personal = createSyntheticGmail();
+    personal.deliver({ from: 'Ana Kovač <ana@example.invalid>' });
+    personal.deliver({ from: 'Tomáš Dvořák <tomas@example.invalid>' });
+    appleContacts.granted = true;
+    appleContacts.addresses = [
+      { sender: 'Ana Kovač', address: 'ana@example.invalid', given: 'Ana' },
+    ];
+    const host: TurboModule &
+      Readonly<{
+        addListener: typeof ignore;
+        removeListeners: typeof ignore;
+        guardClose: typeof ignore;
+        forgetComposerTyping: typeof ignore;
+        setComposerIndents: typeof ignore;
+        composerCharacterFrame: () => Promise<
+          Readonly<{ x: number; y: number; width: number; height: number }>
+        >;
+      }> = {
+      addListener: ignore,
+      removeListeners: ignore,
+      guardClose: ignore,
+      forgetComposerTyping: ignore,
+      setComposerIndents: ignore,
+      composerCharacterFrame: async () => ({
+        x: 0,
+        y: 0,
+        width: 8,
+        height: 16,
+      }),
+    };
+    const modules = windowHostWith(host);
+    const announce = jest.mocked(AccessibilityInfo.announceForAccessibility);
+    try {
+      const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+      await render(
+        <App
+          drafts={createDrafts(storage.native, registration)}
+          registration={registration}
+          mailboxes={createMailboxes(
+            syntheticConnections({ [alex]: personal }),
+            registration,
+          )}
+        />,
+      );
+      await press('New Message');
+      const to = screen.getByLabelText('To');
+      await fireEvent.changeText(to, 'tomas@example.invalid');
+      await fireEvent(to, 'submitEditing');
+      const tomas = () =>
+        screen.queryAllByRole('button', { name: /^To: .*tomas@example/u });
+      expect(tomas()).toHaveLength(1);
+      const body = () => screen.getByLabelText('Message body');
+      const type = async (text: string) => {
+        await fireEvent.changeText(body(), text);
+        await fireEvent(body(), 'selectionChange', {
+          nativeEvent: { selection: { start: text.length, end: text.length } },
+        });
+      };
+      const menu = () => screen.queryByLabelText('Recipient suggestions');
+      const lines = () =>
+        shownBody().map((spans) => spans.map(({ text }) => text).join(''));
+      const written = 'Hi Tomáš,\nI’ll ask ';
+
+      // After a space in written text, @ opens the suggestions; a person already on the Draft
+      // shows their role.
+      await type(written);
+      await type(`${written}@`);
+      await expect(
+        screen.findByRole('button', {
+          name: 'Tomáš Dvořák, tomas@example.invalid, in To',
+        }),
+      ).resolves.toBeOnTheScreen();
+      expect(screen.getByText('To')).toBeOnTheScreen();
+      expect(
+        screen.getByRole('button', { name: 'Ana Kovač, ana@example.invalid' }),
+      ).toBeOnTheScreen();
+
+      // Choosing a new person replaces only the query with the given name and adds them to To.
+      await type(`${written}@an`);
+      await fireEvent(body(), 'keyDown', { nativeEvent: { key: 'Enter' } });
+      expect(lines()).toStrictEqual(['Hi Tomáš,', 'I’ll ask Ana']);
+      expect(
+        screen.getByRole('button', {
+          name: 'To: Ana Kovač <ana@example.invalid>',
+        }),
+      ).toBeOnTheScreen();
+      expect(menu()).toBeNull();
+      expect(announce).toHaveBeenLastCalledWith('Ana Kovač added to To');
+
+      // One Undo restores the query and removes only that person; Redo reapplies both.
+      await press('Undo');
+      expect(lines()).toStrictEqual(['Hi Tomáš,', 'I’ll ask @an']);
+      expect(
+        screen.queryByRole('button', {
+          name: 'To: Ana Kovač <ana@example.invalid>',
+        }),
+      ).toBeNull();
+      expect(tomas()).toHaveLength(1);
+      await press('Redo');
+      expect(lines()).toStrictEqual(['Hi Tomáš,', 'I’ll ask Ana']);
+
+      // Choosing a person already on the Draft inserts their name and keeps their role, once.
+      const more = 'Hi Tomáš,\nI’ll ask Ana and ';
+      await type(more);
+      await type(`${more}@`);
+      await type(`${more}@to`);
+      await fireEvent.press(
+        await screen.findByRole('button', {
+          name: 'Tomáš Dvořák, tomas@example.invalid, in To',
+        }),
+      );
+      expect(lines()).toStrictEqual([
+        'Hi Tomáš,',
+        'I’ll ask Ana and Tomáš Dvořák',
+      ]);
+      expect(tomas()).toHaveLength(1);
+      expect(announce).toHaveBeenLastCalledWith('Inserted Tomáš Dvořák');
     } finally {
       modules.mockRestore();
       Object.assign(appleContacts, { granted: false, addresses: [] });
