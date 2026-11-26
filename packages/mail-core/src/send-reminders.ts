@@ -303,6 +303,8 @@ export function createSendReminders(
   }>,
 ) {
   const semaphore = Semaphore.makeUnsafe(1);
+  // Told after each change this device stores, such as a reminder another device set.
+  const listeners = new Set<() => void>();
   const signedIn = () => ownerOf(registration.getSnapshot().snapshot);
   // The Send Reminders of `account`, the Product Account signed in when the action was called, so
   // an action that waited, or whose read finished, while another account signed in reads and
@@ -340,6 +342,9 @@ export function createSendReminders(
       );
       if (committed.owner !== owner) {
         return yield* ownerMismatch();
+      }
+      for (const listener of listeners) {
+        listener();
       }
       return next;
     }).pipe(semaphore.withPermit);
@@ -523,6 +528,13 @@ export function createSendReminders(
     // Merges Private Sync into this device's reminders and publishes this device's changes;
     // resolves once no pass is running.
     synchronize,
+    // Calls `listener` after each change this device stores; returns its removal.
+    subscribe: (listener: () => void) => {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
   };
 }
 export type SendReminders = ReturnType<typeof createSendReminders>;
