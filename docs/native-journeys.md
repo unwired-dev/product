@@ -307,6 +307,19 @@ chooses **Send Now**. Within 8 seconds of the click, before a plain Send's
 Light; `testSendNowDark` runs it in Dark. The dimmed state while a file is still
 being added is covered by Jest.
 
+`testSendReminderChooseDateAndTime` uses the same build and sign-in
+([#2980](https://github.com/unwired-dev/product/issues/2980)). It writes a New
+Message's subject, opens Send's menu with a right click and chooses **Remind Me to
+Send… › Choose Date and Time…**. The popover opens inside the window with the time
+field at 09:00, and Return sets the reminder, which the banner shows for
+tomorrow. The banner's **Change › Choose Date and Time…**
+opens it again at the stored time; choosing today in the calendar and an earlier
+hour shows "That time has passed. Choose a later time." and dims **Set
+Reminder**, and Escape closes it, keeping the reminder. Both popovers are kept as
+attachments. It sets Light; `testSendReminderChooseDateAndTimeDark` runs it in
+Dark. Choosing a day and a later time, Cancel and the check when Set Reminder is
+pressed are covered by Jest.
+
 `testPinThread` uses the same build and sign-in
 ([#2280](https://github.com/unwired-dev/product/issues/2280)). It opens Gmail
 update 001 and chooses **Pin** in the reader's toolbar; the row then reads

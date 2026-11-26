@@ -4308,6 +4308,7 @@ function Editor({
       disabled={closing === 'saving'}
       sendable={blocked === undefined}
       waiting={addingName(draft, imports)}
+      reminder={reminder}
       onSend={() => {
         void sendAsking();
       }}
