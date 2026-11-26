@@ -1648,7 +1648,7 @@ const assetStatus = (
     return t('drafts.assets.status.cancelled');
   }
   return t(
-    'reason' in asset
+    asset.state === 'failed' && asset.reason === 'too-large'
       ? 'drafts.assets.status.tooLarge'
       : 'drafts.assets.status.failed',
   );

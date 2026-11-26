@@ -92,6 +92,7 @@ export function SendMenu({
   disabled,
   sendable,
   waiting,
+  help,
   onSend,
   onSendNow,
   onRemind,
@@ -100,6 +101,8 @@ export function SendMenu({
   readonly sendable: boolean;
   // The file Send Now waits for while it is still being added.
   readonly waiting: string | undefined;
+  // Why Send is unavailable, as its tooltip and VoiceOver help.
+  readonly help?: string | undefined;
   readonly onSend: () => void;
   readonly onSendNow: () => void;
   readonly onRemind: (dueAt: number, timeZone: string) => void;
@@ -154,6 +157,7 @@ export function SendMenu({
         <Button
           disabled={disabled || !sendable}
           label={t('drafts.send')}
+          help={help}
           fill="accent"
           onPress={onSend}
         />

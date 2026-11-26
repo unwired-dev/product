@@ -719,11 +719,21 @@ size caption and drawing the image in the body with corner handles come in later
 
 An added file is **importing** until its bytes are stored. While it imports, its
 row says **Adding…** and offers **Cancel**. A file whose import was cancelled,
-interrupted by quitting or relaunch, could not be read or saved, or is too large
-stays listed as **Not added** with the reason, and the composer warns that files
-not added are not sent. Only complete files can be sent: `unsendableAssets` in
+interrupted by quitting or relaunch, could not be read or saved, is too large or,
+for a received attachment, couldn’t be downloaded stays listed as **Not added**
+with the reason. On iPhone and iPad the composer warns that files not added are not
+sent. On the Mac the row names the reason ("Couldn’t be downloaded"), or says
+**Wasn’t added** when the reason is unknown, and offers **Try Again**
+([#2991](https://github.com/unwired-dev/product/issues/2991)): a failed import keeps
+its picked or dropped copy on the device while it can be retried, and Try Again
+(`retryImport`, listed by `getRetries`) reads the same file, pasted image or
+Downloaded Attachment again without a picker. The copy is deleted once the file is
+added, when it is removed, when its Draft is discarded and at launch; a file too
+large for Drafts is not retried. Only complete files can be sent: `unsendableAssets` in
 `@private-email/mail-core/drafts` lists everything else, which [Send](outbox.md) refuses.
-While a file is still being added, Send stays unavailable. Once only files that
+While a file is still being added, Send stays unavailable; on the Mac the reason
+above the body names the file ("“plan.pdf” is still importing. Wait for it, or remove
+it, to send."), and VoiceOver reads it as Send's help. Once only files that
 were **Not added** stand in the way, Send stays available and first asks **Send
 without 2 attachments?**, naming each file left out and why ("tour.mov is too
 large and keys.pkpass wasn’t added.") and how many other files will be sent: on
@@ -865,7 +875,8 @@ reopening, **Undo** and **Discard** work as for any Draft.
   copies the message's resolved Inline Images into its quoted text. They import like other
   files and appear under **Inline images**. Their positions and repeated occurrences
   are kept; repeated occurrences use the same copied bytes. An attachment too large to download, or one
-  that could not be downloaded, is listed as **Not added** and is never sent.
+  that could not be downloaded, is listed as **Not added** (on the Mac, **Couldn’t be downloaded**)
+  and is never sent.
   Attachments that share a filename are each forwarded with their own bytes and type. A
   forward reopened from storage, for example after relaunch, keeps its attachments,
   Inline Images and **Not added** files. Replies carry no attachments.

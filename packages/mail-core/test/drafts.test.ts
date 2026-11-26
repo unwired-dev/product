@@ -30,6 +30,7 @@ import {
   createDrafts,
   draftSummary,
   isEmptyDraft,
+  leftOutQuestion,
   prepareFiles,
   recipientSuggestions,
   recipientSummary,
@@ -3657,6 +3658,117 @@ describe('adding files and images to Drafts', () => {
     await relaunched.update({ ...reopened, subject: 'Notes' }, reopened);
     expect(storage.assets()).toStrictEqual([]);
     expect(unsendableAssets(reopened)).toHaveLength(3);
+  });
+
+  it('Try Again reads a failed file again, and its copy goes once added, removed or discarded', async () => {
+    expect.hasAssertions();
+    const { storage, drafts, id, draft } = await opened();
+    const pick = { kind: 'file', uri: 'file:///notes.txt' } as const;
+    storage.addFile(pick.uri, 'notes');
+    const attachFailing = async (code: string) => {
+      const asset = drafts.prepare({ name: 'notes.txt', type: 'text/plain' });
+      const before = draft();
+      await drafts.update(
+        { ...before, attachments: [...assetsOf(before), asset] },
+        before,
+      );
+      storage.failNextImport(code);
+      await drafts.importAsset(asset, pick);
+      return asset;
+    };
+
+    // A failed import keeps the picked copy, and Try Again adds it without a picker.
+    const retried = await attachFailing('locked');
+    expect(assetsOf(draft())[0]).toStrictEqual({
+      ...retried,
+      state: 'failed',
+    });
+    expect(drafts.getRetries().has(retried.id)).toBe(true);
+    storage.holdImports();
+    const retrying = drafts.retryImport(retried.id);
+    await vi.waitFor(() => {
+      expect(assetsOf(draft())[0]).toMatchObject({ state: 'importing' });
+    });
+    expect(drafts.getImports().has(retried.id)).toBe(true);
+    storage.releaseImports();
+    await expect(retrying).resolves.toBe(true);
+    expect(assetsOf(draft())[0]).toMatchObject({ state: 'complete' });
+    expect(drafts.getRetries().size).toBe(0);
+    await expect(drafts.retryImport(retried.id)).resolves.toBe(false);
+    expect(storage.discardedPicks()).toStrictEqual([]);
+
+    // Removing the file deletes its copy.
+    const removed = await attachFailing('locked');
+    const before = draft();
+    await drafts.update(
+      {
+        ...before,
+        attachments: assetsOf(before).filter(
+          ({ id: each }) => each !== removed.id,
+        ),
+      },
+      before,
+    );
+    expect(drafts.getRetries().size).toBe(0);
+    expect(storage.discardedPicks()).toStrictEqual([pick.uri]);
+
+    // A file too large for Drafts can't be tried again, so its copy goes at once.
+    await attachFailing('too-large');
+    expect(drafts.getRetries().size).toBe(0);
+    expect(storage.discardedPicks()).toStrictEqual([pick.uri, pick.uri]);
+
+    // Discarding the Draft deletes the copy too.
+    await attachFailing('locked');
+    expect(drafts.getRetries().size).toBe(1);
+    await expect(drafts.discard(id)).resolves.toBe(true);
+    expect(drafts.getRetries().size).toBe(0);
+    expect(storage.discardedPicks()).toStrictEqual([
+      pick.uri,
+      pick.uri,
+      pick.uri,
+    ]);
+  });
+
+  it('names why each file was left out when Send asks', async () => {
+    expect.hasAssertions();
+    const { storage, drafts, id, draft } = await opened();
+    // A received attachment no longer on this device, and a forward whose file never downloaded.
+    storage.failNextImport('attachment-missing');
+    await drafts.attach(id, [
+      {
+        name: 'invoice.pdf',
+        type: 'application/pdf',
+        source: {
+          kind: 'received',
+          mailbox: {
+            connection: alex.id,
+            address: alex.address,
+            generation: 'generation-1',
+          },
+          file: 'downloaded-file',
+        },
+      },
+      {
+        name: 'plan.key',
+        type: 'application/x-iwork-keynote-sffkey',
+        source: { kind: 'unavailable' },
+      },
+    ]);
+    await vi.waitFor(() => {
+      expect(assetsOf(draft()).map(({ state }) => state)).toStrictEqual([
+        'failed',
+        'failed',
+      ]);
+    });
+    expect(assetsOf(draft())).toMatchObject([
+      { reason: 'not-downloaded' },
+      { reason: 'not-downloaded' },
+    ]);
+    // Reading a received attachment again could succeed once it downloads.
+    expect(drafts.getRetries().size).toBe(1);
+    expect(leftOutQuestion(english, draft(), new Set())?.detail).toBe(
+      'invoice.pdf couldn’t be downloaded and plan.key couldn’t be downloaded. No attachments will be sent.',
+    );
   });
 
   it('refuses files over the limits and reports damaged or missing bytes', async () => {
