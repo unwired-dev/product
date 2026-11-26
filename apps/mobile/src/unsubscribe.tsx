@@ -32,6 +32,10 @@ import { AccountContext } from './registration-gate.tsx';
 import { unsubscribe } from './registration.ts';
 import { usePalette } from './theme.ts';
 
+// SwiftUI sets a capsule's label about 2pt narrower than the frames do, so the capsules gain 1pt
+// on each side.
+const labelInset = 1;
+
 export const UnsubscribeContext = createContext<Unsubscribe>(unsubscribe);
 
 const compact = Platform.OS === 'ios' && !Platform.isPad;
@@ -292,6 +296,7 @@ function Banner({
         <View style={ipad ? styles.padBannerActions : styles.bannerActions}>
           {outcome === undefined ? (
             <BannerButton
+              widen={labelInset}
               label={t('unsubscribe.action')}
               disabled={!offered(entry)}
               onPress={() => {
@@ -301,6 +306,7 @@ function Banner({
           ) : (
             <>
               <BannerButton
+                widen={labelInset}
                 label={t('unsubscribe.tryAgain')}
                 disabled={busy}
                 onPress={() => {
@@ -309,6 +315,7 @@ function Banner({
               />
               {blocking === undefined ? null : (
                 <BannerButton
+                  widen={labelInset}
                   label={blocking.title}
                   disabled={busy}
                   onPress={() => {

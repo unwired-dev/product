@@ -1302,10 +1302,13 @@ export function BodyUnavailable({
 export function BannerButton({
   label,
   disabled = false,
+  widen = 0,
   onPress,
 }: {
   readonly label: string;
   readonly disabled?: boolean;
+  // Extra points on each side of the label.
+  readonly widen?: number;
   readonly onPress: () => void;
 }) {
   const colors = usePalette();
@@ -1323,8 +1326,7 @@ export function BannerButton({
               : font({ textStyle: 'footnote', weight: 'semibold' }),
             foregroundStyle(colors.textPrimary),
             padding({
-              // 1pt wider than the frames' padding: SwiftUI sets the label about 2pt narrower.
-              horizontal: spacing.m * scale + 1,
+              horizontal: spacing.m * scale + widen,
               vertical: 6 * scale,
             }),
             background(colors.fillTrack, shapes.capsule()),

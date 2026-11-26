@@ -1988,6 +1988,8 @@ final class InboxTests: XCTestCase {
       row.tap()
       let offer = app.buttons["Unsubscribe…"].firstMatch
       XCTAssertTrue(offer.waitForExistence(timeout: 20), list)
+      // The button stays disabled until the saved-request lookup answers.
+      waitUntil { offer.isEnabled && offer.isHittable }
       if name == "sent" { capture("banner") }
       offer.tap()
       let alert = app.alerts["Unsubscribe from \(list)?"]
