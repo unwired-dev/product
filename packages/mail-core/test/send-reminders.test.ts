@@ -336,7 +336,7 @@ describe('synchronized Send Reminders', () => {
     await expect(phone.reminders('work')).resolves.toStrictEqual([]);
   });
 
-  it('tells subscribers when a pull stores another device’s reminder, and stops when removed', async () => {
+  it('tells subscribers when a pull stores another device’s reminder and after each pass, and stops when removed', async () => {
     expect.hasAssertions();
     const { mac, phone } = devices();
     await mac.remind('work', keys);
@@ -348,6 +348,10 @@ describe('synchronized Send Reminders', () => {
     await expect(phone.reminders('work')).resolves.toStrictEqual([
       { ...keys, profile: 'work' },
     ]);
+    // A pass with nothing new still tells it, so a read that failed meanwhile is made again.
+    told.mockClear();
+    await phone.synchronize();
+    expect(told).toHaveBeenCalledWith();
 
     unsubscribe();
     told.mockClear();
