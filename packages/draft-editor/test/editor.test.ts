@@ -586,6 +586,37 @@ describe('the Tiptap evaluation page', () => {
     expect(page.posted.at(-1)?.caret).toBeUndefined();
   });
 
+  it('tells the host which edits its replacement and Undo made, so neither opens its menu', async () => {
+    expect.hasAssertions();
+    const page = await open(paragraphs('Hi'));
+    const { editor } = page;
+    editor.commands.setTextSelection(nth(textblocks(editor), 0).to);
+    page.type('/');
+    const base = page.posted.at(-1)?.revision;
+    ok(base, 'Expected the revision with the slash');
+    page.command({
+      type: 'replace',
+      revision: base,
+      document: paragraphs('Hi'),
+      selection: { start: 2, end: 2 },
+    });
+    expect(page.posted.at(-1)).toMatchObject({ replaced: base });
+    page.command({ type: 'undo' });
+    expect(page.posted.at(-1)).toMatchObject({
+      restored: true,
+      document: paragraphs('Hi/'),
+    });
+    // A replacement computed from an earlier revision makes no edit to acknowledge.
+    const posted = page.posted.length;
+    page.command({
+      type: 'replace',
+      revision: base,
+      document: paragraphs('Hi'),
+      selection: { start: 2, end: 2 },
+    });
+    expect(page.posted).toHaveLength(posted);
+  });
+
   it('hands Return, Tab, the arrows and Escape to the host only while its menu shows', async () => {
     expect.hasAssertions();
     const page = await open(paragraphs('/he'));

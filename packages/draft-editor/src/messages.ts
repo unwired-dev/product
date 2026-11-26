@@ -41,6 +41,10 @@ const PageMessageSchema = Schema.fromJsonString(
       kind: BlockKindSchema,
       undo: Schema.Boolean,
       redo: Schema.Boolean,
+      // An Undo or Redo made this edit, not typing.
+      restored: Schema.optionalKey(Schema.Literal(true)),
+      // The host's replacement computed from this revision made this edit.
+      replaced: Schema.optionalKey(Offset),
       // The caret's line in the page's viewport, while that line starts with `/`, for the Slash
       // Command Menu to hang from.
       caret: Schema.optionalKey(

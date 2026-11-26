@@ -209,24 +209,29 @@ function usePageSlashMenu(
         menu.close();
       }
     },
-    // After the page reports `body` in place of the `previous` one, edited at its selection: a typed
+    // After the page reports `next` in place of the `previous` body, edited at its selection: a typed
     // / opens the menu, and typing filters or closes it. What was typed includes what it replaced,
-    // as in the current composer.
+    // as in the current composer; an Undo or Redo types nothing.
     reported: (
       previous: Readonly<{
         body: SemanticDocument;
         selection: Selection | undefined;
       }>,
-      body: SemanticDocument,
-      selection: Selection,
+      next: Readonly<{
+        body: SemanticDocument;
+        selection: Selection;
+        restored?: true;
+      }>,
     ) => {
       const before = displayOf(previous.body).text;
-      const after = displayOf(body).text;
-      const at = previous.selection ?? selection;
+      const after = displayOf(next.body).text;
+      const at = previous.selection ?? next.selection;
       menu.typed(
-        body,
-        selection,
-        after.slice(at.start, at.end + after.length - before.length),
+        next.body,
+        next.selection,
+        next.restored
+          ? ''
+          : after.slice(at.start, at.end + after.length - before.length),
       );
     },
   };
@@ -632,9 +637,9 @@ function EvaluationEditor({
     run,
   });
   // An Insert command's picker or a Writing tool chosen in the menu, which runs once the page
-  // reports the body its choice made; a page that rejected the choice as stale runs neither.
+  // reports the edit the choice's replacement made; a page that refused it as stale runs neither.
   const slashNext =
-    useRef<Readonly<{ body: string; run: () => void }>>(undefined);
+    useRef<Readonly<{ revision: number; run: () => void }>>(undefined);
   const slashNextOf = (kind: SlashCommand) => {
     if (isSlashInsert(kind)) {
       return () => {
@@ -683,15 +688,12 @@ function EvaluationEditor({
       },
     });
     const next = slashNextOf(choice.kind);
-    slashNext.current = next && {
-      body: displayOf(result.document).text,
-      run: next,
-    };
+    slashNext.current = next && { revision: reported.revision, run: next };
   };
-  const afterSlash = (body: SemanticDocument) => {
+  const afterSlash = (replaced: number | undefined) => {
     const pending = slashNext.current;
     slashNext.current = undefined;
-    if (pending?.body === displayOf(body).text) {
+    if (pending !== undefined && pending.revision === replaced) {
       pending.run();
     }
   };
@@ -1080,10 +1082,9 @@ function EvaluationEditor({
                     });
                     slashMenu.reported(
                       { body: textOf(previous.body), selection: was },
-                      body,
-                      next.selection,
+                      { ...next, body },
                     );
-                    afterSlash(body);
+                    afterSlash(next.replaced);
                     if (frozen) {
                       paused.current?.(true);
                     }

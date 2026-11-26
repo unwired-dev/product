@@ -31,7 +31,7 @@ import Strike from '@tiptap/extension-strike';
 import Text from '@tiptap/extension-text';
 import Underline from '@tiptap/extension-underline';
 import { UndoRedo } from '@tiptap/extensions';
-import { closeHistory } from '@tiptap/pm/history';
+import { closeHistory, isHistoryTransaction } from '@tiptap/pm/history';
 import { Fragment, Node as ProseMirrorNode, Slice } from '@tiptap/pm/model';
 import {
   NodeSelection,
@@ -1277,10 +1277,13 @@ if (draftEditor !== undefined && element !== null) {
       /^\s*\//u.test(
         $from.parent.textBetween(0, $from.parentOffset, undefined, '\uFFFC'),
       );
+    const replaced: unknown = transaction.getMeta('replaced');
     const update: Update = {
       type: 'update',
       revision,
       ...(frozen ? { frozen: true as const } : {}),
+      ...(isHistoryTransaction(transaction) ? { restored: true as const } : {}),
+      ...(typeof replaced === 'number' ? { replaced } : {}),
       ...(transaction.docChanged || frozen
         ? {
             document: fromEditor(editor.getJSON(), assets),
@@ -1388,11 +1391,13 @@ if (draftEditor !== undefined && element !== null) {
       return;
     }
     const { state, view } = editor;
-    const tr = state.tr.replaceWith(
-      0,
-      state.doc.content.size,
-      ProseMirrorNode.fromJSON(state.schema, toEditor(body)).content,
-    );
+    const tr = state.tr
+      .replaceWith(
+        0,
+        state.doc.content.size,
+        ProseMirrorNode.fromJSON(state.schema, toEditor(body)).content,
+      )
+      .setMeta('replaced', base);
     const lines = linesOfDocument(tr.doc);
     view.dispatch(
       tr.setSelection(

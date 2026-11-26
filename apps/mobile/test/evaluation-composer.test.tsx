@@ -939,9 +939,23 @@ describe('the Tiptap evaluation composer', () => {
       caret,
     });
     expect(menu()).not.toBeNull();
-    await key('Escape');
 
-    // Attach File… removes the query and, once the page reports that body, opens the Files picker.
+    // Choosing from it, then Undo restoring the /, does not reopen it.
+    await press('Heading 2');
+    await report({
+      document: [paragraph('Hi'), { kind: 'heading2', spans: [] }],
+      selection: { start: 3, end: 3 },
+      replaced: revision(),
+    });
+    await report({
+      document: lines('Hi\n/'),
+      selection: { start: 4, end: 4 },
+      caret,
+      restored: true,
+    });
+    expect(menu()).toBeNull();
+
+    // Attach File… removes the query and, once the page reports that edit, opens the Files picker.
     storage.addFile('file:///plan.pdf', 'plan');
     storage.pickNext('files', [
       { uri: 'file:///plan.pdf', name: 'plan.pdf', type: 'application/pdf' },
@@ -951,6 +965,7 @@ describe('the Tiptap evaluation composer', () => {
     await report({
       document: lines('Hi\n'),
       selection: { start: 3, end: 3 },
+      replaced: revision(),
     });
     await waitFor(() => {
       expect(
@@ -958,13 +973,17 @@ describe('the Tiptap evaluation composer', () => {
       ).toHaveLength(1);
     });
 
-    // A text tool whose removal the page rejected for an edit typed first never runs.
+    // A text tool whose removal the page refused for an edit made first never runs, even when
+    // that edit leaves the same text.
     await typeEach('', 'Hi\n/rew');
     await press('Rewrite');
-    await typeEach('Hi\n/rew', 'x');
+    await report({
+      document: lines('Hi\n'),
+      selection: { start: 3, end: 3 },
+    });
     expect(screen.queryByText(syntheticRewrite)).toBeNull();
 
-    // A text tool removes the query and, once the page reports that body, runs as from the format
+    // A text tool removes the query and, once the page reports that edit, runs as from the format
     // bar.
     await typeEach('', 'Hi\n/rew');
     await press('Rewrite');
@@ -980,6 +999,7 @@ describe('the Tiptap evaluation composer', () => {
     await report({
       document: lines('Hi\n'),
       selection: { start: 3, end: 3 },
+      replaced: revision(),
     });
     await expect(
       screen.findByText(syntheticRewrite),
