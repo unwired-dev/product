@@ -769,8 +769,7 @@ the expected text and marks; "drawn" to the end of the first draw after it.
 
 No main-queue stall of 100 ms or longer fell within a sample; each run recorded
 one outside them, 115 ms in the current composer's and 151 ms in the page's.
-Only the current composer's typing after Command-B and after collapsing and the
-page's typing after collapsing met the next-rendered-frame criterion. The
+A group met the next-rendered-frame criterion when its p95 from input to edit was within one 16.7 ms frame and its p95 sample drew in the next frame. Only the current composer's typing after Command-B and after collapsing and the page's typing after collapsing met it. The current composer's plain typing and shortcuts drew every sample in the next frame, but their p95 edits took 17.2 and 17.3 ms. The
 page's format bar was about 20 ms faster than the current composer's at p95,
 and the current composer drew every format bar sample a frame or more late.
 Plain typing was within a millisecond at p95; the page's shortcuts were about
