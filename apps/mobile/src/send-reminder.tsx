@@ -74,14 +74,15 @@ const styles = StyleSheet.create({
     borderCurve: 'continuous',
   },
   rowText: { flex: 1 },
-  // The frames' footer lines: a 14pt symbol 6pt before the text, inset 4pt in the iPhone sheet.
+  // The frames' footer lines: a small 14pt symbol 6pt before the text, inset 4pt in the iPhone sheet.
   line: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   sheetLine: { paddingLeft: spacing.xs },
   divider: { height: 1 },
   buttons: { flexDirection: 'row', justifyContent: 'flex-end', gap: spacing.s },
-  pickerHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.s },
+  pickerHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.m },
   // The iPhone frame's title bar sits 29pt below the sheet's top, its rows 14pt apart.
   sheetPicker: { paddingTop: 29, gap: 14 },
+  popoverPicker: { gap: spacing.s },
 });
 
 // `at` as `options`, with their time zone, name it in the person's language.
@@ -145,7 +146,7 @@ function ReminderDateTime({
       onReturn={set}
       contentStyle={[
         styles.choices,
-        popover ? styles.popover : styles.sheetPicker,
+        popover ? [styles.popover, styles.popoverPicker] : styles.sheetPicker,
       ]}>
       <View style={styles.pickerHeader}>
         <Host matchContents>
@@ -195,6 +196,7 @@ function ReminderDateTime({
           <SFSymbol
             name="exclamationmark.triangle.fill"
             size={14}
+            scale="small"
             color={colors.statusDestructive}
           />
           <Text
@@ -305,6 +307,7 @@ function ReminderChoices({
         <SFSymbol
           name="clock"
           size={14}
+          scale="small"
           color={colors.textSecondary}
         />
         <Text style={[textStyles.footnote, { color: colors.textSecondary }]}>
@@ -495,7 +498,7 @@ function ReminderChoices({
               modifiers={[
                 buttonStyle('borderedProminent'),
                 buttonBorderShape('roundedRectangle'),
-                font({ textStyle: 'subheadline' }),
+                font({ textStyle: 'subheadline', weight: 'semibold' }),
                 tint(colors.accentFill),
               ]}
             />
