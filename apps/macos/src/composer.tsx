@@ -5063,8 +5063,8 @@ function Editor({
         )}
         <TextInput
           accessibilityLabel={t('drafts.body')}
-          // The focus ring would draw across the Slash Command Menu.
-          enableFocusRing={slashMenu.shown === undefined}
+          // As in the frames, the body draws no focus ring, which would cross its menus.
+          enableFocusRing={false}
           editable={!paused}
           accessibilityState={{ disabled: paused }}
           // Pasted images go inline at the caret; other pasted files are attached. Text pastes as
