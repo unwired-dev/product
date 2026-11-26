@@ -93,6 +93,7 @@ Graphite neutrals with a single warm seal.
 | Bubble surface    | `surface/bubble`           | Received Catch Up bubbles                                            |
 | Quiet fill        | `fill/quiet`               | Secondary buttons, search field, banners, chips                      |
 | Control fill      | `fill/control`             | Pop-up button disc within a grouped row                              |
+| Banner fill       | `fillBanner` (no variable) | Mac reader's Unsubscribe banner (`#F2F2F5` Light, `#2B2B2E` Dark)    |
 | Track             | `fill/track`               | Off switch track                                                     |
 | Separator         | `separator`                | Hairlines between rows and panes                                     |
 | Scrim             | `scrim/touch`              | iPad composer and setup sheet; link alert backdrops on touch         |
@@ -657,6 +658,9 @@ app follows under the issue named:
 - **Reader More menu:** on iPad More lists Move to Spam after Mark as Unread
   (#2662), and the iPhone Reply sheet lists it; in Spam it reads Not Spam. The
   Mac menu waits for #2132.
+- **Unsubscribe banner:** the Mac banner leaves out the line under the list
+  name that counts the list's messages and how many were opened ("17 since
+  August, opened 2."), so it is one line shorter, until #2978 defines it.
 - **Compact iPad window:** the reader's navigation bar holds Back and the
   Command input (#2133); the frame's Previous and Next wait for an issue that
   names them. The input there and on the composer's From row has no ⌘K key cap
@@ -667,10 +671,14 @@ app follows under the issue named:
   the fold, which waits for #2119.
 - **Slash Command Menu:** iPad and iPhone show its Basic Blocks (#2656) and
   the Insert group's Attach File… and Insert Image… (#2668), then the writing
-  tools that apply, with the format bar's symbols (#2687); Insert Template…,
-  Translate to…, which reads only a selection, and the Mac menu wait for #2117,
+  tools that apply, with the format bar's symbols (#2687). The Mac shows its
+  Basic Blocks (#2789); Insert Template…, Translate to…, which reads only a
+  selection, and the rest of the Mac menu wait for #2117,
   and Show Formatting Toolbar for #2118. The touch menus draw Heading 1 to 3 with the
-  format bar's H1–H3 glyphs and Quote with the `text.quote` symbol.
+  format bar's H1–H3 glyphs and Quote with the `text.quote` symbol. The Mac
+  menu's rows draw AppKit text, which covers more ink than the Figma export at
+  1×, and its Light glass edge is lighter than the frame's; the owner accepted
+  both as native rendering (#2789).
 - **Trusted Devices:** iPhone and iPad rows show the device symbol, Current
   Device and last activity (#2607), with the exact time where the iPhone frame
   draws "3 days ago". The Mac rows and the disclosure chevron wait for the rest

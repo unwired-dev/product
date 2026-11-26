@@ -7,9 +7,11 @@
 request, [#2823](https://github.com/unwired-dev/product/issues/2823) remembers each
 request that was sent, and [#2824](https://github.com/unwired-dev/product/issues/2824)
 sends a `mailto:` request through the Outbox.
-[#2985](https://github.com/unwired-dev/product/issues/2985) adds the iPhone and
-iPad reader's banner, confirmation and outcomes for one-click offers; the
-`mailto:` states follow in a later #654 slice, under
+[#2967](https://github.com/unwired-dev/product/issues/2967) adds the Mac reader's
+banner, confirmation and outcomes for one-click offers, and
+[#2985](https://github.com/unwired-dev/product/issues/2985) the iPhone and iPad
+reader's; the `mailto:` states follow in
+[#2968](https://github.com/unwired-dev/product/issues/2968) and a later #654 slice, under
 [ADR 0044](adr/0044-isolate-standards-based-unsubscribe-actions.md).
 
 ## Finding the offer
@@ -131,19 +133,21 @@ Sync. A write storage refuses leaves the outcome as it was, and a record that
 cannot be read, belongs to another account or is locked reads as not sent, so
 neither shows a false Sent state.
 
-## The iPhone and iPad reader
+## The Mac reader
 
-A message with a one-click offer shows the Unsubscribe banner
-(`apps/mobile/src/unsubscribe.tsx`), above the message on iPhone and beneath
-its header on iPad, and the reader's More menu (⋯) adds **Unsubscribe…**. A
-message whose only offer is `mailto:` shows neither yet. The banner names the
-list; the approved frames' count line is left out until
+A message with a one-click offer shows the Unsubscribe banner under its header
+(`apps/macos/src/unsubscribe.tsx`), and the reader's More menu (⋯) adds
+**Unsubscribe…**. A message whose only offer is `mailto:` shows neither until
+#2968. The banner names the list. The approved frame's count line (how many
+messages the list sent and how many were opened) is left out until
 [#2978](https://github.com/unwired-dev/product/issues/2978) defines it.
 
-**Unsubscribe…**, from the banner or the menu, opens a system alert that names
-the list, the sender and the receiving address. **Cancel** sends nothing.
-**Unsubscribe** calls `unsubscribe.request` once, for the reader's Mail Profile,
-which owns the receiving connection. The banner then shows the outcome:
+**Unsubscribe…** opens a confirmation popover that names the list, the sender
+and the receiving address: from the banner's button, or, from the menu, below the
+toolbar's More group, since the banner may be scrolled out of view. Each reader
+window keeps its own confirmation, which closes once a request was sent. **Cancel** sends
+nothing. **Unsubscribe** calls `unsubscribe.request` once, for the window's Mail
+Profile, which owns the receiving connection. The banner then shows the outcome:
 
 | Outcome     | Banner                                                                                                |
 | ----------- | ----------------------------------------------------------------------------------------------------- |
@@ -152,13 +156,27 @@ which owns the receiving connection. The banner then shows the outcome:
 | `uncertain` | **No clear answer to the request**, with the same actions.                                            |
 
 **Try Again** sends once more without asking again. Until `sentRequest` has
-answered, which it does each time the message opens, and while a request is
-under way, the buttons are disabled and the menu item is absent; it is gone once
-a request has ended. Each message's state lives outside the reader, keyed by
-Product Account, Mail Profile, connection and message, so a result that arrives
-after the reader moved on changes only the message it was sent from. A request
-the Profile sent to the list within 14 days before the message arrived shows as
-sent on the date it was sent.
+answered, which it does again each time the message opens, and while a request is under way, the buttons are disabled and the
+menu item is absent; it is gone once a request has ended. Each message's state
+lives outside the reader, keyed by Product Account, Mail Profile, connection and
+message, so a result that arrives after the reader moved on
+changes only the message it was sent from. A request the Profile sent to the
+list (`sentRequest`) within 14 days before the message arrived shows as sent on
+the date it was sent. A sent request with no Mailing List Identity, or one
+storage refused to record, still shows as sent for the rest of the session.
+
+## The iPhone and iPad reader
+
+A message with a one-click offer shows the Unsubscribe banner
+(`apps/mobile/src/unsubscribe.tsx`), above the message on iPhone and beneath
+its header on iPad, and the reader's More menu (⋯) adds **Unsubscribe…**; a
+`mailto:`-only message and the count line wait as on the Mac.
+**Unsubscribe…**, from the banner or the menu, opens a system alert that names
+the list, the sender and the receiving address. **Cancel** sends nothing.
+**Unsubscribe** calls `unsubscribe.request` once, for the reader's Mail Profile,
+which owns the receiving connection. The banner then shows the outcomes above,
+with **Try Again**, the disabled buttons and each message's state keyed as on
+the Mac.
 
 ## Verification
 
@@ -171,7 +189,18 @@ cover each offer, refusal, list name and identity, how a native answer becomes
 an outcome, and which outcomes are recorded and for how long.
 `test/unsubscribe-mailto.test.ts` sends a `mailto:` request from synthetic
 Gmail, Graph and IMAP connections and covers Undo, a refused handoff and
-connections that cannot send. On iPhone,
+connections that cannot send. On the Mac,
+`apps/macos/test/unsubscribe.test.tsx` opens a synthetic Gmail message in the
+reader and covers the banner, the menu item, Cancel, one request per
+confirmation, each outcome, Try Again, the dated Sent state with the lookup's
+Profile and arrival time, the disabled state until that lookup answers, a late
+result after the reader moved to another message and a `mailto:`-only message:
+
+```sh
+mise exec -- pnpm --dir apps/macos exec jest test/unsubscribe.test.tsx
+```
+
+On iPhone,
 `apps/mobile/test/inbox.test.tsx` opens a synthetic Gmail message in the reader
 and covers the banner, the menu item, Cancel, one request per confirmation, a
 failure, Try Again and the dated Sent state, which replaces a failure:

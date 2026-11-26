@@ -25,6 +25,7 @@ export {
   followWakes,
   followNotificationActions,
   followBadge,
+  followReminderNotifications,
   native,
 } from './host.ts';
 
