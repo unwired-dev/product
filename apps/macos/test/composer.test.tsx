@@ -312,6 +312,15 @@ function popoverOf(
     : popoverOf(element.parent);
 }
 
+// The native scroll view that holds an element.
+function scrollOf(
+  element: ReturnType<typeof screen.getByText> | null,
+): ReturnType<typeof screen.getByText> | null {
+  return element === null || element.type === 'RCTScrollView'
+    ? element
+    : scrollOf(element.parent);
+}
+
 const ignore = () => undefined;
 
 // Only the window host boundary is substituted, answering as the native module does.
@@ -2654,6 +2663,24 @@ describe('composing Drafts', () => {
         queue: true,
       });
       expect(announce).toHaveBeenLastCalledWith('Text', { queue: true });
+      // It starts 7pt right of the / but stays inside the body near its trailing edge, and fits
+      // the room the composer shows as that changes while it is open.
+      const scroll = scrollOf(body());
+      ok(scroll !== null);
+      await fireEvent(body(), 'layout', {
+        nativeEvent: { layout: { x: 0, y: 0, width: 500, height: 400 } },
+      });
+      await fireEvent(scroll, 'layout', {
+        nativeEvent: { layout: { x: 0, y: 0, width: 500, height: 600 } },
+      });
+      expect(menu()).toHaveStyle({ left: 39, top: 59, height: 258 });
+      await fireEvent(body(), 'layout', {
+        nativeEvent: { layout: { x: 0, y: 0, width: 340, height: 400 } },
+      });
+      await fireEvent(scroll, 'layout', {
+        nativeEvent: { layout: { x: 0, y: 0, width: 340, height: 200 } },
+      });
+      expect(menu()).toHaveStyle({ left: 20, top: 59, height: 116 });
       expect(body().props.keyDownEvents).toContainEqual(
         expect.objectContaining({ key: 'Enter' }),
       );

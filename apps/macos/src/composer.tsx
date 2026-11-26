@@ -3191,9 +3191,14 @@ function useSlashMenu(
     chosenNow.current = kind;
     setChosen(kind);
   };
+  // Where the composer's scrolling area is: always kept ahead of rendering, and rendered only
+  // while the menu is open, so it keeps fitting as the window resizes or the composer scrolls.
+  const viewport = useRef({ y: 0, height: 0 });
+  const [room, setRoom] = useState({ y: 0, height: 0 });
   const arm = (at: number | undefined) => {
     armedNow.current = at;
     setArmed(at);
+    setRoom(viewport.current);
     choose(undefined);
   };
   const close = () => {
@@ -3217,20 +3222,12 @@ function useSlashMenu(
   const active = kinds.find((kind) => kind === chosen) ?? kinds[0];
   const latest = (body: SemanticDocument, at: Selection) =>
     pausedNow.current ? undefined : listed(body, at, armedNow.current);
-  // Where the composer's scrolling area is, ahead of rendering, read as the menu opens.
-  const viewport = useRef({ y: 0, height: 0 });
-  // Where the body shows the /'s line and the room around it, and where the body sits.
-  const [anchor, setAnchor] = useState<
-    Readonly<{
-      at: number;
-      left: number;
-      top: number;
-      bottom: number;
-      above: number;
-      below: number;
-    }>
-  >();
-  const [body, setBody] = useState({ x: 0, y: 0 });
+  // Where the body shows the /'s line, and where the body sits.
+  const [anchor, setAnchor] =
+    useState<
+      Readonly<{ at: number; left: number; top: number; bottom: number }>
+    >();
+  const [body, setBody] = useState({ x: 0, y: 0, width: 0 });
   useEffect(() => {
     if (armed === undefined) {
       return;
@@ -3240,15 +3237,11 @@ function useSlashMenu(
       try {
         const frame = await windowHost()?.composerCharacterFrame(bodyID, armed);
         if (live && frame !== null && frame !== undefined) {
-          const { y, height } = viewport.current;
           setAnchor({
             at: armed,
             left: frame.x,
             top: frame.y,
             bottom: frame.y + frame.height,
-            above: body.y + frame.y - y - slashMenuMargin,
-            below:
-              y + height - body.y - frame.y - frame.height - slashMenuMargin,
           });
         }
       } catch {
@@ -3258,20 +3251,20 @@ function useSlashMenu(
     return () => {
       live = false;
     };
-  }, [armed, bodyID, body.y]);
+  }, [armed, bodyID]);
   const wanted = slashMenuHeight(kinds.length);
-  const over =
-    anchor !== undefined &&
-    wanted > anchor.below &&
-    anchor.above > anchor.below;
+  const above =
+    anchor === undefined ? 0 : body.y + anchor.top - room.y - slashMenuMargin;
+  const below =
+    anchor === undefined
+      ? 0
+      : room.y + room.height - body.y - anchor.bottom - slashMenuMargin;
+  const over = wanted > below && above > below;
   // At least one row shows, however little room there is.
   const height =
     anchor === undefined
       ? 0
-      : Math.max(
-          Math.min(wanted, over ? anchor.above : anchor.below),
-          slashMenuHeight(1),
-        );
+      : Math.max(Math.min(wanted, over ? above : below), slashMenuHeight(1));
   const shown =
     current === undefined ||
     active === undefined ||
@@ -3287,7 +3280,16 @@ function useSlashMenu(
             styles.bodySuggestions,
             {
               height,
-              left: body.x + anchor.left + slashMenuInset,
+              // Right of the /, kept inside the body near its trailing edge.
+              left:
+                body.x +
+                Math.max(
+                  0,
+                  Math.min(
+                    anchor.left + slashMenuInset,
+                    body.width - styles.bodySuggestions.width,
+                  ),
+                ),
               top:
                 body.y +
                 (over
@@ -3313,11 +3315,18 @@ function useSlashMenu(
     // Typed Return and Tab choose the highlighted block while the menu shows.
     choosing: shown !== undefined,
     close,
-    placeBody: ({ x, y }: Readonly<{ x: number; y: number }>) => {
-      setBody({ x, y });
+    placeBody: ({
+      x,
+      y,
+      width,
+    }: Readonly<{ x: number; y: number; width: number }>) => {
+      setBody({ x, y, width });
     },
     placeViewport: (next: Partial<Readonly<{ y: number; height: number }>>) => {
       viewport.current = { ...viewport.current, ...next };
+      if (armedNow.current !== undefined) {
+        setRoom(viewport.current);
+      }
     },
     // After a body edit inserting `inserted`: typing / first in a block opens the menu, and leaving
     // its query or filtering out every block closes it.
