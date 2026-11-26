@@ -3805,7 +3805,11 @@ describe('composing Drafts', () => {
       await remindFromSendMenu();
       expect(menuSections()).toMatchObject([
         {
-          items: [{ title: 'This Evening' }, { title: 'Tomorrow Morning' }],
+          items: [
+            { title: 'This Evening' },
+            { title: 'Tomorrow Morning' },
+            { title: 'Choose Date and Time…' },
+          ],
         },
         {
           items: [
@@ -3879,6 +3883,103 @@ describe('composing Drafts', () => {
         await expect(stored()).resolves.toStrictEqual([]);
       });
       expect(draftsOf(drafts.getSnapshot())).toHaveLength(0);
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  it('sets a Send Reminder at the date and time chosen in Choose Date and Time…', async () => {
+    expect.hasAssertions();
+    const noon = new Date();
+    noon.setHours(12, 0, 0, 0);
+    const clock = jest.spyOn(Date, 'now').mockReturnValue(noon.getTime());
+    try {
+      const { timeZone } = Intl.DateTimeFormat().resolvedOptions();
+      const tomorrow = reminderTimes(Date.now(), timeZone).at(-1);
+      ok(tomorrow);
+      const { reminders, id } = await composeWithTemplates((draft) => ({
+        ...draft,
+        subject: 'Keys for the flat',
+      }));
+      const stored = () => reminders.store.reminders(defaultProfile);
+      const passed = 'That time has passed. Choose a later time.';
+      // AppKit's calendar, then its time field, in the open popover.
+      const pickers = () => {
+        const popover = popoverOf(screen.getByText('Remind Me to Send'));
+        ok(popover);
+        const [calendar, time] = popover.queryAll(
+          (node) => node.type === 'UnwiredDatePicker',
+        );
+        ok(calendar);
+        ok(time);
+        return { calendar, time };
+      };
+      const choose = async (value: number) => {
+        await fireEvent(pickers().time, 'change', { nativeEvent: { value } });
+      };
+      const setReminder = () =>
+        screen.getByRole('button', { name: 'Set Reminder' });
+      const closePopover = async () => {
+        const popover = popoverOf(screen.getByText('Remind Me to Send'));
+        ok(popover);
+        expect(popover).toHaveProp('shown', false);
+        await fireEvent(popover, 'close');
+        expect(screen.queryByText('Remind Me to Send')).toBeNull();
+      };
+
+      // It opens from the reminder menu at tomorrow's Tomorrow Morning time, days before today
+      // dimmed, with the Mac's time zone named.
+      await remindFromSendMenu();
+      await chooseMenuItem('Choose Date and Time…');
+      expect(pickers().calendar).toHaveProp('value', tomorrow.dueAt);
+      expect(pickers().calendar).toHaveProp('minimum', noon.getTime());
+      expect(pickers().calendar).toHaveProp('timeZone', timeZone);
+      expect(pickers().time).toHaveProp('value', tomorrow.dueAt);
+      expect(pickers().time).toHaveProp('minimum', noon.getTime());
+      const city = reminderCity(timeZone);
+      expect(
+        screen.getByText(new RegExp(`^Times in .+ \\(${city}\\)$`, 'u')),
+      ).toBeOnTheScreen();
+
+      // A time that has passed says so, also to VoiceOver, and dims Set Reminder.
+      await choose(noon.getTime() - 3_600_000);
+      expect(screen.getByRole('alert', { name: passed })).toBeOnTheScreen();
+      expect(pickers().time).toHaveProp('hint', passed);
+      expect(setReminder()).toBeDisabled();
+
+      // A later time sets the reminder with the Mac's time zone and closes the popover.
+      const chosen = tomorrow.dueAt + 90 * 60_000;
+      await choose(chosen);
+      expect(screen.queryByText(passed)).toBeNull();
+      await press('Set Reminder');
+      await waitFor(async () => {
+        await expect(stored()).resolves.toStrictEqual([
+          { draft: id, profile: defaultProfile, dueAt: chosen, timeZone },
+        ]);
+      });
+      await screen.findByText(/^Reminder for tomorrow, .+$/u);
+      await closePopover();
+
+      // From Change it starts at the stored reminder, and Cancel keeps it.
+      await press('Change');
+      await chooseMenuItem('Choose Date and Time…');
+      expect(pickers().time).toHaveProp('value', chosen);
+      await choose(chosen + 3_600_000);
+      await press('Cancel');
+      await closePopover();
+      await expect(stored()).resolves.toMatchObject([{ dueAt: chosen }]);
+
+      // Set Reminder checks again when pressed: a time that passed while the popover was open
+      // sets nothing and says so.
+      await press('Change');
+      await chooseMenuItem('Choose Date and Time…');
+      await choose(noon.getTime() + 60_000);
+      expect(screen.queryByText(passed)).toBeNull();
+      clock.mockReturnValue(noon.getTime() + 61_000);
+      await press('Set Reminder');
+      expect(screen.getByRole('alert', { name: passed })).toBeOnTheScreen();
+      expect(setReminder()).toBeDisabled();
+      await expect(stored()).resolves.toMatchObject([{ dueAt: chosen }]);
     } finally {
       clock.mockRestore();
     }

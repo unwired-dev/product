@@ -647,8 +647,14 @@ app follows under the issue named:
 - **Send menu:** on the Mac it lists Send and Remind Me to Send… (#2123); on
   iPhone and iPad it lists Remind Me to Send… (#2136). Send and Archive, Send
   Now and Send Later wait for #1673, #1674 and #1262.
-- **Reminder menu:** Choose Date and Time… waits for a frame of what it opens
-  (#658). The Mac offers This Evening at 20:00 and Tomorrow Morning at 9:00, as
+- **Reminder menu:** on the Mac, Choose Date and Time… opens #2831's R4 and R5
+  popover (#2980) with AppKit's own calendar and time field: the calendar keeps
+  its 139 × 148 pt, centred, where the frames draw a 248 × 184 pt grid, and the
+  time field the width its region needs. The popover sits AppKit's 14 pt below
+  its anchor, where the frames draw 6 pt, and above Send in the Inbox window's
+  composer, whose Send sits at the window's bottom. On iPhone and iPad it waits
+  for #2979. The Mac offers
+  This Evening at 20:00 and Tomorrow Morning at 9:00, as
   M3 draws them; iPhone and iPad offer the times their frames draw (#2136). The
   Mac menu shows each time on the item's second line and the note
   as a dimmed item on one line, as AppKit draws them, where M3 draws the time
