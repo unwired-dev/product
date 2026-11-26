@@ -96,12 +96,10 @@ const formatAt = (
 const defaultAction = createModifier('defaultAction');
 
 // Choose Date and Time…: the system's calendar and time from `start`, in the device's time zone,
-// then the zone line and Set Reminder. Days before the one it opened on can't be chosen, and Set
-// Reminder waits for a time that has not passed, checking again when pressed. Back returns to the
-// times.
+// then the zone line and Set Reminder. Days before today can't be chosen, and Set Reminder waits
+// for a time that has not passed, checking again when pressed. Back returns to the times.
 function ReminderDateTime({
   popover,
-  opened,
   start,
   zone,
   onBack,
@@ -109,8 +107,6 @@ function ReminderDateTime({
   onClose,
 }: {
   readonly popover: boolean;
-  // When the choices opened: days before that day can't be chosen.
-  readonly opened: number;
   readonly start: number;
   readonly zone: (at: number) => ReactElement;
   readonly onBack: () => void;
@@ -122,7 +118,8 @@ function ReminderDateTime({
   const [at, setAt] = useState(start);
   // The latest instant Set Reminder found passed, so a time that passed while open shows it.
   const [checked, setChecked] = useState(0);
-  const passed = at <= Math.max(useNow(), checked);
+  const current = useNow();
+  const passed = at <= Math.max(current, checked);
   useEffect(() => {
     if (passed) {
       AccessibilityInfo.announceForAccessibility(t('drafts.reminder.passed'));
@@ -178,7 +175,7 @@ function ReminderDateTime({
         <DatePicker
           title={t('drafts.reminder.title')}
           selection={new Date(at)}
-          range={{ start: new Date(new Date(opened).setHours(0, 0, 0, 0)) }}
+          range={{ start: new Date(new Date(current).setHours(0, 0, 0, 0)) }}
           displayedComponents={['date', 'hourAndMinute']}
           onDateChange={(date) => {
             setAt(date.getTime());
@@ -319,7 +316,6 @@ function ReminderChoices({
       <View style={[styles.choices, popover && styles.popover]}>
         <ReminderDateTime
           popover={popover}
-          opened={opened}
           start={stored ?? tomorrow ?? opened}
           zone={zone}
           onBack={() => {
