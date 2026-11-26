@@ -663,7 +663,7 @@ mail content.
   [Simulator pasteboard](imap-mailboxes.md#certification-runs-through-the-app); Microsoft
   reused the account's earlier grant without asking for consent. **Mark as Unread** and
   **Mark as Read** from the row's menu showed at once and survived a relaunch. In the
-  reader with the sidebar hidden, **Folders** › **Move to Conversation History** took a
+  reader with the sidebar hidden, **Folders** › **Conversation History** took a
   message out of the Inbox and **Conversation History** listed it. **Delete** there moved
   it to **Deleted Items**, whose row menu's **Move to Inbox** brought it back. Moved again,
   it returned with **Undo**, and the row menu's **Archive** then moved it to **Archive**.
@@ -677,14 +677,16 @@ mail content.
   servers found none. **Sign Out of This Device** returned the app to Welcome. With the
   Simulator deleted, `simulator-credentials.zsh scan`, run on each path, found no
   password or Recovery Key in `~/.agent-device`, `~/Library/Logs`, T3 Code's device
-  directory, the shell history, the temporary directory, the repository's
-  `artifacts/expo-bootstrap` directory with this run's DerivedData, the scratch files or
-  this run's session transcripts. Limitations: Microsoft's one-time sign-in code was
-  typed, as it expires within minutes. The first three codes entered were refused: the
-  mailbox that receives them opened their conversation at its oldest unread message, so
-  expired codes were read; the code read from the newest message was accepted. Once,
+  directory, the shell history, the temporary directory, the repository's `artifacts`
+  directory with this run's DerivedData, the scratch files or this run's session
+  transcripts; some files in the temporary directory could not be read.
+  Limitations: Microsoft's one-time sign-in code was typed, as it expires within
+  minutes. The first three codes entered were refused: the mailbox that receives them
+  opened their conversation at its oldest unread message, so expired codes were read; the code read from the newest message was accepted. Once,
   after a switch to that mailbox, Microsoft's sheet restarted at its first page. When the
   accessibility snapshot could not read the sheet, the device driver saved a screenshot
-  on its own three times; two were deleted unopened, and the one opened showed
-  Microsoft's first page with no keyboard. Mac, iPad attachments, renewal and revocation,
-  and uncertain outcomes were not run and stay on #637.
+  on its own three times, against step 4 of the pasteboard procedure; two, which may
+  have shown a pasted address, were deleted unopened, and the one opened showed
+  Microsoft's first page with no keyboard. The scan reads text, not these images. Mac,
+  iPad attachments, renewal and revocation, and uncertain outcomes were not run and stay
+  on #637.
