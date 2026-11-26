@@ -852,6 +852,20 @@ describe('due Send Reminder notifications', () => {
     expect(scheduled.at(-1)).toStrictEqual(['account-1', []]);
   });
 
+  it('replaces it when the reminder moves before it is due', async () => {
+    expect.hasAssertions();
+    const { store, scheduled, change } = await follow();
+    await change({ drafts: ready(draft) });
+    const later = keys.dueAt + 3_600_000;
+    await store.remind('work', { ...keys, dueAt: later });
+    await change({});
+    expect(
+      scheduled.at(-1)?.[1].map(({ id, dueAt }) => [id, dueAt]),
+    ).toStrictEqual([
+      [`send-reminder.${later}.${JSON.stringify(['work', keys.draft])}`, later],
+    ]);
+  });
+
   it('schedules again once notifications are allowed', async () => {
     expect.hasAssertions();
     const { scheduled, change } = await follow();
