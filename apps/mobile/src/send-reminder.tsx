@@ -34,6 +34,7 @@ import { radius, spacing } from '@private-email/mail-core/theme';
 import { useEffect, useState } from 'react';
 import {
   AccessibilityInfo,
+  Keyboard,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -435,6 +436,8 @@ function ReminderChoices({
         <Pressable
           accessibilityRole="button"
           onPress={() => {
+            // Let the picker handle Return instead of the focused composer field.
+            Keyboard.dismiss();
             onPicking(true);
           }}
           style={({ pressed }) => [
