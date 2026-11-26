@@ -41,7 +41,8 @@ final class WindowTests: XCTestCase {
   }
 
   // #2271: @ in an empty body opens Recipient Suggestions under it without a Contacts prompt;
-  // Return adds the first to To with a greeting, and one Undo restores the @.
+  // Return adds the first to To with a greeting, and one Undo restores the @. #2976: in written
+  // text Return inserts the name alone, and a person already in To shows their role.
   func testBodyRecipientShortcut() throws {
     try bodyRecipientShortcut(appearance: "Light")
   }
@@ -96,6 +97,29 @@ final class WindowTests: XCTestCase {
     app.typeKey("z", modifierFlags: .command)
     waitUntil { body.value as? String == "@" }
     XCTAssertEqual(token.count, 0)
+    // #2976: in written text the query becomes the name alone and the person joins To; a person
+    // already on the Draft shows their role and is not added again.
+    app.typeKey(.delete, modifierFlags: [])
+    waitUntil { body.value as? String != "@" }
+    app.typeText("Hi team, I will ask @")
+    XCTAssertTrue(menu.waitForExistence(timeout: 10))
+    attach("Body Recipient Shortcut in written text")
+    app.typeKey(.return, modifierFlags: [])
+    XCTAssertTrue(menu.waitForNonExistence(timeout: 10))
+    waitUntil { body.value as? String == "Hi team, I will ask Jordan Lee" }
+    XCTAssertEqual(token.count, 1)
+    attach("Body Recipient Shortcut name in written text")
+    app.typeText(" and @")
+    let present = window.buttons["Jordan Lee, jordan@example.invalid, in To"]
+    XCTAssertTrue(present.waitForExistence(timeout: 10))
+    attach("Body Recipient Shortcut role")
+    // The role keeps its secondary colour on a row that is not highlighted.
+    app.typeKey(.downArrow, modifierFlags: [])
+    attach("Body Recipient Shortcut role unhighlighted")
+    app.typeKey(.upArrow, modifierFlags: [])
+    app.typeKey(.return, modifierFlags: [])
+    waitUntil { body.value as? String == "Hi team, I will ask Jordan Lee and Jordan Lee" }
+    XCTAssertEqual(token.count, 1)
   }
 
   // #2597: Outdent and Indent follow the list buttons; Format › Increase Indent (Command-]) and
