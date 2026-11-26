@@ -25,7 +25,9 @@ fixture changes, on a `registration-imap-folders` Release Simulator build with
 Xcode 27.2 (`27B52`), the iOS 27.0 runtime and macOS 27.2.1, on iPhone 18 Pro in
 portrait, in Light and Dark. Each passed on its first attempt after a first Light
 attempt whose Simulator failed to install the app during its data migration; the
-1-minute host load was 2–21.
+1-minute host load was 2–21. After review scoped the message to this session and
+checked the menu's order, both passed again on their first attempt at host loads of
+52–224.
 
 - The reader says **This message is too large to open on this device.** and
   offers no Reply sheet, so the toolbar keeps **More**.
