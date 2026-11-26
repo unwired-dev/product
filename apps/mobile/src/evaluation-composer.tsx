@@ -192,6 +192,22 @@ function usePageSlashMenu(
   }, [ready, run, shown]);
   return {
     ...menu,
+    // Moving the caret without an edit closes the menu, as in the current composer; a scroll
+    // reports the same selection.
+    moved: (
+      before: PageState | undefined,
+      after: PageState,
+      edited: boolean,
+    ) => {
+      const was = before?.selection;
+      if (
+        !edited &&
+        (was?.start !== after.selection.start ||
+          was.end !== after.selection.end)
+      ) {
+        menu.close();
+      }
+    },
     // After the page reports `body` in place of `previous`: a typed / opens the menu, and typing
     // filters or closes it.
     reported: (
@@ -1003,16 +1019,11 @@ function EvaluationEditor({
                     } = message;
                     const flushed =
                       frozen && next.revision === bodyRevision.current;
-                    const before = pageNow.current?.selection;
-                    // Moving the caret closes the Slash Command Menu, as in the current composer;
-                    // a scroll reports the same selection.
-                    if (
-                      reported === undefined &&
-                      (before?.start !== next.selection.start ||
-                        before.end !== next.selection.end)
-                    ) {
-                      slashMenu.close();
-                    }
+                    slashMenu.moved(
+                      pageNow.current,
+                      next,
+                      reported !== undefined,
+                    );
                     pageNow.current = next;
                     setPageState(next);
                     if (reported === undefined || flushed) {
