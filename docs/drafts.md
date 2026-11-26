@@ -1051,7 +1051,8 @@ Send or Discard removes the original leaves the original's reminder removed.
 The Mac reminder menu, from Send or from **Change**, ends its times with **Choose
 Date and Time…** ([#2980](https://github.com/unwired-dev/product/issues/2980)).
 It opens a popover below the same anchor, as the approved
-[#2831](https://github.com/unwired-dev/product/issues/2831) frames draw it:
+[#2831](https://github.com/unwired-dev/product/issues/2831) frames draw it, or
+above Send in the Inbox window's composer, whose Send sits at the window's bottom:
 **Remind Me to Send**, AppKit's calendar, **Time** with AppKit's time field and
 stepper, the zone line ("Times in Central European Standard Time (Prague)"), then
 **Cancel** and **Set Reminder**. It starts at the stored reminder, otherwise

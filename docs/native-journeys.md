@@ -347,9 +347,11 @@ being added is covered by Jest.
 `testSendReminderChooseDateAndTime` uses the same build and sign-in
 ([#2980](https://github.com/unwired-dev/product/issues/2980)). It writes a New
 Message's subject, opens Send's menu with a right click and chooses **Remind Me to
-Send… › Choose Date and Time…**. The popover opens inside the window with the time
-field at 09:00, and Return sets the reminder, which the banner shows for
-tomorrow. The banner's **Change › Choose Date and Time…**
+Send… › Choose Date and Time…**. The popover opens above Send with the time field
+at 09:00, and Escape closes it. **Expand** moves the Draft to its own window,
+where the popover opens below the toolbar's Send and inside the window, and
+Return sets the reminder, which the banner shows for tomorrow. The banner's
+**Change › Choose Date and Time…**
 opens it again at the stored time; choosing today in the calendar and an earlier
 hour shows "That time has passed. Choose a later time." and dims **Set
 Reminder**, and Escape closes it, keeping the reminder. Both popovers are kept as

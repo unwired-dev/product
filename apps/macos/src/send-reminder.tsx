@@ -53,10 +53,11 @@ const styles = StyleSheet.create({
     width: 280,
     gap: 12,
     paddingTop: 14,
-    paddingHorizontal: spacing.m,
-    paddingBottom: spacing.m,
+    paddingHorizontal: spacing.l,
+    paddingBottom: spacing.l,
   },
   line: { flexDirection: 'row', alignItems: 'center', gap: spacing.s },
+  title: { fontWeight: '700' },
   // AppKit's calendar and time field keep their own size.
   calendar: { width: 139, height: 148, alignSelf: 'center' },
   timeRow: {
@@ -66,7 +67,10 @@ const styles = StyleSheet.create({
   },
   // The time field keeps AppKit's width, which depends on the region, at this view's trailing edge.
   time: { width: 120, height: 24 },
+  // The bell's slot, the header 8pt beside it.
+  bell: { width: 13 },
   note: { flexDirection: 'row', alignItems: 'flex-start', gap: 6 },
+  noteIcon: { width: 12, height: 14 },
   noteText: { flex: 1 },
   separator: { height: StyleSheet.hairlineWidth },
   buttons: { flexDirection: 'row', justifyContent: 'flex-end', gap: spacing.s },
@@ -146,16 +150,18 @@ function useReminderMenu(
   };
 }
 
-// Choose Date and Time…'s popover below its anchor: AppKit's calendar and time field in the Mac's
+// Choose Date and Time…'s popover below its anchor, or above it unless `below`: AppKit's calendar and time field in the Mac's
 // time zone, starting at `reminder`, otherwise tomorrow at Tomorrow Morning's time. Days before today
 // are dimmed; a time that has passed says so and dims Set Reminder, which checks again when pressed.
 // Set Reminder calls `onRemind` and closes; Cancel, Escape or a click outside keeps the reminder.
 // `onClose` follows AppKit's close.
 function ReminderPicker({
+  below,
   reminder,
   onRemind,
   onClose,
 }: {
+  readonly below: boolean;
   readonly reminder: SendReminder | undefined;
   readonly onRemind: (dueAt: number, timeZone: string) => void;
   readonly onClose: () => void;
@@ -201,7 +207,7 @@ function ReminderPicker({
   const secondary = { color: colors.textSecondary };
   return (
     <Popover
-      below
+      below={below}
       title={t('drafts.reminder.title')}
       shown={shown}
       onClose={onClose}>
@@ -209,12 +215,13 @@ function ReminderPicker({
         <View style={styles.line}>
           <SFSymbol
             name="bell"
-            size={14}
+            size={16}
             color={colors.textPrimary}
+            style={styles.bell}
           />
           <Label
             accessibilityRole="header"
-            style={[textStyles.bodyEmphasized, primary]}>
+            style={[textStyles.bodyEmphasized, styles.title, primary]}>
             {t('drafts.reminder.title')}
           </Label>
         </View>
@@ -245,8 +252,9 @@ function ReminderPicker({
           <View style={styles.note}>
             <SFSymbol
               name="exclamationmark.triangle.fill"
-              size={12}
+              size={14}
               color={colors.statusDestructive}
+              style={styles.noteIcon}
             />
             <View style={styles.noteText}>
               <AnnouncedAlert
@@ -265,8 +273,9 @@ function ReminderPicker({
         <View style={styles.note}>
           <SFSymbol
             name="clock"
-            size={12}
+            size={14}
             color={colors.textSecondary}
+            style={styles.noteIcon}
           />
           <View style={styles.noteText}>
             <Label style={[textStyles.subheadline, secondary]}>
@@ -300,6 +309,7 @@ function ReminderPicker({
 // Choose Date and Time…'s popovers from one anchor: each opening is its own popover, so the last
 // one's close, arriving late, cannot close the next.
 function useReminderPicker(
+  below: boolean,
   reminder: SendReminder | undefined,
   onRemind: (dueAt: number, timeZone: string) => void,
 ) {
@@ -311,6 +321,7 @@ function useReminderPicker(
     opened === undefined ? null : (
       <ReminderPicker
         key={opened}
+        below={below}
         reminder={reminder}
         onRemind={onRemind}
         onClose={() => {
@@ -323,8 +334,10 @@ function useReminderPicker(
 
 // Send: a click sends, and a right click opens the Send menu. Its Send Now sends without the Undo
 // Send Window, and Remind Me to Send… opens the reminder menu from Send. A Draft that cannot be
-// sent yet can still get a reminder.
+// sent yet can still get a reminder. Choose Date and Time… opens below Send when `below`, as in the
+// toolbar, otherwise above it.
 export function SendMenu({
+  below,
   disabled,
   sendable,
   waiting,
@@ -333,6 +346,7 @@ export function SendMenu({
   onSendNow,
   onRemind,
 }: {
+  readonly below: boolean;
   readonly disabled: boolean;
   readonly sendable: boolean;
   // The file Send Now waits for while it is still being added.
@@ -345,7 +359,7 @@ export function SendMenu({
 }) {
   const { t } = useLocalization();
   const anchor = useRef<View>(null);
-  const picker = useReminderPicker(reminder, onRemind);
+  const picker = useReminderPicker(below, reminder, onRemind);
   const openReminders = useReminderMenu(onRemind, picker.open);
   return (
     <ContextMenu
@@ -418,7 +432,7 @@ export function ReminderBanner({
   const { t, settings } = useLocalization();
   const colors = usePalette();
   const change = useRef<View>(null);
-  const picker = useReminderPicker(reminder, onRemind);
+  const picker = useReminderPicker(true, reminder, onRemind);
   const openReminders = useReminderMenu(onRemind, picker.open);
   const { dueAt, timeZone } = reminder;
   const when = {

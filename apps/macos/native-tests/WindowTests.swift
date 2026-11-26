@@ -360,29 +360,46 @@ final class WindowTests: XCTestCase {
       XCTAssertTrue(set.waitForExistence(timeout: 10))
     }
 
-    // From Send it starts tomorrow at 9:00; Return sets it, and the banner shows it.
+    // From Send it starts tomorrow at 9:00. In the inline composer Send sits at the window's bottom,
+    // so the popover opens above it; Escape closes it without a reminder.
     let clocks = Calendar.current
     let today = clocks.startOfDay(for: Date())
     let tomorrow = try XCTUnwrap(
       clocks.date(bySettingHour: 9, minute: 0, second: 0, of: clocks.date(byAdding: .day, value: 1, to: today)!))
     // XCUITest passes the field's date only as its description, such as "2026-11-27 08:00:00 +0000".
     func shows(_ date: Date) -> Bool { String(describing: time.value ?? "").contains(date.description) }
-    choose(from: window.buttons["Send"].firstMatch, menu: "Remind Me to Send…")
-    XCTAssertTrue(window.frame.contains(popover.frame), "\(popover.frame) leaves \(window.frame)")
+    let inlineSend = window.buttons["Send"].firstMatch
+    choose(from: inlineSend, menu: "Remind Me to Send…")
+    XCTAssertLessThanOrEqual(popover.frame.maxY, inlineSend.frame.minY, "\(popover.frame) covers Send")
+    XCTAssertTrue(shows(tomorrow), "\(String(describing: time.value))")
+    attach(window.screenshot(), "Choose Date and Time above Send")
+    app.typeKey(.escape, modifierFlags: [])
+    XCTAssertTrue(set.waitForNonExistence(timeout: 10))
+
+    // In its own window Send sits in the toolbar, and the popover opens below it. Return sets the
+    // reminder, and the banner shows it.
+    window.buttons["Expand"].click()
+    let composer = app.windows["composer-window-1"]
+    XCTAssertTrue(composer.waitForExistence(timeout: 15))
+    let send = composer.buttons["Send"].firstMatch
+    XCTAssertTrue(send.waitForExistence(timeout: 10))
+    choose(from: send, menu: "Remind Me to Send…")
+    XCTAssertGreaterThanOrEqual(popover.frame.minY, send.frame.maxY, "\(popover.frame) covers Send")
+    XCTAssertTrue(composer.frame.contains(popover.frame), "\(popover.frame) leaves \(composer.frame)")
     XCTAssertTrue(shows(tomorrow), "\(String(describing: time.value))")
     XCTAssertTrue(set.isEnabled)
-    attach(window.screenshot(), "Choose Date and Time from Send")
+    attach(composer.screenshot(), "Choose Date and Time from Send")
     attach(popover.screenshot(), "Choose Date and Time popover")
-    window.typeKey(.return, modifierFlags: [])
+    composer.typeKey(.return, modifierFlags: [])
     XCTAssertTrue(set.waitForNonExistence(timeout: 10))
     // The banner's clock follows the host's locale; Change below checks the stored 9:00.
-    let banner = text("Reminder for tomorrow,", in: window)
+    let banner = text("Reminder for tomorrow,", in: composer)
     XCTAssertTrue(banner.waitForExistence(timeout: 10))
 
     // From Change it starts at the stored reminder. The calendar has the keyboard focus, and Left
     // Arrow chooses today; an hour earlier than now says the time has passed and dims Set Reminder.
     // Escape keeps the reminder.
-    choose(from: window.buttons["Change"], menu: nil)
+    choose(from: composer.buttons["Change"], menu: nil)
     XCTAssertTrue(shows(tomorrow), "\(String(describing: time.value))")
     let passed = text("That time has passed. Choose a later time.", in: popover)
     XCTAssertFalse(passed.exists)
@@ -395,7 +412,7 @@ final class WindowTests: XCTestCase {
     }
     XCTAssertTrue(passed.waitForExistence(timeout: 5))
     XCTAssertFalse(set.isEnabled)
-    attach(window.screenshot(), "Time has passed")
+    attach(composer.screenshot(), "Time has passed")
     attach(popover.screenshot(), "Time has passed popover")
     app.typeKey(.escape, modifierFlags: [])
     XCTAssertTrue(set.waitForNonExistence(timeout: 10))

@@ -73,6 +73,9 @@
     _picker.bezeled = NO;
     _picker.bordered = NO;
     _picker.drawsBackground = NO;
+    // As #2831 draws it, with no ring around the grid; the focused calendar shows its day in the
+    // accent colour and still takes the arrow keys.
+    _picker.focusRingType = NSFocusRingTypeNone;
     _picker.minDate = self.minimum > 0
         ? [clocks startOfDayForDate:[NSDate dateWithTimeIntervalSince1970:self.minimum / 1000]]
         : nil;

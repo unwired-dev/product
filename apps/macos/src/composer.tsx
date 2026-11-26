@@ -4336,6 +4336,7 @@ function Editor({
   };
   const sendButton = (
     <SendMenu
+      below={renderToolbar !== undefined}
       disabled={closing === 'saving'}
       sendable={blocked === undefined}
       waiting={addingName(draft, imports)}
