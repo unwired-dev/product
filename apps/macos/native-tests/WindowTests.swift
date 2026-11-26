@@ -3979,8 +3979,10 @@ final class WindowTests: XCTestCase {
       try records.filter { $0.event == event }.map { try XCTUnwrap($0.uptime) }
     }
     let keys = records.filter { $0.event == "key-down" }
-    let edits = records.filter { $0.event == "text-edit" }
-    let draws = records.filter { $0.event == "text-drawn" }
+    // Indices into the evidence, which each source writes in the order it noted them.
+    let edits = records.indices.filter { records[$0].event == "text-edit" }
+    let draws = records.indices.filter { records[$0].event == "text-drawn" }
+    var lastEdit = -1
     let presses = try times("mouse-down")
     let releases = try times("mouse-up")
     // Body requests the synthetic providers answered; priming the cache must have made some.
@@ -4014,20 +4016,24 @@ final class WindowTests: XCTestCase {
         }
         group.budget = try XCTUnwrap(keys.compactMap(\.milliseconds).max())
         group.windows = try zip(starts, group.shows).map { start, shown in
-          let edit = try XCTUnwrap(
+          // Each input has its own edit, so a later input's result cannot stand in for it.
+          let editIndex = try XCTUnwrap(
             edits.first {
-              ($0.uptime ?? 0) >= start && $0.text?.hasPrefix(shown.text) == true
-                && $0.marks?.hasPrefix(shown.marks) == true
+              $0 > lastEdit && (records[$0].uptime ?? 0) >= start
+                && records[$0].text?.hasPrefix(shown.text) == true
+                && records[$0].marks?.hasPrefix(shown.marks) == true
             }, "No edit showed \(shown) for \(group.name)")
+          lastEdit = editIndex
+          let edit = records[editIndex]
           let end = try XCTUnwrap(edit.uptime)
-          let draw = try XCTUnwrap(
-            draws.first { ($0.uptime ?? 0) >= end }, "No draw after \(shown) for \(group.name)")
+          let drawIndex = try XCTUnwrap(
+            draws.first { $0 > editIndex }, "No draw after \(shown) for \(group.name)")
+          let draw = records[drawIndex]
           let drawEnd = try XCTUnwrap(draw.uptime)
           // A draw shows the body's latest edit; a result a later input replaced first never showed.
-          let drawnEdit = edits.last { ($0.uptime ?? 0) <= drawEnd }
+          let drawnEdit = edits.last { $0 < drawIndex }.map { records[$0] }
           XCTAssertTrue(
-            drawnEdit?.text?.hasPrefix(shown.text) == true
-              && drawnEdit?.marks?.hasPrefix(shown.marks) == true,
+            drawnEdit?.text == edit.text && drawnEdit?.marks == edit.marks,
             "\(shown) for \(group.name) was replaced before it was drawn")
           let frameStart = try XCTUnwrap(draw.frameStart)
           let interval = try XCTUnwrap(draw.milliseconds)

@@ -29,6 +29,22 @@ const probe = String.raw`(() => {
     }
     return [shownText, shownMarks];
   };
+  // An edit that lands after a frame's animation frame callback waits for the next frame.
+  const draw = () => {
+    framing = true;
+    requestAnimationFrame((frame) => {
+      const shownNotes = notes.length;
+      const channel = new MessageChannel();
+      channel.port1.onmessage = () => {
+        const sent = notes.splice(0, shownNotes);
+        sent.push({ event: 'text-drawn', epoch: clock(), frameEpoch: performance.timeOrigin + frame });
+        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'probe', notes: sent }));
+        framing = false;
+        if (notes.length > 0) draw();
+      };
+      channel.port2.postMessage(0);
+    });
+  };
   new MutationObserver(() => {
     const root = document.querySelector('.ProseMirror');
     if (root === null) return;
@@ -38,27 +54,23 @@ const probe = String.raw`(() => {
     text = nextText;
     marks = nextMarks;
     notes.push({ event: 'text-edit', epoch, text, marks });
-    if (framing) return;
-    framing = true;
-    requestAnimationFrame((frame) => {
-      const channel = new MessageChannel();
-      channel.port1.onmessage = () => {
-        framing = false;
-        notes.push({ event: 'text-drawn', epoch: clock(), frameEpoch: performance.timeOrigin + frame });
-        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'probe', notes: notes.splice(0) }));
-      };
-      channel.port2.postMessage(0);
-    });
+    if (!framing) draw();
   }).observe(document, { subtree: true, childList: true, characterData: true });
 })();`;
 
-const NoteSchema = Schema.Struct({
-  event: Schema.Literals(['text-edit', 'text-drawn']),
-  epoch: Schema.Finite,
-  frameEpoch: Schema.optionalKey(Schema.Finite),
-  text: Schema.optionalKey(Schema.String),
-  marks: Schema.optionalKey(Schema.String),
-});
+const NoteSchema = Schema.Union([
+  Schema.Struct({
+    event: Schema.Literal('text-edit'),
+    epoch: Schema.Finite,
+    text: Schema.String,
+    marks: Schema.String,
+  }),
+  Schema.Struct({
+    event: Schema.Literal('text-drawn'),
+    epoch: Schema.Finite,
+    frameEpoch: Schema.Finite,
+  }),
+]);
 const ProbeSchema = Schema.fromJsonString(
   Schema.Struct({
     type: Schema.Literal('probe'),
