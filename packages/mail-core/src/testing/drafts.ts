@@ -9,6 +9,7 @@ import type {
   PickSource,
 } from '../drafts.ts';
 import type { NativeDeliveryClaim } from '../outbox.ts';
+import type { NativeSendReminderSync } from '../send-reminders.ts';
 
 import { assetLimit } from '../drafts.ts';
 
@@ -183,6 +184,97 @@ export function createSyntheticProductSync() {
 export type SyntheticProductSync = ReturnType<
   typeof createSyntheticProductSync
 >;
+
+const openReminderRecord = Schema.decodeUnknownOption(
+  Schema.fromJsonString(
+    Schema.Struct({
+      id: Schema.String,
+      version: Schema.Finite,
+      reminder: Schema.String,
+    }),
+  ),
+);
+
+// The records under `prefix` that open for `owner` with `decode`, each with its Convex revision,
+// and those of `known` that exist but do not open, as native code pulls them.
+const pulledRecords = <R extends Readonly<{ id: string }>>(
+  server: Readonly<SyntheticProductSync>,
+  {
+    owner,
+    known,
+    prefix,
+    decode,
+  }: Readonly<{
+    owner: string;
+    known: readonly string[];
+    prefix: string;
+    decode: (json: string) => Option.Option<R>;
+  }>,
+) => {
+  const opened = server
+    .list(owner, prefix)
+    .map(({ identifier, sealed, updatedAt }) => {
+      const record = Option.getOrUndefined(
+        decode(server.open(sealed, owner, identifier) ?? ''),
+      );
+      return record === undefined || identifier !== `${prefix}${record.id}`
+        ? { identifier }
+        : { identifier, record: { ...record, updatedAt } };
+    });
+  return {
+    owner,
+    records: opened.flatMap(({ record }) =>
+      record === undefined ? [] : [record],
+    ),
+    unreadable: known.filter((id) =>
+      opened.some(
+        ({ identifier, record }) =>
+          identifier === `${prefix}${id}` && record === undefined,
+      ),
+    ),
+  };
+};
+
+// Product Sync as native code moves Send Reminder records for `owner`: one record per Draft under
+// an identifier derived from the Draft's.
+export const syntheticSendReminderSync = (
+  server: Readonly<SyntheticProductSync>,
+): NativeSendReminderSync => ({
+  pullSendReminders: (owner, known) => {
+    const refused = server.reach();
+    return refused === undefined
+      ? Promise.resolve(
+          pulledRecords(server, {
+            owner,
+            known,
+            prefix: 'send-reminder.',
+            decode: openReminderRecord,
+          }),
+        )
+      : Promise.reject(refused);
+  },
+  pushSendReminder: async (
+    owner,
+    { id, version, reminder, expectedUpdatedAt },
+  ) => {
+    const refused = server.reach();
+    if (refused !== undefined) {
+      throw refused;
+    }
+    const identifier = `send-reminder.${id}`;
+    return {
+      owner,
+      ...server.put(owner, identifier, {
+        sealed: server.seal(
+          owner,
+          identifier,
+          JSON.stringify({ id, version, reminder }),
+        ),
+        expected: expectedUpdatedAt,
+      }),
+    };
+  },
+});
 
 // Draft storage with native code's rules: one document bound to the Product Account that wrote
 // it, which another account opens as empty, replaced only from the revision read. Asset bytes are
@@ -416,34 +508,16 @@ export function createSyntheticDrafts(
     server === undefined
       ? undefined
       : {
-          pullDrafts: (owner, known) => {
-            const opened = server
-              .list(owner, 'draft.')
-              .map(({ identifier, sealed, updatedAt }) => {
-                const record = Option.getOrUndefined(
-                  openRecord(server.open(sealed, owner, identifier) ?? ''),
-                );
-                return record === undefined ||
-                  identifier !== `draft.${record.id}`
-                  ? { identifier }
-                  : { identifier, record: { ...record, updatedAt } };
-              });
-            return (
-              signedIn(owner) ??
-              Promise.resolve({
+          pullDrafts: (owner, known) =>
+            signedIn(owner) ??
+            Promise.resolve(
+              pulledRecords(server, {
                 owner,
-                records: opened.flatMap(({ record }) =>
-                  record === undefined ? [] : [record],
-                ),
-                unreadable: known.filter((id) =>
-                  opened.some(
-                    ({ identifier, record }) =>
-                      identifier === `draft.${id}` && record === undefined,
-                  ),
-                ),
-              })
-            );
-          },
+                known,
+                prefix: 'draft.',
+                decode: openRecord,
+              }),
+            ),
           pushDraft: async (
             owner,
             { id, version, draft, expectedUpdatedAt },
