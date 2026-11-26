@@ -2476,6 +2476,153 @@ final class WindowTests: XCTestCase {
       groups, evidence: evidence, overhead: overhead, composer: page ? "page" : "current")
   }
 
+  // #2951: selection changes at the end of a one-paragraph and a 1,000-paragraph body, in the
+  // current composer (registration-performance) or the Draft editor page (registration-draft-editor).
+  // Each sample runs from the key press the app records to the mount of the format bar's commit that
+  // shows the new selection, which computes the Link control's state and the Writing tools' over the
+  // body.
+  func testSelectionChangeLatency() throws {
+    continueAfterFailure = false
+    executionTimeAllowance = 600
+    let environment = ProcessInfo.processInfo.environment
+    let page = environment["UNWIRED_TEST_SCENARIO"] == "registration-draft-editor"
+    XCTAssertTrue(page || environment["UNWIRED_TEST_SCENARIO"] == "registration-performance")
+    let appURL = URL(fileURLWithPath: try XCTUnwrap(environment["UNWIRED_APP_PATH"]))
+    let evidence = appURL.deletingLastPathComponent().appendingPathComponent("lifecycle.jsonl")
+    let app = XCUIApplication(url: appURL)
+    app.launchArguments += ["-ApplePersistenceIgnoreState", "YES", "-interfaceLanguage", "en"]
+    app.launchEnvironment["UNWIRED_LIFECYCLE_PATH"] = evidence.path
+    app.launch()
+    addTeardownBlock { if app.state != .notRunning { app.terminate() } }
+    let window = app.windows["Inbox 1"]
+    if page {
+      XCTAssertTrue(window.waitForExistence(timeout: 30))
+      draftEditorSignIn(window)
+    } else {
+      performanceSetup(app, window: window)
+    }
+    // Give the person their pasteboard back after the pasted bodies.
+    let pasteboard = NSPasteboard.general
+    let saved = (pasteboard.pasteboardItems ?? []).map { item in
+      let copy = NSPasteboardItem()
+      for type in item.types {
+        if let data = item.data(forType: type) { copy.setData(data, forType: type) }
+      }
+      return copy
+    }
+    var written = pasteboard.changeCount
+    addTeardownBlock {
+      guard pasteboard.changeCount == written else { return }
+      pasteboard.clearContents()
+      pasteboard.writeObjects(saved)
+    }
+
+    window.buttons["New Message"].click()
+    XCTAssertTrue(window.buttons["Undo"].waitForExistence(timeout: 30))
+    // The current composer's body is the window's only text view.
+    let body = page ? window.webViews.textViews["Message body"] : window.textViews.firstMatch
+    XCTAssertTrue(body.waitForExistence(timeout: 15))
+    body.click()
+    let addLink = window.buttons["Add Link"]
+    var groups: [(name: String, windows: [(start: Double, end: Double)])] = []
+    for count in [1, 1000] {
+      let paragraphs = (1...count).map {
+        String(format: "Paragraph %04d of the selection fixture, long enough to wrap once.", $0)
+      }
+      pasteboard.clearContents()
+      pasteboard.setString(paragraphs.joined(separator: "\n"), forType: .string)
+      written = pasteboard.changeCount
+      app.typeKey("a", modifierFlags: .command)
+      app.typeKey("v", modifierFlags: .command)
+      let last = try XCTUnwrap(paragraphs.last)
+      waitUntil(
+        {
+          page
+            ? self.webText(last, in: window).exists
+            : (body.value as? String)?.hasSuffix(last) == true
+        }, timeout: 60)
+      waitUntil { !addLink.exists }
+      // Shift-Left selects the last character, which Add Link can link; Right collapses the
+      // selection at the end again, where the Link control is unavailable.
+      let windows = (0..<20).map { index -> (start: Double, end: Double) in
+        let start = uptime()
+        if index % 2 == 0 {
+          app.typeKey(.leftArrow, modifierFlags: .shift)
+          waitUntil { addLink.isEnabled }
+        } else {
+          app.typeKey(.rightArrow, modifierFlags: [])
+          waitUntil { !addLink.exists }
+        }
+        return (start, uptime())
+      }
+      groups.append(("selection-\(count)-paragraph\(count == 1 ? "" : "s")", windows))
+    }
+    // The running app keeps appending probe records; read them only after it quits.
+    app.terminate()
+    try reportSelectionLatency(groups, composer: page ? "page" : "current", evidence: evidence)
+  }
+
+  // Pairs each selection sample's recorded key press with the first mount after it that shows its
+  // selection, alternately linkable and not, within the sample: before the journey saw it.
+  private func reportSelectionLatency(
+    _ groups: [(name: String, windows: [(start: Double, end: Double)])], composer: String,
+    evidence: URL
+  ) throws {
+    struct Record: Decodable {
+      let event: String
+      let uptime: Double?
+      let milliseconds: Double?
+      let linkable: Bool?
+    }
+    let records = try String(contentsOf: evidence, encoding: .utf8)
+      .split(separator: "\n")
+      .map { try JSONDecoder().decode(Record.self, from: Data($0.utf8)) }
+    let keys = records.filter { $0.event == "key-down" }
+    let shown = records.filter { $0.event == "selection-shown" }
+    let stalls = try records.filter { $0.event == "stall" }.map {
+      (uptime: try XCTUnwrap($0.uptime), milliseconds: try XCTUnwrap($0.milliseconds))
+    }
+    func percentile(_ sorted: [Double], _ rank: Double) -> Double {
+      sorted[max(0, Int((rank * Double(sorted.count)).rounded(.up)) - 1)]
+    }
+    var lines: [String] = []
+    for group in groups {
+      let presses = try group.windows.map { window in
+        try XCTUnwrap(
+          keys.last { ($0.uptime ?? 0) >= window.start && ($0.uptime ?? 0) <= window.end },
+          "Missing key press for \(group.name)")
+      }
+      let samples = try zip(presses, group.windows).enumerated().map {
+        index, sample -> Double in
+        let pressed = try XCTUnwrap(sample.0.uptime)
+        let commit = try XCTUnwrap(
+          shown.first {
+            ($0.uptime ?? 0) >= pressed && ($0.uptime ?? 0) <= sample.1.end
+              && $0.linkable == (index % 2 == 0)
+          }, "No mount showed sample \(index) of \(group.name)")
+        return try XCTUnwrap(commit.uptime) - pressed
+      }.sorted()
+      let during = stalls.filter { stall in
+        group.windows.contains {
+          stall.uptime <= $0.end && stall.uptime + stall.milliseconds >= $0.start
+        }
+      }.map(\.milliseconds)
+      lines.append(
+        json([
+          "composer": composer, "interaction": group.name, "samplesMs": samples,
+          "p50Ms": percentile(samples, 0.5), "p95Ms": percentile(samples, 0.95),
+          "maxMs": samples.last ?? 0, "stallsMs": during,
+          "frameMs": try XCTUnwrap(keys.compactMap(\.milliseconds).max()),
+        ]))
+    }
+    print(lines.map { "PERFORMANCE \($0)" }.joined(separator: "\n"))
+    let attachment = XCTAttachment(
+      data: Data((lines.joined(separator: "\n") + "\n").utf8), uniformTypeIdentifier: "public.json")
+    attachment.name = "Selection-change latency (\(composer) composer)"
+    attachment.lifetime = .keepAlways
+    add(attachment)
+  }
+
   // #626: the core mail loop by keyboard where the Mac app offers a keyboard path, over the
   // registration-performance build's Gmail and Microsoft mailboxes, with XCTest's accessibility
   // audit of each screen. Opening a row, placing the caret in a new reply, sending and moving
