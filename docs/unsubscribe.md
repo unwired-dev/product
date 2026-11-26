@@ -143,7 +143,7 @@ messages the list sent and how many were opened) is left out until
 **Unsubscribe…** opens a confirmation popover that names the list, the sender
 and the receiving address: from the banner's button, or, from the menu, below the
 toolbar's More group, since the banner may be scrolled out of view. Each reader
-window keeps its own confirmation. **Cancel** sends
+window keeps its own confirmation, which closes once a request was sent. **Cancel** sends
 nothing. **Unsubscribe** calls `unsubscribe.request` once, for the window's Mail
 Profile, which owns the receiving connection. The banner then shows the outcome:
 
@@ -154,7 +154,7 @@ Profile, which owns the receiving connection. The banner then shows the outcome:
 | `uncertain` | **No clear answer to the request**, with the same actions.                                            |
 
 **Try Again** sends once more without asking again. Until `sentRequest` has
-answered, and while a request is under way, the buttons are disabled and the
+answered, which it does again each time the message opens, and while a request is under way, the buttons are disabled and the
 menu item is absent; it is gone once a request has ended. Each message's state
 lives outside the reader, keyed by Product Account, Mail Profile, connection and
 message, so a result that arrives after the reader moved on

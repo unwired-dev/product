@@ -67,20 +67,18 @@ function Reader({
 }
 
 // The reader showing the first of `count` messages with `headers` from a synthetic Gmail mailbox,
-// in the `work` Profile. Each request ends as `outcomes` says, in turn, and the stored requests are
-// `stored`. Only the native request and its record are substituted.
+// in the `work` Profile. Each request ends as `outcomes` says, and each stored-request lookup answers
+// as `stored` says, in turn; later ones find none. Only the native request and its record are
+// substituted.
 async function opened({
   headers = oneClick,
   outcomes = [],
-  stored = () => Promise.resolve(undefined),
+  stored = [],
   count = 1,
 }: Readonly<{
   headers?: Readonly<Record<string, string>>;
   outcomes?: ReadonlyArray<() => Promise<UnsubscribeOutcome>>;
-  stored?: (
-    profile: string,
-    receivedAt: number,
-  ) => Promise<SentUnsubscribeRequest | undefined>;
+  stored?: ReadonlyArray<Promise<SentUnsubscribeRequest | undefined>>;
   count?: number;
 }> = {}) {
   const gmail = createSyntheticGmail({ address: me });
@@ -101,7 +99,7 @@ async function opened({
   const unsubscribe: Unsubscribe = {
     sentRequest: (owner, offer, at) => {
       lookups.push([owner, offer.identity, at]);
-      return stored(owner, at);
+      return stored[lookups.length - 1] ?? Promise.resolve(undefined);
     },
     request: (owner) => {
       requests.push(owner);
@@ -174,6 +172,20 @@ async function opened({
     },
   };
 }
+
+// A promise the test settles.
+function deferred<T>() {
+  let settle: (value: T) => void = () => undefined;
+  // oxlint-disable-next-line promise/avoid-new -- Hold the answer until the test settles it.
+  const promise = new Promise<T>((resolve) => {
+    settle = resolve;
+  });
+  return { promise, resolve: settle };
+}
+
+// Whether the banner's Unsubscribe… is disabled.
+const unsubscribeState = () =>
+  screen.getByRole('button', { name: 'Unsubscribe…' }).props.accessibilityState;
 
 const press = async (name: string) => {
   await fireEvent.press(screen.getByRole('button', { name }));
@@ -256,8 +268,7 @@ describe('the reader’s one-click Unsubscribe', () => {
   it('shows the Profile’s request sent in the last 14 days, dated', async () => {
     expect.hasAssertions();
     const { requests, lookups } = await opened({
-      stored: (owner) =>
-        Promise.resolve(owner === profile ? record(owner) : undefined),
+      stored: [Promise.resolve(record(profile))],
     });
     await expect(
       screen.findByText(
@@ -273,46 +284,75 @@ describe('the reader’s one-click Unsubscribe', () => {
 
   it('offers nothing until the stored request is known', async () => {
     expect.hasAssertions();
-    let settle: (request: undefined) => void = () => undefined;
-    const { menu } = await opened({
-      stored: () =>
-        new Promise((resolve) => {
-          settle = resolve;
-        }),
-    });
-    expect(
-      screen.getByRole('button', { name: 'Unsubscribe…' }).props
-        .accessibilityState,
-    ).toStrictEqual({ disabled: true });
+    const lookup = deferred<undefined>();
+    const { menu } = await opened({ stored: [lookup.promise] });
+    expect(unsubscribeState()).toStrictEqual({ disabled: true });
     expect(menu()).toStrictEqual([]);
 
     await act(() => {
-      settle(undefined);
+      lookup.resolve(undefined);
     });
-    expect(
-      screen.getByRole('button', { name: 'Unsubscribe…' }).props
-        .accessibilityState,
-    ).toStrictEqual({ disabled: false });
+    expect(unsubscribeState()).toStrictEqual({ disabled: false });
+  });
+
+  it('looks the stored request up again when the message is opened again', async () => {
+    expect.hasAssertions();
+    const again = deferred<SentUnsubscribeRequest>();
+    const { requests, menu, show } = await opened({
+      count: 2,
+      stored: [
+        Promise.resolve(undefined),
+        Promise.resolve(undefined),
+        again.promise,
+      ],
+    });
+    await screen.findByRole('button', { name: 'Unsubscribe…' });
+    await act(() => {
+      menu()[0]?.run?.();
+    });
+    await show(1);
+    await show(0);
+    expect(unsubscribeState()).toStrictEqual({ disabled: true });
+    expect(screen.queryByText(confirmation)).toBeNull();
+
+    await act(() => {
+      again.resolve(record(profile));
+    });
+    expect(screen.getByText('Unsubscribe request sent')).toBeOnTheScreen();
+    expect(requests).toStrictEqual([]);
+  });
+
+  it('closes another open confirmation once the request was sent', async () => {
+    expect.hasAssertions();
+    const { requests, menu } = await opened({
+      outcomes: [() => Promise.resolve('sent')],
+    });
+    await screen.findByRole('button', { name: 'Unsubscribe…' });
+    await press('Unsubscribe…');
+    await act(() => {
+      menu()[0]?.run?.();
+    });
+    await fireEvent.press(
+      screen.getAllByRole('button', { name: 'Unsubscribe' })[0]!,
+    );
+    await screen.findByText('Unsubscribe request sent');
+    expect(screen.queryByRole('button', { name: 'Unsubscribe' })).toBeNull();
+    expect(requests).toStrictEqual([profile]);
   });
 
   it('shows a late result only on the message it was sent from', async () => {
     expect.hasAssertions();
-    let finish: (outcome: UnsubscribeOutcome) => void = () => undefined;
+    const request = deferred<UnsubscribeOutcome>();
     const { show } = await opened({
       count: 2,
-      outcomes: [
-        () =>
-          new Promise((resolve) => {
-            finish = resolve;
-          }),
-      ],
+      outcomes: [() => request.promise],
     });
     await screen.findByRole('button', { name: 'Unsubscribe…' });
     await press('Unsubscribe…');
     await press('Unsubscribe');
     await show(1);
     await act(() => {
-      finish('sent');
+      request.resolve('sent');
     });
     expect(screen.queryByText('Unsubscribe request sent')).toBeNull();
 

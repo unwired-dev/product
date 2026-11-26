@@ -108,9 +108,15 @@ function useOneClick(inbox: Source, id: string) {
   const key = `${account}\n${profile}\n${mailbox?.id}\n${id}`;
   const entry =
     useSyncExternalStore(subscribe, () => entries.get(key)) ?? nothing;
-  // Sends the request once; a press while one is under way sends nothing.
+  // Sends the request once; a press before the stored request is known, while one is under way or
+  // after one was sent sends nothing.
   const send = async (sending: OneClick) => {
-    if (entries.get(key)?.sending === true) {
+    const current = entries.get(key) ?? nothing;
+    if (
+      current.checked !== true ||
+      current.sending === true ||
+      current.outcome?.kind === 'sent'
+    ) {
       return;
     }
     update(key, (each) => ({ ...each, sending: true }));
@@ -199,13 +205,15 @@ function Confirmation({
   );
 }
 
-// A confirmation that opens on request and closes on Cancel, Unsubscribe or a click outside.
-function useAsking() {
-  const [asking, setAsking] = useState<number>();
+// A confirmation for the message `key` names that opens on request and closes on Cancel,
+// Unsubscribe or a click outside; another message does not show it.
+function useAsking(key: string) {
+  const [asking, setAsking] =
+    useState<Readonly<{ key: string; opening: number }>>();
   return {
-    asking,
+    asking: asking?.key === key ? asking.opening : undefined,
     ask: () => {
-      setAsking(nextOpening());
+      setAsking({ key, opening: nextOpening() });
     },
     close: () => {
       setAsking(undefined);
@@ -219,7 +227,7 @@ function useAsking() {
 export function useUnsubscribeMenu(inbox: Source, id: string) {
   const { t } = useLocalization();
   const { offer, address, key, entry, send } = useOneClick(inbox, id);
-  const { asking, ask, close } = useAsking();
+  const { asking, ask, close } = useAsking(key);
   if (offer === undefined || address === undefined) {
     return { items: [], confirmation: () => null };
   }
@@ -233,7 +241,7 @@ export function useUnsubscribeMenu(inbox: Source, id: string) {
         offer={offer}
         sender={sender}
         address={address}
-        opening={asking}
+        opening={offered(entry) ? asking : undefined}
         onClose={close}
         onConfirm={() => {
           close();
@@ -266,12 +274,14 @@ export function UnsubscribeBanner({
   const { t, settings } = useLocalization();
   const { store, profile, offer, address, connection, key, entry, send } =
     useOneClick(inbox, id);
-  const { asking, ask, close } = useAsking();
+  const { asking, ask, close } = useAsking(key);
   const { anchor, items } = useBlockSender();
   useEffect(() => {
     if (offer === undefined) {
       return;
     }
+    // Each opening looks the stored request up again, and offers nothing until it is known.
+    update(key, (each) => ({ ...each, checked: false }));
     const recall = async () => {
       try {
         const request = await store.sentRequest(profile, offer, receivedAt);
@@ -343,7 +353,7 @@ export function UnsubscribeBanner({
                 offer={offer}
                 sender={sender.name}
                 address={address}
-                opening={asking}
+                opening={offered(entry) ? asking : undefined}
                 onClose={close}
                 onConfirm={() => {
                   close();
@@ -355,7 +365,7 @@ export function UnsubscribeBanner({
             <>
               <Button
                 label={t('unsubscribe.tryAgain')}
-                disabled={sending}
+                disabled={sending || entry.checked !== true}
                 onPress={() => {
                   void send(offer);
                 }}
@@ -363,7 +373,7 @@ export function UnsubscribeBanner({
               {block === undefined ? null : (
                 <Button
                   label={block.title}
-                  disabled={sending}
+                  disabled={sending || entry.checked !== true}
                   onPress={() => {
                     void block.run();
                   }}
