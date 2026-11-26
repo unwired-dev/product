@@ -208,7 +208,7 @@ function SyncNotice({ address }: { readonly address: string | undefined }) {
     return null;
   }
   // Synchronizes again once access for this mailbox is authorized.
-  const handleAllowGmail = async (authorize: () => Promise<void>) => {
+  const handleAllowGmail = async (authorize: () => Promise<unknown>) => {
     await authorize();
     await actions.load();
   };

@@ -721,8 +721,14 @@ describe('mailbox connections and the unified Inbox', () => {
       ready(mailbox(mailboxes.getSnapshot(), other).state).messages,
     ).toHaveLength(1);
 
+    // A cancelled sign-in says so and leaves Alex closed.
+    synthetic.google.outcome = 'cancelled';
+    await expect(registration.authorizeMailbox(alex)).resolves.toBe(false);
+    expect(mailboxes.getSnapshot().map(({ id }) => id)).toStrictEqual([other]);
+    synthetic.google.outcome = undefined;
+
     // Authorizing Alex again reopens its Inbox, which synchronizes on its own.
-    await registration.authorizeMailbox(alex);
+    await expect(registration.authorizeMailbox(alex)).resolves.toBe(true);
     expect(mailboxes.getSnapshot().map(({ id }) => id)).toStrictEqual([
       alex,
       other,

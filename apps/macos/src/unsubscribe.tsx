@@ -136,15 +136,14 @@ const pendingOf = (pending: OutboxSnapshotEntry) => {
   return { kind: 'queued', to } as const;
 };
 
-// Admits the `mailto:` request from `connection` in place of the message `key` names' last one. A
-// refused request leaves the Outbox before it is sent again; an unknown one stays, since it may have
-// been sent. A connection that cannot send says why in place of an outcome.
+// Admits the `mailto:` request from `connection` in place of the message `key` names' last one; the
+// Outbox sends a refused or unknown request it holds again in place of `offer`. A connection that
+// cannot send says why in place of an outcome.
 const email = async ({
   outbox,
   key,
   connection,
   message,
-  pending,
   offer,
 }: Readonly<{
   outbox: ReturnType<typeof useOutbox>;
@@ -152,12 +151,8 @@ const email = async ({
   connection: string;
   // The message that offered the request.
   message: string;
-  pending: OutboxSnapshotEntry | undefined;
   offer: Extract<UnsubscribeOffer, { kind: 'mailto' }>;
 }>) => {
-  if (pending?.state === 'failed') {
-    await outbox.undo(pending.id, 'failed');
-  }
   const admitted = await outbox
     .unsubscribe(connection, offer, message)
     .catch(() => ({ kind: 'failed' }) as const);
@@ -248,15 +243,18 @@ const emailed = (at: number, to: string | undefined): Outcome => ({
   ...(to === undefined ? {} : { to }),
 });
 
-// The first of the message `key` names' `requests` the Outbox confirmed, emailed `to`; kept for the
-// session once found, since the Outbox remembers only its latest sends.
+// The first of the message `key` names' `requests` the Outbox confirmed, and to whom when it knows;
+// kept for the session once found.
 function useConfirmed(
   key: string,
   requests: readonly string[] | undefined,
-  to: string | undefined,
 ): Outcome {
   const outbox = useOutbox();
-  const at = requests?.map(outbox.delivered).find((each) => each !== undefined);
+  const found = requests
+    ?.map(outbox.delivered)
+    .find((each) => each !== undefined);
+  const at = found?.at;
+  const to = found?.to;
   useEffect(() => {
     if (at !== undefined) {
       update(key, (each) =>
@@ -309,11 +307,7 @@ function useOffer(inbox: Source, id: string) {
       );
     }
   }, [key, pendingId]);
-  const confirmed = useConfirmed(
-    key,
-    entry.requests,
-    offer?.kind === 'mailto' ? offer.address : undefined,
-  );
+  const confirmed = useConfirmed(key, entry.requests);
   const outcome = outcomeOf(entry, pending, confirmed);
   const retry = outcome?.kind === 'failed' || outcome?.kind === 'uncertain';
   // Sends the request once; a press before the stored request is known, while one is under way or
@@ -330,7 +324,7 @@ function useOffer(inbox: Source, id: string) {
     }
     update(key, (each) => ({ ...each, sending: true }));
     await (sending.kind === 'mailto'
-      ? email({ outbox, key, connection, message: id, pending, offer: sending })
+      ? email({ outbox, key, connection, message: id, offer: sending })
       : click(store, { key, profile }, sending));
   };
   return {
@@ -625,14 +619,14 @@ function Repair({
       await outbox.undo(refused, 'failed');
     }
   };
-  // Authorization also resolves when the person cancels it, and a provider may refuse sending while
-  // its Inbox reads, so a refused request is sent again rather than taken back: refused again, it
-  // asks again.
+  // A provider may refuse sending while its Inbox reads, so only a completed sign-in sends the
+  // refused request again rather than taking it back: refused again, it asks again. A cancelled
+  // sign-in leaves it as it was.
   const signIn = async (id: string) => {
     try {
-      await signedIn?.authorizeMailbox(id);
+      const authorized = await signedIn?.authorizeMailbox(id);
       await reload();
-      if (refused !== undefined) {
+      if (authorized === true && refused !== undefined) {
         onRetry();
       }
     } catch {
@@ -718,7 +712,8 @@ export function UnsubscribeBanner({
           ? {
               ...each,
               checked: true,
-              ...(request === undefined || each.outcome !== undefined
+              // A stored request supersedes a failure cached before it was sent from elsewhere.
+              ...(request === undefined || each.outcome?.kind === 'sent'
                 ? {}
                 : { outcome: { kind: 'sent', at: request.sentAt } }),
             }

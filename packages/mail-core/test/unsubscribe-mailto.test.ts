@@ -426,7 +426,10 @@ describe('recording a mailto unsubscribe request', () => {
         await phone.outbox.process();
 
         await vi.waitFor(() => {
-          expect(phone.outbox.delivered(id)).toBe(clock.now);
+          expect(phone.outbox.delivered(id)).toStrictEqual({
+            at: clock.now,
+            to: listed.address,
+          });
         });
         expect(pending(phone, provider)).toBeUndefined();
         await expect(
@@ -521,6 +524,42 @@ describe('recording a mailto unsubscribe request', () => {
         pending: { state: 'failed', problem: 'authorization' },
         document: null,
       });
+    } finally {
+      phone.outbox.dispose();
+    }
+  });
+
+  it('tries a refused request again as confirmed, though another message of the list offers another address', async () => {
+    expect.hasAssertions();
+    const phone = await receiver('gmail');
+    try {
+      const refused = await start(phone);
+      phone.become('authorization');
+      later(undoSendWindow);
+      await phone.outbox.process();
+      phone.become('connected');
+      const retried = waitingId(
+        await phone.outbox.unsubscribe(
+          receiving.gmail.id,
+          { ...listed, address: 'other@lists.alza.example', subject: 'stop' },
+          'later.INBOX',
+        ),
+      );
+
+      expect(
+        phone.drafts.getOutbox().map(({ id, draft }) => ({
+          retry: id === retried,
+          to: draft.to,
+          subject: draft.subject,
+        })),
+      ).toStrictEqual([
+        {
+          retry: true,
+          to: [{ address: listed.address }],
+          subject: listed.subject,
+        },
+      ]);
+      expect(retried).not.toBe(refused);
     } finally {
       phone.outbox.dispose();
     }
