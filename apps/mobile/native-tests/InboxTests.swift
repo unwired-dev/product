@@ -1745,7 +1745,8 @@ final class InboxTests: XCTestCase {
     day(later).tap()
     XCTAssertTrue(set.waitForExistence(timeout: 10))
     waitUntil { set.isEnabled }
-    app.typeKey(XCUIKeyboardKey.return, modifierFlags: [])
+    // The simulator delivers "\n" as a Return press; XCUIKeyboardKey.return ("\r") never arrives.
+    app.typeKey("\n", modifierFlags: [])
     XCTAssertTrue(labelled("Reminder for \(later.formatted(.dateTime.weekday(.abbreviated).locale(Locale(identifier: "en"))))").waitForExistence(timeout: 15))
     XCTAssertFalse(picker.exists)
   }
