@@ -536,10 +536,14 @@ Once the connection joins All Mail, its message's **Folders** lists the connecti
 ([#2902](https://github.com/unwired-dev/product/issues/2902)), with its own Inbox selected and
 unavailable: in the system popover on iPad, which one tap outside and Command-period, UIKit's
 Escape, each close, and in the system Move sheet on iPhone, which **Close** and a downward swipe
-each close. **Move to Bulk Mail** then requests the move: the reader closes and the list reports
+each close. On iPhone the sheet then opens again, and "bulk" is typed into its search at the
+sheet's foot: Sent Messages leaves the list, and the search field and **Move to Bulk Mail** stay
+above the software keyboard ([#2943](https://github.com/unwired-dev/product/issues/2943)).
+**Move to Bulk Mail** then requests the move: the reader closes and the list reports
 **Moved: “Welcome to IMAP”.** at once, before the server answers. The synthetic server discards
 moves, so what the server keeps is left to the mail-core IMAP organize tests. The captures
-"Folders popover" or "Move sheet" and "Moved to Spam" are named with the appearance.
+"Folders popover" or "Move sheet", on iPhone "Move sheet search", and "Moved to Spam" are named
+with the appearance.
 
 Settings › Signatures then lists the IMAP Sending Identity with None
 ([#2059](https://github.com/unwired-dev/product/issues/2059)). Its signature is typed,

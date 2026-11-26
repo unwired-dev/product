@@ -3436,6 +3436,20 @@ final class InboxTests: XCTestCase {
     }
     folders.tap()
     XCTAssertTrue(spam.waitForExistence(timeout: 10))
+    if phone {
+      // #2943: the Move sheet's search, at its foot, rises above the software keyboard, and the
+      // folders it finds stay in reach above it.
+      let search = app.textFields["Search"]
+      focus(search) { self.hasFocus(search) }
+      XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10))
+      type("bulk", into: search)
+      waitUntil { !app.buttons["Move to Sent Messages"].exists }
+      _ = settledFrame(of: search)
+      XCTAssertLessThanOrEqual(search.frame.maxY, keyboardTop(app))
+      XCTAssertTrue(spam.isHittable)
+      XCTAssertLessThanOrEqual(spam.frame.maxY, keyboardTop(app))
+      capture("Move sheet search")
+    }
     spam.tap()
     // The reader closes and the list reports the move at once, before the server answers. The
     // synthetic server discards moves; mail-core's imap-organize tests cover the server's side.
