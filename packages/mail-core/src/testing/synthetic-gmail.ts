@@ -17,8 +17,9 @@ import {
   requestURL,
 } from './synthetic-relay.ts';
 
-// A synthetic Gmail message; `disposition` is served as its Content-Disposition header, and a
-// `calendar` makes it multipart/mixed: its body, then the calendar as `invite.ics`.
+// A synthetic Gmail message; `disposition` is served as its Content-Disposition header, `headers`
+// as further message headers, and a `calendar` makes it multipart/mixed: its body, then the
+// calendar as `invite.ics`.
 interface SyntheticGmailMessage {
   readonly threadId?: string;
   readonly from?: string;
@@ -30,6 +31,7 @@ interface SyntheticGmailMessage {
   readonly text?: string;
   readonly disposition?: string;
   readonly calendar?: string;
+  readonly headers?: ReadonlyArray<Readonly<{ name: string; value: string }>>;
 }
 
 // A synthetic Gmail mailbox: three Inbox messages over two list pages, one label with an archived
@@ -315,6 +317,40 @@ const identity = (subject: string, granted: boolean) => ({
   subject,
   scopes: granted ? [gmailScope] : [],
 });
+// The `registration-unsubscribe` mailbox adds three newsletters with one-click unsubscribe offers.
+// The mock native request answers with its URL's last segment: sent, failed and uncertain.
+const syntheticNewsletters: Readonly<Record<string, SyntheticGmailMessage>> =
+  Object.fromEntries(
+    (
+      [
+        ['Trail Notes', 'trail', 'sent'],
+        ['Market Weekly', 'market', 'failed'],
+        ['City Bulletin', 'city', 'uncertain'],
+      ] as const
+    ).map(([list, name, outcome], index) => [
+      `19a0c0ffee00005${index}`,
+      {
+        from: `${list} <news@${name}.example.invalid>`,
+        subject: `This week in ${list}`,
+        snippet: `The latest from ${list}.`,
+        internalDate: String(1_759_390_000_000 - index * 60_000),
+        labelIds: ['INBOX'],
+        text: `The latest from ${list}.`,
+        headers: [
+          { name: 'List-Id', value: `${list} <${name}.example.invalid>` },
+          {
+            name: 'List-Unsubscribe',
+            value: `<https://${name}.example.invalid/unsubscribe/${outcome}>`,
+          },
+          {
+            name: 'List-Unsubscribe-Post',
+            value: 'List-Unsubscribe=One-Click',
+          },
+        ],
+      },
+    ]),
+  );
+
 // The MIME headers a message part declares for its type.
 const mimeHeaders = (message: SyntheticGmailMessage, mimeType: string) => [
   { name: 'Content-Type', value: `${mimeType}; charset=UTF-8` },
@@ -362,7 +398,7 @@ const full = (message: SyntheticGmailMessage) => {
   return {
     payload:
       message.calendar === undefined
-        ? body
+        ? { ...body, headers: [...body.headers, ...(message.headers ?? [])] }
         : {
             mimeType: 'multipart/mixed',
             headers: mimeHeaders(message, 'multipart/mixed'),
@@ -422,6 +458,9 @@ export class SyntheticGoogle extends Context.Service<SyntheticGoogle>()(
         ...(yield* SyntheticGmailMessages),
         ...(scenario === 'registration-thread' ? syntheticThread : {}),
         ...(scenario === 'registration-invitation' ? syntheticInvitation : {}),
+        ...(scenario === 'registration-unsubscribe'
+          ? syntheticNewsletters
+          : {}),
         ...(scenario === 'registration-performance'
           ? syntheticPerformance
           : {}),

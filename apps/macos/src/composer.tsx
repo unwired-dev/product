@@ -86,7 +86,6 @@ import {
   sendingStateOf,
   slashCommands,
   slashQuery,
-  unsendableAssets,
   prepareFiles,
   withAsset,
   withSender,
@@ -267,6 +266,12 @@ const styles = StyleSheet.create({
     paddingTop: spacing.m,
     paddingBottom: spacing.l,
   },
+  // Why Send waits for a file still importing, above the body as R2 of #2092 draws it.
+  sendReason: {
+    ...textStyles.subheadline,
+    paddingHorizontal: bodyInset - fieldInset,
+    paddingTop: spacing.m,
+  },
   quoted: {
     marginHorizontal: bodyInset,
     marginBottom: spacing.l,
@@ -297,6 +302,8 @@ const styles = StyleSheet.create({
   assetMeta: { flexShrink: 1 },
   assetName: { ...textStyles.bodyEmphasized },
   assetStatusRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  // The warning glyph sits 4 pt from its reason, as in the #2991 frames.
+  assetWarningRow: { gap: 3 },
   assetStatus: { ...textStyles.subheadline, flexShrink: 1 },
   // The small indicator's 20 pt box fits the 14 pt status line, so a checking chip keeps its height.
   assetChecking: { marginVertical: -3 },
@@ -1363,10 +1370,13 @@ const assetStatus = (
   if (asset.state === 'cancelled') {
     return t('drafts.assets.status.cancelled');
   }
+  if (asset.state === 'failed' && asset.reason === 'too-large') {
+    return t('drafts.assets.status.tooLarge');
+  }
   return t(
-    'reason' in asset
-      ? 'drafts.assets.status.tooLarge'
-      : 'drafts.assets.status.failed',
+    asset.state === 'failed' && asset.notDownloaded === true
+      ? 'drafts.assets.status.notDownloaded'
+      : 'drafts.assets.status.notAdded',
   );
 };
 
@@ -1532,15 +1542,26 @@ function usePreview(
 function AssetStatus({
   checking,
   preview,
+  failed,
   status,
 }: Readonly<{
   checking: boolean;
   preview: AssetPreview | undefined;
+  // A file that wasn't added shows its reason as a warning.
+  failed: boolean;
   status: string;
 }>) {
   const colors = usePalette();
+  let statusColor =
+    preview?.kind === 'damaged' && !checking
+      ? colors.statusDestructive
+      : colors.textSecondary;
+  if (failed) {
+    statusColor = colors.statusWarning;
+  }
   return (
-    <View style={styles.assetStatusRow}>
+    <View
+      style={[styles.assetStatusRow, failed ? styles.assetWarningRow : null]}>
       {checking ? (
         <ActivityIndicator
           size="small"
@@ -1548,15 +1569,19 @@ function AssetStatus({
           style={styles.assetChecking}
         />
       ) : null}
+      {failed ? (
+        <SFSymbol
+          name="exclamationmark.triangle.fill"
+          size={10}
+          color={colors.statusWarning}
+        />
+      ) : null}
       <Text
         numberOfLines={1}
         style={[
           styles.assetStatus,
           {
-            color:
-              preview?.kind === 'damaged' && !checking
-                ? colors.statusDestructive
-                : colors.textSecondary,
+            color: statusColor,
           },
         ]}>
         {status}
@@ -1700,6 +1725,7 @@ function AssetRow({
   width,
   onRemove,
   onCancel,
+  onTryAgain,
   onConvert,
   onPreview,
   onResize,
@@ -1707,6 +1733,8 @@ function AssetRow({
   readonly asset: Asset;
   readonly inline: boolean;
   readonly running: boolean;
+  // Given for a file that wasn't added and whose source can be read again.
+  readonly onTryAgain: (() => void) | undefined;
   readonly editable: boolean;
   readonly check: SendCheck | undefined;
   // The display width every use of an inline image in the body shares: undefined at its original
@@ -1793,6 +1821,7 @@ function AssetRow({
         <AssetStatus
           checking={checking}
           preview={preview}
+          failed={asset.state === 'failed'}
           status={status}
         />
       </View>
@@ -1807,6 +1836,18 @@ function AssetRow({
           onPress={retry}
         />
       ) : null}
+      {onTryAgain === undefined || running ? null : (
+        // Its label keeps the frame's 9 pt from the reason; the capsule reaches past it.
+        <Action
+          variant="reader"
+          disabled={!editable}
+          accessibilityLabel={t('drafts.assets.retryImportLabel', {
+            name: asset.name,
+          })}
+          label={t('common.retry')}
+          onPress={onTryAgain}
+        />
+      )}
       {running ? (
         <Action
           variant="composer"
@@ -1864,6 +1905,7 @@ export function DraftAssets({
   const store = useDraftStore();
   const { t } = useLocalization();
   const running = useSyncExternalStore(store.subscribe, store.getImports);
+  const retries = useSyncExternalStore(store.subscribe, store.getRetries);
   const attachments = draft.attachments ?? [];
   const images = [
     ...new Map(
@@ -1898,13 +1940,17 @@ export function DraftAssets({
             }
           : {})}
         running={running.has(asset.id)}
+        onTryAgain={
+          asset.state === 'failed' && retries.has(asset.id)
+            ? () => {
+                void store.retryImport(asset.id);
+              }
+            : undefined
+        }
       />
     ));
   return (
     <View style={styles.assets}>
-      {unsendableAssets(draft).length > 0 ? (
-        <Alert message={t('drafts.assets.unsendable')} />
-      ) : null}
       <View
         accessibilityLabel={t('drafts.assets.attachments')}
         accessibilityRole="list"
@@ -2220,26 +2266,40 @@ const tooLarge = {
 function SendRefusalNotice({
   refused,
   blocked,
+  waiting,
   connection,
 }: {
   readonly refused: SendRefusal | undefined;
   readonly blocked: SendRefusal | undefined;
+  readonly waiting: string | undefined;
   readonly connection: string;
 }) {
   const { t } = useLocalization();
+  const colors = usePalette();
   const provider = use(AccountContext)?.mailboxes.find(
     ({ id }) => id === connection,
   )?.provider;
   const shown = blocked ?? refused;
-  return shown === undefined ? null : (
-    <Alert
-      outcome={shown === refused}
-      message={t(
-        shown === 'too-large'
-          ? tooLarge[provider ?? 'gmail']
-          : `drafts.sendRefused.${shown}`,
+  // A file still importing is named alongside any other reason Send is unavailable.
+  return (
+    <>
+      {shown === undefined ||
+      (shown === 'assets' && waiting !== undefined) ? null : (
+        <Alert
+          outcome={shown === refused}
+          message={t(
+            shown === 'too-large'
+              ? tooLarge[provider ?? 'gmail']
+              : `drafts.sendRefused.${shown}`,
+          )}
+        />
       )}
-    />
+      {waiting === undefined ? null : (
+        <Notice style={[styles.sendReason, { color: colors.textSecondary }]}>
+          {t('drafts.assets.stillImporting', { name: waiting })}
+        </Notice>
+      )}
+    </>
   );
 }
 
@@ -2311,6 +2371,7 @@ export function ComposerNotices({
   draft,
   refused,
   blocked,
+  waiting,
   onClose,
   onDiscard,
   onKeepEditing,
@@ -2320,6 +2381,8 @@ export function ComposerNotices({
   readonly refused: SendRefusal | undefined;
   // Why Send is unavailable now; To, Cc and Bcc show their own reasons, and From the sender's.
   readonly blocked?: SendRefusal | undefined;
+  // The file still importing that Send waits for.
+  readonly waiting?: string | undefined;
   readonly onClose: () => void;
   readonly onDiscard: () => void;
   readonly onKeepEditing: () => void;
@@ -2349,6 +2412,7 @@ export function ComposerNotices({
       ) : null}
       <SendRefusalNotice
         connection={draft.connection}
+        waiting={waiting}
         refused={refused}
         blocked={
           blocked === 'recipients' ||
@@ -3921,7 +3985,7 @@ function Editor({
       place(prepared.selection);
     }
     for (const { asset, file } of prepared.imports) {
-      void store.importAsset(asset, file.source);
+      void store.importAsset(asset, file.source, { keep: true });
     }
   };
   const choose = async (source: PickSource, inline: boolean) => {
@@ -3945,7 +4009,7 @@ function Editor({
       return;
     }
     for (const id of ids) {
-      void store.cancelImport(id);
+      void store.cancelImport(id, { removed: true });
     }
     const without = (document: SemanticDocument) =>
       ids.reduce((remaining, id) => withoutImage(remaining, id), document);
@@ -4814,11 +4878,15 @@ function Editor({
     }
     await send(delay);
   };
+  // The file still importing that Send waits for, named above the body and in the Send menu.
+  const waiting = addingName(draft, imports);
   const sendButton = (
     <SendMenu
+      below={renderToolbar !== undefined}
       disabled={closing === 'saving'}
       sendable={blocked === undefined}
-      waiting={addingName(draft, imports)}
+      waiting={waiting}
+      reminder={reminder}
       onSend={() => {
         void sendAsking();
       }}
@@ -5050,6 +5118,7 @@ function Editor({
           draft={draft}
           refused={refused}
           blocked={blocked}
+          waiting={waiting}
           onClose={() => {
             if (retryReturn.current && returnTo !== undefined) {
               void returnDraft(returnTo);

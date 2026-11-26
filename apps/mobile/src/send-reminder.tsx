@@ -119,7 +119,7 @@ function ReminderDateTime({
   const passed = at <= Math.max(current, checked);
   useEffect(() => {
     if (passed) {
-      AccessibilityInfo.announceForAccessibility(t('drafts.reminder.passed'));
+      AccessibilityInfo.announceForAccessibility(t('drafts.reminder.timePassed'));
     }
   }, [passed, t]);
   const set = () => {
@@ -201,7 +201,7 @@ function ReminderDateTime({
           />
           <Text
             style={[textStyles.footnote, { color: colors.statusDestructive }]}>
-            {t('drafts.reminder.passed')}
+            {t('drafts.reminder.timePassed')}
           </Text>
         </View>
       ) : null}

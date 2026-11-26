@@ -188,6 +188,11 @@ connects it in `registration-performance`, and the
 in `registration-imap-folders`, whose INBOX also lists Morgan Lee's Conference recording,
 larger than a message read allows, so it opens without its body
 ([#2942](https://github.com/unwired-dev/product/issues/2942)).
+In `registration-unsubscribe`, the synthetic Gmail Inbox also lists three newsletters,
+from Trail Notes, Market Weekly and City Bulletin, each with a one-click
+[unsubscribe offer](unsubscribe.md). Every mock build's one-click request answers
+with the last segment of its URL (`sent`, `failed` or `uncertain`), and `failed`
+for any other URL, without reaching a server.
 In `registration-sync-status`, the synthetic Gmail mailbox downloads its history
 slowly: Gmail reports the mailbox's message count, lists two messages, then holds
 the next page for two minutes and fails it once with a server error before listing

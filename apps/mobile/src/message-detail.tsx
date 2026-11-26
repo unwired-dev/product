@@ -73,6 +73,7 @@ import { ScrollEdge, WindowBarContext } from './inbox-bar.tsx';
 import { barInset } from './inbox-styles.ts';
 import { useLocalization, useMessageDateFormat } from './localization.ts';
 import { ProfileMailAssistanceGate } from './mail-assistance.tsx';
+import { useMailboxList } from './mailbox-state.ts';
 import {
   MailboxScope,
   useComposerNavigation,
@@ -113,6 +114,7 @@ import { ReplySheet } from './reply-sheet.tsx';
 import { SidebarToggleContext } from './sidebar-toggle.tsx';
 import { textStyles, usePalette } from './theme.ts';
 import { MessageTranslation } from './translation.tsx';
+import { UnsubscribeBanner } from './unsubscribe.tsx';
 
 // On iPhone the reader is a pushed screen with its own header and bottom toolbar, in every
 // orientation; on iPad the toolbar sits at the top like the Mac's.
@@ -567,6 +569,7 @@ function ResponseActions({
   readonly onPanel: (panel: ReaderPanel | undefined) => void;
 }) {
   const inbox = useInboxActions();
+  const list = useMailboxList();
   const store = useDraftStore();
   const drafts = useDrafts();
   const navigation = useComposerNavigation();
@@ -634,7 +637,20 @@ function ResponseActions({
     );
     try {
       const draft = await startResponse(
-        { navigation, drafts: store, inbox },
+        {
+          navigation,
+          drafts: store,
+          inbox,
+          // Authorizing the mailbox again replaces its Inbox.
+          inboxOf: () => {
+            const current = list
+              .getSnapshot()
+              .find(({ id }) => id === sender.id)?.inbox;
+            return current !== undefined && 'responseSource' in current
+              ? current
+              : undefined;
+          },
+        },
         t,
         {
           kind,
@@ -1140,9 +1156,14 @@ function MailboxMessage({
                 inset,
                 clearsBottom(windowBar !== undefined, insets.bottom),
               ]}>
+              <UnsubscribeBanner
+                message={message}
+                above
+              />
               {/* iPhone counts a single message as its frames count a thread's. */}
               {compact ? <MessageCount count={1} /> : null}
               <MessageMetadata message={message} />
+              <UnsubscribeBanner message={message} />
               <MessageActionsNotice id={message.id} />
               <ResponseStatusNotice
                 status={responseStatus}

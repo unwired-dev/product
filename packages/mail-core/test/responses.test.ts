@@ -20,7 +20,11 @@ import {
 import { createInboxStore } from '../src/inbox-store.ts';
 import { attachmentLimit } from '../src/message-body.ts';
 import { defaultProfile } from '../src/registration.ts';
-import { respond, startResponse } from '../src/responses.ts';
+import {
+  forwardedAttachments,
+  respond,
+  startResponse,
+} from '../src/responses.ts';
 import {
   emptyDocument,
   imageCharacter,
@@ -174,7 +178,8 @@ async function reader(
     mailbox = work,
     mailboxes: ReadonlyArray<typeof alex> = [alex, work],
   ) =>
-    startResponse({ navigation, drafts, inbox }, english, {
+    // Try Again on the Mac keeps a forwarded file that wasn't added.
+    startResponse({ navigation, drafts, inbox, keep: true }, english, {
       kind,
       mailbox,
       message,
@@ -629,6 +634,126 @@ describe('replying to and forwarding a received message', () => {
         uri: `data:${type};base64,${Buffer.from(bytes).toString('base64')}`,
       });
     }
+  });
+
+  it('downloads a forwarded attachment again on Try Again, also once its reader closed', async () => {
+    expect.hasAssertions();
+    const { start, draft, storage, gmail, drafts, close } = await reader({
+      content: {
+        text: 'See attached',
+        attachments: [
+          {
+            filename: 'report.pdf',
+            mimeType: 'application/pdf',
+            bytes: report,
+          },
+        ],
+      },
+    });
+    storage.readSavedAttachments(gmail.savedFiles);
+    // The device removes the Downloaded Attachments before Draft storage copies them.
+    storage.holdImports();
+    const forward = draft(await start('forward'));
+    gmail.savedFiles.clear();
+    storage.releaseImports();
+    const failed = () =>
+      assetsOf(draft(forward.id)).filter(({ state }) => state === 'failed');
+    await vi.waitFor(() => {
+      expect(failed()).toMatchObject([
+        { name: 'notes.txt', notDownloaded: true },
+        { name: 'report.pdf', notDownloaded: true },
+      ]);
+    });
+    const [notes, pdf] = failed().map(({ id }) => id);
+    expect([...drafts.getRetries()]).toStrictEqual([notes, pdf]);
+
+    // With the reader open, Try Again downloads the file again rather than reusing the removed one.
+    // A storage failure then keeps that download, which the next Try Again reads without
+    // downloading it again, also once the reader closed.
+    const downloads = () =>
+      gmail.requests.filter(({ path }) => path.includes('/attachments/'))
+        .length;
+    storage.failNextImport('locked');
+    await expect(drafts.retryImport(present(notes, 'notes.txt'))).resolves.toBe(
+      true,
+    );
+    expect(failed().map(({ name }) => name)).toStrictEqual([
+      'notes.txt',
+      'report.pdf',
+    ]);
+    const fetched = downloads();
+    close();
+    await expect(drafts.retryImport(present(notes, 'notes.txt'))).resolves.toBe(
+      true,
+    );
+    expect(downloads()).toBe(fetched);
+    // Once the reader closed, Try Again reads the message again to download it.
+    await expect(drafts.retryImport(present(pdf, 'report.pdf'))).resolves.toBe(
+      true,
+    );
+    expect(
+      assetsOf(draft(forward.id)).map(({ name, state }) => ({ name, state })),
+    ).toStrictEqual([
+      { name: 'notes.txt', state: 'complete' },
+      { name: 'report.pdf', state: 'complete' },
+    ]);
+  });
+
+  it('downloads a forwarded attachment again from its mailbox Inbox now, never another file in its place', async () => {
+    expect.hasAssertions();
+    // An Inbox listing `name` at the forwarded attachment's place, with its file saved.
+    const inboxListing = (name: string, alike = 0) => ({
+      messageAttachments: () =>
+        Array.from({ length: alike + 1 }, (_, index) => ({
+          locator: String(index + 1),
+          name,
+          mimeType: 'text/plain',
+          size: 5,
+          state: { kind: 'available' } as const,
+        })),
+      downloadAttachment: vi.fn<() => Promise<void>>(async () => undefined),
+      holdAttachmentFile: () => ({
+        name,
+        type: 'text/plain',
+        address: 'work@example.invalid',
+        generation: 'generation',
+        file: `${name} file`,
+        release: () => undefined,
+      }),
+      retainMessage: () => () => undefined,
+      readMessage: vi.fn<() => Promise<void>>(async () => undefined),
+    });
+    const forgotten = inboxListing('notes.txt');
+    let current = inboxListing('notes.txt');
+    const { files } = await forwardedAttachments(forgotten, {
+      mailbox: 'work',
+      id: 'message',
+      inboxOf: () => current,
+    });
+    const download = present(files[0]?.download, 'the download');
+
+    // After the mailbox was authorized again, Try Again downloads from its new Inbox.
+    await expect(download()).resolves.toMatchObject({
+      source: { kind: 'received', file: 'notes.txt file' },
+    });
+    expect(current.downloadAttachment).toHaveBeenCalledWith('message', '1', {
+      again: true,
+    });
+    expect(forgotten.readMessage).not.toHaveBeenCalled();
+
+    // Another file listed in its place is not this attachment.
+    current = inboxListing('other.txt');
+    await expect(download()).resolves.toMatchObject({
+      source: { kind: 'unavailable' },
+    });
+    expect(current.downloadAttachment).not.toHaveBeenCalled();
+
+    // Nor is one of several files alike in name, type and size, which the server may reorder.
+    current = inboxListing('notes.txt', 1);
+    await expect(download()).resolves.toMatchObject({
+      source: { kind: 'unavailable' },
+    });
+    expect(current.downloadAttachment).not.toHaveBeenCalled();
   });
 
   it('starts no forward when its reader, destination, sender or account changes while attachments download', async () => {

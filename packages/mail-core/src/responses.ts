@@ -185,6 +185,9 @@ function forwarded(t: Translate, source: ResponseSource) {
   const files = attachments.map((file) => ({
     asset: prepare(file),
     source: file.source,
+    download: file.download,
+    release: file.release,
+    keep: file.keep,
   }));
   const fields = [
     t('drafts.response.forwardedFrom', { value: senderOf(source) }),
@@ -357,13 +360,31 @@ export const typedReply = (
 
 // The files a forward attaches: each listed attachment of an opened message in `mailbox`,
 // downloaded first. One too large to download, or that cannot be downloaded, is attached as a
-// failed asset. The saved files stay on the device until `release`, after the Draft copied them.
+// failed asset. The saved files stay on the device until `release`, or each file's own `release`
+// once a Draft took it. `inboxOf` names the mailbox's Inbox now, which authorizing it again
+// replaces; without one, Try Again uses `inbox`. `keep`, from a client offering Try Again, keeps
+// a failed file for it.
+type ForwardingInbox = Pick<
+  GmailInbox | ImapInbox,
+  | 'messageAttachments'
+  | 'downloadAttachment'
+  | 'holdAttachmentFile'
+  | 'retainMessage'
+  | 'readMessage'
+>;
 export async function forwardedAttachments(
-  inbox: Pick<
-    GmailInbox | ImapInbox,
-    'messageAttachments' | 'downloadAttachment' | 'holdAttachmentFile'
-  >,
-  { mailbox, id }: Readonly<{ mailbox: string; id: string }>,
+  inbox: ForwardingInbox,
+  {
+    mailbox,
+    id,
+    inboxOf,
+    keep,
+  }: Readonly<{
+    mailbox: string;
+    id: string;
+    inboxOf?: (() => ForwardingInbox | undefined) | undefined;
+    keep?: boolean | undefined;
+  }>,
 ) {
   const listed = inbox.messageAttachments(id) ?? [];
   // A download already running when Forward was chosen is awaited rather than started again. Files
@@ -374,7 +395,22 @@ export async function forwardedAttachments(
       .map(({ locator }) => inbox.downloadAttachment(id, locator)),
   );
   const held: Array<() => void> = [];
-  const files = listed.map(({ locator, name, mimeType, state }): PickedFile => {
+  const sourceOf = (
+    saved: Readonly<ReturnType<typeof inbox.holdAttachmentFile>>,
+  ): AssetSource =>
+    saved === undefined
+      ? { kind: 'unavailable' }
+      : {
+          kind: 'received',
+          mailbox: {
+            connection: mailbox,
+            address: saved.address,
+            generation: saved.generation,
+          },
+          file: saved.file,
+        };
+  const files = listed.map((attachment): PickedFile => {
+    const { locator, name, mimeType, state } = attachment;
     if (state.kind === 'oversized') {
       return { name, type: mimeType, source: { kind: 'oversized' } };
     }
@@ -385,18 +421,41 @@ export async function forwardedAttachments(
     return {
       name,
       type: mimeType,
-      source:
-        saved === undefined
-          ? { kind: 'unavailable' }
-          : {
-              kind: 'received',
-              mailbox: {
-                connection: mailbox,
-                address: saved.address,
-                generation: saved.generation,
-              },
-              file: saved.file,
-            },
+      source: sourceOf(saved),
+      release: saved?.release,
+      keep,
+      // Try Again downloads it again from this mailbox, which the Draft's Mail Profile keeps,
+      // reading the message meanwhile in case its reader closed. Unless the message lists it alone
+      // in its place, with no other file of the same name, type and size, it is not downloaded.
+      download: async () => {
+        const current = inboxOf?.() ?? inbox;
+        const reading = current.retainMessage(id);
+        try {
+          await current.readMessage(id);
+          const alike = (current.messageAttachments(id) ?? []).filter(
+            (each) =>
+              each.name === name &&
+              each.mimeType === mimeType &&
+              each.size === attachment.size,
+          );
+          if (alike.length !== 1 || alike[0]?.locator !== locator) {
+            return {
+              source: { kind: 'unavailable' },
+              release: () => undefined,
+            };
+          }
+          await current
+            .downloadAttachment(id, locator, { again: true })
+            .catch(() => undefined);
+          const again = current.holdAttachmentFile(id, locator);
+          return {
+            source: sourceOf(again),
+            release: again?.release ?? (() => undefined),
+          };
+        } finally {
+          reading();
+        }
+      },
     };
   });
   return {
@@ -417,6 +476,8 @@ export async function startResponse(
     navigation,
     drafts,
     inbox,
+    inboxOf,
+    keep = false,
   }: Readonly<{
     navigation: Pick<ComposerNavigation, 'create'>;
     drafts: Pick<
@@ -430,7 +491,13 @@ export async function startResponse(
       | 'messageAttachments'
       | 'downloadAttachment'
       | 'holdAttachmentFile'
+      | 'retainMessage'
+      | 'readMessage'
     >;
+    // The sending mailbox's Inbox now, for Try Again after it was authorized again; `keep`, from
+    // a client offering Try Again, keeps a forwarded file that wasn't added for it.
+    inboxOf?: () => ForwardingInbox | undefined;
+    keep?: boolean;
   }>,
   t: Translate,
   {
@@ -460,7 +527,7 @@ export async function startResponse(
     return undefined;
   }
   let response: ReturnType<typeof respond> | undefined = undefined;
-  // Forwarded files stay on the device until the Draft copied them, even if the reader closes.
+  // Forwarded files stay on the device until the Draft took them, even if the reader closes.
   const held: { release?: () => void } = {};
   let filled = false;
   try {
@@ -483,7 +550,6 @@ export async function startResponse(
           id,
           (each) => (isEmptyDraft(each) ? prepared.edit(each) : each),
           prepared.imports,
-          held.release,
         );
         return filled;
       },
@@ -493,6 +559,8 @@ export async function startResponse(
           const forwarding = await forwardedAttachments(inbox, {
             mailbox: mailbox.id,
             id: message.id,
+            inboxOf,
+            keep,
           });
           attachments = forwarding.files;
           held.release = forwarding.release;

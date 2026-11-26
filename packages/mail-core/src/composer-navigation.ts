@@ -32,11 +32,13 @@ export interface ComposerNavigation {
       mailbox: string;
       mailboxes: readonly MailboxConnection[];
       // Resolves the held Downloaded Attachment after leaving, so a later destination still wins;
-      // it is released once the Draft copied it or creation ended without it.
+      // it is released once the Draft copied it, or can no longer, or creation ended without it.
       saved: () => Promise<
         | Readonly<NonNullable<ReturnType<GmailInbox['holdAttachmentFile']>>>
         | undefined
       >;
+      // Given by a client offering Try Again, which keeps the file while it wasn't added.
+      keep?: boolean;
     }>,
   ) => Promise<string | undefined>;
 }
@@ -120,7 +122,7 @@ export function createComposerNavigation(): ComposerNavigation {
     },
     create,
     creations: () => (creating > 0 ? undefined : created),
-    attachReceived: async (drafts, { mailbox, mailboxes, saved }) => {
+    attachReceived: async (drafts, { mailbox, mailboxes, saved, keep }) => {
       // The new Draft sends from the reader's Mail Profile, never moving the file into another.
       const sender = newMessageSender(
         mailboxes,
@@ -145,25 +147,23 @@ export function createComposerNavigation(): ComposerNavigation {
             if (chosen === undefined) {
               return false;
             }
-            attached = await drafts.attach(
-              id,
-              [
-                {
-                  name: chosen.name,
-                  type: chosen.type,
-                  source: {
-                    kind: 'received',
-                    mailbox: {
-                      connection: mailbox,
-                      address: chosen.address,
-                      generation: chosen.generation,
-                    },
-                    file: chosen.file,
+            attached = await drafts.attach(id, [
+              {
+                name: chosen.name,
+                type: chosen.type,
+                source: {
+                  kind: 'received',
+                  mailbox: {
+                    connection: mailbox,
+                    address: chosen.address,
+                    generation: chosen.generation,
                   },
+                  file: chosen.file,
                 },
-              ],
-              chosen.release,
-            );
+                release: chosen.release,
+                keep,
+              },
+            ]);
             return attached;
           },
         });
