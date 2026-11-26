@@ -663,9 +663,24 @@ describe('replying to and forwarding a received message', () => {
     expect([...drafts.getRetries()]).toStrictEqual([notes, pdf]);
 
     // With the reader open, Try Again downloads the file again rather than reusing the removed one.
+    // A storage failure then keeps that download, which the next Try Again reads without
+    // downloading it again.
+    const downloads = () =>
+      gmail.requests.filter(({ path }) => path.includes('/attachments/'))
+        .length;
+    storage.failNextImport('locked');
     await expect(drafts.retryImport(present(notes, 'notes.txt'))).resolves.toBe(
       true,
     );
+    expect(failed().map(({ name }) => name)).toStrictEqual([
+      'notes.txt',
+      'report.pdf',
+    ]);
+    const fetched = downloads();
+    await expect(drafts.retryImport(present(notes, 'notes.txt'))).resolves.toBe(
+      true,
+    );
+    expect(downloads()).toBe(fetched);
     // Once the reader closed, Try Again reads the message again to download it.
     close();
     await expect(drafts.retryImport(present(pdf, 'report.pdf'))).resolves.toBe(

@@ -3542,7 +3542,7 @@ function Editor({
       place(prepared.selection);
     }
     for (const { asset, file } of prepared.imports) {
-      void store.importAsset(asset, file.source);
+      void store.importAsset(asset, file.source, { keep: true });
     }
   };
   const choose = async (source: PickSource, inline: boolean) => {

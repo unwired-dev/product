@@ -728,7 +728,8 @@ sent. On the Mac the row names the reason ("Couldn’t be downloaded"), or says
 its picked or dropped copy on the device while it can be retried, and Try Again
 (`retryImport`, listed by `getRetries`) reads the same file, pasted image or
 Downloaded Attachment again without a picker, and downloads a forwarded attachment
-again. The copy is deleted once the file is added or removed, when its Draft is
+again when its file went missing. Only the Mac keeps a picked or pasted copy
+(`importAsset` with `keep`). The copy is deleted once the file is added or removed, when its Draft is
 discarded or sent, when a composer that never saved it closes, on sign-out and at
 launch; a file too large for Drafts is not retried. Only complete files can be sent: `unsendableAssets` in
 `@private-email/mail-core/drafts` lists everything else, which [Send](outbox.md) refuses.
@@ -876,8 +877,8 @@ reopening, **Undo** and **Discard** work as for any Draft.
   copies the message's resolved Inline Images into its quoted text. They import like other
   files and appear under **Inline images**. Their positions and repeated occurrences
   are kept; repeated occurrences use the same copied bytes. An attachment too large to download, or one
-  that could not be downloaded, is listed as **Not added** (on the Mac, **Couldn’t be downloaded**)
-  and is never sent.
+  that could not be downloaded, is listed as **Not added** and is never sent; on the Mac its row
+  says it is too large for Drafts, or **Couldn’t be downloaded** with **Try Again**.
   Attachments that share a filename are each forwarded with their own bytes and type. A
   forward reopened from storage, for example after relaunch, keeps its attachments,
   Inline Images and **Not added** files. Replies carry no attachments.
