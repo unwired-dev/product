@@ -4,6 +4,7 @@ import type { NativeAssistance } from '@private-email/mail-core/assistance';
 import type { Draft } from '@private-email/mail-core/drafts';
 import type { RegistrationSnapshot } from '@private-email/mail-core/registration';
 import type { SemanticDocument } from '@private-email/mail-core/semantic-document';
+import type { NativeSendReminderSync } from '@private-email/mail-core/send-reminders';
 import type { NativeTranslation } from '@private-email/mail-core/translation';
 import type { Component } from 'react';
 import type {
@@ -34,7 +35,11 @@ import {
   reminderCity,
   mobileReminderTimes,
 } from '@private-email/mail-core/send-reminders';
-import { createSyntheticDrafts } from '@private-email/mail-core/testing/drafts';
+import {
+  createSyntheticDrafts,
+  createSyntheticProductSync,
+  syntheticSendReminderSync,
+} from '@private-email/mail-core/testing/drafts';
 import {
   createSyntheticGmail,
   syntheticConnections,
@@ -551,11 +556,22 @@ function templateStorage(registration: ReturnType<typeof account>) {
   return { state, store: createMailTemplates(native, registration) };
 }
 
-// Send Reminder storage on this device for `registration`'s account.
-function reminderStorage(registration: ReturnType<typeof account>) {
+// Send Reminder storage on this device for `registration`'s account, synchronizing through `sync`
+// when given.
+function reminderStorage(
+  registration: ReturnType<typeof account>,
+  sync?: NativeSendReminderSync,
+) {
   const { state, open, commit } = documentStorage();
   const native = { openSendReminders: open, commitSendReminders: commit };
-  return { state, store: createSendReminders(native, registration) };
+  return {
+    state,
+    store: createSendReminders(
+      native,
+      registration,
+      sync === undefined ? undefined : { native: sync },
+    ),
+  };
 }
 
 interface TemplateItem {
@@ -608,19 +624,25 @@ const chooseTemplateItem = async (title: string) => {
 };
 
 // Opens a Draft from alex's mailbox in the `size` layout with the content `edit` gives it, beside
-// Mail Template storage holding what `seed` saves and Send Reminder storage. `reopen` opens it
-// again in a new composer.
+// Mail Template storage holding what `seed` saves and Send Reminder storage synchronizing through
+// `sync` when given. `reopen` opens it again in a new composer.
 async function composeWithTemplates(
   size: 'compact' | 'regular',
   edit: (draft: Draft) => Draft,
-  seed?: (store: ReturnType<typeof createMailTemplates>) => Promise<void>,
+  {
+    seed,
+    sync,
+  }: Readonly<{
+    seed?: (store: ReturnType<typeof createMailTemplates>) => Promise<void>;
+    sync?: NativeSendReminderSync;
+  }> = {},
 ) {
   const registration = account(connected(['alex@example.invalid']));
   const storage = createSyntheticDrafts(() => 'synthetic-product-account');
   const drafts = createDrafts(storage.native, registration);
   await drafts.load();
   const templates = templateStorage(registration);
-  const reminders = reminderStorage(registration);
+  const reminders = reminderStorage(registration, sync);
   await seed?.(templates.store);
   const created = await drafts.create({
     id: alex,
@@ -4283,15 +4305,17 @@ describe('composing Drafts', () => {
           ...draft,
           body: [{ kind: 'paragraph', spans: [{ text: 'Hi Tomáš, ' }] }],
         }),
-        async (store) => {
-          await store.save(defaultProfile, lease);
-          await store.save(defaultProfile, {
-            ...lease,
-            id: 'address',
-            name: 'Shipping address',
-            subject: '',
-          });
-          await store.save('work', { ...lease, id: 'work', name: 'Work' });
+        {
+          seed: async (store) => {
+            await store.save(defaultProfile, lease);
+            await store.save(defaultProfile, {
+              ...lease,
+              id: 'address',
+              name: 'Shipping address',
+              subject: '',
+            });
+            await store.save('work', { ...lease, id: 'work', name: 'Work' });
+          },
         },
       );
       // Only the Draft's Profile's templates are offered, each with its subject.
@@ -4679,6 +4703,59 @@ describe('composing Drafts', () => {
         expect(
           screen.getByRole('button', { name: 'Choose Date and Time…' }),
         ).toBeOnTheScreen();
+      } finally {
+        clock.mockRestore();
+      }
+    },
+  );
+
+  it.each(['compact', 'regular'] as const)(
+    'shows a Send Reminder another device set, changed or removed once a pull finishes on %s',
+    async (size) => {
+      expect.hasAssertions();
+      // Noon in Prague on a Monday.
+      const clock = jest
+        .spyOn(Date, 'now')
+        .mockReturnValue(Date.UTC(2026, 9, 12, 10));
+      try {
+        const cloud = syntheticSendReminderSync(createSyntheticProductSync());
+        const { reminders, id } = await composeWithTemplates(
+          size,
+          (draft) => ({ ...draft, subject: 'Keys for the flat' }),
+          { sync: cloud },
+        );
+        const other = reminderStorage(
+          account(connected(['alex@example.invalid'])),
+          cloud,
+        ).store;
+        const remindOther = async (dueAt: number) => {
+          await other.remind(defaultProfile, {
+            draft: id,
+            dueAt,
+            timeZone: 'Europe/Prague',
+          });
+          await other.synchronize();
+        };
+        const pulled = async () => {
+          await act(async () => {
+            await reminders.store.synchronize();
+          });
+        };
+
+        // Tomorrow at 9:00, then today at 18:00, in Prague.
+        await remindOther(Date.UTC(2026, 9, 13, 7));
+        expect(screen.queryByText(/^Reminder for /u)).toBeNull();
+        await pulled();
+        await screen.findByText(/^Reminder for tomorrow, .+ \(Prague\)$/u);
+        await remindOther(Date.UTC(2026, 9, 12, 16));
+        await pulled();
+        await screen.findByText(/^Reminder for today, .+ \(Prague\)$/u);
+        await other.cancel(defaultProfile, id);
+        await other.synchronize();
+        await pulled();
+        await waitFor(() => {
+          expect(screen.queryByText(/^Reminder for /u)).toBeNull();
+        });
       } finally {
         clock.mockRestore();
       }

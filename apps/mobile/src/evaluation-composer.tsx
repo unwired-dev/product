@@ -42,6 +42,7 @@ import {
   entryOf,
   isEmptyDraft,
   profileOf,
+  sameContent,
   withAsset,
   withSender,
 } from '@private-email/mail-core/drafts';
@@ -84,9 +85,11 @@ import {
   isSlashTool,
   padFieldInset,
   retires,
+  savedOf,
   SendingMailbox,
   slashPickers,
   SlashMenuPanel,
+  useRecoveryJournal,
   useSlashMenu,
 } from './composer.tsx';
 import {
@@ -324,9 +327,11 @@ function PageSlashMenu({
 // The Tiptap evaluation editor for one Draft, in the current composer's layout: the packaged page
 // edits the body, and native controls format it, add files and offer writing tools. Nothing is
 // saved until the person chooses Save Draft on Close, as in Mail; Delete Draft removes the Draft.
+// Unsaved edits are journaled to a composer recovery record, as in the current composer (ADR 0077).
 function EvaluationEditor({
   page,
   initial,
+  opening,
   onClose,
   onRebind,
   expanded = false,
@@ -334,6 +339,9 @@ function EvaluationEditor({
 }: {
   readonly page: string;
   readonly initial: Draft;
+  // The version the editor opens on: `initial`, or the unsaved version a composer recovery record
+  // kept.
+  readonly opening: Draft;
   readonly onClose: () => void;
   readonly onRebind: (id: string) => void;
   readonly expanded?: boolean | undefined;
@@ -346,11 +354,21 @@ function EvaluationEditor({
   const { t } = useLocalization();
   const layout = use(ComposerLayoutContext);
   // Page messages and field edits can arrive before React commits an earlier edit or a rebind.
-  const authored = useRef(initial);
+  const authored = useRef(opening);
   const getDraft = useCallback(() => authored.current, []);
-  // The version the store holds: the Draft as opened, until Save Draft or Send stores this one.
+  // The version the store holds: the Draft as opened, or the version a restored record's edits
+  // started from, until Save Draft or Send stores this one.
   const stored = useRef(initial);
-  const [draft, setDraft] = useState(initial);
+  // Whether storage may not hold the stored version yet, because its save is pending or failed.
+  // Another Draft's failed save does not make this editor's version unsaved.
+  const unsaved = useRef(false);
+  const saved = savedOf(state);
+  useLayoutEffect(() => {
+    if (saved) {
+      unsaved.current = false;
+    }
+  }, [saved]);
+  const [draft, setDraft] = useState(opening);
   // Undefined until the page reports that it is ready for commands.
   const [pageState, setPageState] = useState<PageState>();
   const pageNow = useRef<PageState>(undefined);
@@ -408,8 +426,29 @@ function EvaluationEditor({
       onRebindNow.current(id);
     }
   }, []);
+  const [closeRecord, journalNow, settleJournal] = useRecoveryJournal(
+    draft,
+    useCallback(() => {
+      // Undo in the page can return the stored content as a new version.
+      if (!unsaved.current && sameContent(authored.current, stored.current)) {
+        return undefined;
+      }
+      // No base while a save is pending or failed: storage may still hold the version before it.
+      return unsaved.current
+        ? { version: authored.current }
+        : { version: authored.current, base: stored.current };
+    }, []),
+    rebind,
+  );
+  // Save Drafts in the Inbox can store this editor's version while it stays open.
+  useEffect(() => {
+    if (saved) {
+      settleJournal();
+    }
+  }, [saved, settleJournal]);
   useLayoutEffect(() => {
     mounted.current = true;
+    store.hold(authored.current.id, rebind);
     return () => {
       mounted.current = false;
       paused.current?.(false);
@@ -466,10 +505,10 @@ function EvaluationEditor({
   };
   // Every asset this editor gave its page, as native code last settled it. The page reports only
   // these, and Undo in the page can restore any of them.
-  const initialImages = imagesOf(textOf(initial.body));
+  const initialImages = imagesOf(textOf(opening.body));
   const known = useRef(
     new Map(
-      [...initialImages, ...(initial.attachments ?? [])].map((asset) => [
+      [...initialImages, ...(opening.attachments ?? [])].map((asset) => [
         asset.id,
         asset,
       ]),
@@ -723,13 +762,23 @@ function EvaluationEditor({
       slashMenu.move(key, textOf(authored.current.body), reported.selection);
     }
   };
+  // The page's requests other than edit reports: a paste carrying images, which native code reads
+  // from the pasteboard, and the menu's keys. iPhone and iPad give native code no access to files
+  // dropped on the page.
+  const request = (message: Exclude<PageMessage, { type: 'update' }>) => {
+    if (message.type === 'paste') {
+      void add('paste', true);
+    } else if (message.type === 'key') {
+      slashKey(message.key);
+    }
+  };
   // The page loads once with the opened body; later edits never reload it.
   // oxlint-disable-next-line react/hook-use-state -- The mounted page keeps its original source.
   const [source] = useState(() => ({ html: page }));
   // oxlint-disable-next-line react/hook-use-state -- Injected once, before the page's script.
   const [injected] = useState(
     () =>
-      `window.draftEditor = ${JSON.stringify({ document: textOf(initial.body), attachments: initial.attachments ?? [], label: t('drafts.body') })}; ${phoneInsets} true;`,
+      `window.draftEditor = ${JSON.stringify({ document: textOf(opening.body), attachments: opening.attachments ?? [], label: t('drafts.body') })}; ${phoneInsets} true;`,
   );
   // Entries still being typed become recipients; an invalid one keeps the Draft here.
   const finishEntries = () => {
@@ -771,6 +820,9 @@ function EvaluationEditor({
     } catch {
       // An unexpected storage rejection keeps the composer open and retryable too.
     }
+    if (closed) {
+      void closeRecord(authored.current.id);
+    }
     paused.current = undefined;
     busy.current = false;
     if (!mounted.current) {
@@ -790,16 +842,27 @@ function EvaluationEditor({
     return closed;
   };
   // Stores this editor's version, then saves it; a Draft that changed elsewhere since it was
-  // opened becomes a conflicting copy.
+  // opened becomes a conflicting copy. One the store declines, as one moving into another Mail
+  // Profile, stays unstored, so the editor and its recovery record stay open.
   const saveDraft = () =>
     finishing(async () => {
       if (!finishEntries()) {
         setClosing('recipients');
         return false;
       }
-      void store.update(authored.current, stored.current, rebind);
-      stored.current = authored.current;
-      return store.save();
+      if (authored.current !== stored.current) {
+        if (store.declines(authored.current, stored.current)) {
+          return false;
+        }
+        void store.update(authored.current, stored.current, rebind);
+        stored.current = authored.current;
+        unsaved.current = true;
+      }
+      if (!(await store.save())) {
+        return false;
+      }
+      unsaved.current = false;
+      return true;
     });
   const deleteDraft = () =>
     finishing(async () => {
@@ -825,8 +888,12 @@ function EvaluationEditor({
       forget();
       setSending(true);
       const shown = authored.current;
-      void store.update(shown, stored.current, rebind);
-      stored.current = shown;
+      const kept = !store.declines(shown, stored.current);
+      if (shown !== stored.current && kept) {
+        void store.update(shown, stored.current, rebind);
+        stored.current = authored.current;
+        unsaved.current = true;
+      }
       const refusal = await outbox.send(() => ({
         ...shown,
         id: authored.current.id,
@@ -834,6 +901,12 @@ function EvaluationEditor({
       }));
       if (refusal === undefined) {
         return true;
+      }
+      // A refused Send still stored the version shown, unless the store declined it, so its record
+      // goes once that is saved.
+      if ((await store.save()) && kept) {
+        unsaved.current = false;
+        journalNow();
       }
       setClosing(undefined);
       setRefused(refusal);
@@ -1045,13 +1118,8 @@ function EvaluationEditor({
                       if (message === undefined) {
                         return;
                       }
-                      // A paste carrying images, which native code reads from the pasteboard.
-                      if (message.type === 'paste') {
-                        void add('paste', true);
-                        return;
-                      }
-                      if (message.type === 'key') {
-                        slashKey(message.key);
+                      if (message.type !== 'update') {
+                        request(message);
                         return;
                       }
                       // A delayed report of an earlier body revision never replaces a newer one.
@@ -1216,6 +1284,7 @@ function EvaluationEditor({
 function EvaluationComposer({
   page,
   id,
+  recovered,
   onClose,
   onRebind,
   expanded,
@@ -1223,6 +1292,8 @@ function EvaluationComposer({
 }: {
   readonly page: string;
   readonly id: string;
+  // The composer recovery record of Draft `id` to open on instead.
+  readonly recovered?: Recovered | undefined;
   readonly onClose: () => void;
   readonly onRebind: (id: string) => void;
   readonly expanded?: boolean | undefined;
@@ -1249,6 +1320,8 @@ function EvaluationComposer({
     [onRebind],
   );
   const opened = editor.followed === id ? editor.opened : draft;
+  const restoring =
+    recovered?.version.id === editor.key ? recovered : undefined;
   if (opened === undefined) {
     return (
       <Composer
@@ -1264,7 +1337,8 @@ function EvaluationComposer({
     <EvaluationEditor
       key={editor.key}
       page={page}
-      initial={opened}
+      initial={restoring?.base ?? opened}
+      opening={restoring?.version ?? opened}
       expanded={expanded}
       onClose={onClose}
       onExpand={onExpand}
@@ -1275,7 +1349,7 @@ function EvaluationComposer({
 
 type ComposerProps = Readonly<{
   id: string;
-  // The composer recovery record restored, which only the current composer opens.
+  // The composer recovery record restored, which the editor opens on.
   recovered?: Recovered | undefined;
   onClose: () => void;
   // Follows the editor to its conflicting copy without reopening it.
@@ -1306,7 +1380,7 @@ export function DraftComposer(props: ComposerProps) {
   // Assistance for a Draft follows the consent of the Mail Profile that owns its sender.
   return (
     <ProfileMailAssistanceGate profile={profileOf(connection, mailboxes)}>
-      {editorPage === undefined || props.recovered !== undefined ? (
+      {editorPage === undefined ? (
         <Composer {...props} />
       ) : (
         <EvaluationComposer

@@ -15,6 +15,7 @@ import type {
   RecipientField,
   RecipientNotice,
   Recovery,
+  SlashCommand,
 } from '@private-email/mail-core/drafts';
 import type {
   MailTemplate,
@@ -63,10 +64,11 @@ import {
   acceptRecipient,
   addBodyRecipient,
   addingAsset,
+  applySlashBlock,
   addRecipients,
   assetStates,
   bodyRecipientQuery,
-  bodyRecipientSuggestions,
+  bodySuggestionSections,
   draftOf,
   entryOf,
   greetingName,
@@ -74,6 +76,7 @@ import {
   leftOutQuestion,
   onlyQueryIn,
   recipientLabel,
+  recipientRole,
   draftSummary,
   profileOf,
   sendingMailboxes,
@@ -81,6 +84,8 @@ import {
   recipientSuggestions,
   sameContent,
   sendingStateOf,
+  slashCommands,
+  slashQuery,
   unsendableAssets,
   prepareFiles,
   withAsset,
@@ -379,6 +384,24 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.s + 2,
     paddingVertical: spacing.xs,
   },
+  // A Slash Command Menu row, as a Mac menu item draws it.
+  slashRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.s,
+    height: 28,
+    paddingHorizontal: spacing.s + 2,
+    borderRadius: radius.control,
+    borderCurve: 'continuous',
+  },
+  slashIcon: {
+    width: 18,
+    height: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  slashGlyph: { fontSize: 10, lineHeight: 16, fontWeight: '600' },
+  slashSection: { lineHeight: 16, paddingVertical: 3 },
   // The Body Recipient Shortcut's suggestions open under the query's @, over what follows.
   bodySuggestions: {
     position: 'absolute',
@@ -775,9 +798,9 @@ const listTabs = [
   { key: 'Tab', ...plainKey, shiftKey: true },
 ];
 // In a list, Tab and Shift-Tab indent and outdent its items, unless Tab chooses a Recipient
-// Suggestion.
-const listTabsOn = (choosing: boolean, kind: BlockKind) =>
-  !choosing && isListKind(kind);
+// Suggestion or a Slash Command Menu block.
+const listTabsOn = (recipients: boolean, slash: boolean, kind: BlockKind) =>
+  !recipients && !slash && isListKind(kind);
 // The keys the body takes from the text view: formatting shortcuts, Recipient Suggestions' keys
 // and, in a list, Tab and Shift-Tab.
 const bodyKeys = (recipientKeys: typeof choosingKeys, tabs: boolean) => [
@@ -812,6 +835,7 @@ function SuggestionMenu({
   style,
   empty,
   note,
+  roleOf,
 }: {
   readonly sections: Readonly<{
     recent: readonly Recipient[];
@@ -822,24 +846,16 @@ function SuggestionMenu({
   readonly style: StyleProp<ViewStyle>;
   readonly empty?: string | undefined;
   readonly note?: string | undefined;
+  // The field a person already on the Draft is in, shown at the row's trailing edge.
+  readonly roleOf?: ((recipient: Recipient) => string | undefined) | undefined;
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
   const none = sections.recent.length + sections.contacts.length === 0;
   return (
-    <View
-      accessibilityLabel={t('drafts.suggestions.title')}
-      style={[style, { boxShadow: colors.macMenuGlassShadow }]}>
-      {/* React Native's legacy view interop mounts a nested native view without its offset,
-          so the glass sits in a plain view. */}
-      <View
-        collapsable={false}
-        style={StyleSheet.absoluteFill}>
-        <Glass
-          cornerRadius={radius.card + 2}
-          panel
-        />
-      </View>
+    <MenuPanel
+      label={t('drafts.suggestions.title')}
+      style={style}>
       {none && empty !== undefined ? (
         <Text style={[styles.suggestionEmpty, { color: colors.textSecondary }]}>
           {empty}
@@ -861,16 +877,21 @@ function SuggestionMenu({
               const secondary = chosen
                 ? colors.accentOnFill
                 : colors.textSecondary;
+              const role = roleOf?.(recipient);
+              const label =
+                recipient.name === undefined
+                  ? recipient.address
+                  : t('drafts.suggestions.named', {
+                      name: recipient.name,
+                      address: recipient.address,
+                    });
               return (
                 <Pressable
                   key={recipient.address}
                   accessibilityLabel={
-                    recipient.name === undefined
-                      ? recipient.address
-                      : t('drafts.suggestions.named', {
-                          name: recipient.name,
-                          address: recipient.address,
-                        })
+                    role === undefined
+                      ? label
+                      : t('drafts.suggestions.inRole', { label, role })
                   }
                   accessibilityRole="button"
                   accessibilityState={{ selected: chosen }}
@@ -908,6 +929,11 @@ function SuggestionMenu({
                       </Text>
                     )}
                   </View>
+                  {role === undefined ? null : (
+                    <Text style={[styles.suggestionName, { color: secondary }]}>
+                      {role}
+                    </Text>
+                  )}
                 </Pressable>
               );
             })}
@@ -919,6 +945,36 @@ function SuggestionMenu({
           {note}
         </Text>
       )}
+    </MenuPanel>
+  );
+}
+
+// A glass menu over the composer, `style` placing it.
+function MenuPanel({
+  label,
+  style,
+  children,
+}: {
+  readonly label: string;
+  readonly style: StyleProp<ViewStyle>;
+  readonly children: ReactNode;
+}) {
+  const colors = usePalette();
+  return (
+    <View
+      accessibilityLabel={label}
+      style={[style, { boxShadow: colors.macMenuGlassShadow }]}>
+      {/* React Native's legacy view interop mounts a nested native view without its offset,
+          so the glass sits in a plain view. */}
+      <View
+        collapsable={false}
+        style={StyleSheet.absoluteFill}>
+        <Glass
+          cornerRadius={radius.card + 2}
+          panel
+        />
+      </View>
+      {children}
     </View>
   );
 }
@@ -2770,9 +2826,8 @@ function DraftReminder({
 }
 
 // Up to four Recipient Suggestions for an @ in the body: recent correspondents of the Draft's
-// Mail Profile, newest first, then for typed text Apple Contacts, one row kept for a contact.
-// People already on the Draft are left out.
-function bodySuggestionSections(
+// Mail Profile and the people already on the Draft, then for typed text Apple Contacts.
+function bodySuggestions(
   draft: Draft,
   query: BodyRecipientQuery,
   {
@@ -2785,37 +2840,17 @@ function bodySuggestionSections(
     contacts: Iterable<Readonly<{ sender: string; address: string }>>;
   }>,
 ) {
-  const { correspondents, excluded } = correspondentsFor(
-    draft,
-    connections,
-    held,
-  );
-  const recent = bodyRecipientSuggestions(draft, query, {
-    correspondents,
-    excluded,
-    limit: 4,
+  return bodySuggestionSections(draft, query, {
+    ...correspondentsFor(draft, connections, held),
+    contacts,
   });
-  const matched =
-    query.text === ''
-      ? []
-      : bodyRecipientSuggestions(draft, query, {
-          correspondents: contacts,
-          excluded: [...excluded, ...recent.map(({ address }) => address)],
-          limit: 4,
-        });
-  const shown = recent.slice(0, matched.length === 0 ? 4 : 3);
-  return {
-    query,
-    recent: shown,
-    contacts: matched.slice(0, 4 - shown.length),
-  };
 }
 
 const plainEvent = (event: KeyEvent['nativeEvent']) =>
   !event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey;
 
-// The Body Recipient Shortcut in an editor's body. Typing @ in an otherwise empty body opens
-// Recipient Suggestions under it; a space, Escape, a caret move, leaving the body or a choice
+// The Body Recipient Shortcut in an editor's body. Typing @ at a paragraph start or after
+// whitespace opens Recipient Suggestions under it; a space, Escape, a caret move, leaving the body or a choice
 // closes them, keeping the typed text.
 function useBodyRecipients(
   draft: Draft,
@@ -2853,11 +2888,7 @@ function useBodyRecipients(
     () => bodyRecipientQuery(textOf(draft.body), selection),
     [draft.body, selection],
   );
-  const open =
-    !paused &&
-    armed !== undefined &&
-    query?.start === armed &&
-    onlyQueryIn(textOf(draft.body), query);
+  const open = !paused && armed !== undefined && query?.start === armed;
   // Read once each time an @ arms, never asking for Contacts access.
   const contacts = useContactAddresses(armed !== undefined, false);
   const connections = use(AccountContext)?.mailboxes;
@@ -2865,7 +2896,7 @@ function useBodyRecipients(
   const sections = useMemo(
     () =>
       open && query !== undefined
-        ? bodySuggestionSections(draft, query, {
+        ? bodySuggestions(draft, query, {
             connections: connections ?? [],
             held,
             contacts: contacts.addresses,
@@ -2876,10 +2907,14 @@ function useBodyRecipients(
   const suggestions =
     sections === undefined ? [] : [...sections.recent, ...sections.contacts];
   const active = suggestions[Math.min(chosen, suggestions.length - 1)];
-  // Where the body shows the @, and where the body sits, for the menu under the @.
+  // Where the body shows the @, and where the body sits, for the menu under the @. A new body
+  // width reflows the text, so the @ is measured again for it.
   const [anchor, setAnchor] =
-    useState<Readonly<{ at: number; left: number; top: number }>>();
-  const [body, setBody] = useState({ x: 0, y: 0 });
+    useState<
+      Readonly<{ at: number; width: number; left: number; top: number }>
+    >();
+  const [body, setBody] = useState({ x: 0, y: 0, width: 0 });
+  const bodyWidth = body.width;
   useEffect(() => {
     if (armed === undefined) {
       return;
@@ -2889,7 +2924,12 @@ function useBodyRecipients(
       try {
         const frame = await windowHost()?.composerCharacterFrame(bodyID, armed);
         if (current && frame !== null && frame !== undefined) {
-          setAnchor({ at: armed, left: frame.x, top: frame.y + frame.height });
+          setAnchor({
+            at: armed,
+            width: bodyWidth,
+            left: frame.x,
+            top: frame.y + frame.height,
+          });
         }
       } catch {
         // Without its place the menu stays closed; the typed text is kept.
@@ -2898,12 +2938,13 @@ function useBodyRecipients(
     return () => {
       current = false;
     };
-  }, [armed, bodyID]);
+  }, [armed, bodyID, bodyWidth]);
   // A bare @ with no recent correspondent shows nothing; typed text shows No Matches.
   const shown =
     sections !== undefined &&
     anchor !== undefined &&
     anchor.at === armed &&
+    anchor.width === bodyWidth &&
     (suggestions.length > 0 || sections.query.text !== '')
       ? {
           sections,
@@ -2911,8 +2952,17 @@ function useBodyRecipients(
           style: [
             styles.bodySuggestions,
             {
-              left: body.x + anchor.left - spacing.s,
-              top: body.y + anchor.top + spacing.xs,
+              // Under the @, kept inside the body near its trailing edge.
+              left:
+                body.x +
+                Math.max(
+                  0,
+                  Math.min(
+                    anchor.left - spacing.s,
+                    body.width - styles.bodySuggestions.width,
+                  ),
+                ),
+              top: body.y + anchor.top + spacing.s,
             },
           ],
           empty: t('drafts.bodyRecipient.noMatches'),
@@ -2920,6 +2970,12 @@ function useBodyRecipients(
             contacts.failed && sections.query.text !== ''
               ? t('drafts.bodyRecipient.contactsUnsearchable')
               : undefined,
+          roleOf: ({ address }: Recipient) => {
+            const field = recipientRole(draft, address);
+            return field === undefined
+              ? undefined
+              : t(`drafts.fields.${field}`);
+          },
         }
       : undefined;
   // VoiceOver hears No Matches and the note once each appears, after the typed character, since
@@ -2958,14 +3014,18 @@ function useBodyRecipients(
     // Typed Return and Tab choose the highlighted suggestion while any shows.
     choosing: keys === choosingKeys,
     close,
-    placeBody: ({ x, y }: Readonly<{ x: number; y: number }>) => {
-      setBody({ x, y });
+    placeBody: ({
+      x,
+      y,
+      width,
+    }: Readonly<{ x: number; y: number; width: number }>) => {
+      setBody({ x, y, width });
     },
-    // After a body edit inserting `inserted`: typing @ in an empty body opens suggestions, and
-    // leaving its query closes them.
+    // After a body edit inserting `inserted`: typing @ opens suggestions, and leaving its query
+    // closes them.
     typed: (next: SemanticDocument, caret: Selection, inserted: string) => {
       const typed = bodyRecipientQuery(next, caret);
-      if (inserted === '@' && typed?.text === '' && onlyQueryIn(next, typed)) {
+      if (inserted === '@' && typed?.text === '') {
         arm(typed.start);
       } else if (typed?.start === armedNow.current) {
         // The list changed, so the highlight starts over.
@@ -2980,22 +3040,27 @@ function useBodyRecipients(
       const current = bodyRecipientQuery(latest, at);
       return !pausedNow.current &&
         current?.start === armedNow.current &&
-        current !== undefined &&
-        onlyQueryIn(latest, current)
+        current !== undefined
         ? current
         : undefined;
     },
-    // What VoiceOver hears once a choice added the person.
-    added: (recipient: Recipient) =>
-      t('drafts.bodyRecipient.added', {
-        name: recipient.name ?? recipient.address,
-      }),
+    // What VoiceOver hears once a choice added the person, or inserted `text` for a person
+    // already on the Draft.
+    added: (recipient: Recipient, present: boolean, text: string) =>
+      present
+        ? t('drafts.bodyRecipient.inserted', { text })
+        : t('drafts.bodyRecipient.added', {
+            name: recipient.name ?? recipient.address,
+          }),
     greeting: (recipient: Recipient) => {
       const name = greetingName(recipient, contacts.addresses);
       return name === undefined
         ? t('drafts.bodyRecipient.greetingUnnamed')
         : t('drafts.bodyRecipient.greeting', { name });
     },
+    // In written text: the given name, else the display name, else the address.
+    name: (recipient: Recipient) =>
+      greetingName(recipient, contacts.addresses) ?? recipient.address,
     // Up and Down move, Return and Tab choose, Escape closes.
     keyDown: (
       event: KeyEvent['nativeEvent'],
@@ -3034,6 +3099,402 @@ function BodyRecipientMenu({
       {...shown}
       onAccept={onAccept}
     />
+  );
+}
+
+// The Markdown marker that ends each Basic Block's row, as typed at a block's start.
+const slashMarkers: Readonly<Record<BlockKind, string>> = {
+  paragraph: '',
+  heading1: '#',
+  heading2: '##',
+  heading3: '###',
+  bulleted: '-',
+  numbered: '1.',
+  quote: '>',
+  code: '```',
+};
+// The leading icon of each row: the frames' text glyphs, else an SF Symbol.
+const slashIcons: Readonly<Record<BlockKind, string>> = {
+  paragraph: 'textformat',
+  heading1: 'H1',
+  heading2: 'H2',
+  heading3: 'H3',
+  bulleted: 'list.bullet',
+  numbered: 'list.number',
+  quote: '”',
+  code: 'curlybraces',
+};
+const slashGlyphs = new Set(['H1', 'H2', 'H3', '”']);
+// The frames draw Text's and Code Block's symbols smaller than the list symbols.
+const slashSymbolSizes: Readonly<Partial<Record<BlockKind, number>>> = {
+  paragraph: 10.5,
+  code: 11,
+};
+const isSlashBlock = (command: SlashCommand): command is BlockKind =>
+  Object.hasOwn(slashMarkers, command);
+// The menu's padding and section title, then 28pt rows.
+const slashMenuHeight = (rows: number) => 12 + 22 + 28 * rows;
+// How far the menu stays from the top and bottom of the composer's scrolling area.
+const slashMenuMargin = 28;
+// The frames hang the menu this far right of the / and this far from its line.
+const slashMenuInset = 7;
+const slashMenuGap = 3;
+
+// The Slash Command Menu in an editor's body. Typing / as the first non-whitespace character of a
+// body block outside code opens its Basic Blocks under the caret's line, or over it when more room
+// is there; typing filters them. An empty result, a caret move, leaving the body, Escape or a choice
+// closes it, keeping the typed text.
+function useSlashMenu(
+  draft: Draft,
+  selection: Selection,
+  {
+    paused,
+    pausedNow,
+    bodyID,
+  }: Readonly<{
+    paused: boolean;
+    // Ahead of rendering, as native events can arrive before a pause commits.
+    pausedNow: Readonly<{ current: boolean }>;
+    bodyID: string;
+  }>,
+) {
+  const { t } = useLocalization();
+  const titleOf = useCallback(
+    (kind: BlockKind) =>
+      kind === 'paragraph'
+        ? t('drafts.slashMenu.text')
+        : t(`drafts.blocks.${kind}`),
+    [t],
+  );
+  // What VoiceOver hears for a row: its title, then its Markdown marker.
+  const labelOf = (kind: BlockKind) =>
+    slashMarkers[kind] === ''
+      ? titleOf(kind)
+      : t('drafts.slashMenu.marked', {
+          title: titleOf(kind),
+          marker: slashMarkers[kind],
+        });
+  const blocksFor = useCallback(
+    (typed: string) =>
+      slashCommands(typed, (command) =>
+        isSlashBlock(command) ? titleOf(command) : '',
+      ).filter(isSlashBlock),
+    [titleOf],
+  );
+  // Where the / that opened the menu is.
+  const [armed, setArmed] = useState<number>();
+  const armedNow = useRef(armed);
+  // The row Up and Down Arrow highlighted, ahead of rendering; the first row without one.
+  const [chosen, setChosen] = useState<BlockKind>();
+  const chosenNow = useRef(chosen);
+  const choose = (kind: BlockKind | undefined) => {
+    chosenNow.current = kind;
+    setChosen(kind);
+  };
+  // Where the composer's scrolling area is: always kept ahead of rendering, and rendered only
+  // while the menu is open, so it keeps fitting as the window resizes or the composer scrolls.
+  const viewport = useRef({ y: 0, height: 0 });
+  const [room, setRoom] = useState({ y: 0, height: 0 });
+  const arm = (at: number | undefined) => {
+    armedNow.current = at;
+    setArmed(at);
+    setRoom(viewport.current);
+    choose(undefined);
+  };
+  const close = () => {
+    arm(undefined);
+  };
+  // The query and the blocks it lists for a body and caret, while the menu is open for it.
+  const listed = (
+    body: SemanticDocument,
+    at: Selection,
+    start: number | undefined,
+  ) => {
+    const query = slashQuery(body, at);
+    return query === undefined || query.start !== start
+      ? undefined
+      : { query, kinds: blocksFor(query.text) };
+  };
+  const current = paused
+    ? undefined
+    : listed(textOf(draft.body), selection, armed);
+  const kinds = current?.kinds ?? [];
+  const active = kinds.find((kind) => kind === chosen) ?? kinds[0];
+  const latest = (body: SemanticDocument, at: Selection) =>
+    pausedNow.current ? undefined : listed(body, at, armedNow.current);
+  // Where the body shows the /'s line, and where the body sits.
+  const [anchor, setAnchor] =
+    useState<
+      Readonly<{ at: number; left: number; top: number; bottom: number }>
+    >();
+  const [body, setBody] = useState({ x: 0, y: 0, width: 0 });
+  useEffect(() => {
+    if (armed === undefined) {
+      return;
+    }
+    let live = true;
+    void (async () => {
+      try {
+        const frame = await windowHost()?.composerCharacterFrame(bodyID, armed);
+        if (live && frame !== null && frame !== undefined) {
+          setAnchor({
+            at: armed,
+            left: frame.x,
+            top: frame.y,
+            bottom: frame.y + frame.height,
+          });
+        }
+      } catch {
+        // Without its place the menu stays closed; the typed text is kept.
+      }
+    })();
+    return () => {
+      live = false;
+    };
+  }, [armed, bodyID]);
+  const wanted = slashMenuHeight(kinds.length);
+  const above =
+    anchor === undefined ? 0 : body.y + anchor.top - room.y - slashMenuMargin;
+  const below =
+    anchor === undefined
+      ? 0
+      : room.y + room.height - body.y - anchor.bottom - slashMenuMargin;
+  const over = wanted > below && above > below;
+  // At least one row shows, however little room there is.
+  const height =
+    anchor === undefined
+      ? 0
+      : Math.max(Math.min(wanted, over ? above : below), slashMenuHeight(1));
+  const shown =
+    current === undefined ||
+    active === undefined ||
+    anchor === undefined ||
+    anchor.at !== armed
+      ? undefined
+      : {
+          query: current.query,
+          kinds,
+          active,
+          height,
+          style: [
+            styles.bodySuggestions,
+            {
+              height,
+              // Right of the /, kept inside the body near its trailing edge.
+              left:
+                body.x +
+                Math.max(
+                  0,
+                  Math.min(
+                    anchor.left + slashMenuInset,
+                    body.width - styles.bodySuggestions.width,
+                  ),
+                ),
+              top:
+                body.y +
+                (over
+                  ? anchor.top - height - slashMenuGap
+                  : anchor.bottom + slashMenuGap),
+            },
+          ],
+        };
+  // Focus stays in the body, so VoiceOver hears each highlighted block as it shows.
+  const heard = shown === undefined ? undefined : labelOf(shown.active);
+  useEffect(() => {
+    if (heard !== undefined) {
+      AccessibilityInfo.announceForAccessibilityWithOptions(heard, {
+        queue: true,
+      });
+    }
+  }, [heard]);
+  return {
+    shown,
+    titleOf,
+    labelOf,
+    keys: shown === undefined ? [] : choosingKeys,
+    // Typed Return and Tab choose the highlighted block while the menu shows.
+    choosing: shown !== undefined,
+    close,
+    placeBody: ({
+      x,
+      y,
+      width,
+    }: Readonly<{ x: number; y: number; width: number }>) => {
+      setBody({ x, y, width });
+    },
+    placeViewport: (next: Partial<Readonly<{ y: number; height: number }>>) => {
+      viewport.current = { ...viewport.current, ...next };
+      if (armedNow.current !== undefined) {
+        setRoom(viewport.current);
+      }
+    },
+    // After a body edit inserting `inserted`: typing / first in a block opens the menu, and leaving
+    // its query or filtering out every block closes it.
+    typed: (next: SemanticDocument, caret: Selection, inserted: string) => {
+      const typed = slashQuery(next, caret);
+      if (inserted === '/' && typed?.text === '') {
+        arm(typed.start);
+        AccessibilityInfo.announceForAccessibilityWithOptions(
+          t('drafts.slashMenu.title'),
+          { queue: true },
+        );
+      } else if (
+        typed !== undefined &&
+        typed.start === armedNow.current &&
+        blocksFor(typed.text).length > 0
+      ) {
+        // The list changed, so the highlight starts over.
+        choose(undefined);
+      } else if (armedNow.current !== undefined) {
+        arm(undefined);
+      }
+    },
+    // The query and the block a choice of `kind`, or Return without one, applies for the latest
+    // body and caret, while the menu lists it.
+    choice: (document: SemanticDocument, at: Selection, kind?: BlockKind) => {
+      const open = latest(document, at);
+      const picked =
+        kind ??
+        open?.kinds.find((each) => each === chosenNow.current) ??
+        open?.kinds[0];
+      return open === undefined ||
+        picked === undefined ||
+        !open.kinds.includes(picked)
+        ? undefined
+        : { query: open.query, kind: picked };
+    },
+    // Up and Down move the highlight, Return and Tab choose it, Escape closes.
+    keyDown: (event: KeyEvent['nativeEvent'], apply: () => void) => {
+      if (shown === undefined || !plainEvent(event)) {
+        return;
+      }
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        const index = Math.max(
+          kinds.indexOf(chosenNow.current ?? shown.active),
+          0,
+        );
+        const step = event.key === 'ArrowDown' ? 1 : -1;
+        const next =
+          kinds[Math.min(Math.max(index + step, 0), kinds.length - 1)];
+        if (next !== undefined && next !== kinds[index]) {
+          choose(next);
+        }
+      } else if (event.key === 'Escape') {
+        close();
+      } else if (event.key === 'Enter' || event.key === 'Tab') {
+        apply();
+      }
+    },
+  };
+}
+
+// The body's Slash Command Menu while it shows: its Basic Blocks in a glass menu, the highlighted
+// row filled and kept in view.
+function BodySlashMenu({
+  shown,
+  titleOf,
+  labelOf,
+  onChoose,
+}: {
+  readonly shown: ReturnType<typeof useSlashMenu>['shown'];
+  readonly titleOf: (kind: BlockKind) => string;
+  readonly labelOf: (kind: BlockKind) => string;
+  readonly onChoose: (kind: BlockKind) => void;
+}) {
+  const colors = usePalette();
+  const { t } = useLocalization();
+  const list = useRef<ScrollView>(null);
+  const scrolled = useRef(0);
+  const index = shown === undefined ? -1 : shown.kinds.indexOf(shown.active);
+  const height = shown?.height ?? 0;
+  useEffect(() => {
+    if (index < 0) {
+      return;
+    }
+    // The first row shows the section title with it.
+    const start = index === 0 ? 0 : 22 + 28 * index;
+    const end = 22 + 28 * (index + 1);
+    const visible = height - 12;
+    if (start < scrolled.current) {
+      list.current?.scrollTo({ y: start, animated: false });
+    } else if (end > scrolled.current + visible) {
+      list.current?.scrollTo({ y: end - visible, animated: false });
+    }
+  }, [index, height]);
+  if (shown === undefined) {
+    return null;
+  }
+  return (
+    <MenuPanel
+      label={t('drafts.slashMenu.title')}
+      style={shown.style}>
+      <ScrollView
+        ref={list}
+        onScroll={({ nativeEvent }) => {
+          scrolled.current = nativeEvent.contentOffset.y;
+        }}
+        scrollEventThrottle={16}>
+        <Text
+          style={[
+            styles.suggestionSection,
+            styles.slashSection,
+            { color: colors.textSecondary },
+          ]}>
+          {t('drafts.slashMenu.basicBlocks')}
+        </Text>
+        {shown.kinds.map((kind) => {
+          const chosen = kind === shown.active;
+          const primary = chosen ? colors.accentOnFill : colors.textPrimary;
+          const secondary = chosen ? colors.accentOnFill : colors.textSecondary;
+          const icon = slashIcons[kind];
+          return (
+            <Pressable
+              key={kind}
+              accessibilityLabel={labelOf(kind)}
+              accessibilityRole="button"
+              accessibilityState={{ selected: chosen }}
+              // The body keeps focus, so typing continues after a click.
+              focusable={false}
+              onPress={() => {
+                onChoose(kind);
+              }}
+              style={({ pressed }) => [
+                styles.slashRow,
+                pressed
+                  ? { backgroundColor: colors.accentSelectionSubtle }
+                  : null,
+                chosen ? { backgroundColor: colors.accentFill } : null,
+              ]}>
+              <View style={styles.slashIcon}>
+                {slashGlyphs.has(icon) ? (
+                  <Text style={[styles.slashGlyph, { color: secondary }]}>
+                    {icon}
+                  </Text>
+                ) : (
+                  <SFSymbol
+                    name={icon}
+                    color={secondary}
+                    size={slashSymbolSizes[kind] ?? 13}
+                  />
+                )}
+              </View>
+              <Text
+                numberOfLines={1}
+                style={[
+                  styles.suggestionName,
+                  styles.grow,
+                  { color: primary },
+                ]}>
+                {titleOf(kind)}
+              </Text>
+              <Text style={[styles.suggestionName, { color: secondary }]}>
+                {slashMarkers[kind]}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </ScrollView>
+    </MenuPanel>
   );
 }
 
@@ -3278,17 +3739,23 @@ function Editor({
   const removingReminder = useRef(false);
   const draftID = history.present.id;
   const reminder = reminderOf(readReminder, draftID, draftProfile);
+  // Read again after each stored change, such as one another device synchronized; only the
+  // latest read applies.
   useEffect(() => {
-    let current = true;
+    let latest = 0;
     const read = async () => {
+      latest += 1;
+      const mine = latest;
       const listed = await sendReminders.reminders(draftProfile);
-      if (current && listed !== undefined) {
+      if (mine === latest && listed !== undefined) {
         setReadReminder(listed.find((each) => each.draft === draftID));
       }
     };
     void read();
+    const unsubscribe = sendReminders.subscribe(() => void read());
     return () => {
-      current = false;
+      unsubscribe();
+      latest += 1;
     };
   }, [sendReminders, draftProfile, draftID]);
   const caret = useRef<number | undefined>(undefined);
@@ -3323,6 +3790,11 @@ function Editor({
   };
   const display = displayOf(textOf(draft.body));
   const recipientMenu = useBodyRecipients(draft, selection, {
+    paused,
+    pausedNow,
+    bodyID,
+  });
+  const slashMenu = useSlashMenu(draft, selection, {
     paused,
     pausedNow,
     bodyID,
@@ -3517,6 +3989,8 @@ function Editor({
     if (pausedNow.current) {
       return;
     }
+    // An Undo or Redo that restores a / does not open the menu.
+    slashMenu.close();
     const before = displayOf(textOf(authored.current.body)).text.length;
     commitHistory((current) => keepIdentity(step(current)));
     placeTyping(undefined);
@@ -3572,11 +4046,14 @@ function Editor({
       selectionNow.current = result.selection;
       place(result.selection);
     }
-    recipientMenu.typed(
-      result.document,
-      { start: caret.current, end: caret.current },
-      text.slice(at.start, at.start + text.length - textBefore.length),
+    const typedAt = { start: caret.current, end: caret.current };
+    // The typed text replaced the selection, so it ends where the selection's end moved to.
+    const inserted = text.slice(
+      at.start,
+      at.end + text.length - textBefore.length,
     );
+    recipientMenu.typed(result.document, typedAt, inserted);
+    slashMenu.typed(result.document, typedAt, inserted);
   };
   const format = (mark: Mark) => {
     if (pausedNow.current) {
@@ -3893,7 +4370,8 @@ function Editor({
       onExpand?.(authored.current.id);
     });
   };
-  // Choosing a person for the @ replaces it with the greeting and adds them to To, as one edit.
+  // Choosing a person for the @ replaces it with the greeting, or in written text the name, and
+  // adds a person not yet on the Draft to To, as one edit.
   const chooseRecipient = (recipient: Recipient) => {
     const latest = authored.current;
     const query = recipientMenu.choosable(
@@ -3904,10 +4382,15 @@ function Editor({
       return;
     }
     fromControl();
+    const greeting = recipientMenu.greeting(recipient);
+    const name = recipientMenu.name(recipient);
+    const present = recipientRole(latest, recipient.address) !== undefined;
+    const inserted = onlyQueryIn(textOf(latest.body), query) ? greeting : name;
     const result = addBodyRecipient(latest, {
       query,
       recipient,
-      greeting: recipientMenu.greeting(recipient),
+      greeting,
+      name,
     });
     recipientMenu.close();
     change(result.draft);
@@ -3915,10 +4398,41 @@ function Editor({
     caret.current = result.selection.start;
     selectionNow.current = result.selection;
     place(result.selection);
-    AccessibilityInfo.announceForAccessibility(recipientMenu.added(recipient));
+    AccessibilityInfo.announceForAccessibility(
+      recipientMenu.added(recipient, present, inserted),
+    );
+  };
+  // Choosing a block for the / sets the caret's block to it and removes the query, as one edit.
+  const chooseBlock = (kind?: BlockKind) => {
+    const latest = authored.current;
+    const choice = slashMenu.choice(
+      textOf(latest.body),
+      selectionNow.current,
+      kind,
+    );
+    if (choice === undefined) {
+      return;
+    }
+    fromControl();
+    slashMenu.close();
+    const result = applySlashBlock(
+      textOf(latest.body),
+      choice.query,
+      choice.kind,
+    );
+    change({ ...latest, body: withText(latest.body, result.document) });
+    placeTyping(undefined);
+    const at = result.selection ?? {
+      start: choice.query.start,
+      end: choice.query.start,
+    };
+    caret.current = at.start;
+    selectionNow.current = at;
+    place(at);
   };
   const tabsIndent = listTabsOn(
     recipientMenu.choosing,
+    slashMenu.choosing,
     blockKindAt(textOf(draft.body), selection.start),
   );
   const keyDown = ({ nativeEvent }: KeyEvent) => {
@@ -3927,6 +4441,9 @@ function Editor({
       return;
     }
     recipientMenu.keyDown(nativeEvent, chooseRecipient);
+    slashMenu.keyDown(nativeEvent, () => {
+      chooseBlock();
+    });
     if (
       nativeEvent.key === 'Tab' &&
       tabsIndent &&
@@ -4519,7 +5036,15 @@ function Editor({
           }}
         />
       </FormatBar>
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView
+        contentContainerStyle={styles.content}
+        onLayout={({ nativeEvent }) => {
+          slashMenu.placeViewport({ height: nativeEvent.layout.height });
+        }}
+        onScroll={({ nativeEvent }) => {
+          slashMenu.placeViewport({ y: nativeEvent.contentOffset.y });
+        }}
+        scrollEventThrottle={16}>
         <ComposerNotices
           closing={closing}
           draft={draft}
@@ -4584,6 +5109,8 @@ function Editor({
         )}
         <TextInput
           accessibilityLabel={t('drafts.body')}
+          // As in the frames, the body draws no focus ring, which would cross its menus.
+          enableFocusRing={false}
           editable={!paused}
           accessibilityState={{ disabled: paused }}
           // Pasted images go inline at the caret; other pasted files are attached. Text pastes as
@@ -4600,15 +5127,20 @@ function Editor({
             },
             pastedTypes: ['fileUrl', 'image', 'string'],
           } satisfies TextInputMacOSProps)}
-          keyDownEvents={bodyKeys(recipientMenu.keys, tabsIndent)}
+          keyDownEvents={bodyKeys(
+            [...recipientMenu.keys, ...slashMenu.keys],
+            tabsIndent,
+          )}
           multiline
           onBlur={() => {
             recipientMenu.close();
+            slashMenu.close();
           }}
           onChangeText={edit}
           onKeyDown={keyDown}
           onLayout={({ nativeEvent }) => {
             recipientMenu.placeBody(nativeEvent.layout);
+            slashMenu.placeBody(nativeEvent.layout);
           }}
           onSelectionChange={({ nativeEvent }) => {
             if (linking.current) {
@@ -4621,6 +5153,7 @@ function Editor({
               placeTyping(undefined);
               commitHistory((current) => ({ ...current, typing: false }));
               recipientMenu.close();
+              slashMenu.close();
             }
             caret.current = undefined;
             setPlaced(undefined);
@@ -4664,6 +5197,12 @@ function Editor({
         <BodyRecipientMenu
           shown={recipientMenu.shown}
           onAccept={chooseRecipient}
+        />
+        <BodySlashMenu
+          shown={slashMenu.shown}
+          titleOf={slashMenu.titleOf}
+          labelOf={slashMenu.labelOf}
+          onChoose={chooseBlock}
         />
         {draft.quoted === undefined ? null : (
           <QuotedText quoted={draft.quoted} />

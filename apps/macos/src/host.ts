@@ -41,6 +41,7 @@ export const {
   sendReminders,
   blockedSenders,
   pins,
+  unsubscribe,
   inboxPreferences,
   outbox,
   wakes,
@@ -50,6 +51,7 @@ export const {
   start,
   followWakes,
   followBadge,
+  followReminderNotifications,
   followNotificationActions,
   notifications,
 } = createHost(native, {

@@ -45,8 +45,11 @@ recommendation and the decision it supports. Facts link to their evidence;
   runs: the review panel under the iPhone keyboard, a result dropped before the
   page loaded, rotation squeezing the body, the iPhone pill behind the keyboard and
   the iPad format bar clipping its menu. Still open: the page cannot read file
-  drops on any host without native web-view interception (Mac image paste reads the
-  pasteboard natively since [#2929](https://github.com/unwired-dev/product/issues/2929)), the
+  drops on iPhone and iPad without native web-view interception (Mac image paste
+  reads the pasteboard natively since
+  [#2929](https://github.com/unwired-dev/product/issues/2929), and Mac file drops
+  read the drag pasteboard since
+  [#2950](https://github.com/unwired-dev/product/issues/2950)), the
   first tap on iPhone only focuses the page, and WebKit adds its own iPhone form
   accessory bar and iPad shortcut group ([probes](../architecture/draft-table-editing.md#probes)).
 - **Semantic differences** from the current composer
@@ -64,10 +67,16 @@ recommendation and the decision it supports. Facts link to their evidence;
   [#2916](https://github.com/unwired-dev/product/issues/2916) the page build lists
   the files it bundles beside that module, so `scripts/licence-inventory.mjs` and
   the archive's `ThirdPartyNotices.txt` include the page's packages.
-- **Measurements.** The packaged page is about 351 KB. No latency, memory or
-  battery comparison with the current composer was measured:
+- **Measurements.** The packaged page is about 351 KB. No battery
+  comparison with the current composer was measured:
   [#822](https://github.com/unwired-dev/product/issues/822) closed without a native
-  result. The table probes compare behaviour, not speed.
+  result. The only latency comparisons, for gate 5, are in Mac `Testing` builds:
+  typing and formatting feedback
+  ([#2962](https://github.com/unwired-dev/product/issues/2962)), composer opening
+  ([#2955](https://github.com/unwired-dev/product/issues/2955)) and selection
+  changes ([#2951](https://github.com/unwired-dev/product/issues/2951)). Memory on
+  the Mac is recorded by [#2957](https://github.com/unwired-dev/product/issues/2957).
+  The table probes compare behaviour, not speed.
 
 ## Assessment
 
@@ -86,8 +95,9 @@ recommendation and the decision it supports. Facts link to their evidence;
   two Mac windows, racing imports, refused saves and another Product Account;
   the native Mac two-window run passed
   ([#2938](https://github.com/unwired-dev/product/issues/2938)), as did Mac
-  force-quit recovery ([#2933](https://github.com/unwired-dev/product/issues/2933));
-  native iPhone and iPad app-termination runs are outstanding.
+  force-quit recovery ([#2933](https://github.com/unwired-dev/product/issues/2933))
+  and iPhone and iPad termination recovery
+  ([#2944](https://github.com/unwired-dev/product/issues/2944)).
 - **Assistance.** Rewrites, translation and reply suggestions run through the
   current on-device capture and review, and the page refuses a result for another
   body revision. No vendor AI, Yjs or CRDT collaboration is enabled or adopted.
@@ -130,23 +140,42 @@ outside evaluation builds; only gates 1, 3 and 5 may instead be recorded as a
 release limit:
 
 1. Physical iPhone and iPad runs, with hardware keyboards, IME composition,
-   dictation, autocorrection and VoiceOver, including inside table cells.
+   dictation, autocorrection and VoiceOver, including inside table cells. On the
+   Mac, keys posted at the HID event tap with the system's inline predictions on
+   reached the page without delay
+   ([#2966](https://github.com/unwired-dev/product/issues/2966),
+   [evidence](../draft-editor-evaluation.md#inline-predictions-2966)); a
+   physical keyboard is still to be tried. Two text defects need fixing:
+   automatic capitalization moves the caret
+   ([#2971](https://github.com/unwired-dev/product/issues/2971)), and typing
+   through an inline prediction repeats its last letters
+   ([#2972](https://github.com/unwired-dev/product/issues/2972)).
 2. Native exits as [#778](https://github.com/unwired-dev/product/issues/778)
    guards them for the current composer (iPhone **Back** and edge swipes, Mac
    window close, Command-W and **Quit**), and the Mac two-window journey on one
    Draft, run natively. On Mac, Command-W and **Quit** passed in
    [#2876](https://github.com/unwired-dev/product/issues/2876), and the window's
    close button and two windows on one Draft in #2938
-   ([evidence](../draft-editor-evaluation.md#save-ordering-821)). On iPhone and iPad the evaluation loses open edits when the
-   app ends before **Save Draft**; production must journal them to the encrypted
+   ([evidence](../draft-editor-evaluation.md#save-ordering-821)). Production must
+   journal open edits to the encrypted
    recovery record of [ADR 0077](0077-remove-friction-that-privacy-does-not-require.md)
-   and prove that they restore after a forced termination. On Mac the page journals
-   them and restores them after a force quit since
-   [#2933](https://github.com/unwired-dev/product/issues/2933).
-3. The Mac Inline Image journey, file drops on every host, and **Paste Image**
-   and in-page paste on a device. Image paste on Mac is met by
+   and prove that they restore after a forced termination. The page does so on Mac
+   since [#2933](https://github.com/unwired-dev/product/issues/2933) and on iPhone
+   and iPad since [#2944](https://github.com/unwired-dev/product/issues/2944). On iPhone the
+   page composer is the system sheet over the Inbox, so **Back** and edge swipes
+   cannot reach it; its downward swipe closes it as **Close** does, run natively on
+   the iPhone Simulator by [#2961](https://github.com/unwired-dev/product/issues/2961).
+   A compact iPad window has not run it.
+3. File drops on iPhone and iPad, and **Paste Image** and in-page paste on a
+   device. Image paste on Mac is met by
    [#2929](https://github.com/unwired-dev/product/issues/2929): native code reads
-   the pasteboard, and the Mac journey pastes an image that reopens in place.
+   the pasteboard, and the Mac journey pastes an image that reopens in place. The
+   Mac Inline Image journey passed natively in
+   [#2948](https://github.com/unwired-dev/product/issues/2948)
+   ([evidence](../draft-editor-evaluation.md#inline-images-820)). File drops on Mac
+   are met by [#2950](https://github.com/unwired-dev/product/issues/2950): native
+   code reads the drag pasteboard, and the Mac journey drops a file from Finder that
+   reopens as an Attachment.
 4. WebKit website data after account removal and a network capture of a journey.
    Met by [#2922](https://github.com/unwired-dev/product/issues/2922) on iPhone
    and iPad Simulators and the Mac: no sample found website data during the
@@ -161,11 +190,38 @@ release limit:
    ([review note](https://github.com/unwired-dev/product/issues/822#issuecomment-6114571758)),
    and the current composer's interactions the page lacks. The Slash Command
    Menu is met on iPhone and iPad Simulators by
-   [#2952](https://github.com/unwired-dev/product/issues/2952); the Mac menu, the
-   #822 measurements and physical devices remain. On Mac,
-   [#2955](https://github.com/unwired-dev/product/issues/2955) timed opening a new
-   message and a saved Draft in both composers on a loaded host; repeat it on an
-   idle one ([results](../draft-editor-evaluation.md#composer-opening-2955)).
+   [#2952](https://github.com/unwired-dev/product/issues/2952); the Mac menu,
+   startup and physical devices remain. Typing and formatting feedback in Mac
+   `Testing` builds is measured by
+   [#2962](https://github.com/unwired-dev/product/issues/2962): the page's p95
+   to edit was 17.1 ms from key press for typing and 21.9 ms from button release
+   for the format bar, against the current composer's 17.2 and 41.7 ms; neither
+   met the next-rendered-frame criterion in every group
+   ([evidence](../draft-editor-evaluation.md#typing-response-2962)). On Mac,
+   [#2955](https://github.com/unwired-dev/product/issues/2955) timed opening a
+   new message and a saved Draft in both composers on a loaded host; repeat it
+   on an idle one
+   ([results](../draft-editor-evaluation.md#composer-opening-2955)).
+   [#2953](https://github.com/unwired-dev/product/issues/2953) measured packaged
+   size: the page adds about 0.86 MB to the iPhone and iPad app and to the Mac
+   app, and about 0.16 MB compressed
+   ([evidence](../draft-editor-evaluation.md#packaged-size-2953)).
+   Selection-change latency in Mac `Testing` builds is measured by
+   [#2951](https://github.com/unwired-dev/product/issues/2951): on a 1,000-paragraph
+   body the page's p95 was 43.2 ms and the current composer's 72.7 ms, against
+   30.1 and 40.6 ms on one paragraph
+   ([evidence](../draft-editor-evaluation.md#selection-change-latency-2951)); a
+   Release comparison remains.
+   [#2957](https://github.com/unwired-dev/product/issues/2957) recorded memory:
+   with a pasted 50,007-character paragraph, one composer added 141–147 MiB to the
+   app and the processes it is responsible for with the page, and 204–260 MiB with
+   the current composer; a session with four Inbox windows and composers grew by
+   261–278 MiB and 331–384 MiB
+   ([evidence](../draft-editor-evaluation.md#memory-2957)).
+   [#2965](https://github.com/unwired-dev/product/issues/2965) timed each
+   composer's launch and the first composer after it on Mac in `Testing` builds;
+   the launch fixtures differ
+   ([results](../draft-editor-evaluation.md#launch-and-first-composer-2965)).
 6. The Tiptap and ProseMirror notices in the distributed app; the licence
    inventory must list the page's packages. Met by
    [#2916](https://github.com/unwired-dev/product/issues/2916): every bundle that

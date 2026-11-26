@@ -69,6 +69,7 @@ import { useRemoteImages } from './remote-content.tsx';
 import { windowHost } from './settings-window-client.ts';
 import { usePalette } from './theme.ts';
 import { MessageTranslation, TranslationContext } from './translation.tsx';
+import { UnsubscribeBanner } from './unsubscribe.tsx';
 
 // A taller document scrolls inside its view instead of the reader.
 const heightCap = 20_000;
@@ -1137,6 +1138,7 @@ export function MessageBody({
   id,
   subject,
   connection,
+  message,
 }: {
   readonly inbox: GmailInbox | ImapInbox;
   readonly id: string;
@@ -1144,6 +1146,9 @@ export function MessageBody({
   readonly subject?: string | undefined;
   // The Mailbox Connection whose remote content policy applies.
   readonly connection?: string | undefined;
+  // The message's sender and arrival, which its Unsubscribe banner names and dates from.
+  readonly message?: Parameters<typeof UnsubscribeBanner>[0]['sender'] &
+    Readonly<{ receivedAt: number }>;
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
@@ -1265,6 +1270,14 @@ export function MessageBody({
           body={body.presentation.readable}
         />
       </AssistanceRow>
+      {message === undefined ? null : (
+        <UnsubscribeBanner
+          inbox={inbox}
+          id={id}
+          sender={message}
+          receivedAt={message.receivedAt}
+        />
+      )}
       <InvitationCard
         inbox={inbox}
         id={id}

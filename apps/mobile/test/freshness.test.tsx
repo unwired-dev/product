@@ -98,6 +98,13 @@ describe('headless Gmail freshness', () => {
         revision: 0,
         document: null,
       }),
+      // No Send Reminder is set, so none notifies.
+      openSendReminders: async () => ({
+        owner: ownerOf(snapshot),
+        revision: 0,
+        document: null,
+      }),
+      scheduleReminderNotifications: async () => null,
       // The App Icon Badge counts unread Inbox mail.
       notificationSettings: async () => ({
         ...permission,

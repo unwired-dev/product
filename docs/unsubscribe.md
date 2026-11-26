@@ -6,8 +6,10 @@
 [#2077](https://github.com/unwired-dev/product/issues/2077) sends its one-click
 request, [#2823](https://github.com/unwired-dev/product/issues/2823) remembers each
 request that was sent, and [#2824](https://github.com/unwired-dev/product/issues/2824)
-sends a `mailto:` request through the Outbox. The reader banner, confirmation and
-outcomes follow in later #654 slices, under
+sends a `mailto:` request through the Outbox.
+[#2967](https://github.com/unwired-dev/product/issues/2967) adds the Mac reader's
+banner, confirmation and outcomes for one-click offers; the `mailto:` states
+follow in [#2968](https://github.com/unwired-dev/product/issues/2968), under
 [ADR 0044](adr/0044-isolate-standards-based-unsubscribe-actions.md).
 
 ## Finding the offer
@@ -129,6 +131,38 @@ Sync. A write storage refuses leaves the outcome as it was, and a record that
 cannot be read, belongs to another account or is locked reads as not sent, so
 neither shows a false Sent state.
 
+## The Mac reader
+
+A message with a one-click offer shows the Unsubscribe banner under its header
+(`apps/macos/src/unsubscribe.tsx`), and the reader's More menu (⋯) adds
+**Unsubscribe…**. A message whose only offer is `mailto:` shows neither until
+#2968. The banner names the list. The approved frame's count line (how many
+messages the list sent and how many were opened) is left out until
+[#2978](https://github.com/unwired-dev/product/issues/2978) defines it.
+
+**Unsubscribe…** opens a confirmation popover that names the list, the sender
+and the receiving address: from the banner's button, or, from the menu, below the
+toolbar's More group, since the banner may be scrolled out of view. Each reader
+window keeps its own confirmation, which closes once a request was sent. **Cancel** sends
+nothing. **Unsubscribe** calls `unsubscribe.request` once, for the window's Mail
+Profile, which owns the receiving connection. The banner then shows the outcome:
+
+| Outcome     | Banner                                                                                                |
+| ----------- | ----------------------------------------------------------------------------------------------------- |
+| `sent`      | **Unsubscribe request sent**, dated, with no action. It never says that mail has stopped.             |
+| `failed`    | **Couldn’t send the request**, with **Try Again** and, for a plain sender address, **Block Sender…**. |
+| `uncertain` | **No clear answer to the request**, with the same actions.                                            |
+
+**Try Again** sends once more without asking again. Until `sentRequest` has
+answered, which it does again each time the message opens, and while a request is under way, the buttons are disabled and the
+menu item is absent; it is gone once a request has ended. Each message's state
+lives outside the reader, keyed by Product Account, Mail Profile, connection and
+message, so a result that arrives after the reader moved on
+changes only the message it was sent from. A request the Profile sent to the
+list (`sentRequest`) within 14 days before the message arrived shows as sent on
+the date it was sent. A sent request with no Mailing List Identity, or one
+storage refused to record, still shows as sent for the rest of the session.
+
 ## Verification
 
 ```sh
@@ -140,7 +174,18 @@ cover each offer, refusal, list name and identity, how a native answer becomes
 an outcome, and which outcomes are recorded and for how long.
 `test/unsubscribe-mailto.test.ts` sends a `mailto:` request from synthetic
 Gmail, Graph and IMAP connections and covers Undo, a refused handoff and
-connections that cannot send. The native tests cover the request bytes, redirects and every outcome,
+connections that cannot send. On the Mac,
+`apps/macos/test/unsubscribe.test.tsx` opens a synthetic Gmail message in the
+reader and covers the banner, the menu item, Cancel, one request per
+confirmation, each outcome, Try Again, the dated Sent state with the lookup's
+Profile and arrival time, the disabled state until that lookup answers, a late
+result after the reader moved to another message and a `mailto:`-only message:
+
+```sh
+mise exec -- pnpm --dir apps/macos exec jest test/unsubscribe.test.tsx
+```
+
+The native tests cover the request bytes, redirects and every outcome,
 including a loopback HTTPS server that takes the request and never answers:
 
 ```sh

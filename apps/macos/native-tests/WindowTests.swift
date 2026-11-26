@@ -1,6 +1,10 @@
 import AppKit
 import XCTest
 
+// The process macOS holds responsible for `pid`, as Activity Monitor groups an app's helpers.
+@_silgen_name("responsibility_get_pid_responsible_for_pid")
+private func responsiblePID(_ pid: pid_t) -> pid_t
+
 // Synthetic completion proxy: reject failed writes and unfinished saves/syncs at each action.
 // Optimistic rows and the encrypted cache alone cannot prove that a provider accepted a change.
 private func assertProviderActionsSettled(_ window: XCUIElement, provider: String = "Gmail") {
@@ -41,7 +45,8 @@ final class WindowTests: XCTestCase {
   }
 
   // #2271: @ in an empty body opens Recipient Suggestions under it without a Contacts prompt;
-  // Return adds the first to To with a greeting, and one Undo restores the @.
+  // Return adds the first to To with a greeting, and one Undo restores the @. #2976: in written
+  // text Return inserts the name alone, and a person already in To shows their role.
   func testBodyRecipientShortcut() throws {
     try bodyRecipientShortcut(appearance: "Light")
   }
@@ -96,6 +101,95 @@ final class WindowTests: XCTestCase {
     app.typeKey("z", modifierFlags: .command)
     waitUntil { body.value as? String == "@" }
     XCTAssertEqual(token.count, 0)
+    // #2976: in written text the query becomes the name alone and the person joins To; a person
+    // already on the Draft shows their role and is not added again.
+    app.typeKey(.delete, modifierFlags: [])
+    waitUntil { body.value as? String != "@" }
+    app.typeText("Hi team, I will ask @")
+    XCTAssertTrue(menu.waitForExistence(timeout: 10))
+    attach("Body Recipient Shortcut in written text")
+    app.typeKey(.return, modifierFlags: [])
+    XCTAssertTrue(menu.waitForNonExistence(timeout: 10))
+    waitUntil { body.value as? String == "Hi team, I will ask Jordan Lee" }
+    XCTAssertEqual(token.count, 1)
+    attach("Body Recipient Shortcut name in written text")
+    app.typeText(" and @")
+    let present = window.buttons["Jordan Lee, jordan@example.invalid, in To"]
+    XCTAssertTrue(present.waitForExistence(timeout: 10))
+    attach("Body Recipient Shortcut role")
+    // The role keeps its secondary colour on a row that is not highlighted.
+    app.typeKey(.downArrow, modifierFlags: [])
+    attach("Body Recipient Shortcut role unhighlighted")
+    app.typeKey(.upArrow, modifierFlags: [])
+    app.typeKey(.return, modifierFlags: [])
+    waitUntil { body.value as? String == "Hi team, I will ask Jordan Lee and Jordan Lee" }
+    XCTAssertEqual(token.count, 1)
+  }
+
+  // #2789: / first in a body block opens the Slash Command Menu's Basic Blocks under it; typing
+  // filters them, Down and Return set the block, and one Undo restores the typed query.
+  func testSlashCommandMenu() throws {
+    try slashCommandMenu(appearance: "Light")
+  }
+
+  func testSlashCommandMenuDark() throws {
+    try slashCommandMenu(appearance: "Dark")
+  }
+
+  private func slashCommandMenu(appearance: String) throws {
+    continueAfterFailure = false
+    let environment = ProcessInfo.processInfo.environment
+    XCTAssertEqual(environment["UNWIRED_TEST_SCENARIO"], "registration-performance")
+    let app = XCUIApplication(url: URL(fileURLWithPath: try XCTUnwrap(environment["UNWIRED_APP_PATH"])))
+    app.launchArguments += [
+      "-ApplePersistenceIgnoreState", "YES", "-interfaceLanguage", "en",
+      "-UnwiredAppearance", appearance.lowercased(),
+    ]
+    app.launch()
+    addTeardownBlock { if app.state != .notRunning { app.terminate() } }
+    let window = app.windows["Inbox 1"]
+    performanceSetup(app, window: window)
+    func attach(_ name: String) {
+      let attachment = XCTAttachment(screenshot: window.screenshot())
+      attachment.name = "\(name) (\(appearance))"
+      attachment.lifetime = .keepAlways
+      add(attachment)
+    }
+    window.buttons["New Message"].click()
+    let body = window.textViews.firstMatch
+    XCTAssertTrue(body.waitForExistence(timeout: 15))
+    XCTAssertTrue(window.buttons["Undo"].waitForExistence(timeout: 30))
+    let style = window.popUpButtons["Text style"]
+    body.click()
+    body.typeText("Hi")
+    app.typeKey(.return, modifierFlags: [])
+    app.typeText("/")
+    // The menu's rows are its accessible elements, each read with its Markdown marker.
+    let text = window.buttons["Text"]
+    XCTAssertTrue(text.waitForExistence(timeout: 10))
+    XCTAssertTrue(window.buttons["Code Block, ```"].exists)
+    XCTAssertGreaterThan(text.frame.minY, body.frame.minY)
+    attach("Slash Command Menu")
+    app.typeText("he")
+    let second = window.buttons["Heading 2, ##"]
+    XCTAssertTrue(text.waitForNonExistence(timeout: 10))
+    XCTAssertTrue(second.exists)
+    attach("Slash Command Menu filtered")
+    // Down then Return sets Heading 2 and removes the query, keeping focus in the body.
+    app.typeKey(.downArrow, modifierFlags: [])
+    app.typeKey(.return, modifierFlags: [])
+    XCTAssertTrue(second.waitForNonExistence(timeout: 10))
+    waitUntil { body.value as? String == "Hi\n" }
+    waitUntil { (style.value as? String) == "Heading 2" }
+    app.typeText("Plan")
+    waitUntil { body.value as? String == "Hi\nPlan" }
+    // Undo takes back the typing, then restores the query as typed, as a paragraph.
+    app.typeKey("z", modifierFlags: .command)
+    waitUntil { body.value as? String == "Hi\n" }
+    app.typeKey("z", modifierFlags: .command)
+    waitUntil { body.value as? String == "Hi\n/he" }
+    waitUntil { (style.value as? String) == "Body" }
+    XCTAssertFalse(window.buttons["Heading 1, #"].exists)
   }
 
   // #2597: Outdent and Indent follow the list buttons; Format › Increase Indent (Command-]) and
@@ -468,6 +562,238 @@ final class WindowTests: XCTestCase {
     waitUntil { newMessage.isEnabled }
     // The offer above came once the Drafts opened; give this launch as long.
     XCTAssertFalse(offer.waitForExistence(timeout: 45))
+  }
+
+  // #2948: Insert Image… places an image chosen in the system open panel at the page's selection,
+  // and the page shows its thumbnail once the bytes verify. Attach Instead and Show Inline from
+  // the row's context menu are each one edit that Undo and Redo step through, and the image keeps
+  // its place through Save, relaunch and reopening, as the iPhone and iPad journey checks there.
+  func testDraftEditorInlineImage() throws {
+    continueAfterFailure = false
+    let environment = ProcessInfo.processInfo.environment
+    XCTAssertEqual(environment["UNWIRED_TEST_SCENARIO"], "registration-draft-editor")
+    let appURL = URL(fileURLWithPath: try XCTUnwrap(environment["UNWIRED_APP_PATH"]))
+    // The sandboxed runner may write only its run directory, beside Mock.app.
+    let file = appURL.deletingLastPathComponent().appendingPathComponent("inline-photo.png")
+    let drawn = NSImage(size: NSSize(width: 600, height: 400), flipped: false) { rect in
+      NSColor.systemTeal.setFill()
+      rect.fill()
+      return true
+    }
+    let png = try XCTUnwrap(
+      drawn.tiffRepresentation.flatMap { NSBitmapImageRep(data: $0) }?
+        .representation(using: .png, properties: [:]))
+    try png.write(to: file)
+    addTeardownBlock { try? FileManager.default.removeItem(at: file) }
+    let app = XCUIApplication(url: appURL)
+    app.launchArguments += ["-ApplePersistenceIgnoreState", "YES", "-interfaceLanguage", "en"]
+    app.launch()
+    addTeardownBlock { if app.state != .notRunning { app.terminate() } }
+    let window = app.windows["Inbox 1"]
+    XCTAssertTrue(window.waitForExistence(timeout: 30))
+    draftEditorSignIn(window)
+    func capture(_ name: String) {
+      let shot = XCTAttachment(screenshot: window.screenshot())
+      shot.name = name
+      shot.lifetime = .keepAlways
+      add(shot)
+    }
+
+    window.buttons["New Message"].click()
+    let body = window.webViews.textViews["Message body"]
+    XCTAssertTrue(body.waitForExistence(timeout: 15))
+    // The toolbar appears once the page is ready and moves the page down; focus it after that.
+    XCTAssertTrue(window.buttons["Undo"].waitForExistence(timeout: 30))
+    body.click()
+    // The caret goes back between the words, so an image added at the end would not pass.
+    body.typeText("Before after")
+    XCTAssertTrue(webText("Before after", in: window).waitForExistence(timeout: 10))
+    for _ in 0..<" after".count { body.typeKey(.leftArrow, modifierFlags: []) }
+    window.buttons["Insert Image…"].click()
+    let panel = window.sheets.firstMatch
+    XCTAssertTrue(panel.waitForExistence(timeout: 15))
+    // Go to Folder selects the file once it lists the path, which it does not for one with `..`.
+    panel.typeKey("g", modifierFlags: [.command, .shift])
+    let goTo = panel.sheets["GoToWindow"]
+    XCTAssertTrue(goTo.waitForExistence(timeout: 10))
+    app.typeText(file.standardizedFileURL.path)
+    waitUntil { goTo.tables.firstMatch.cells.count > 0 }
+    app.typeKey(.return, modifierFlags: [])
+    XCTAssertTrue(goTo.waitForNonExistence(timeout: 10))
+    let open = panel.buttons["Open"]
+    waitUntil { open.isEnabled }
+    open.click()
+    XCTAssertTrue(panel.waitForNonExistence(timeout: 15))
+    let row = window.descendants(matching: .any)
+      .matching(NSPredicate(format: "label BEGINSWITH %@", "inline-photo.png, ")).firstMatch
+    XCTAssertTrue(row.waitForExistence(timeout: 30))
+    XCTAssertTrue(window.images["Inline image inline-photo.png"].waitForExistence(timeout: 30))
+    // The placeholder gives way to the native thumbnail once the bytes verify.
+    let inline = body.images.firstMatch
+    XCTAssertTrue(inline.waitForExistence(timeout: 30))
+    waitUntil { inline.frame.width > 60 }
+    assertBetweenWords(inline, in: window)
+    capture("Draft editor page inline image")
+
+    row.rightClick()
+    let toAttachment = app.menuItems["Attach Instead"]
+    XCTAssertTrue(toAttachment.waitForExistence(timeout: 10))
+    capture("Draft editor page image context menu")
+    toAttachment.click()
+    waitUntil { body.images.count == 0 }
+    // The row keeps its label as an Attachment and can still show the inline menu for a moment.
+    let toInline = app.menuItems["Show Inline"]
+    for _ in 0..<5 {
+      row.rightClick()
+      if toInline.waitForExistence(timeout: 3) { break }
+      window.typeKey(.escape, modifierFlags: [])
+    }
+    XCTAssertTrue(toInline.exists)
+    capture("Draft editor page image as Attachment")
+    toInline.click()
+    waitUntil { body.images.count == 1 }
+    // Each conversion is one edit: Undo reverts Show Inline, then Attach Instead; Redo replays them.
+    let undo = window.buttons["Undo"]
+    let redo = window.buttons["Redo"]
+    undo.click()
+    waitUntil { body.images.count == 0 }
+    undo.click()
+    waitUntil { body.images.count == 1 }
+    redo.click()
+    waitUntil { body.images.count == 0 }
+    redo.click()
+    waitUntil { body.images.count == 1 }
+
+    // Reopened from encrypted storage, the image keeps its place and shows its thumbnail again.
+    reopenDraft(app)
+    let reopened = window.webViews.textViews["Message body"].images.firstMatch
+    XCTAssertTrue(reopened.waitForExistence(timeout: 30))
+    waitUntil { reopened.frame.width > 60 }
+    assertBetweenWords(reopened, in: window)
+    XCTAssertTrue(window.images["Inline image inline-photo.png"].waitForExistence(timeout: 30))
+    capture("Draft editor page inline image after relaunch")
+    // Reopening changed nothing, so Close needs no save choice.
+    window.buttons["Close"].click()
+    waitUntil { window.webViews.count == 0 }
+    XCTAssertFalse(window.sheets.firstMatch.exists)
+  }
+
+  // The image splits "Before after" at the caret into two texts, one on each side of it.
+  private func assertBetweenWords(_ image: XCUIElement, in window: XCUIElement) {
+    let texts = window.webViews.staticTexts
+    let before = texts.matching(NSPredicate(format: "value BEGINSWITH %@", "Before")).firstMatch
+    let after = texts.matching(NSPredicate(format: "value ENDSWITH %@", "after")).firstMatch
+    XCTAssertTrue(before.waitForExistence(timeout: 15))
+    XCTAssertTrue(after.waitForExistence(timeout: 15))
+    // Exactly at the caret: the space stays with "after".
+    XCTAssertEqual(before.value as? String, "Before")
+    XCTAssertEqual(after.value as? String, " after")
+    XCTAssertLessThanOrEqual(before.frame.maxX, image.frame.minX + 1)
+    // The text after the image follows it on its line, or wraps below it.
+    XCTAssertTrue(
+      after.frame.minX >= image.frame.maxX - 1 || after.frame.minY >= image.frame.maxY - 1)
+  }
+
+  // #2950: a file dragged from Finder onto the Draft editor page is attached, as on the current
+  // composer, and stays attached through Save, a relaunch and reopening the Draft.
+  func testDraftEditorFileDrop() throws {
+    continueAfterFailure = false
+    let environment = ProcessInfo.processInfo.environment
+    XCTAssertEqual(environment["UNWIRED_TEST_SCENARIO"], "registration-draft-editor")
+    let app = XCUIApplication(
+      url: URL(fileURLWithPath: try XCTUnwrap(environment["UNWIRED_APP_PATH"])))
+    app.launchArguments += ["-ApplePersistenceIgnoreState", "YES", "-interfaceLanguage", "en"]
+    app.launch()
+    addTeardownBlock { if app.state != .notRunning { app.terminate() } }
+    let window = app.windows["Inbox 1"]
+    XCTAssertTrue(window.waitForExistence(timeout: 30))
+    draftEditorSignIn(window)
+    window.buttons["New Message"].click()
+    let body = window.webViews.textViews["Message body"]
+    XCTAssertTrue(body.waitForExistence(timeout: 15))
+    // The toolbar appears once the page is ready and moves the page down; focus it after that.
+    XCTAssertTrue(window.buttons["Undo"].waitForExistence(timeout: 30))
+    body.click()
+    body.typeText("Dropped below this line")
+    let typed = webText("Dropped below this line", in: window)
+    XCTAssertTrue(typed.waitForExistence(timeout: 10))
+    let text = body.value as? String
+
+    // A folder of the runner's own, outside the app's container: the app can read the file only
+    // through the access the drop grants it.
+    let folder = FileManager.default.temporaryDirectory
+      .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    let file = folder.appendingPathComponent("drop-note.txt")
+    XCTAssertNoThrow(
+      try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true))
+    XCTAssertNoThrow(try Data("Dropped on the page".utf8).write(to: file))
+    addTeardownBlock { try? FileManager.default.removeItem(at: folder) }
+    NSWorkspace.shared.activateFileViewerSelecting([file])
+    let finder = XCUIApplication(bundleIdentifier: "com.apple.finder")
+    let shown = finder.windows[folder.lastPathComponent]
+    XCTAssertTrue(shown.waitForExistence(timeout: 15))
+    addTeardownBlock { if shown.exists { shown.typeKey("w", modifierFlags: .command) } }
+    // The file's row, not the preview's title below it.
+    let names = shown.descendants(matching: .any)
+      .matching(NSPredicate(format: "label == %@ OR value == %@", "drop-note.txt", "drop-note.txt"))
+    XCTAssertTrue(names.firstMatch.waitForExistence(timeout: 10))
+    let item = try XCTUnwrap(names.allElementsBoundByIndex.min { $0.frame.minY < $1.frame.minY })
+    // Finder's window moves down until the row sits above the Dock, clear of the page's drop
+    // point.
+    let screen = try XCTUnwrap(NSScreen.main).frame
+    let bar = shown.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0))
+      .withOffset(CGVector(dx: 0, dy: 12))
+    bar.click(
+      forDuration: 0.2,
+      thenDragTo: bar.withOffset(CGVector(dx: 0, dy: screen.height - 200 - item.frame.midY)))
+    waitUntil { abs(item.frame.midY - (screen.height - 200)) < 20 }
+    let target = CGPoint(x: body.frame.midX, y: body.frame.midY)
+    XCTAssertFalse(shown.frame.contains(target))
+    // Both apps' frames are in screen points, so one coordinate reaches the other app.
+    let start = item.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+    start.click(
+      forDuration: 0.5,
+      thenDragTo: start.withOffset(
+        CGVector(dx: target.x - item.frame.midX, dy: target.y - item.frame.midY)),
+      withVelocity: .slow, thenHoldForDuration: 1)
+
+    let row = window.descendants(matching: .any)
+      .matching(NSPredicate(format: "label BEGINSWITH %@", "drop-note.txt, ")).firstMatch
+    XCTAssertTrue(row.waitForExistence(timeout: 30))
+    // The import reads the bytes, which fails for a file the app was given no access to.
+    waitUntil { !row.label.contains("…") }
+    XCTAssertFalse(row.label.contains("Not added"), row.label)
+    let attached = row.label
+    XCTAssertEqual(body.value as? String, text)
+    XCTAssertEqual(body.images.count, 0)
+    let dropped = XCTAttachment(screenshot: window.screenshot())
+    dropped.name = "Draft editor page with a dropped file"
+    dropped.lifetime = .keepAlways
+    add(dropped)
+    shown.typeKey("w", modifierFlags: .command)
+
+    saveOnClose(window)
+    app.terminate()
+    app.launch()
+    let relaunched = app.windows["Inbox 1"]
+    let draft = relaunched.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Draft."))
+      .firstMatch
+    XCTAssertTrue(draft.waitForExistence(timeout: 20))
+    draft.click()
+    XCTAssertTrue(
+      webText("Dropped below this line", in: relaunched).waitForExistence(timeout: 15))
+    XCTAssertEqual(relaunched.webViews.textViews["Message body"].value as? String, text)
+    let kept = relaunched.descendants(matching: .any)
+      .matching(NSPredicate(format: "label BEGINSWITH %@", "drop-note.txt, ")).firstMatch
+    XCTAssertTrue(kept.waitForExistence(timeout: 15))
+    // The row shows the size before its bytes are read again; a damaged or missing file then
+    // adds why, so look again once that check has had time to finish.
+    Thread.sleep(forTimeInterval: 5)
+    XCTAssertEqual(kept.label, attached)
+    let reopened = XCTAttachment(screenshot: relaunched.screenshot())
+    reopened.name = "Reopened Draft with the dropped file"
+    reopened.lifetime = .keepAlways
+    add(reopened)
   }
 
   // Moving the entry into the reader must keep the open query and command rows in the window.
@@ -1977,6 +2303,140 @@ final class WindowTests: XCTestCase {
 
   }
 
+  // #2957: the memory of the app and of each process macOS holds it responsible for, WebKit's
+  // among them, with no composer, one and four, each body holding the same pasted paragraph. The
+  // registration-performance build has the current composer, the registration-draft-editor build
+  // the Draft editor page. No budget applies, so the readings are reported, not judged.
+  func testComposerMemory() throws {
+    continueAfterFailure = false
+    let environment = ProcessInfo.processInfo.environment
+    let page = environment["UNWIRED_TEST_SCENARIO"] == "registration-draft-editor"
+    if !page { XCTAssertEqual(environment["UNWIRED_TEST_SCENARIO"], "registration-performance") }
+    let appURL = URL(fileURLWithPath: try XCTUnwrap(environment["UNWIRED_APP_PATH"]))
+    let app = XCUIApplication(url: appURL)
+    app.launchArguments += ["-ApplePersistenceIgnoreState", "YES", "-interfaceLanguage", "en"]
+    app.launch()
+    addTeardownBlock { if app.state != .notRunning { app.terminate() } }
+    let first = app.windows["Inbox 1"]
+    if page {
+      XCTAssertTrue(first.waitForExistence(timeout: 30))
+      draftEditorSignIn(first)
+    } else {
+      performanceSetup(app, window: first)
+    }
+    // One paragraph of 50,007 characters.
+    let paragraph =
+      String(repeating: "Memory paragraph text for both composers. ", count: 1190)
+      + "End of the memory paragraph"
+    // Give the person their pasteboard back unless something else has written it since.
+    let pasteboard = NSPasteboard.general
+    let saved = (pasteboard.pasteboardItems ?? []).map { item in
+      let copy = NSPasteboardItem()
+      for type in item.types {
+        if let data = item.data(forType: type) { copy.setData(data, forType: type) }
+      }
+      return copy
+    }
+    pasteboard.clearContents()
+    pasteboard.setString(paragraph, forType: .string)
+    let written = pasteboard.changeCount
+    addTeardownBlock {
+      guard pasteboard.changeCount == written else { return }
+      pasteboard.clearContents()
+      pasteboard.writeObjects(saved)
+    }
+    func compose(in window: XCUIElement) {
+      window.buttons["New Message"].click()
+      let message = NSPredicate(format: "label == %@", page ? "Message body" : "Message")
+      let body = (page ? window.webViews.textViews : window.textViews).matching(message).firstMatch
+      XCTAssertTrue(body.waitForExistence(timeout: 15))
+      // The page's toolbar appears once the page is ready and moves the page down.
+      XCTAssertTrue(window.buttons["Undo"].waitForExistence(timeout: 30))
+      body.click()
+      app.typeKey("v", modifierFlags: .command)
+      // The whole paragraph must arrive. The current composer's body drops its "Message" label
+      // once it holds text.
+      let shown =
+        page
+        ? webText(paragraph, in: window)
+        : window.textViews.matching(NSPredicate(format: "value == %@", paragraph)).firstMatch
+      XCTAssertTrue(shown.waitForExistence(timeout: 30))
+    }
+    // Each state is read three times, a second apart; its increase compares the median totals.
+    var states: [[String: Any]] = []
+    func read(_ state: String) throws {
+      var readings: [[String: Any]] = []
+      var totals: [UInt64] = []
+      for index in 0..<3 {
+        if index > 0 { Thread.sleep(forTimeInterval: 1) }
+        let processes = try footprints(of: appURL)
+        // The page draws in WebKit's content process, which must be among those read.
+        if page && state != "no-composer" {
+          XCTAssertTrue(
+            processes.contains { $0.name == "com.apple.WebKit.WebContent" },
+            "No WebKit content process for \(state)")
+        }
+        let total = processes.map(\.bytes).reduce(0, +)
+        totals.append(total)
+        readings.append([
+          "totalBytes": total,
+          "processes": processes.map { ["name": $0.name, "pid": $0.pid, "bytes": $0.bytes] },
+        ])
+      }
+      let median = totals.sorted()[1]
+      let baseline = states.first?["medianTotalBytes"] as? UInt64 ?? median
+      states.append([
+        "state": state, "readings": readings, "medianTotalBytes": median,
+        "increaseBytes": Int64(median) - Int64(baseline),
+      ])
+    }
+    try read("no-composer")
+    compose(in: first)
+    try read("one-composer")
+    for number in 2...4 {
+      app.typeKey("n", modifierFlags: [.command, .option])
+      let window = app.windows["Inbox \(number)"]
+      XCTAssertTrue(window.buttons["New Message"].waitForExistence(timeout: 15))
+      compose(in: window)
+    }
+    try read("four-composers")
+    let lines = states.map { state in
+      json(state.merging(["composer": page ? "page" : "current"]) { $1 })
+    }
+    print(lines.map { "PERFORMANCE \($0)" }.joined(separator: "\n"))
+    let attachment = XCTAttachment(
+      data: Data("[\(lines.joined(separator: ","))]".utf8), uniformTypeIdentifier: "public.json")
+    attachment.name = "Composer memory"
+    attachment.lifetime = .keepAlways
+    add(attachment)
+  }
+
+  // The physical footprint, as `footprint` reports it, of the app at `appURL` and of each process
+  // macOS holds the app responsible for, such as its WebKit processes.
+  private func footprints(of appURL: URL) throws -> [(name: String, pid: Int32, bytes: UInt64)] {
+    var pids = [pid_t](repeating: 0, count: 16_384)
+    let count = proc_listallpids(&pids, Int32(pids.count * MemoryLayout<pid_t>.size))
+    func path(_ pid: pid_t) -> String? {
+      var buffer = [CChar](repeating: 0, count: 4 * Int(MAXPATHLEN))
+      return proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 ? String(cString: buffer) : nil
+    }
+    let executables = appURL.resolvingSymlinksInPath().path + "/Contents/MacOS/"
+    let running = pids.prefix(Int(max(count, 0))).filter { $0 > 0 }
+    let app = try XCTUnwrap(
+      running.first { path($0)?.hasPrefix(executables) == true }, "The app is not running")
+    return try running.filter { $0 == app || responsiblePID($0) == app }.map { pid in
+      var usage = rusage_info_v4()
+      let result = withUnsafeMutablePointer(to: &usage) {
+        $0.withMemoryRebound(to: rusage_info_t?.self, capacity: 1) {
+          proc_pid_rusage(pid, RUSAGE_INFO_V4, $0)
+        }
+      }
+      let name = try XCTUnwrap(path(pid), "Process \(pid) ended while it was read")
+      XCTAssertEqual(result, 0, "No footprint for \(name)")
+      return (URL(fileURLWithPath: name).lastPathComponent, pid, usage.ri_phys_footprint)
+    }
+  }
+
   // #626: warm encrypted-cache timings on this Mac for the local-mail budgets, over the
   // registration-performance build's Gmail and Microsoft Inboxes and their 250 added Threads.
   // A click sample runs from the release the app recorded to the first accessibility query that
@@ -2098,65 +2558,55 @@ final class WindowTests: XCTestCase {
       close()
       return (start, end)
     }
-    // Typing and formatting feedback: each sample runs from the key press or format bar button
-    // release the app recorded to its first recorded edit of the body that begins with the
-    // expected text and marks (bold 1, italic 2, underline 4 per character), so a later input
-    // cannot hide a late result. The budget is the frame interval the app recorded.
     window.buttons["New Message"].click()
     let message = window.textViews.matching(NSPredicate(format: "label == %@", "Message")).firstMatch
     XCTAssertTrue(message.waitForExistence(timeout: 10))
-    message.click()
-    var text = ""
-    var marks: [Int] = []
-    func press(
-      _ name: String, _ keys: [String], _ input: (String) -> Void, _ change: (String) -> Void
-    ) {
-      var windows: [(start: Double, end: Double)] = []
-      var shows: [(text: String, marks: String)] = []
-      for key in keys {
-        let start = uptime()
-        input(key)
-        windows.append((start, uptime()))
-        change(key)
-        shows.append((text, marks.map(String.init).joined()))
-      }
-      groups.append((name, 0, windows, 0, shows))
-    }
-    let type = { (key: String) in app.typeKey(key, modifierFlags: []) }
-    press("typing", "typing feedback test".map(String.init), type) { key in
-      text += key
-      marks.append(0)
-    }
-    // Command-B at the caret marks what is typed next.
-    app.typeKey("b", modifierFlags: .command)
-    press("marked-typing", " bold words".map(String.init), type) { key in
-      text += key
-      marks.append(1)
-    }
-    // Option-Shift-Left selects the last word; each shortcut toggles its mark on it, then back.
-    app.typeKey(.leftArrow, modifierFlags: [.option, .shift])
-    let bits = ["b": 1, "i": 2, "u": 4]
-    let toggles = (0..<12).map { ["b", "i", "u"][$0 / 2 % 3] }
-    let toggle = { (key: String) in
-      for index in marks.indices.suffix(5) { marks[index] ^= bits[key, default: 0] }
-    }
-    press("formatting", toggles, { app.typeKey($0, modifierFlags: .command) }, toggle)
-    // The format bar's mark buttons toggle the same marks on the still-selected word.
-    let buttons = ["b": "Bold", "i": "Italic", "u": "Underline"]
-    let click = { (key: String) in window.buttons[buttons[key, default: ""]].firstMatch.click() }
-    press("format-bar", toggles, click, toggle)
-    // Right collapses the selection at the word's end, so Command-B right after it turns bold off
-    // for what is typed next and leaves the word bold (#1229).
-    app.typeKey(.rightArrow, modifierFlags: [])
-    app.typeKey("b", modifierFlags: .command)
-    press("collapsed-typing", " end".map(String.init), type) { key in
-      text += key
-      marks.append(0)
-    }
+    groups += typingSamples(app, window: window, body: message)
     let overhead = queryOverhead(window.buttons["New Message"])
     // The running app keeps appending probe records; read them only after it quits.
     app.terminate()
     try reportPerformance(groups, evidence: evidence, overhead: overhead)
+  }
+
+  // #2962: the performance journey's typing and formatting feedback in either composer, from the
+  // same empty new message: the current composer in a registration-performance build, the Draft
+  // editor page in a registration-draft-editor build. The page's injected probe writes its edits
+  // and their rendering updates as the text view probe does (page-typing-probe.ts).
+  func testTypingResponse() throws {
+    continueAfterFailure = false
+    let environment = ProcessInfo.processInfo.environment
+    let page = environment["UNWIRED_TEST_SCENARIO"] == "registration-draft-editor"
+    if !page { XCTAssertEqual(environment["UNWIRED_TEST_SCENARIO"], "registration-performance") }
+    let appURL = URL(fileURLWithPath: try XCTUnwrap(environment["UNWIRED_APP_PATH"]))
+    let evidence = appURL.deletingLastPathComponent().appendingPathComponent("lifecycle.jsonl")
+    let app = XCUIApplication(url: appURL)
+    // With the system's inline predictions on, the three synthesized key presses after "feedb"
+    // reached the page about 5 s late and never reached the app’s key monitor (#2966). Both
+    // composers run with them off, so they type the same way.
+    app.launchArguments += [
+      "-ApplePersistenceIgnoreState", "YES", "-interfaceLanguage", "en",
+      "-NSAutomaticInlinePredictionEnabled", "NO",
+    ]
+    app.launchEnvironment["UNWIRED_LIFECYCLE_PATH"] = evidence.path
+    app.launch()
+    addTeardownBlock { if app.state != .notRunning { app.terminate() } }
+    let window = app.windows["Inbox 1"]
+    XCTAssertTrue(window.waitForExistence(timeout: 30))
+    if page { draftEditorSignIn(window) } else { performanceSetup(app, window: window) }
+    window.buttons["New Message"].click()
+    let body = page
+      ? window.webViews.textViews["Message body"]
+      : window.textViews.matching(NSPredicate(format: "label == %@", "Message")).firstMatch
+    XCTAssertTrue(body.waitForExistence(timeout: 15))
+    // The page's toolbar appears once the page is ready and moves the page down.
+    XCTAssertTrue(window.buttons["Undo"].waitForExistence(timeout: 30))
+    let groups = typingSamples(app, window: window, body: body)
+    let overhead = queryOverhead(window.buttons["New Message"])
+    // The running app keeps appending probe records; read them only after it quits.
+    app.terminate()
+    try reportPerformance(
+      groups, evidence: evidence, overhead: overhead,
+      name: page ? "Typing response, Draft editor page" : "Typing response, current composer")
   }
 
   // #2955: opening a new message and a saved Draft, in the current composer
@@ -2167,25 +2617,7 @@ final class WindowTests: XCTestCase {
   func testComposerOpening() throws {
     continueAfterFailure = false
     executionTimeAllowance = 600
-    let environment = ProcessInfo.processInfo.environment
-    let page = environment["UNWIRED_TEST_SCENARIO"] == "registration-draft-editor"
-    XCTAssertTrue(page || environment["UNWIRED_TEST_SCENARIO"] == "registration-performance")
-    let appURL = URL(fileURLWithPath: try XCTUnwrap(environment["UNWIRED_APP_PATH"]))
-    let evidence = appURL.deletingLastPathComponent().appendingPathComponent("lifecycle.jsonl")
-    let app = XCUIApplication(url: appURL)
-    app.launchArguments += ["-ApplePersistenceIgnoreState", "YES", "-interfaceLanguage", "en"]
-    app.launchEnvironment["UNWIRED_LIFECYCLE_PATH"] = evidence.path
-    app.launch()
-    addTeardownBlock { if app.state != .notRunning { app.terminate() } }
-    let window = app.windows["Inbox 1"]
-    if page {
-      XCTAssertTrue(window.waitForExistence(timeout: 30))
-      draftEditorSignIn(window)
-    } else {
-      performanceSetup(app, window: window)
-      // The Draft's row is listed with both mailboxes' Threads.
-      window.buttons["All Inboxes"].click()
-    }
+    let (app, window, evidence, page) = try signedInComposerApp()
     let body =
       page
       ? window.webViews.textViews["Message body"]
@@ -2241,7 +2673,236 @@ final class WindowTests: XCTestCase {
     // The running app keeps appending probe records; read them only after it quits.
     app.terminate()
     try reportPerformance(
-      groups, evidence: evidence, overhead: overhead, composer: page ? "page" : "current")
+      groups, evidence: evidence, overhead: overhead, name: "Composer opening",
+      composer: page ? "page" : "current")
+  }
+
+  // #2965: what a launch costs each composer, in the same builds as testComposerOpening. Each of 10
+  // samples quits and launches the app, timed from the launch request to the Inbox's first listed
+  // row, then opens a new message, the first composer of that app, which for the page starts its
+  // WebKit processes and loads it: from the click release the app records to the body and the
+  // format bar's Undo. The two builds list different mail, so their launches are not like for like.
+  func testLaunchAndFirstComposer() throws {
+    continueAfterFailure = false
+    executionTimeAllowance = 600
+    let (app, window, evidence, page) = try signedInComposerApp()
+    let listed =
+      page
+      ? window.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Garden plans for spring"))
+        .firstMatch
+      : window.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Jordan Lee")).firstMatch
+    // As in testWarmCachePerformance, the two mailboxes' sidebar must show too.
+    let sidebar = page ? nil : window.buttons["All Inboxes"]
+    let body =
+      page
+      ? window.webViews.textViews["Message body"]
+      : window.textViews.matching(NSPredicate(format: "label == %@", "Message")).firstMatch
+    let undo = window.buttons["Undo"]
+    let subject = window.textFields["Subject"]
+    var launches: [(start: Double, end: Double)] = []
+    var composers: [(start: Double, end: Double)] = []
+    var launchesOnFirstQuery = 0
+    var composersOnFirstQuery = 0
+    for _ in 0..<10 {
+      app.terminate()
+      var before = firstQueryResults
+      let start = uptime()
+      app.launch()
+      launches.append((start, until(listed, from: start, and: sidebar)))
+      launchesOnFirstQuery += firstQueryResults - before
+      XCTAssertFalse(subject.exists)
+      before = firstQueryResults
+      let open = uptime()
+      window.buttons["New Message"].click()
+      composers.append((open, until(body, from: open, and: undo)))
+      composersOnFirstQuery += firstQueryResults - before
+      // The untouched message closes without asking; the next launch starts without a composer.
+      window.buttons["Close"].click()
+      XCTAssertTrue(subject.waitForNonExistence(timeout: 10))
+    }
+    let overhead = queryOverhead(window.buttons["New Message"])
+    // The running app keeps appending probe records; read them only after it quits.
+    app.terminate()
+    try reportPerformance(
+      [
+        ("launch-to-first-list", 1000, launches, launchesOnFirstQuery, []),
+        ("first-composer", 300, composers, composersOnFirstQuery, []),
+      ], evidence: evidence, overhead: overhead, name: "Launch and first composer",
+      composer: page ? "page" : "current")
+  }
+
+  // Launches a registration-performance build, signed in as testWarmCachePerformance is and showing
+  // All Inboxes, or a registration-draft-editor build signed in to its Inbox.
+  private func signedInComposerApp() throws -> (
+    app: XCUIApplication, window: XCUIElement, evidence: URL, page: Bool
+  ) {
+    let environment = ProcessInfo.processInfo.environment
+    let page = environment["UNWIRED_TEST_SCENARIO"] == "registration-draft-editor"
+    XCTAssertTrue(page || environment["UNWIRED_TEST_SCENARIO"] == "registration-performance")
+    let appURL = URL(fileURLWithPath: try XCTUnwrap(environment["UNWIRED_APP_PATH"]))
+    let evidence = appURL.deletingLastPathComponent().appendingPathComponent("lifecycle.jsonl")
+    let app = XCUIApplication(url: appURL)
+    app.launchArguments += ["-ApplePersistenceIgnoreState", "YES", "-interfaceLanguage", "en"]
+    app.launchEnvironment["UNWIRED_LIFECYCLE_PATH"] = evidence.path
+    app.launch()
+    addTeardownBlock { if app.state != .notRunning { app.terminate() } }
+    let window = app.windows["Inbox 1"]
+    if page {
+      XCTAssertTrue(window.waitForExistence(timeout: 30))
+      draftEditorSignIn(window)
+    } else {
+      performanceSetup(app, window: window)
+      // The Draft's row is listed with both mailboxes' Threads.
+      window.buttons["All Inboxes"].click()
+    }
+    return (app, window, evidence, page)
+  }
+
+  // #2951: selection changes at the end of a one-paragraph and a 1,000-paragraph body, in the
+  // current composer (registration-performance) or the Draft editor page (registration-draft-editor).
+  // Each sample runs from the key press the app records to the mount of the format bar's commit that
+  // shows the new selection, which computes the Link control's state and the Writing tools' over the
+  // body.
+  func testSelectionChangeLatency() throws {
+    continueAfterFailure = false
+    executionTimeAllowance = 600
+    let environment = ProcessInfo.processInfo.environment
+    let page = environment["UNWIRED_TEST_SCENARIO"] == "registration-draft-editor"
+    XCTAssertTrue(page || environment["UNWIRED_TEST_SCENARIO"] == "registration-performance")
+    let appURL = URL(fileURLWithPath: try XCTUnwrap(environment["UNWIRED_APP_PATH"]))
+    let evidence = appURL.deletingLastPathComponent().appendingPathComponent("lifecycle.jsonl")
+    let app = XCUIApplication(url: appURL)
+    app.launchArguments += ["-ApplePersistenceIgnoreState", "YES", "-interfaceLanguage", "en"]
+    app.launchEnvironment["UNWIRED_LIFECYCLE_PATH"] = evidence.path
+    app.launch()
+    addTeardownBlock { if app.state != .notRunning { app.terminate() } }
+    let window = app.windows["Inbox 1"]
+    if page {
+      XCTAssertTrue(window.waitForExistence(timeout: 30))
+      draftEditorSignIn(window)
+    } else {
+      performanceSetup(app, window: window)
+    }
+    // Give the person their pasteboard back after the pasted bodies.
+    let pasteboard = NSPasteboard.general
+    let saved = (pasteboard.pasteboardItems ?? []).map { item in
+      let copy = NSPasteboardItem()
+      for type in item.types {
+        if let data = item.data(forType: type) { copy.setData(data, forType: type) }
+      }
+      return copy
+    }
+    var written = pasteboard.changeCount
+    addTeardownBlock {
+      guard pasteboard.changeCount == written else { return }
+      pasteboard.clearContents()
+      pasteboard.writeObjects(saved)
+    }
+
+    window.buttons["New Message"].click()
+    XCTAssertTrue(window.buttons["Undo"].waitForExistence(timeout: 30))
+    // The current composer's body is the window's only text view.
+    let body = page ? window.webViews.textViews["Message body"] : window.textViews.firstMatch
+    XCTAssertTrue(body.waitForExistence(timeout: 15))
+    body.click()
+    let addLink = window.buttons["Add Link"]
+    var groups: [(name: String, windows: [(start: Double, end: Double)])] = []
+    for count in [1, 1000] {
+      let paragraphs = (1...count).map {
+        String(format: "Paragraph %04d of the selection fixture, long enough to wrap once.", $0)
+      }
+      pasteboard.clearContents()
+      pasteboard.setString(paragraphs.joined(separator: "\n"), forType: .string)
+      written = pasteboard.changeCount
+      app.typeKey("a", modifierFlags: .command)
+      app.typeKey("v", modifierFlags: .command)
+      let last = try XCTUnwrap(paragraphs.last)
+      waitUntil(
+        {
+          page
+            ? self.webText(last, in: window).exists
+            : (body.value as? String)?.hasSuffix(last) == true
+        }, timeout: 60)
+      waitUntil { !addLink.exists }
+      // Shift-Left selects the last character, which Add Link can link; Right collapses the
+      // selection at the end again, where the Link control is unavailable.
+      let windows = (0..<20).map { index -> (start: Double, end: Double) in
+        let start = uptime()
+        if index % 2 == 0 {
+          app.typeKey(.leftArrow, modifierFlags: .shift)
+          waitUntil { addLink.isEnabled }
+        } else {
+          app.typeKey(.rightArrow, modifierFlags: [])
+          waitUntil { !addLink.exists }
+        }
+        return (start, uptime())
+      }
+      groups.append(("selection-\(count)-paragraph\(count == 1 ? "" : "s")", windows))
+    }
+    // The running app keeps appending probe records; read them only after it quits.
+    app.terminate()
+    try reportSelectionLatency(groups, composer: page ? "page" : "current", evidence: evidence)
+  }
+
+  // Pairs each selection sample's recorded key press with the first mount after it that shows its
+  // selection, alternately linkable and not, within the sample: before the journey saw it.
+  private func reportSelectionLatency(
+    _ groups: [(name: String, windows: [(start: Double, end: Double)])], composer: String,
+    evidence: URL
+  ) throws {
+    struct Record: Decodable {
+      let event: String
+      let uptime: Double?
+      let milliseconds: Double?
+      let linkable: Bool?
+    }
+    let records = try String(contentsOf: evidence, encoding: .utf8)
+      .split(separator: "\n")
+      .map { try JSONDecoder().decode(Record.self, from: Data($0.utf8)) }
+    let keys = records.filter { $0.event == "key-down" }
+    let shown = records.filter { $0.event == "selection-shown" }
+    let stalls = try records.filter { $0.event == "stall" }.map {
+      (uptime: try XCTUnwrap($0.uptime), milliseconds: try XCTUnwrap($0.milliseconds))
+    }
+    func percentile(_ sorted: [Double], _ rank: Double) -> Double {
+      sorted[max(0, Int((rank * Double(sorted.count)).rounded(.up)) - 1)]
+    }
+    var lines: [String] = []
+    for group in groups {
+      let presses = try group.windows.map { window in
+        try XCTUnwrap(
+          keys.last { ($0.uptime ?? 0) >= window.start && ($0.uptime ?? 0) <= window.end },
+          "Missing key press for \(group.name)")
+      }
+      let samples = try zip(presses, group.windows).enumerated().map {
+        index, sample -> Double in
+        let pressed = try XCTUnwrap(sample.0.uptime)
+        let commit = try XCTUnwrap(
+          shown.first {
+            ($0.uptime ?? 0) >= pressed && ($0.uptime ?? 0) <= sample.1.end
+              && $0.linkable == (index % 2 == 0)
+          }, "No mount showed sample \(index) of \(group.name)")
+        return try XCTUnwrap(commit.uptime) - pressed
+      }.sorted()
+      let during = stalls.filter { stall in
+        group.windows.contains {
+          stall.uptime <= $0.end && stall.uptime + stall.milliseconds >= $0.start
+        }
+      }.map(\.milliseconds)
+      lines.append(
+        json([
+          "composer": composer, "interaction": group.name, "samplesMs": samples,
+          "p50Ms": percentile(samples, 0.5), "p95Ms": percentile(samples, 0.95),
+          "maxMs": samples.last ?? 0, "stallsMs": during,
+          "frameMs": try XCTUnwrap(keys.compactMap(\.milliseconds).max()),
+        ]))
+    }
+    print(lines.map { "PERFORMANCE \($0)" }.joined(separator: "\n"))
+    let attachment = XCTAttachment(
+      data: Data((lines.joined(separator: "\n") + "\n").utf8), uniformTypeIdentifier: "public.json")
+    attachment.name = "Selection-change latency (\(composer) composer)"
+    attachment.lifetime = .keepAlways
+    add(attachment)
   }
 
   // #626: the core mail loop by keyboard where the Mac app offers a keyboard path, over the
@@ -4149,9 +4810,69 @@ final class WindowTests: XCTestCase {
     shows: [(text: String, marks: String)]
   )
 
+  // Typing and formatting feedback: each sample runs from the key press or format bar button
+  // release the app recorded to its first recorded edit of the body that shows exactly the
+  // expected text and marks (bold 1, italic 2, underline 4 per character), so a later input
+  // cannot hide a late result. The budget is the frame interval the app recorded.
+  private func typingSamples(
+    _ app: XCUIApplication, window: XCUIElement, body: XCUIElement
+  ) -> [PerformanceGroup] {
+    body.click()
+    var groups: [PerformanceGroup] = []
+    var text = ""
+    var marks: [Int] = []
+    func press(
+      _ name: String, _ keys: [String], _ input: (String) -> Void, _ change: (String) -> Void
+    ) {
+      var windows: [(start: Double, end: Double)] = []
+      var shows: [(text: String, marks: String)] = []
+      for key in keys {
+        let start = uptime()
+        input(key)
+        windows.append((start, uptime()))
+        change(key)
+        shows.append((text, marks.map(String.init).joined()))
+      }
+      groups.append((name, 0, windows, 0, shows))
+    }
+    let type = { (key: String) in app.typeKey(key, modifierFlags: []) }
+    press("typing", "typing feedback test".map(String.init), type) { key in
+      text += key
+      marks.append(0)
+    }
+    // Command-B at the caret marks what is typed next.
+    app.typeKey("b", modifierFlags: .command)
+    press("marked-typing", " bold words".map(String.init), type) { key in
+      text += key
+      marks.append(1)
+    }
+    // Option-Shift-Left selects the last word; each shortcut toggles its mark on it, then back.
+    app.typeKey(.leftArrow, modifierFlags: [.option, .shift])
+    let bits = ["b": 1, "i": 2, "u": 4]
+    let toggles = (0..<12).map { ["b", "i", "u"][$0 / 2 % 3] }
+    let toggle = { (key: String) in
+      for index in marks.indices.suffix(5) { marks[index] ^= bits[key, default: 0] }
+    }
+    press("formatting", toggles, { app.typeKey($0, modifierFlags: .command) }, toggle)
+    // The format bar's mark buttons toggle the same marks on the still-selected word.
+    let buttons = ["b": "Bold", "i": "Italic", "u": "Underline"]
+    let click = { (key: String) in window.buttons[buttons[key, default: ""]].firstMatch.click() }
+    press("format-bar", toggles, click, toggle)
+    // Right collapses the selection at the word's end, so Command-B right after it turns bold off
+    // for what is typed next and leaves the word bold (#1229).
+    app.typeKey(.rightArrow, modifierFlags: [])
+    app.typeKey("b", modifierFlags: .command)
+    press("collapsed-typing", " end".map(String.init), type) { key in
+      text += key
+      marks.append(0)
+    }
+    return groups
+  }
+
   private func reportPerformance(
     _ groups: [PerformanceGroup],
-    evidence: URL, overhead: Double, composer: String? = nil
+    evidence: URL, overhead: Double, name: String = "Warm-cache performance",
+    composer: String? = nil
   ) throws {
     struct Record: Decodable {
       let event: String
@@ -4168,8 +4889,10 @@ final class WindowTests: XCTestCase {
       try records.filter { $0.event == event }.map { try XCTUnwrap($0.uptime) }
     }
     let keys = records.filter { $0.event == "key-down" }
-    let edits = records.filter { $0.event == "text-edit" }
-    let draws = records.filter { $0.event == "text-drawn" }
+    // Indices into the evidence, which each source writes in the order it noted them.
+    let edits = records.indices.filter { records[$0].event == "text-edit" }
+    let draws = records.indices.filter { records[$0].event == "text-drawn" }
+    var lastEdit = -1
     let presses = try times("mouse-down")
     let releases = try times("mouse-up")
     // Body requests the synthetic providers answered; priming the cache must have made some.
@@ -4203,20 +4926,23 @@ final class WindowTests: XCTestCase {
         }
         group.budget = try XCTUnwrap(keys.compactMap(\.milliseconds).max())
         group.windows = try zip(starts, group.shows).map { start, shown in
-          let edit = try XCTUnwrap(
+          // Each input has its own edit, so a later input's result cannot stand in for it.
+          let editIndex = try XCTUnwrap(
             edits.first {
-              ($0.uptime ?? 0) >= start && $0.text?.hasPrefix(shown.text) == true
-                && $0.marks?.hasPrefix(shown.marks) == true
+              $0 > lastEdit && (records[$0].uptime ?? 0) >= start
+                && records[$0].text == shown.text && records[$0].marks == shown.marks
             }, "No edit showed \(shown) for \(group.name)")
+          lastEdit = editIndex
+          let edit = records[editIndex]
           let end = try XCTUnwrap(edit.uptime)
-          let draw = try XCTUnwrap(
-            draws.first { ($0.uptime ?? 0) >= end }, "No draw after \(shown) for \(group.name)")
+          let drawIndex = try XCTUnwrap(
+            draws.first { $0 > editIndex }, "No draw after \(shown) for \(group.name)")
+          let draw = records[drawIndex]
           let drawEnd = try XCTUnwrap(draw.uptime)
           // A draw shows the body's latest edit; a result a later input replaced first never showed.
-          let drawnEdit = edits.last { ($0.uptime ?? 0) <= drawEnd }
+          let drawnEdit = edits.last { $0 < drawIndex }.map { records[$0] }
           XCTAssertTrue(
-            drawnEdit?.text?.hasPrefix(shown.text) == true
-              && drawnEdit?.marks?.hasPrefix(shown.marks) == true,
+            drawnEdit?.text == edit.text && drawnEdit?.marks == edit.marks,
             "\(shown) for \(group.name) was replaced before it was drawn")
           let frameStart = try XCTUnwrap(draw.frameStart)
           let interval = try XCTUnwrap(draw.milliseconds)
@@ -4276,8 +5002,7 @@ final class WindowTests: XCTestCase {
     print(lines.map { "PERFORMANCE \($0)" }.joined(separator: "\n"))
     let attachment = XCTAttachment(
       data: Data((lines.joined(separator: "\n") + "\n").utf8), uniformTypeIdentifier: "public.json")
-    attachment.name =
-      composer.map { "Composer opening (\($0) composer)" } ?? "Warm-cache performance"
+    attachment.name = composer.map { "\(name) (\($0) composer)" } ?? name
     attachment.lifetime = .keepAlways
     add(attachment)
   }

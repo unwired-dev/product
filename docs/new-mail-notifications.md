@@ -210,6 +210,24 @@ ownership changes, or when a later Reply in the same window replaces it. A Mac l
 from a notification starts without a window: Archive, Mark as Read and a typed reply act
 without one, and a tap opens one. Every other launch opens an Inbox window as before.
 
+## Send Reminder notifications
+
+A due [Send Reminder](drafts.md) posts a notification on the device that set it
+([#2990](https://github.com/unwired-dev/product/issues/2990)), scheduled by native
+code for the reminder's due instant (`scheduleReminderNotifications`), so it
+appears without the app running. With **Show Sender and Subject** on, the title is
+the Draft's subject ("No subject" when empty) and the body reads "Reminder to
+finish your Draft to" its recipients, or "Reminder to finish your Draft" without
+any. With it off there is no title and the body reads "Reminder to finish a
+Draft". It groups with its Mail Profile's notifications and offers no action:
+nothing in it sends or queues the Draft. The schedule follows every change to the
+reminders, the Drafts and the notification settings, and stays as it was while
+storage is locked or still opening; a notification whose Draft is no longer listed
+is withdrawn, also after delivery, and every one is withdrawn when this device
+signs out or is purged. Turning Show Sender and Subject off withdraws at once
+each one that shows its Draft, pending or delivered, and the generic one replaces
+it for a reminder still ahead.
+
 ## Diagnostics
 
 When a notification does not appear, the device's unified log says why without naming the

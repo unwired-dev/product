@@ -3528,6 +3528,52 @@ final class InboxTests: XCTestCase {
     XCTAssertFalse(folders.exists)
     capture("Moved to Spam")
 
+    // #2942: a message larger than a message read allows opens without its body, so the iPhone
+    // reader offers no Reply sheet and keeps More, which opens the system menu (#2158).
+    if phone {
+      row("Conference recording").tap()
+      XCTAssertTrue(
+        text("This message is too large to open on this device.", in: app)
+          .waitForExistence(timeout: 15))
+      XCTAssertFalse(app.buttons["Reply"].exists)
+      let more = app.buttons["More"]
+      XCTAssertTrue(more.exists)
+      let unread = app.buttons["Mark as Unread"]
+      // The menu opens upward from the toolbar, so its first item, Pin, is nearest the button and
+      // Delete, in its own section, is farthest. It offers nothing else this message lacks.
+      let items = ["Pin", "Mark as Unread", "Move to Spam", "Move to…", "Delete"]
+      func checkMenu() {
+        XCTAssertTrue(unread.waitForExistence(timeout: 10))
+        let rows = items.map { app.buttons[$0].firstMatch }
+        for (item, row) in zip(items, rows) { XCTAssertTrue(row.exists, "More lacks \(item)") }
+        for (lower, upper) in zip(rows, rows.dropFirst()) {
+          XCTAssertGreaterThan(lower.frame.midY, upper.frame.midY, upper.label)
+        }
+        for absent in ["Unpin", "Mark as Read", "Not Spam", "Move to Inbox", "Labels"] {
+          XCTAssertFalse(app.buttons[absent].exists, "More offers \(absent)")
+        }
+      }
+      more.tap()
+      checkMenu()
+      capture("More menu")
+      // A tap beside the menu closes it and runs nothing: the same message stays open, read and
+      // unpinned.
+      app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4)).tap()
+      XCTAssertTrue(unread.waitForNonExistence(timeout: 5), "More stayed open after a tap beside")
+      XCTAssertTrue(text("Conference recording", in: app).exists)
+      more.tap()
+      checkMenu()
+      unread.tap()
+      more.tap()
+      let read = app.buttons["Mark as Read"]
+      XCTAssertTrue(read.waitForExistence(timeout: 10))
+      capture("More menu after Mark as Unread")
+      read.tap()
+      XCTAssertTrue(read.waitForNonExistence(timeout: 5))
+      app.navigationBars.buttons["BackButton"].tap()
+      XCTAssertTrue(more.waitForNonExistence(timeout: 10))
+    }
+
     openEmailAccounts()
     let change = settingsRow("Change…", "Spam: Bulk Mail · Trash: Deleted Messages · chosen by you")
     capture("Settings folders chosen")
@@ -4915,6 +4961,68 @@ final class InboxTests: XCTestCase {
     }
   }
 
+  // #2944: the Draft editor page journals a New Message's unsaved edits, so Restore reopens them in
+  // the page after the app was terminated; Discard removes them, so the next launch offers nothing.
+  func testDraftEditorRecovery() throws {
+    continueAfterFailure = false
+    let environment = ProcessInfo.processInfo.environment
+    XCTAssertEqual(environment["UNWIRED_TEST_SCENARIO"], "registration-draft-editor")
+    let app = XCUIApplication(bundleIdentifier: try XCTUnwrap(environment["UNWIRED_BUNDLE_ID"]))
+    addTeardownBlock { if app.state != .notRunning { app.terminate() } }
+    app.launch()
+    XCTAssertTrue(app.staticTexts["Your mail,\non your devices."].waitForExistence(timeout: 60))
+    signInToDraftEditor(app)
+    app.buttons["New Message"].tap()
+    let body = app.webViews.textViews["Message body"]
+    XCTAssertTrue(body.waitForExistence(timeout: 30))
+    waitUntil({ self.pageReady(app) }, timeout: 30)
+    // The empty editor fills the page; focus its first paragraph, again if a loaded host's first
+    // tap lands before the page's editor takes focus.
+    let firstParagraph = body.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 0))
+      .withOffset(CGVector(dx: 24, dy: 24))
+    for _ in 0..<3 where !app.keyboards.firstMatch.exists {
+      firstParagraph.tap()
+      _ = app.keyboards.firstMatch.waitForExistence(timeout: 10)
+    }
+    body.typeText("Typed before the end")
+    let typed = webText("Typed before the end", in: app)
+    XCTAssertTrue(typed.waitForExistence(timeout: 20))
+    let subject = app.textFields["Subject"]
+    subject.tap()
+    type("Kept by the page", into: subject)
+    // The editor journals 2 s after the last edit; nothing on screen shows the write.
+    _ = XCTWaiter.wait(for: [XCTestExpectation(description: "Recovery journal")], timeout: 5)
+
+    // Terminating runs no Close or save; Restore reopens the page on the recovered edits.
+    let offer = app.alerts["Recover unsaved message?"]
+    app.terminate()
+    app.launch()
+    XCTAssertTrue(offer.waitForExistence(timeout: 45))
+    assertRecoveryOffer(offer)
+    attachScreen("Recover unsaved message", of: app, to: self)
+    offer.buttons["Restore"].tap()
+    XCTAssertTrue(offer.waitForNonExistence(timeout: 10))
+    XCTAssertTrue(app.webViews.textViews["Message body"].waitForExistence(timeout: 30))
+    XCTAssertTrue(typed.waitForExistence(timeout: 20))
+    XCTAssertEqual(subject.value as? String, "Kept by the page")
+    attachScreen("Restored Draft editor page", of: app, to: self)
+
+    // The restored page leaves the record until a Save Draft, Send or Discard; Discard removes it.
+    app.terminate()
+    app.launch()
+    XCTAssertTrue(offer.waitForExistence(timeout: 45))
+    assertRecoveryOffer(offer)
+    offer.buttons["Discard"].tap()
+    XCTAssertTrue(offer.waitForNonExistence(timeout: 10))
+    XCTAssertFalse(app.webViews.textViews["Message body"].exists)
+    // The alert closes before storage removes the record.
+    _ = XCTWaiter.wait(for: [XCTestExpectation(description: "Record removal")], timeout: 3)
+    app.terminate()
+    app.launch()
+    XCTAssertTrue(app.buttons["New Message"].waitForExistence(timeout: 45))
+    XCTAssertFalse(offer.waitForExistence(timeout: 10))
+  }
+
   // #2610: on iPhone the composer is the system sheet over the Inbox, which stays out of reach.
   // Its downward swipe is Close: an untouched Draft closes, and changed content asks first while
   // the sheet stays. Save Draft then closes it, and Send sends from it.
@@ -5039,6 +5147,80 @@ final class InboxTests: XCTestCase {
     // Send admitted the message: the Outbox offers its Undo inside the Undo Send Window.
     openOutbox(app)
     XCTAssertTrue(app.buttons["Undo"].waitForExistence(timeout: 15))
+  }
+
+  // #2961: the Draft editor page's composer is the same system sheet, and its downward swipe is
+  // Close too: an untouched Draft closes, and typed text asks first while the sheet stays.
+  func testDraftEditorSheet() throws {
+    try XCTSkipIf(UIDevice.current.userInterfaceIdiom != .phone, "The sheet is iPhone's")
+    continueAfterFailure = false
+    let environment = ProcessInfo.processInfo.environment
+    XCTAssertEqual(environment["UNWIRED_TEST_SCENARIO"], "registration-draft-editor")
+    let app = XCUIApplication(bundleIdentifier: try XCTUnwrap(environment["UNWIRED_BUNDLE_ID"]))
+    addTeardownBlock { if app.state != .notRunning { app.terminate() } }
+    app.launch()
+    XCTAssertTrue(app.staticTexts["Your mail,\non your devices."].waitForExistence(timeout: 60))
+    signInToDraftEditor(app)
+    let row = app.buttons["Unread. Rowan Hale. Garden plans for spring"]
+    let composer = app.otherElements["composer-overlay"]
+    let body = app.webViews.textViews["Message body"]
+    let swipeDown = {
+      let start = composer.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0))
+        .withOffset(CGVector(dx: 0, dy: 30))
+      start.press(forDuration: 0.1, thenDragTo: start.withOffset(CGVector(dx: 0, dy: 500)))
+    }
+    app.buttons["New Message"].tap()
+    XCTAssertTrue(body.waitForExistence(timeout: 30))
+    waitUntil({ self.pageReady(app) }, timeout: 30)
+    // The sheet covers the Inbox, so no Back or edge swipe reaches it.
+    XCTAssertFalse(row.isHittable)
+    swipeDown()
+    XCTAssertTrue(composer.waitForNonExistence(timeout: 10))
+    XCTAssertTrue(row.isHittable)
+    app.buttons["New Message"].tap()
+    XCTAssertTrue(body.waitForExistence(timeout: 30))
+    waitUntil({ self.pageReady(app) }, timeout: 30)
+    // The empty editor fills the page; focus its first paragraph, again if a loaded host's first
+    // tap lands before the page's editor takes focus.
+    let firstParagraph = body.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 0))
+      .withOffset(CGVector(dx: 24, dy: 24))
+    for _ in 0..<3 where !app.keyboards.firstMatch.exists {
+      firstParagraph.tap()
+      _ = app.keyboards.firstMatch.waitForExistence(timeout: 10)
+    }
+    // The question covers the first line; the last one stays in sight beneath it.
+    body.typeText("Kept by the sheet\n\nShown under the question")
+    let typed = webText("Kept by the sheet", in: app)
+    let shown = webText("Shown under the question", in: app)
+    XCTAssertTrue(typed.waitForExistence(timeout: 20))
+    XCTAssertTrue(shown.waitForExistence(timeout: 20))
+    swipeDown()
+    let save = app.buttons["Save Draft"]
+    XCTAssertTrue(save.waitForExistence(timeout: 10))
+    XCTAssertTrue(app.buttons["Delete Draft"].exists)
+    XCTAssertTrue(composer.exists)
+    attachScreen("Draft editor sheet asks before closing", of: app, to: self)
+    // Keep Editing, outside the question, keeps the sheet and the page's text.
+    app.buttons["Keep Editing"].tap()
+    XCTAssertTrue(save.waitForNonExistence(timeout: 10))
+    XCTAssertTrue(typed.exists && shown.exists)
+    swipeDown()
+    XCTAssertTrue(save.waitForExistence(timeout: 10))
+    save.tap()
+    XCTAssertTrue(composer.waitForNonExistence(timeout: 15))
+    let draft = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Draft.")).firstMatch
+    XCTAssertTrue(draft.waitForExistence(timeout: 20))
+    draft.tap()
+    XCTAssertTrue(body.waitForExistence(timeout: 30))
+    XCTAssertTrue(typed.waitForExistence(timeout: 20))
+    XCTAssertTrue(shown.exists)
+    waitUntil({ self.pageReady(app) }, timeout: 30)
+    attachScreen("Draft editor sheet reopened", of: app, to: self)
+    // The reopened Draft is unchanged, so the swipe closes it without asking.
+    swipeDown()
+    XCTAssertTrue(composer.waitForNonExistence(timeout: 10))
+    XCTAssertFalse(save.exists)
+    XCTAssertTrue(draft.exists)
   }
 
   // #2891: in a regular-width iPad window New Message's card rises above the software keyboard, with

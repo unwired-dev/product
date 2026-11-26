@@ -14,6 +14,7 @@ export {
   sendReminders,
   blockedSenders,
   pins,
+  unsubscribe,
   inboxPreferences,
   outbox,
   wakes,
@@ -24,6 +25,7 @@ export {
   start,
   followWakes,
   followBadge,
+  followReminderNotifications,
   followNotificationActions,
   native,
 } from './host.ts';

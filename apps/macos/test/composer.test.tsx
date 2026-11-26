@@ -5,6 +5,7 @@ import type { NativeAssistance } from '@private-email/mail-core/assistance';
 import type { Draft } from '@private-email/mail-core/drafts';
 import type { RegistrationSnapshot } from '@private-email/mail-core/registration';
 import type { SemanticDocument } from '@private-email/mail-core/semantic-document';
+import type { NativeSendReminderSync } from '@private-email/mail-core/send-reminders';
 import type { NativeTranslation } from '@private-email/mail-core/translation';
 import type { TextStyle, TurboModule, useColorScheme } from 'react-native';
 
@@ -28,7 +29,11 @@ import {
   reminderCity,
   reminderTimes,
 } from '@private-email/mail-core/send-reminders';
-import { createSyntheticDrafts } from '@private-email/mail-core/testing/drafts';
+import {
+  createSyntheticDrafts,
+  createSyntheticProductSync,
+  syntheticSendReminderSync,
+} from '@private-email/mail-core/testing/drafts';
 import {
   createSyntheticGmail,
   syntheticConnections,
@@ -165,11 +170,22 @@ function templateStorage(registration: ReturnType<typeof account>) {
   return { state, store: createMailTemplates(native, registration) };
 }
 
-// Send Reminder storage on this device for `registration`'s account.
-function reminderStorage(registration: ReturnType<typeof account>) {
+// Send Reminder storage on this device for `registration`'s account, synchronizing through `sync`
+// when given.
+function reminderStorage(
+  registration: ReturnType<typeof account>,
+  sync?: NativeSendReminderSync,
+) {
   const { state, open, commit } = documentStorage();
   const native = { openSendReminders: open, commitSendReminders: commit };
-  return { state, store: createSendReminders(native, registration) };
+  return {
+    state,
+    store: createSendReminders(
+      native,
+      registration,
+      sync === undefined ? undefined : { native: sync },
+    ),
+  };
 }
 
 // A successful save shows no status, so wait for the store to finish saving instead.
@@ -294,6 +310,15 @@ function popoverOf(
   return element === null || element.type === 'UnwiredPopover'
     ? element
     : popoverOf(element.parent);
+}
+
+// The native scroll view that holds an element.
+function scrollOf(
+  element: ReturnType<typeof screen.getByText> | null,
+): ReturnType<typeof screen.getByText> | null {
+  return element === null || element.type === 'RCTScrollView'
+    ? element
+    : scrollOf(element.parent);
 }
 
 const ignore = () => undefined;
@@ -542,17 +567,19 @@ const saveAndClose = async () => {
 };
 
 // Opens a Draft from alex's mailbox with the content `edit` gives it, beside Mail Template storage
-// holding what `seed` saves and Send Reminder storage. `reopen` opens it again in a new composer.
+// holding what `seed` saves and Send Reminder storage synchronizing through `sync` when given.
+// `reopen` opens it again in a new composer.
 async function composeWithTemplates(
   edit: (draft: Draft) => Draft,
   seed?: (store: ReturnType<typeof createMailTemplates>) => Promise<void>,
+  sync?: NativeSendReminderSync,
 ) {
   const registration = account(connected(['alex@example.invalid']));
   const storage = createSyntheticDrafts(() => 'synthetic-product-account');
   const drafts = createDrafts(storage.native, registration);
   await drafts.load();
   const templates = templateStorage(registration);
-  const reminders = reminderStorage(registration);
+  const reminders = reminderStorage(registration, sync);
   await seed?.(templates.store);
   const created = await drafts.create({
     id: alex,
@@ -2495,8 +2522,10 @@ describe('composing Drafts', () => {
       await type('@anz ');
       expect(menu()).toBeNull();
 
-      // Text before the @ is content, so it opens nothing.
-      await type('Hi @');
+      // An @ inside a word opens nothing.
+      await type('');
+      await type('Hi');
+      await type('Hi@');
       expect(menu()).toBeNull();
 
       // Down then Return chooses: the query becomes the greeting with the contact's given name,
@@ -2539,6 +2568,385 @@ describe('composing Drafts', () => {
         }),
       ).toBeOnTheScreen();
       expect(appleContacts.requests).toBe(requests);
+    } finally {
+      modules.mockRestore();
+      Object.assign(appleContacts, { granted: false, addresses: [] });
+    }
+  });
+
+  it('sets a block from the body’s Slash Command Menu as one edit', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const frame = jest.fn(async () => ({ x: 32, y: 34, width: 6, height: 22 }));
+    const host: TurboModule &
+      Readonly<{
+        addListener: typeof ignore;
+        removeListeners: typeof ignore;
+        guardClose: typeof ignore;
+        forgetComposerTyping: typeof ignore;
+        setComposerIndents: typeof ignore;
+        composerCharacterFrame: typeof frame;
+      }> = {
+      addListener: ignore,
+      removeListeners: ignore,
+      guardClose: ignore,
+      forgetComposerTyping: ignore,
+      setComposerIndents: ignore,
+      composerCharacterFrame: frame,
+    };
+    const modules = windowHostWith(host);
+    const announce = jest.mocked(
+      AccessibilityInfo.announceForAccessibilityWithOptions,
+    );
+    try {
+      const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+      await render(
+        <App
+          drafts={createDrafts(storage.native, registration)}
+          registration={registration}
+        />,
+      );
+      await press('New Message');
+      const body = () => screen.getByLabelText('Message body');
+      // The native body reports the caret after each typed character.
+      const type = async (text: string) => {
+        await fireEvent.changeText(body(), text);
+        await fireEvent(body(), 'selectionChange', {
+          nativeEvent: { selection: { start: text.length, end: text.length } },
+        });
+      };
+      const key = async (name: string) => {
+        await fireEvent(body(), 'keyDown', { nativeEvent: { key: name } });
+      };
+      const menu = () => screen.queryByLabelText('Slash commands');
+      const rows = (options: Readonly<{ selected?: boolean }> = {}) => {
+        const shown = menu();
+        ok(shown !== null);
+        return within(shown)
+          .queryAllByRole('button', options)
+          .map(({ props }) => props.accessibilityLabel);
+      };
+      const lines = () =>
+        shownBody().map((spans) => spans.map(({ text }) => text).join(''));
+      const sizes = () =>
+        body()
+          .children.filter((line) => typeof line !== 'string')
+          .map(
+            (line) => StyleSheet.flatten<TextStyle>(line.props.style).fontSize,
+          );
+
+      // A / first in a block opens the Basic Blocks with the first highlighted, each with its
+      // Markdown marker, under the /'s line, and VoiceOver hears it open.
+      await type('Hi\n');
+      await type('Hi\n/');
+      await waitFor(() => {
+        expect(menu()).toBeOnTheScreen();
+      });
+      expect(frame).toHaveBeenCalledWith(body().props.testID, 3);
+      expect(rows()).toStrictEqual([
+        'Text',
+        'Heading 1, #',
+        'Heading 2, ##',
+        'Heading 3, ###',
+        'Bulleted List, -',
+        'Numbered List, 1.',
+        'Quote, >',
+        'Code Block, ```',
+      ]);
+      expect(rows({ selected: true })).toStrictEqual(['Text']);
+      expect(
+        within(screen.getByLabelText('Slash commands')).getByText(
+          'Basic Blocks',
+        ),
+      ).toBeOnTheScreen();
+      expect(announce).toHaveBeenCalledWith('Slash commands', {
+        queue: true,
+      });
+      expect(announce).toHaveBeenLastCalledWith('Text', { queue: true });
+      // It starts 7pt right of the / but stays inside the body near its trailing edge, and fits
+      // the room the composer shows as that changes while it is open.
+      const scroll = scrollOf(body());
+      ok(scroll !== null);
+      await fireEvent(body(), 'layout', {
+        nativeEvent: { layout: { x: 0, y: 0, width: 500, height: 400 } },
+      });
+      await fireEvent(scroll, 'layout', {
+        nativeEvent: { layout: { x: 0, y: 0, width: 500, height: 600 } },
+      });
+      expect(menu()).toHaveStyle({ left: 39, top: 59, height: 258 });
+      await fireEvent(body(), 'layout', {
+        nativeEvent: { layout: { x: 0, y: 0, width: 340, height: 400 } },
+      });
+      await fireEvent(scroll, 'layout', {
+        nativeEvent: { layout: { x: 0, y: 0, width: 340, height: 200 } },
+      });
+      expect(menu()).toHaveStyle({ left: 20, top: 59, height: 116 });
+      expect(body().props.keyDownEvents).toContainEqual(
+        expect.objectContaining({ key: 'Enter' }),
+      );
+
+      // Typing filters; Down and Up move the highlight, which VoiceOver hears with its marker;
+      // Escape closes the menu, keeping the text, and typing on does not reopen it.
+      await type('Hi\n/h');
+      await type('Hi\n/he');
+      expect(rows()).toStrictEqual([
+        'Heading 1, #',
+        'Heading 2, ##',
+        'Heading 3, ###',
+      ]);
+      expect(rows({ selected: true })).toStrictEqual(['Heading 1, #']);
+      expect(announce).toHaveBeenLastCalledWith('Heading 1, #', {
+        queue: true,
+      });
+      await key('ArrowDown');
+      expect(rows({ selected: true })).toStrictEqual(['Heading 2, ##']);
+      expect(announce).toHaveBeenLastCalledWith('Heading 2, ##', {
+        queue: true,
+      });
+      await key('ArrowUp');
+      expect(rows({ selected: true })).toStrictEqual(['Heading 1, #']);
+      await key('Escape');
+      expect(menu()).toBeNull();
+      expect(body().props.keyDownEvents).not.toContainEqual(
+        expect.objectContaining({ key: 'Enter' }),
+      );
+      await type('Hi\n/hea');
+      expect(menu()).toBeNull();
+      expect(lines()).toStrictEqual(['Hi', '/hea']);
+
+      // A result with no block closes it, deleting the / closes it, and a / after text opens none.
+      await type('Hi\n');
+      await type('Hi\n/');
+      await type('Hi\n/x');
+      expect(menu()).toBeNull();
+      await type('Hi\n');
+      await type('Hi\n/');
+      expect(menu()).toBeOnTheScreen();
+      await type('Hi\n');
+      expect(menu()).toBeNull();
+      await type('Hi\nA /');
+      expect(menu()).toBeNull();
+      // A / typed over a selected line opens it too.
+      await type('Hi\nab');
+      await fireEvent(body(), 'selectionChange', {
+        nativeEvent: { selection: { start: 3, end: 5 } },
+      });
+      await type('Hi\n/');
+      await waitFor(() => {
+        expect(menu()).toBeOnTheScreen();
+      });
+
+      // Moving the caret or leaving the body closes it.
+      await type('Hi\n');
+      await type('Hi\n/');
+      await fireEvent(body(), 'selectionChange', {
+        nativeEvent: { selection: { start: 0, end: 0 } },
+      });
+      expect(menu()).toBeNull();
+      await type('Hi\n');
+      await type('Hi\n/');
+      await fireEvent(body(), 'blur');
+      expect(menu()).toBeNull();
+
+      // An Undo or Redo that restores the / does not open it.
+      await type('Hi\n');
+      await type('Hi\n/');
+      expect(menu()).toBeOnTheScreen();
+      await press('Undo');
+      expect(menu()).toBeNull();
+      await press('Redo');
+      expect(lines()).toStrictEqual(['Hi', '/']);
+      expect(menu()).toBeNull();
+
+      // Return applies the highlighted block and removes the query as one edit; one Undo restores
+      // the text as typed, and the menu stays closed.
+      await type('Hi\n');
+      await type('Hi\n/');
+      await type('Hi\n/he');
+      await key('ArrowDown');
+      await key('ArrowDown');
+      await key('Enter');
+      expect(menu()).toBeNull();
+      expect(lines()).toStrictEqual(['Hi', '']);
+      expect(sizes()[1]).toBe(19);
+      expect(body().props.selection).toStrictEqual({ start: 3, end: 3 });
+      await press('Undo');
+      expect(lines()).toStrictEqual(['Hi', '/he']);
+      expect(sizes()[1]).not.toBe(19);
+      expect(menu()).toBeNull();
+
+      // A click chooses too, and Tab in a list chooses rather than indents.
+      await type('Hi\n');
+      await type('Hi\n/');
+      await press('Quote, >');
+      expect(lines()).toStrictEqual(['Hi', '']);
+      expect(menu()).toBeNull();
+      await type('');
+      await type('-');
+      await type('- ');
+      expect(body()).toHaveTextContent('•');
+      expect(body().props.keyDownEvents).toContainEqual(
+        expect.objectContaining({ key: 'Tab', shiftKey: true }),
+      );
+      await type('• /');
+      await type('• /co');
+      await key('Tab');
+      expect(lines()).toStrictEqual(['']);
+      expect(body()).not.toHaveTextContent('•');
+      expect(body().children[0]).toHaveStyle({ fontFamily: 'Menlo' });
+    } finally {
+      modules.mockRestore();
+    }
+  });
+
+  it('puts only the name for @ in written text and lists people already on the Draft with their role', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const personal = createSyntheticGmail();
+    personal.deliver({ from: 'Ana Kovač <ana@example.invalid>' });
+    personal.deliver({ from: 'Tomáš Dvořák <tomas@example.invalid>' });
+    appleContacts.granted = true;
+    appleContacts.addresses = [
+      { sender: 'Ana Kovač', address: 'ana@example.invalid', given: 'Ana' },
+    ];
+    let at = { x: 400, y: 0, width: 8, height: 16 };
+    const host: TurboModule &
+      Readonly<{
+        addListener: typeof ignore;
+        removeListeners: typeof ignore;
+        guardClose: typeof ignore;
+        forgetComposerTyping: typeof ignore;
+        setComposerIndents: typeof ignore;
+        composerCharacterFrame: () => Promise<
+          Readonly<{ x: number; y: number; width: number; height: number }>
+        >;
+      }> = {
+      addListener: ignore,
+      removeListeners: ignore,
+      guardClose: ignore,
+      forgetComposerTyping: ignore,
+      setComposerIndents: ignore,
+      composerCharacterFrame: async () => at,
+    };
+    const modules = windowHostWith(host);
+    const announce = jest.mocked(AccessibilityInfo.announceForAccessibility);
+    try {
+      const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+      await render(
+        <App
+          drafts={createDrafts(storage.native, registration)}
+          registration={registration}
+          mailboxes={createMailboxes(
+            syntheticConnections({ [alex]: personal }),
+            registration,
+          )}
+        />,
+      );
+      await press('New Message');
+      const to = screen.getByLabelText('To');
+      await fireEvent.changeText(to, 'tomas@example.invalid');
+      await fireEvent(to, 'submitEditing');
+      const tomas = () =>
+        screen.queryAllByRole('button', { name: /^To: .*tomas@example/u });
+      expect(tomas()).toHaveLength(1);
+      const body = () => screen.getByLabelText('Message body');
+      const type = async (text: string) => {
+        await fireEvent.changeText(body(), text);
+        await fireEvent(body(), 'selectionChange', {
+          nativeEvent: { selection: { start: text.length, end: text.length } },
+        });
+      };
+      const menu = () => screen.queryByLabelText('Recipient suggestions');
+      const lines = () =>
+        shownBody().map((spans) => spans.map(({ text }) => text).join(''));
+      const written = 'Hi Tomáš,\nI’ll ask ';
+
+      // After a space in written text, @ opens the suggestions; a person already on the Draft
+      // shows their role. Near the body's trailing edge the menu stays inside the body, 8 pt
+      // under the @'s line.
+      await fireEvent(body(), 'layout', {
+        nativeEvent: { layout: { x: 0, y: 0, width: 500, height: 300 } },
+      });
+      await type(written);
+      await type(`${written}@`);
+      await expect(
+        screen.findByRole('button', {
+          name: 'Tomáš Dvořák, tomas@example.invalid, in To',
+        }),
+      ).resolves.toBeOnTheScreen();
+      expect(menu()).toHaveStyle({ left: 180, top: 24 });
+      // A body width change reflows the text, so the menu follows the @ to its new place.
+      at = { x: 100, y: 22, width: 8, height: 16 };
+      await fireEvent(body(), 'layout', {
+        nativeEvent: { layout: { x: 0, y: 0, width: 420, height: 300 } },
+      });
+      await waitFor(() => {
+        expect(menu()).toHaveStyle({ left: 92, top: 46 });
+      });
+      expect(screen.getByText('To')).toBeOnTheScreen();
+      expect(
+        screen.getByRole('button', { name: 'Ana Kovač, ana@example.invalid' }),
+      ).toBeOnTheScreen();
+
+      // Choosing a new person replaces only the query with the given name and adds them to To.
+      await type(`${written}@an`);
+      await fireEvent(body(), 'keyDown', { nativeEvent: { key: 'Enter' } });
+      expect(lines()).toStrictEqual(['Hi Tomáš,', 'I’ll ask Ana']);
+      expect(
+        screen.getByRole('button', {
+          name: 'To: Ana Kovač <ana@example.invalid>',
+        }),
+      ).toBeOnTheScreen();
+      expect(menu()).toBeNull();
+      expect(announce).toHaveBeenLastCalledWith('Ana Kovač added to To');
+
+      // One Undo restores the query and removes only that person; Redo reapplies both.
+      await press('Undo');
+      expect(lines()).toStrictEqual(['Hi Tomáš,', 'I’ll ask @an']);
+      expect(
+        screen.queryByRole('button', {
+          name: 'To: Ana Kovač <ana@example.invalid>',
+        }),
+      ).toBeNull();
+      expect(tomas()).toHaveLength(1);
+      await press('Redo');
+      expect(lines()).toStrictEqual(['Hi Tomáš,', 'I’ll ask Ana']);
+
+      // Choosing a person already on the Draft inserts their name and keeps their role, once.
+      const more = 'Hi Tomáš,\nI’ll ask Ana and ';
+      await type(more);
+      await type(`${more}@`);
+      await type(`${more}@to`);
+      await fireEvent.press(
+        await screen.findByRole('button', {
+          name: 'Tomáš Dvořák, tomas@example.invalid, in To',
+        }),
+      );
+      expect(lines()).toStrictEqual([
+        'Hi Tomáš,',
+        'I’ll ask Ana and Tomáš Dvořák',
+      ]);
+      expect(tomas()).toHaveLength(1);
+      expect(announce).toHaveBeenLastCalledWith('Inserted Tomáš Dvořák');
+
+      // Typing @ over a selected word opens the suggestions too.
+      const done = 'Hi Tomáš,\nI’ll ask Ana and Tomáš Dvořák';
+      const ana = done.indexOf('Ana');
+      await fireEvent(body(), 'selectionChange', {
+        nativeEvent: { selection: { start: ana, end: ana + 3 } },
+      });
+      await fireEvent.changeText(
+        body(),
+        `${done.slice(0, ana)}@${done.slice(ana + 3)}`,
+      );
+      await fireEvent(body(), 'selectionChange', {
+        nativeEvent: { selection: { start: ana + 1, end: ana + 1 } },
+      });
+      await expect(
+        screen.findByRole('button', {
+          name: 'Tomáš Dvořák, tomas@example.invalid, in To',
+        }),
+      ).resolves.toBeOnTheScreen();
     } finally {
       modules.mockRestore();
       Object.assign(appleContacts, { granted: false, addresses: [] });
@@ -3319,6 +3727,56 @@ describe('composing Drafts', () => {
     await expect(
       templates.store.templates(defaultProfile),
     ).resolves.toStrictEqual([]);
+  });
+
+  it('shows a Send Reminder another device set, changed or removed once a pull finishes', async () => {
+    expect.hasAssertions();
+    // Noon in Prague on a Monday.
+    const clock = jest
+      .spyOn(Date, 'now')
+      .mockReturnValue(Date.UTC(2026, 9, 12, 10));
+    try {
+      const cloud = syntheticSendReminderSync(createSyntheticProductSync());
+      const { reminders, id } = await composeWithTemplates(
+        (draft) => ({ ...draft, subject: 'Keys for the flat' }),
+        undefined,
+        cloud,
+      );
+      const other = reminderStorage(
+        account(connected(['alex@example.invalid'])),
+        cloud,
+      ).store;
+      const remindOther = async (dueAt: number) => {
+        await other.remind(defaultProfile, {
+          draft: id,
+          dueAt,
+          timeZone: 'Europe/Prague',
+        });
+        await other.synchronize();
+      };
+      const pulled = async () => {
+        await act(async () => {
+          await reminders.store.synchronize();
+        });
+      };
+
+      // Tomorrow at 9:00, then today at 18:00, in Prague.
+      await remindOther(Date.UTC(2026, 9, 13, 7));
+      expect(screen.queryByText(/^Reminder for /u)).toBeNull();
+      await pulled();
+      await screen.findByText(/^Reminder for tomorrow, .+ \(Prague\)$/u);
+      await remindOther(Date.UTC(2026, 9, 12, 16));
+      await pulled();
+      await screen.findByText(/^Reminder for today, .+ \(Prague\)$/u);
+      await other.cancel(defaultProfile, id);
+      await other.synchronize();
+      await pulled();
+      await waitFor(() => {
+        expect(screen.queryByText(/^Reminder for /u)).toBeNull();
+      });
+    } finally {
+      clock.mockRestore();
+    }
   });
 
   it('sets, changes and removes a Draft’s Send Reminder from the Send menu without sending it', async () => {
