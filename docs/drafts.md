@@ -727,9 +727,10 @@ sent. On the Mac the row names the reason ("Couldn’t be downloaded"), or says
 ([#2991](https://github.com/unwired-dev/product/issues/2991)): a failed import keeps
 its picked or dropped copy on the device while it can be retried, and Try Again
 (`retryImport`, listed by `getRetries`) reads the same file, pasted image or
-Downloaded Attachment again without a picker. The copy is deleted once the file is
-added, when it is removed, when its Draft is discarded and at launch; a file too
-large for Drafts is not retried. Only complete files can be sent: `unsendableAssets` in
+Downloaded Attachment again without a picker, and downloads a forwarded attachment
+again. The copy is deleted once the file is added, once no Draft, queued message or
+open composer holds it (a removed file stays for Undo while its Draft does), on
+sign-out and at launch; a file too large for Drafts is not retried. Only complete files can be sent: `unsendableAssets` in
 `@private-email/mail-core/drafts` lists everything else, which [Send](outbox.md) refuses.
 While a file is still being added, Send stays unavailable; on the Mac the reason
 above the body names the file ("“plan.pdf” is still importing. Wait for it, or remove
