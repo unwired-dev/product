@@ -93,6 +93,11 @@ export function simulatedPage(
       selection?: Readonly<{ start: number; end: number }>;
       marks?: readonly string[];
       kind?: string;
+      // The caret's line, which the page reports while it starts with a slash.
+      caret?: Readonly<{ top: number; bottom: number }>;
+      // An Undo or Redo made the edit, or the host's replacement from this revision did.
+      restored?: true;
+      replaced?: number;
     }>,
   ) => {
     const page = target();

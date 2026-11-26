@@ -2587,10 +2587,8 @@ final class InboxTests: XCTestCase {
     add(shot)
   }
 
-  // The Tiptap evaluation editor (#818, #819, #820): a new Draft is typed into the packaged page,
-  // formatted and edited with assistance, saved with Save Draft through the encrypted Draft store,
-  // and reopened after relaunch. Focus, resize and teardown are recorded.
-  private func draftEditorJourney(_ app: XCUIApplication) {
+  // A `registration-draft-editor` build's new Product Account connects the synthetic Gmail mailbox.
+  private func signInToDraftEditor(_ app: XCUIApplication) {
     app.buttons["Continue"].tap()
     app.buttons["Sign in with Google"].tap()
     let recoveryKey = app.staticTexts["recovery-key"]
@@ -2603,6 +2601,13 @@ final class InboxTests: XCTestCase {
     app.buttons["Confirm Recovery Key"].tap()
     XCTAssertTrue(
       app.buttons["Unread. Rowan Hale. Garden plans for spring"].waitForExistence(timeout: 20))
+  }
+
+  // The Tiptap evaluation editor (#818, #819, #820): a new Draft is typed into the packaged page,
+  // formatted and edited with assistance, saved with Save Draft through the encrypted Draft store,
+  // and reopened after relaunch. Focus, resize and teardown are recorded.
+  private func draftEditorJourney(_ app: XCUIApplication) {
+    signInToDraftEditor(app)
     enableAssistance(app)
     // The disposable Draft belongs to this run's synthetic Product Account only.
     app.buttons["New Message"].tap()
@@ -3421,7 +3426,24 @@ final class InboxTests: XCTestCase {
       ).firstMatch
       XCTAssertTrue(current.exists)
       XCTAssertFalse(current.isEnabled)
-      if close == "Close" || close == "tap" { capture(phone ? "Move sheet" : "Folders popover") }
+      if close == "Close" || close == "tap" {
+        let name = phone ? "Move sheet" : "Folders popover"
+        capture(name)
+        // #2931: the picker stays shown, its folders and Close in reach, through a turn to
+        // Landscape and back. An app screenshot draws the landscape window turned and clipped.
+        let window = app.windows.firstMatch
+        let reach =
+          [spam, app.buttons["Move to Deleted Messages"]] + (phone ? [app.buttons["Close"]] : [])
+        for orientation in [UIDeviceOrientation.landscapeLeft, .portrait] {
+          XCUIDevice.shared.orientation = orientation
+          waitUntil { (window.frame.width > window.frame.height) == orientation.isLandscape }
+          _ = settledFrame(of: spam)
+          for control in reach { waitUntil { control.exists && control.isHittable } }
+          if orientation.isLandscape {
+            attachScreen("\(name) in Landscape", of: XCUIScreen.main, to: self)
+          }
+        }
+      }
       switch close {
       case "Close": app.buttons["Close"].tap()
       case "swipe":
@@ -3436,6 +3458,27 @@ final class InboxTests: XCTestCase {
     }
     folders.tap()
     XCTAssertTrue(spam.waitForExistence(timeout: 10))
+    if phone {
+      // #2943: the Move sheet's search, at its foot, rises above the software keyboard, and the
+      // folders it finds stay in reach above it.
+      let search = app.textFields["Search"]
+      focus(search) { self.hasFocus(search) }
+      XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10))
+      type("bulk", into: search)
+      // Bulk Mail is the only folder left, so it is the only row to keep above the keyboard.
+      waitUntil {
+        !app.buttons["Move to Sent Messages"].exists
+          && !app.buttons["Move to Deleted Messages"].exists
+          && !app.buttons.matching(
+            NSPredicate(format: "label == %@ AND selected == YES", "Inbox")
+          ).firstMatch.exists
+      }
+      _ = settledFrame(of: search)
+      XCTAssertLessThanOrEqual(search.frame.maxY, keyboardTop(app))
+      XCTAssertTrue(spam.isHittable)
+      XCTAssertLessThanOrEqual(spam.frame.maxY, keyboardTop(app))
+      capture("Move sheet search")
+    }
     spam.tap()
     // The reader closes and the list reports the move at once, before the server answers. The
     // synthetic server discards moves; mail-core's imap-organize tests cover the server's side.
@@ -4551,9 +4594,8 @@ final class InboxTests: XCTestCase {
   }
 
   // #2907: each presenter stays shown, its controls in reach, while the device turns to Landscape
-  // and back; iPad's More menu closes as the system closes menus at a turn. The turn back to
-  // Portrait can close the link confirmation (#2909), so it turns only to Landscape. CI covers
-  // the iPad Filters popover and `testComposerSheet` the iPhone composer.
+  // and back, the link confirmation too (#2909); iPad's More menu closes as the system closes
+  // menus at a turn. CI covers the iPad Filters popover and `testComposerSheet` the iPhone composer.
   func testPresenterRotation() throws {
     continueAfterFailure = false
     let environment = ProcessInfo.processInfo.environment
@@ -4574,12 +4616,9 @@ final class InboxTests: XCTestCase {
       XCUIDevice.shared.orientation = orientation
       waitUntil { (window.frame.width > window.frame.height) == orientation.isLandscape }
     }
-    func turns(
-      _ name: String, _ controls: [XCUIElement],
-      through orientations: [UIDeviceOrientation] = [.landscapeLeft, .portrait]
-    ) {
+    func turns(_ name: String, _ controls: [XCUIElement]) {
       attachScreen(name, of: app, to: self)
-      for orientation in orientations {
+      for orientation in [UIDeviceOrientation.landscapeLeft, .portrait] {
         turn(to: orientation)
         _ = settledFrame(of: controls[0])
         for control in controls {
@@ -4623,12 +4662,9 @@ final class InboxTests: XCTestCase {
       .matching(NSPredicate(format: "label == %@", "garden plan")).firstMatch.tap()
     let alert = app.alerts["Open this link in your browser?"]
     XCTAssertTrue(alert.waitForExistence(timeout: 10))
-    turns(
-      "Link confirmation", [alert.buttons["Open Link"], alert.buttons["Cancel"]],
-      through: [.landscapeLeft])
+    turns("Link confirmation", [alert.buttons["Open Link"], alert.buttons["Cancel"]])
     alert.buttons["Cancel"].tap()
     XCTAssertTrue(alert.waitForNonExistence(timeout: 10))
-    turn(to: .portrait)
     let newLabel = app.buttons["New Label…"]
     if phone {
       app.buttons["Reply"].tap()
@@ -5188,6 +5224,76 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(keep.waitForExistence(timeout: 60))
     XCTAssertFalse(menu.exists)
     attachScreen("Shorten Text from the Slash Command Menu", of: app, to: self)
+    keep.tap()
+  }
+
+  // #2952: the Draft editor page opens the current composer's Slash Command Menu: a / first in a
+  // body block opens it, typing filters it, Return and a tap choose a block, one Undo restores the
+  // typed text, and a Writing tool runs on the body.
+  func testDraftEditorSlashMenu() throws {
+    continueAfterFailure = false
+    let environment = ProcessInfo.processInfo.environment
+    XCTAssertEqual(environment["UNWIRED_TEST_SCENARIO"], "registration-draft-editor")
+    let app = XCUIApplication(bundleIdentifier: try XCTUnwrap(environment["UNWIRED_BUNDLE_ID"]))
+    addTeardownBlock { if app.state != .notRunning { app.terminate() } }
+    app.launch()
+    XCTAssertTrue(app.staticTexts["Your mail,\non your devices."].waitForExistence(timeout: 60))
+    signInToDraftEditor(app)
+    // The Writing tools rows need Mail Assistance.
+    enableAssistance(app)
+    app.buttons["New Message"].tap()
+    let body = app.webViews.textViews["Message body"]
+    XCTAssertTrue(body.waitForExistence(timeout: 30))
+    waitUntil({ self.pageReady(app) }, timeout: 30)
+    // The empty editor fills the page; focus its first paragraph, again if a loaded host's first
+    // tap lands before the page's editor takes focus.
+    let firstParagraph = body.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 0))
+      .withOffset(CGVector(dx: 24, dy: 24))
+    for _ in 0..<3 where !app.keyboards.firstMatch.exists {
+      firstParagraph.tap()
+      _ = app.keyboards.firstMatch.waitForExistence(timeout: 10)
+    }
+    let menu = app.descendants(matching: .any)["Slash commands"]
+    let row = { (name: String) in menu.buttons[name] }
+    body.typeText("Plan\n/")
+    XCTAssertTrue(menu.waitForExistence(timeout: 60))
+    for name in ["Text", "Heading 1", "Heading 2", "Heading 3", "Bulleted List"] {
+      XCTAssertTrue(row(name).exists, name)
+    }
+    attachScreen("Draft editor page Slash Command Menu", of: app, to: self)
+    body.typeText("heading 2")
+    waitUntil({ !row("Heading 1").exists && row("Heading 2").exists }, timeout: 60)
+    XCTAssertTrue(row("Heading 2").isSelected)
+    attachScreen("Draft editor page Slash Command Menu filtered", of: app, to: self)
+    // Return from the software keyboard takes the highlighted Heading 2 and removes the query.
+    body.typeText("\n")
+    waitUntil({ !menu.exists && !self.webText("/heading 2", in: app).exists }, timeout: 60)
+    attachScreen("Heading 2 from the Draft editor page Slash Command Menu", of: app, to: self)
+    // A tap takes a row; one Undo restores the typed text.
+    body.typeText("Agenda\n/he")
+    XCTAssertTrue(menu.waitForExistence(timeout: 60))
+    waitUntil({ !row("Text").exists && row("Heading 2").exists }, timeout: 60)
+    row("Heading 2").tap()
+    waitUntil({ !menu.exists && !self.webText("/he", in: app).exists }, timeout: 60)
+    formatControl("Undo", in: app).tap()
+    XCTAssertTrue(webText("/he", in: app).waitForExistence(timeout: 60))
+    XCTAssertFalse(menu.exists)
+    // Close Format resumes typing on iPhone.
+    if app.buttons["Close Format"].exists {
+      app.buttons["Close Format"].tap()
+      XCTAssertTrue(app.buttons["Format"].waitForExistence(timeout: 10))
+    }
+    // A text tool removes the query and runs on the body through the synthetic model.
+    body.typeText("\n/sho")
+    XCTAssertTrue(menu.waitForExistence(timeout: 60))
+    waitUntil({ !row("Text").exists && row("Shorten Text").exists }, timeout: 60)
+    attachScreen("Draft editor page Slash Command Menu Writing tools filtered", of: app, to: self)
+    row("Shorten Text").tap()
+    let keep = app.buttons["Keep your text and close this suggestion"]
+    XCTAssertTrue(keep.waitForExistence(timeout: 60))
+    XCTAssertFalse(menu.exists)
+    XCTAssertFalse(webText("/sho", in: app).exists)
+    attachScreen("Shorten Text from the Draft editor page Slash Command Menu", of: app, to: self)
     keep.tap()
   }
 
