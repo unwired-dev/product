@@ -653,3 +653,38 @@ mail content.
   contacts access sheet, answered **Don’t Allow**. Mac, iPad organizing, search,
   attachments, renewal and revocation, and uncertain outcomes were not run and stay on
   #637.
+- **2026-11-26, iPad organize and search
+  ([#3017](https://github.com/unwired-dev/product/issues/3017)).** Target, operator and
+  toolchain as on 2026-11-25, on a new iPad Pro 11-inch (M5) Simulator on iOS 27.0.
+  Build: a new Release build from the app source of
+  `209dfa939362fb67e8fef90f7f21a38af90302f4`. Result: pass. A fresh Google Product
+  Sign-In with the Recovery Key, then **Microsoft 365 and Outlook**, connected the
+  personal mailbox with every address, password and the Recovery Key entered through the
+  [Simulator pasteboard](imap-mailboxes.md#certification-runs-through-the-app); Microsoft
+  reused the account's earlier grant without asking for consent. **Mark as Unread** and
+  **Mark as Read** from the row's menu showed at once and survived a relaunch. In the
+  reader with the sidebar hidden, **Folders** › **Move to Conversation History** took a
+  message out of the Inbox and **Conversation History** listed it. **Delete** there moved
+  it to **Deleted Items**, whose row menu's **Move to Inbox** brought it back. Moved again,
+  it returned with **Undo**, and the row menu's **Archive** then moved it to **Archive**.
+  After each step and a relaunch, the message had left the list it was moved from and
+  was listed in the other. A search for a word from the subjects listed 12 messages under
+  **Top Results**, each saying **Saved on this device** or **Downloads from the mail
+  server when opened**. **Search Mail Servers** then listed real messages under **From
+  mail servers**, including **Sent Items** copies this device had never listed, with
+  **More from Mail Servers**. A search with no match showed **No Results**, said that no
+  saved mail in the mailbox matched, and after **Search Mail Servers** that the mail
+  servers found none. **Sign Out of This Device** returned the app to Welcome. With the
+  Simulator deleted, `simulator-credentials.zsh scan`, run on each path, found no
+  password or Recovery Key in `~/.agent-device`, `~/Library/Logs`, T3 Code's device
+  directory, the shell history, the temporary directory, the repository's
+  `artifacts/expo-bootstrap` directory with this run's DerivedData, the scratch files or
+  this run's session transcripts. Limitations: Microsoft's one-time sign-in code was
+  typed, as it expires within minutes. The first three codes entered were refused: the
+  mailbox that receives them opened their conversation at its oldest unread message, so
+  expired codes were read; the code read from the newest message was accepted. Once,
+  after a switch to that mailbox, Microsoft's sheet restarted at its first page. When the
+  accessibility snapshot could not read the sheet, the device driver saved a screenshot
+  on its own three times; two were deleted unopened, and the one opened showed
+  Microsoft's first page with no keyboard. Mac, iPad attachments, renewal and revocation,
+  and uncertain outcomes were not run and stay on #637.
