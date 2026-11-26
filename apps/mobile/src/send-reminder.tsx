@@ -60,7 +60,7 @@ const styles = StyleSheet.create({
   // The frame's width, which keeps the time zone line on one line (#2147).
   popover: { width: 359 },
   header: { flexDirection: 'row', alignItems: 'center', gap: spacing.s },
-  title: { ...textStyles.headline },
+  title: { ...textStyles.subheadlineEmphasized },
   sheetTitle: { ...textStyles.headline, textAlign: 'center' },
   group: { borderRadius: radius.card, borderCurve: 'continuous' },
   row: {
@@ -75,6 +75,7 @@ const styles = StyleSheet.create({
   },
   rowText: { flex: 1 },
   zone: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
+  divider: { height: StyleSheet.hairlineWidth },
   buttons: { flexDirection: 'row', justifyContent: 'flex-end', gap: spacing.s },
   pickerHeader: {
     flexDirection: 'row',
@@ -151,7 +152,7 @@ function ReminderDateTime({
             onPress={onBack}
             modifiers={[
               labelStyle('iconOnly'),
-              buttonStyle('glass'),
+              buttonStyle(popover ? 'bordered' : 'glass'),
               buttonBorderShape('circle'),
               controlSize(popover ? 'small' : 'large'),
               tint(colors.textPrimary),
@@ -208,7 +209,8 @@ function ReminderDateTime({
               onPress={onClose}
               modifiers={[
                 buttonStyle('bordered'),
-                buttonBorderShape('capsule'),
+                buttonBorderShape('roundedRectangle'),
+                tint(colors.textPrimary),
               ]}
             />
           </Host>
@@ -217,7 +219,7 @@ function ReminderDateTime({
               onPress={set}
               modifiers={[
                 buttonStyle('borderedProminent'),
-                buttonBorderShape('capsule'),
+                buttonBorderShape('roundedRectangle'),
                 tint(colors.accentFill),
                 inactive(passed),
               ]}>
@@ -289,20 +291,26 @@ function ReminderChoices({
     formatAt(settings.locale, at, { timeZone, timeZoneName: 'long' })
       .replace(formatAt(settings.locale, at, { timeZone }), '')
       .replaceAll(/^[\s,،]+|[\s,،]+$/gu, '') || timeZone;
+  // The popover sets the zone line off with a divider.
   const zone = (at: number | undefined) => (
-    <View style={styles.zone}>
-      <SFSymbol
-        name="clock"
-        size={12}
-        color={colors.textSecondary}
-      />
-      <Text style={[textStyles.footnote, { color: colors.textSecondary }]}>
-        {t('drafts.reminder.zone', {
-          zone: zoneName(at),
-          city: reminderCity(timeZone),
-        })}
-      </Text>
-    </View>
+    <>
+      {popover ? (
+        <View style={[styles.divider, { backgroundColor: colors.separator }]} />
+      ) : null}
+      <View style={styles.zone}>
+        <SFSymbol
+          name="clock"
+          size={12}
+          color={colors.textSecondary}
+        />
+        <Text style={[textStyles.footnote, { color: colors.textSecondary }]}>
+          {t('drafts.reminder.zone', {
+            zone: zoneName(at),
+            city: reminderCity(timeZone),
+          })}
+        </Text>
+      </View>
+    </>
   );
   const choose = (dueAt: number) => {
     onClose();
@@ -443,7 +451,7 @@ function ReminderChoices({
             },
           ]}>
           <SFSymbol
-            name="calendar.badge.clock"
+            name={popover ? 'calendar' : 'calendar.badge.clock'}
             color={colors.textPrimary}
           />
           <Text
@@ -465,7 +473,8 @@ function ReminderChoices({
               onPress={onClose}
               modifiers={[
                 buttonStyle('bordered'),
-                buttonBorderShape('capsule'),
+                buttonBorderShape('roundedRectangle'),
+                tint(colors.textPrimary),
               ]}
             />
           </Host>
@@ -479,7 +488,7 @@ function ReminderChoices({
               }}
               modifiers={[
                 buttonStyle('borderedProminent'),
-                buttonBorderShape('capsule'),
+                buttonBorderShape('roundedRectangle'),
                 tint(colors.accentFill),
               ]}
             />
