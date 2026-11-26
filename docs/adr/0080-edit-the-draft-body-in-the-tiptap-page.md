@@ -144,10 +144,13 @@ release limit:
    and prove that they restore after a forced termination. The page does so on Mac
    since [#2933](https://github.com/unwired-dev/product/issues/2933) and on iPhone
    and iPad since [#2944](https://github.com/unwired-dev/product/issues/2944).
-3. The Mac Inline Image journey, file drops on every host, and **Paste Image**
-   and in-page paste on a device. Image paste on Mac is met by
+3. File drops on every host, and **Paste Image** and in-page paste on a device.
+   Image paste on Mac is met by
    [#2929](https://github.com/unwired-dev/product/issues/2929): native code reads
-   the pasteboard, and the Mac journey pastes an image that reopens in place.
+   the pasteboard, and the Mac journey pastes an image that reopens in place. The
+   Mac Inline Image journey passed natively in
+   [#2948](https://github.com/unwired-dev/product/issues/2948)
+   ([evidence](../draft-editor-evaluation.md#inline-images-820)).
 4. WebKit website data after account removal and a network capture of a journey.
    Met by [#2922](https://github.com/unwired-dev/product/issues/2922) on iPhone
    and iPad Simulators and the Mac: no sample found website data during the
