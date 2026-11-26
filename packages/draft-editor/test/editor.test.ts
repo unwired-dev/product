@@ -1811,25 +1811,29 @@ describe('the Tiptap evaluation page', () => {
     page.command({ type: 'previews', previews: { [photo.id]: thumbnail } });
     const rechecked = shown();
     const { view } = page.editor;
-    const files = { types: ['Files', 'image/png'] };
+    // The files arrive beside HTML that could carry their data; nothing reads either.
+    const reads: string[] = [];
+    const files = {
+      types: ['Files', 'image/png', 'text/html'],
+      getData: (type: string) => {
+        reads.push(type);
+        return '<img src="data:image/png;base64,iVBORw0KGgo=">';
+      },
+    };
     const paste = new ClipboardEvent('paste', { cancelable: true });
     Object.defineProperty(paste, 'clipboardData', { value: files });
     const drop = new DragEvent('drop', { cancelable: true });
     Object.defineProperty(drop, 'dataTransfer', { value: files });
+    view.dom.dispatchEvent(paste);
+    view.dom.dispatchEvent(drop);
+    // Moving content within the page stays ProseMirror's own.
     const move = new DragEvent('drop', { cancelable: true });
     Object.defineProperty(move, 'dataTransfer', { value: files });
-    const handled = [
-      view.someProp('handlePaste', (handle) =>
-        handle(view, paste, Slice.empty),
-      ),
-      view.someProp('handleDrop', (handle) =>
-        handle(view, drop, Slice.empty, false),
-      ),
-      // Moving content within the page stays ProseMirror's own.
-      view.someProp('handleDrop', (handle) =>
-        handle(view, move, Slice.empty, true),
-      ),
-    ];
+    view.dragging = { slice: Slice.empty, move: true };
+    const moved = view.someProp('handleDOMEvents', (handlers) =>
+      handlers.drop?.(view, move),
+    );
+    view.dragging = null;
     expect({
       before,
       after,
@@ -1837,7 +1841,8 @@ describe('the Tiptap evaluation page', () => {
       revoked,
       unverified,
       rechecked,
-      handled,
+      reads,
+      moved,
       prevented: [paste, drop, move].map(
         ({ defaultPrevented }) => defaultPrevented,
       ),
@@ -1850,7 +1855,8 @@ describe('the Tiptap evaluation page', () => {
       revoked: null,
       unverified: null,
       rechecked: thumbnail,
-      handled: [true, true, undefined],
+      reads: [],
+      moved: undefined,
       prevented: [true, true, false],
       requests: ['paste', 'drop'],
       body: [{ kind: 'paragraph', spans: [{ text: '￼', image: photo }] }],

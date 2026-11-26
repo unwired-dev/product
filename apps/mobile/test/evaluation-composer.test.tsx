@@ -993,6 +993,10 @@ describe('the Tiptap evaluation composer', () => {
     });
     const pasted = lastAdded();
     // Native code cannot read files dropped on the page here, so a drop adds nothing.
+    storage.addFile('file:///scan.png', 'scan');
+    storage.pickNext('drop', [
+      { uri: 'file:///scan.png', name: 'scan.png', type: 'image/png' },
+    ]);
     const beforeDrop = lastSent();
     await act(async () => {
       await fireEvent(screen.getByTestId('message-webview'), 'message', {

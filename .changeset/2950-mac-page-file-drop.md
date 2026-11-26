@@ -1,5 +1,7 @@
 ---
 '@private-email/macos': patch
+'@private-email/draft-editor': patch
+'@private-email/mail-core': patch
 ---
 
 On Mac, files dropped on the Draft editor page of `registration-draft-editor` builds are

@@ -1051,32 +1051,23 @@ const DraftBehavior = Extension.create<unknown, { typing: boolean }>({
               ? new Slice(content, 1, 1)
               : new Slice(content, slice.openStart, slice.openEnd);
           },
-          // Pasted images and dropped files are read by native code, where it can; the page never
-          // reads the data.
           // Pasting over a selection pastes over it as the current composer does.
-          handlePaste: (view, event, slice) => {
-            if (!carriesFiles(event.clipboardData)) {
-              const { selection } = view.state;
-              if (
-                selection.empty ||
-                !editsAsText(selection) ||
-                slice.size === 0
-              ) {
-                return false;
-              }
-              const { tr } = view.state;
-              pasteOver(tr, slice);
-              view.dispatch(
-                tr
-                  .scrollIntoView()
-                  .setMeta('paste', true)
-                  .setMeta('uiEvent', 'paste'),
-              );
-              return true;
+          handlePaste: (view, _event, slice) => {
+            const { selection } = view.state;
+            if (
+              selection.empty ||
+              !editsAsText(selection) ||
+              slice.size === 0
+            ) {
+              return false;
             }
-            event.preventDefault();
-            globalThis.ReactNativeWebView?.postMessage(
-              JSON.stringify({ type: 'paste' }),
+            const { tr } = view.state;
+            pasteOver(tr, slice);
+            view.dispatch(
+              tr
+                .scrollIntoView()
+                .setMeta('paste', true)
+                .setMeta('uiEvent', 'paste'),
             );
             return true;
           },
@@ -1085,14 +1076,7 @@ const DraftBehavior = Extension.create<unknown, { typing: boolean }>({
           // oxlint-disable-next-line max-params -- ProseMirror's handleDrop signature.
           handleDrop: (view, event, slice, moved) => {
             if (!moved) {
-              if (!carriesFiles(event.dataTransfer)) {
-                return false;
-              }
-              event.preventDefault();
-              globalThis.ReactNativeWebView?.postMessage(
-                JSON.stringify({ type: 'drop' }),
-              );
-              return true;
+              return false;
             }
             const target = emptyLineAt(view, event, slice);
             if (target === null) {
@@ -1116,6 +1100,29 @@ const DraftBehavior = Extension.create<unknown, { typing: boolean }>({
           // Text inserted over a selection across lines without a key press, as by dictation or a
           // suggestion, goes through handleTextInput too; ProseMirror would read it from the DOM.
           handleDOMEvents: {
+            // Pasted images and dropped files are read by native code, where it can; the page
+            // never reads the data, so it refuses them before ProseMirror reads their text or HTML.
+            // A drag within the page stays ProseMirror's own.
+            paste: (_view, event) => {
+              if (!carriesFiles(event.clipboardData)) {
+                return false;
+              }
+              event.preventDefault();
+              globalThis.ReactNativeWebView?.postMessage(
+                JSON.stringify({ type: 'paste' }),
+              );
+              return true;
+            },
+            drop: (view, event) => {
+              if (view.dragging !== null || !carriesFiles(event.dataTransfer)) {
+                return false;
+              }
+              event.preventDefault();
+              globalThis.ReactNativeWebView?.postMessage(
+                JSON.stringify({ type: 'drop' }),
+              );
+              return true;
+            },
             beforeinput: (view, event) => {
               const { from, to, $from, $to } = view.state.selection;
               const text = event.data;

@@ -538,6 +538,7 @@ final class WindowTests: XCTestCase {
     // The import reads the bytes, which fails for a file the app was given no access to.
     waitUntil { !row.label.contains("…") }
     XCTAssertFalse(row.label.contains("Not added"), row.label)
+    let attached = row.label
     XCTAssertTrue(typed.exists)
     XCTAssertEqual(body.images.count, 0)
     let dropped = XCTAttachment(screenshot: window.screenshot())
@@ -556,10 +557,12 @@ final class WindowTests: XCTestCase {
     draft.click()
     XCTAssertTrue(
       webText("Dropped below this line", in: relaunched).waitForExistence(timeout: 15))
-    XCTAssertTrue(
-      relaunched.descendants(matching: .any)
-        .matching(NSPredicate(format: "label BEGINSWITH %@", "drop-note.txt, ")).firstMatch
-        .waitForExistence(timeout: 15))
+    // The reopened Attachment verifies as it did when dropped, not missing or damaged.
+    let kept = relaunched.descendants(matching: .any)
+      .matching(NSPredicate(format: "label BEGINSWITH %@", "drop-note.txt, ")).firstMatch
+    XCTAssertTrue(kept.waitForExistence(timeout: 15))
+    waitUntil { kept.label == attached }
+    XCTAssertEqual(kept.label, attached)
     let reopened = XCTAttachment(screenshot: relaunched.screenshot())
     reopened.name = "Reopened Draft with the dropped file"
     reopened.lifetime = .keepAlways
