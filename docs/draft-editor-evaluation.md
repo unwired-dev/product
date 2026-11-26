@@ -732,6 +732,41 @@ app would not be seen. The capture shows only packets the host sends or receives
 it would not see data the page passes to another process without a network
 connection.
 
+### Packaged size (#2953)
+
+[#2953](https://github.com/unwired-dev/product/issues/2953) measures the packaged
+size that [ADR 0080](adr/0080-edit-the-draft-body-in-the-tiptap-page.md)'s gate 5
+lists among #822's measurements. The `registration-draft-editor` scenario resolves
+exactly like `registration-apple` except that `scripts/mock-mail-build.cjs`
+substitutes the bundled page for the empty `@private-email/draft-editor/page`
+default, so the difference between their packaged apps is the page's cost.
+
+Both scenarios were built on 2026-11-26 from main at `01c50416b` with Xcode 27.2
+(`27B52`) on macOS 27.2.1 on the Mac mini M4 (16 GB): iPhone and iPad as one
+Release app for a generic iOS device (`iphoneos` 27.2 SDK, arm64, unsigned,
+minimum iOS 27.0), and the Mac as `Testing` builds, which mock scenarios require.
+Sizes are the sum of the files' bytes in the `.app`; compressed sizes are a
+`ditto -c -k` zip of it.
+
+| Bytes                          | iPhone and iPad |        Mac |
+| ------------------------------ | --------------: | ---------: |
+| App without the page           |      96,224,080 | 55,999,938 |
+| App with the page              |      97,087,180 | 56,863,079 |
+| Difference                     |         863,100 |    863,141 |
+| Hermes bundle difference       |         818,140 |    818,188 |
+| `ThirdPartyNotices` difference |          44,946 |     44,946 |
+| Compressed difference          |         156,256 |    160,110 |
+
+The page itself is 409,085 bytes of HTML as `buildPage()` writes it, 126,731
+gzipped; the Hermes bundle holds it as one string module. The executables, asset
+catalogs and every other file keep their sizes; the scenario name in `Info.plist`
+(and on iPhone and iPad in Expo's `app.config`) accounts for the remaining 7 or
+14 bytes.
+
+This leaves out App Store thinning, encryption and download compression, and
+production builds, which do not package the page yet. Startup, warm composer opening, typing response and memory
+remain unmeasured, as do physical iPhone and iPad.
+
 ## Finding
 
 **Proceed** to the dependent evaluations (#819–#822) on iPhone and iPad. A

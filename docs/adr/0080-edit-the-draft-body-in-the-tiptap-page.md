@@ -150,7 +150,12 @@ release limit:
    selection-change latency on large, many-block Drafts
    ([review note](https://github.com/unwired-dev/product/issues/822#issuecomment-6114571758)),
    and the current composer's interactions the page lacks, such as the Slash
-   Command Menu.
+   Command Menu. Packaged size is measured by
+   [#2953](https://github.com/unwired-dev/product/issues/2953): the page adds
+   about 0.86 MB to the iPhone and iPad app and to the Mac app, and about
+   0.16 MB compressed
+   ([evidence](../draft-editor-evaluation.md#packaged-size-2953)). Startup, warm
+   composer opening, typing response and memory remain.
 6. The Tiptap and ProseMirror notices in the distributed app; the licence
    inventory must list the page's packages. Met by
    [#2916](https://github.com/unwired-dev/product/issues/2916): every bundle that
