@@ -672,16 +672,40 @@ describe('sending a Draft', () => {
       ]);
       await press('Attach Files…');
       await screen.findByLabelText('plan.pdf, Adding…');
+      // The reason above the body names the file, and VoiceOver reads it as Send's help.
       const waiting =
-        'Some files are not ready to send. Remove them, or wait until they are added.';
-      expect(screen.getByRole('alert', { name: waiting })).toBeOnTheScreen();
+        '“plan.pdf” is still importing. Wait for it, or remove it, to send.';
+      expect(screen.getByLabelText(waiting)).toBeOnTheScreen();
       expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled();
+      expect(screen.getByRole('button', { name: 'Send' })).toHaveProp(
+        'help',
+        waiting,
+      );
+      // It stays beside another reason Send is unavailable.
+      await fireEvent.changeText(
+        screen.getByLabelText('To'),
+        'jürgen@example.invalid',
+      );
+      expect(
+        screen.getByText(
+          'An address in this message uses characters this app cannot send yet. Use a plain email address.',
+        ),
+      ).toBeOnTheScreen();
+      expect(screen.getByLabelText(waiting)).toBeOnTheScreen();
+      await fireEvent.changeText(
+        screen.getByLabelText('To'),
+        'sam@example.invalid',
+      );
       await act(async () => {
         sender.storage.releaseImports();
       });
       await screen.findByLabelText('plan.pdf, 4 bytes');
-      expect(screen.queryByRole('alert', { name: waiting })).toBeNull();
+      expect(screen.queryByLabelText(waiting)).toBeNull();
       expect(screen.getByRole('button', { name: 'Send' })).not.toBeDisabled();
+      expect(screen.getByRole('button', { name: 'Send' })).toHaveProp(
+        'help',
+        undefined,
+      );
       expect(announce).not.toHaveBeenCalledWith(waiting);
     } finally {
       sender.storage.release();

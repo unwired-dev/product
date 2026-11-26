@@ -73,6 +73,7 @@ import { ScrollEdge, WindowBarContext } from './inbox-bar.tsx';
 import { barInset } from './inbox-styles.ts';
 import { useLocalization, useMessageDateFormat } from './localization.ts';
 import { ProfileMailAssistanceGate } from './mail-assistance.tsx';
+import { useMailboxList } from './mailbox-state.ts';
 import {
   MailboxScope,
   useComposerNavigation,
@@ -568,6 +569,7 @@ function ResponseActions({
   readonly onPanel: (panel: ReaderPanel | undefined) => void;
 }) {
   const inbox = useInboxActions();
+  const list = useMailboxList();
   const store = useDraftStore();
   const drafts = useDrafts();
   const navigation = useComposerNavigation();
@@ -635,7 +637,20 @@ function ResponseActions({
     );
     try {
       const draft = await startResponse(
-        { navigation, drafts: store, inbox },
+        {
+          navigation,
+          drafts: store,
+          inbox,
+          // Authorizing the mailbox again replaces its Inbox.
+          inboxOf: () => {
+            const current = list
+              .getSnapshot()
+              .find(({ id }) => id === sender.id)?.inbox;
+            return current !== undefined && 'responseSource' in current
+              ? current
+              : undefined;
+          },
+        },
         t,
         {
           kind,

@@ -79,6 +79,9 @@ export const AssetSchema = Schema.Union([
     state: Schema.Literal('failed'),
     // Over the per-file limit or the space left for Drafts on this device.
     reason: Schema.optionalKey(Schema.Literal('too-large')),
+    // A received attachment that couldn't be downloaded. A key of its own, which clients that know
+    // only `reason` ignore, so they still read the Draft.
+    notDownloaded: Schema.optionalKey(Schema.Literal(true)),
   }),
   Schema.Struct({
     ...assetFields,

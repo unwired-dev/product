@@ -226,11 +226,19 @@ export function createAttachmentDownloads<S extends Scope, E>(
 
   // Downloads one listed attachment into private temporary storage, resolving once it settles; a
   // request while it runs returns the same Promise. Cancelling, closing the message or a change of
-  // mailbox drops the result and deletes any file saved for it.
-  const download = (id: string, locator: string): Promise<void> => {
+  // mailbox drops the result and deletes any file saved for it. `again` downloads it once more
+  // even when a file is saved, as when the device removed that file.
+  const download = (
+    id: string,
+    locator: string,
+    { again = false }: Readonly<{ again?: boolean }> = {},
+  ): Promise<void> => {
     const key = attachmentKey(id, locator);
     const opened = scope();
     const attachment = descriptor(id, locator);
+    if (again && downloads.get(key)?.saved !== undefined) {
+      drop(key);
+    }
     const current = downloads.get(key);
     if (current?.state.kind === 'downloading') {
       return current.operation ?? Promise.resolve();

@@ -321,7 +321,7 @@ function EvaluationEditor({
       });
     }
     for (const { asset, file } of imports) {
-      void store.importAsset(asset, file.source);
+      void store.importAsset(asset, file.source, { keep: true });
     }
   };
   // Remove and Cancel already queued when Save Draft or Send starts leave the frozen version alone.
@@ -329,7 +329,7 @@ function EvaluationEditor({
     if (busy.current) {
       return;
     }
-    void store.cancelImport(id);
+    void store.cancelImport(id, { removed: true });
     run({ type: 'remove', id });
   };
   // Verified thumbnails of the body's images, which the image rows read and read again on

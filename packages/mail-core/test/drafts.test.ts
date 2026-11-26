@@ -4,7 +4,13 @@ import { setImmediate } from 'node:timers/promises';
 import { createLocalization, english } from '@private-email/localization';
 import * as Schema from 'effect/Schema';
 
-import type { Draft, DraftsState, SlashCommand } from '../src/drafts.ts';
+import type {
+  AssetSource,
+  Download,
+  Draft,
+  DraftsState,
+  SlashCommand,
+} from '../src/drafts.ts';
 import type { RegistrationSnapshot } from '../src/registration.ts';
 import type {
   Asset,
@@ -30,6 +36,7 @@ import {
   createDrafts,
   draftSummary,
   isEmptyDraft,
+  leftOutQuestion,
   prepareFiles,
   recipientSuggestions,
   recipientSummary,
@@ -44,6 +51,7 @@ import {
   sendingMailboxes,
   sendingStateOf,
   unsendableAssets,
+  withAsset,
   withSender,
 } from '../src/drafts.ts';
 import { defaultProfile, mailboxesOf } from '../src/registration.ts';
@@ -3598,13 +3606,19 @@ describe('adding files and images to Drafts', () => {
     expect(assetsOf(draft())[0]).toMatchObject({ state: 'cancelled' });
     expect(storage.assets()).toStrictEqual([]);
 
-    // Unreadable source bytes fail the import, which reads as failed before its bytes are
-    // discarded, never as neither importing nor failed.
-    const seen: Asset[] = [];
+    // Unreadable source bytes fail the import once its bytes are discarded; until then it reads
+    // as importing, never as neither importing nor failed, and Try Again waits.
+    const seen: Array<
+      Readonly<{ state: string; importing: boolean; retry: boolean }>
+    > = [];
     const discard = vi
       .spyOn(storage.native, 'discardDraftAsset')
       .mockImplementationOnce(() => {
-        seen.push(...assetsOf(draft()).slice(1, 2));
+        seen.push({
+          state: present(assetsOf(draft())[1], 'the failing file').state,
+          importing: drafts.getImports().has(failing.id),
+          retry: drafts.getRetries().has(failing.id),
+        });
         return Promise.resolve({});
       });
     await drafts.importAsset(failing, {
@@ -3612,7 +3626,9 @@ describe('adding files and images to Drafts', () => {
       uri: 'file:///missing.txt',
     });
     discard.mockRestore();
-    expect(seen.map(({ state }) => state)).toStrictEqual(['failed']);
+    expect(seen).toStrictEqual([
+      { state: 'importing', importing: true, retry: false },
+    ]);
     expect(assetsOf(draft())[1]).toMatchObject({ state: 'failed' });
     // Bytes written before native code rejected the import are discarded, so they never hold
     // the Outgoing Content Store's space until relaunch.
@@ -3657,6 +3673,328 @@ describe('adding files and images to Drafts', () => {
     await relaunched.update({ ...reopened, subject: 'Notes' }, reopened);
     expect(storage.assets()).toStrictEqual([]);
     expect(unsendableAssets(reopened)).toHaveLength(3);
+  });
+
+  it('reads a failed file again on Try Again, deleting its copy once no Draft lists it', async () => {
+    expect.hasAssertions();
+    const { storage, drafts, id, draft } = await opened();
+    const pick = { kind: 'file', uri: 'file:///notes.txt' } as const;
+    storage.addFile(pick.uri, 'notes');
+    const attachFailing = async (target: string, code: string) => {
+      const asset = drafts.prepare({ name: 'notes.txt', type: 'text/plain' });
+      const before = present(
+        draftOf(drafts.getSnapshot(), target),
+        'the Draft',
+      );
+      await drafts.update(
+        { ...before, attachments: [...assetsOf(before), asset] },
+        before,
+      );
+      storage.failNextImport(code);
+      await drafts.importAsset(asset, pick, { keep: true });
+      return asset;
+    };
+
+    // A failed import keeps the picked copy, and Try Again adds it without a picker.
+    const retried = await attachFailing(id, 'locked');
+    expect(assetsOf(draft())[0]).toStrictEqual({
+      ...retried,
+      state: 'failed',
+    });
+    expect(drafts.getRetries().has(retried.id)).toBe(true);
+    storage.holdImports();
+    const retrying = drafts.retryImport(retried.id);
+    await vi.waitFor(() => {
+      expect(assetsOf(draft())[0]).toMatchObject({ state: 'importing' });
+    });
+    expect(drafts.getImports().has(retried.id)).toBe(true);
+    storage.releaseImports();
+    await expect(retrying).resolves.toBe(true);
+    expect(assetsOf(draft())[0]).toMatchObject({ state: 'complete' });
+    expect(drafts.getRetries().size).toBe(0);
+    await expect(drafts.retryImport(retried.id)).resolves.toBe(false);
+    expect(storage.discardedPicks()).toStrictEqual([]);
+
+    // Removing a failed file deletes its copy at once.
+    const removed = await attachFailing(id, 'locked');
+    const before = draft();
+    await drafts.update(
+      {
+        ...before,
+        attachments: assetsOf(before).filter(
+          ({ id: each }) => each !== removed.id,
+        ),
+      },
+      before,
+    );
+    expect(drafts.getRetries().size).toBe(0);
+    expect(storage.discardedPicks()).toStrictEqual([pick.uri]);
+
+    // A failed file its Draft still lists keeps its copy when another Draft is created, and
+    // discarding its Draft deletes it, also while an editor holds that Draft.
+    const kept = await attachFailing(id, 'locked');
+    const other = present(await drafts.create(alex), 'another Draft');
+    expect([...drafts.getRetries()]).toStrictEqual([kept.id]);
+    const editor = vi.fn<(id: string) => void>();
+    drafts.hold(id, editor);
+    await expect(drafts.discard(id)).resolves.toBe(true);
+    expect(drafts.getRetries().size).toBe(0);
+    expect(storage.discardedPicks()).toStrictEqual([pick.uri, pick.uri]);
+    drafts.release(editor);
+
+    // A failed file only an open editor shows, before it saved, keeps its copy until that editor
+    // removes it or closes.
+    const shown = present(draftOf(drafts.getSnapshot(), other), 'the Draft');
+    let history: readonly Draft[] = [];
+    const showing = vi.fn<(id: string) => void>();
+    drafts.hold(other, showing);
+    const stop = drafts.onSettle((asset, next) => {
+      history = history.map((each) => withAsset(each, asset, next));
+      return history;
+    });
+    const failUnsaved = async () => {
+      const unsaved = drafts.prepare({ name: 'notes.txt', type: 'text/plain' });
+      history = [{ ...shown, attachments: [unsaved] }];
+      storage.failNextImport('locked');
+      await drafts.importAsset(unsaved, pick, { keep: true });
+      expect([...drafts.getRetries()]).toStrictEqual([unsaved.id]);
+      return unsaved;
+    };
+    const removedUnsaved = await failUnsaved();
+    // A Cancel that arrives once the import failed leaves Try Again in place.
+    await expect(drafts.cancelImport(removedUnsaved.id)).resolves.toBe(false);
+    expect([...drafts.getRetries()]).toStrictEqual([removedUnsaved.id]);
+    await expect(
+      drafts.cancelImport(removedUnsaved.id, { removed: true }),
+    ).resolves.toBe(false);
+    expect(drafts.getRetries().size).toBe(0);
+    expect(storage.discardedPicks()).toHaveLength(3);
+    await failUnsaved();
+    expect(storage.discardedPicks()).toHaveLength(3);
+    stop();
+    drafts.release(showing);
+    expect(drafts.getRetries().size).toBe(0);
+    expect(storage.discardedPicks()).toHaveLength(4);
+
+    // A client without Try Again keeps no copy of a failed file.
+    const plain = drafts.prepare({ name: 'notes.txt', type: 'text/plain' });
+    const listing = present(draftOf(drafts.getSnapshot(), other), 'the Draft');
+    await drafts.update({ ...listing, attachments: [plain] }, listing);
+    storage.failNextImport('locked');
+    await drafts.importAsset(plain, pick);
+    expect(drafts.getRetries().size).toBe(0);
+    expect(storage.discardedPicks()).toHaveLength(5);
+
+    // A file too large for Drafts can't be tried again, so its copy goes at once.
+    await attachFailing(other, 'too-large');
+    expect(drafts.getRetries().size).toBe(0);
+    expect(storage.discardedPicks()).toHaveLength(6);
+
+    // An import that fails after its Draft was discarded leaves no copy behind.
+    const asset = drafts.prepare({ name: 'notes.txt', type: 'text/plain' });
+    const last = present(draftOf(drafts.getSnapshot(), other), 'the Draft');
+    await drafts.update({ ...last, attachments: [asset] }, last);
+    storage.holdImports();
+    storage.failNextImport('locked');
+    const importing = drafts.importAsset(asset, pick, { keep: true });
+    await expect(drafts.discard(other)).resolves.toBe(true);
+    storage.releaseImports();
+    await importing;
+    expect(drafts.getRetries().size).toBe(0);
+    expect(storage.discardedPicks()).toHaveLength(7);
+  });
+
+  it('names why each file was left out, and downloads a forwarded attachment again on Try Again', async () => {
+    expect.hasAssertions();
+    const { storage, drafts, id, draft } = await opened();
+    const mailbox = {
+      connection: alex.id,
+      address: alex.address,
+      generation: 'generation-1',
+    };
+    // A Downloaded Attachment no longer on this device, and a forward whose file didn't download.
+    storage.failNextImport('attachment-missing');
+    await drafts.attach(id, [
+      {
+        name: 'invoice.pdf',
+        type: 'application/pdf',
+        source: { kind: 'received', mailbox, file: 'downloaded-file' },
+      },
+    ]);
+    const release = vi.fn<() => void>();
+    const download = vi.fn<Download>(async () => {
+      storage.addFile('downloaded-again', 'plan');
+      return {
+        source: {
+          kind: 'received',
+          mailbox,
+          file: 'downloaded-again',
+        } satisfies AssetSource,
+        release,
+      };
+    });
+    const plan = drafts.prepare({
+      name: 'plan.key',
+      type: 'application/x-iwork-keynote-sffkey',
+    });
+    await drafts.fill(
+      id,
+      (each) => ({ ...each, attachments: [...assetsOf(each), plan] }),
+      [{ asset: plan, source: { kind: 'unavailable' }, download, keep: true }],
+    );
+    await vi.waitFor(() => {
+      expect(assetsOf(draft())).toMatchObject([
+        { state: 'failed', notDownloaded: true },
+        { state: 'failed', notDownloaded: true },
+      ]);
+    });
+    expect(leftOutQuestion(english, draft(), new Set())?.detail).toBe(
+      'invoice.pdf couldn’t be downloaded and plan.key couldn’t be downloaded. No attachments will be sent.',
+    );
+
+    // Reading the same missing file again can't succeed; downloading the forward again can.
+    expect([...drafts.getRetries()]).toStrictEqual([plan.id]);
+    await expect(drafts.retryImport(plan.id)).resolves.toBe(true);
+    expect(download).toHaveBeenCalledWith();
+    expect(release).toHaveBeenCalledWith();
+    expect(assetsOf(draft())[1]).toMatchObject({ state: 'complete', size: 4 });
+  });
+
+  it('keeps Try Again for a forwarded attachment whose download again failed', async () => {
+    expect.hasAssertions();
+    const { drafts, id, draft } = await opened();
+    const download = vi.fn<Download>(async () => {
+      throw new Error('cached body unreadable');
+    });
+    const plan = drafts.prepare({ name: 'plan.key', type: 'application/pdf' });
+    await drafts.fill(
+      id,
+      (each) => ({ ...each, attachments: [...assetsOf(each), plan] }),
+      [{ asset: plan, source: { kind: 'unavailable' }, download, keep: true }],
+    );
+    await vi.waitFor(() => {
+      expect(assetsOf(draft())).toMatchObject([{ state: 'failed' }]);
+    });
+
+    await expect(drafts.retryImport(plan.id)).resolves.toBe(true);
+    expect(download).toHaveBeenCalledWith();
+    expect(assetsOf(draft())).toMatchObject([
+      { state: 'failed', notDownloaded: true },
+    ]);
+    expect([...drafts.getRetries()]).toStrictEqual([plan.id]);
+  });
+
+  it('releases each received file once it is added or can no longer be tried again', async () => {
+    expect.hasAssertions();
+    const { session, storage, drafts, id, draft } = await opened();
+    const received = (file: string, keep?: true, from = alex) => {
+      const mailbox = {
+        connection: from.id,
+        address: from.address,
+        generation: 'generation-1',
+      };
+      storage.addFile(file, 'bytes');
+      const release = vi.fn<() => void>();
+      return {
+        release,
+        file: {
+          name: `${file}.txt`,
+          type: 'text/plain',
+          source: { kind: 'received', mailbox, file } satisfies AssetSource,
+          release,
+          keep,
+        },
+      };
+    };
+    // One file of a forward failing keeps only its own file for Try Again.
+    const failing = received('failing', true);
+    const added = received('added', true);
+    storage.failNextImport('locked');
+    await drafts.attach(id, [failing.file, added.file]);
+    await vi.waitFor(() => {
+      expect(assetsOf(draft()).map(({ state }) => state)).toStrictEqual([
+        'failed',
+        'complete',
+      ]);
+    });
+    expect(added.release).toHaveBeenCalledWith();
+    expect(failing.release).not.toHaveBeenCalled();
+    // Removing it from the Draft releases it.
+    const listed = draft();
+    await drafts.update(
+      { ...listed, attachments: assetsOf(listed).slice(1) },
+      listed,
+    );
+    await vi.waitFor(() => {
+      expect(failing.release).toHaveBeenCalledWith();
+    });
+
+    // Try Again never adds a file whose mailbox moved into another Mail Profile meanwhile.
+    const moved = received('moved', true, other);
+    storage.failNextImport('locked');
+    await drafts.attach(id, [moved.file]);
+    await vi.waitFor(() => {
+      expect(drafts.getRetries().size).toBe(1);
+    });
+    session.change(
+      connected('account-a', [alex, { ...other, profile: 'personal' }]),
+    );
+    const [retried] = [...drafts.getRetries()];
+    await drafts.retryImport(present(retried, 'the failed file'));
+    expect(assetsOf(draft()).at(-1)).toMatchObject({ state: 'failed' });
+    expect(moved.release).toHaveBeenCalledWith();
+    expect(storage.assets()).toHaveLength(1);
+    // Nor one whose mailbox moves while its file is read.
+    session.change(connected('account-a', [alex, other]));
+    const moving = received('moving', true, other);
+    storage.failNextImport('locked');
+    await drafts.attach(id, [moving.file]);
+    await vi.waitFor(() => {
+      expect(drafts.getRetries().size).toBe(1);
+    });
+    storage.holdImports();
+    const native = vi.spyOn(storage.native, 'importDraftAsset');
+    const [reading] = [...drafts.getRetries()];
+    const retrying = drafts.retryImport(present(reading, 'the failed file'));
+    await vi.waitFor(() => {
+      expect(native).toHaveBeenCalledWith(
+        expect.anything(),
+        reading,
+        expect.anything(),
+      );
+    });
+    native.mockRestore();
+    session.change(
+      connected('account-a', [alex, { ...other, profile: 'personal' }]),
+    );
+    storage.releaseImports();
+    await retrying;
+    expect(assetsOf(draft()).at(-1)).toMatchObject({ state: 'failed' });
+    expect(moving.release).toHaveBeenCalledWith();
+    expect(storage.assets()).toHaveLength(1);
+
+    // A client without Try Again keeps no failed file, nor downloads a forward again.
+    const plain = received('plain');
+    const download = vi.fn<Download>();
+    const forwarded = drafts.prepare({ name: 'plain.txt', type: 'text/plain' });
+    storage.failNextImport('locked');
+    await drafts.fill(
+      id,
+      (each) => ({ ...each, attachments: [...assetsOf(each), forwarded] }),
+      [
+        {
+          asset: forwarded,
+          source: plain.file.source,
+          download,
+          release: plain.release,
+        },
+      ],
+    );
+    await vi.waitFor(() => {
+      expect(plain.release).toHaveBeenCalledWith();
+    });
+    expect(drafts.getRetries().size).toBe(0);
+    expect(download).not.toHaveBeenCalled();
   });
 
   it('refuses files over the limits and reports damaged or missing bytes', async () => {

@@ -63,6 +63,7 @@ const NativePushButton = requireNativeComponent<
     readonly enabled: boolean;
     readonly returnKey: boolean;
     readonly escapeKey: boolean;
+    readonly help: string | undefined;
     readonly onPress: () => void;
   }
 >('UnwiredPushButton');
@@ -937,6 +938,7 @@ export function Button({
   isDefault = false,
   isCancel = false,
   accessibilityLabel,
+  help,
 }: {
   readonly label: string;
   readonly onPress: () => void;
@@ -947,6 +949,8 @@ export function Button({
   // Escape presses it, as it does a sheet's Cancel.
   readonly isCancel?: boolean;
   readonly accessibilityLabel?: string;
+  // The tooltip, which VoiceOver reads as the button's help, such as why it is unavailable.
+  readonly help?: string | undefined;
 }) {
   const colors = usePalette();
   const dark = useColorScheme() === 'dark';
@@ -972,6 +976,8 @@ export function Button({
         accessibilityLabel={accessibilityLabel ?? label}
         accessibilityRole="button"
         accessibilityState={{ disabled }}
+        accessibilityHint={help}
+        help={help}
         destructive={destructive}
         enabled={!disabled}
         focusColor={dark ? processColor(colors.accentInk) : undefined}
