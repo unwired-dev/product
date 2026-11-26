@@ -11,6 +11,37 @@ The [mobile bootstrap](../expo-client.md) now uses Expo 57.0.25, React Native
 are available on the development host. The maintainer's earlier native-validation
 deferral still applies to unavailable release checks. Mac host evidence follows.
 
+## iPhone and iPad presenter checks in the other appearance, 2026-11-26
+
+[#2943](https://github.com/unwired-dev/product/issues/2943), a slice of
+[#2873](https://github.com/unwired-dev/product/issues/2873), runs the checks the
+2026-11-24 pass below recorded in Dark only, and that no later entry ran in Light. It
+ran on `e6cd8cb16` with the journey step added, on `open-read-relaunch` and
+`registration-imap-folders` Release Simulator builds with Xcode 27.2 (`27B52`), the
+iOS 27.0 runtime and macOS 27.2.1, on iPhone 18 Pro and iPad Pro 11-inch (M5)
+starting in portrait. Each run passed on its first attempt; the 1-minute host load
+from other work was 30–180.
+
+- Filters, in Light: the `open-read-relaunch` Inbox journey (`verifyFilters`) passed
+  on iPhone and iPad. On iPhone a downward swipe on the sheet discards a cleared
+  Unread; on iPad a tap outside and Command-period, UIKit's Escape, each discard it,
+  and the popover stays shown while the iPad turns to Landscape and back. CI runs
+  the same journey in Dark.
+- Move sheet search, in Light and Dark: the `registration-imap-folders` journey now
+  types "bulk" into the iPhone Move sheet's search on IMAP mail. The other
+  folders, the selected Inbox among them, leave the list, and the search field and
+  **Move to Bulk Mail** stay above the software keyboard, which the 2026-11-24 pass
+  had checked by hand in Dark. Bulk Mail
+  then takes the move from the search's result. It passed on iPhone in both
+  appearances.
+- Already run in both appearances by later entries: the Reply sheet's Close
+  ([#2914](https://github.com/unwired-dev/product/issues/2914)) and swipe
+  ([#2898](https://github.com/unwired-dev/product/issues/2898)), Apply Filters
+  (#2914), `testNewLabel`
+  ([#2891](https://github.com/unwired-dev/product/issues/2891)), the Labels sheet's
+  swipe and `testComposerSheet`, with the composer's question and its fields above
+  the keyboard (#2898).
+
 ## Link confirmation through rotation, 2026-11-25
 
 [#2909](https://github.com/unwired-dev/product/issues/2909) restores the turn

@@ -583,12 +583,15 @@ unavailable: in the system popover on iPad, which one tap outside and Command-pe
 Escape, each close, and in the system Move sheet on iPhone, which **Close** and a downward swipe
 each close. Before the first close the picker turns to Landscape and back to Portrait, and after
 each turn it is still shown with its folders, and on iPhone **Close**, in reach
-([#2931](https://github.com/unwired-dev/product/issues/2931)). **Move to Bulk Mail** then
-requests the move: the reader closes and the list reports **Moved: “Welcome to IMAP”.** at once,
-before the server answers. The synthetic server discards
+([#2931](https://github.com/unwired-dev/product/issues/2931)). On iPhone the sheet then opens
+again, and "bulk" is typed into its search at the sheet's foot: the other folders, the selected
+Inbox among them, leave the list, and the search field and **Move to Bulk Mail** stay above the
+software keyboard ([#2943](https://github.com/unwired-dev/product/issues/2943)).
+**Move to Bulk Mail** then requests the move: the reader closes and the list reports
+**Moved: “Welcome to IMAP”.** at once, before the server answers. The synthetic server discards
 moves, so what the server keeps is left to the mail-core IMAP organize tests. The captures
-"Folders popover" or "Move sheet", the same in Landscape, and "Moved to Spam" are named with the
-appearance.
+"Folders popover" or "Move sheet", the same in Landscape, on iPhone "Move sheet search", and "Moved
+to Spam" are named with the appearance.
 
 Settings › Signatures then lists the IMAP Sending Identity with None
 ([#2059](https://github.com/unwired-dev/product/issues/2059)). Its signature is typed,
