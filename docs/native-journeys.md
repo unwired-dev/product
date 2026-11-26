@@ -84,6 +84,43 @@ query overhead, the synthetic press duration and every session stall. It
 measures neither Mail View switching, keyboard or accessibility journeys, nor the
 iPhone and iPad references.
 
+## Mac selection-change journey
+
+The `testSelectionChangeLatency` journey compares selection changes in both Mac
+composers ([#2951](https://github.com/unwired-dev/product/issues/2951)). It runs the
+current composer in a `registration-performance` `Testing` build, signed in as
+the [performance journey](#mac-performance-journey) is, and the Draft editor page
+in a `registration-draft-editor` `Testing` build:
+
+```sh
+for scenario in registration-performance registration-draft-editor; do
+  UNWIRED_MOCK_SCENARIO=$scenario \
+  mise exec -- pnpm --filter @private-email/macos native:build Testing
+  mise exec -- pnpm --filter @private-email/macos test:native \
+    "$PWD/artifacts/macos-inbox/DerivedData/Build/Products/Testing/UnwiredMail.app" \
+    testSelectionChangeLatency
+done
+```
+
+In a new message it pastes one generated paragraph into the body, then replaces it
+with 1,000 paragraphs, about 67,000 characters. At the end of each body it makes
+20 selection changes: Shift-Left selects the last character and Right collapses
+the selection at the end again, 10 times each. It waits until **Add Link** is
+available for each selected character and unavailable at each caret. A sample
+runs from the key press the app records to the end of Fabric's mount of the
+format bar's first commit afterwards that shows the new selection, before the
+journey saw it. The Link control arms a record in each commit, which also
+computes the Writing tools' state, and the app writes it when Fabric has mounted
+that window's next update. Both ends come from the app's clock, so the samples
+exclude XCUITest. They include WebKit, the page bridge, React's commit and
+Fabric's mount, but not the display frame that draws the result. A sample without
+its record fails the journey.
+
+The journey writes one `PERFORMANCE` JSON line per body to `xcodebuild.log` and
+as an XCTest attachment, with the composer, the samples, p50, p95, maximum,
+main-queue stalls of 100 ms or longer during the samples, and the display's frame
+interval.
+
 ## Mac keyboard and accessibility journey
 
 The `testKeyboardAndAccessibility` journey uses the same `registration-performance`

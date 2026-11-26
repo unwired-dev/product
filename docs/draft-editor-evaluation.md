@@ -732,6 +732,48 @@ app would not be seen. The capture shows only packets the host sends or receives
 it would not see data the page passes to another process without a network
 connection.
 
+### Selection-change latency (#2951)
+
+[#2951](https://github.com/unwired-dev/product/issues/2951) measures part of
+[ADR 0080](adr/0080-edit-the-draft-body-in-the-tiptap-page.md)'s gate 5: the cost
+of a selection change on a large, many-block Draft in both Mac composers. Each
+format bar commit computes the Link control's and the Writing tools' state from
+the whole document with mail-core's `selectedText` and `canRewrite`
+([#822 review note](https://github.com/unwired-dev/product/issues/822#issuecomment-6114571758)).
+The [selection-change journey](native-journeys.md#mac-selection-change-journey)
+ran on 2026-11-26 on the Mac reference host: a Mac mini M4 (`Mac16,10`) with
+16 GB memory on macOS 27.2.1 (`26B131`), Xcode 27.2 (`27B52`), with a 60 Hz
+display and a 1-minute load below 4. The builds were `Testing` builds of main
+at `01c50416b` plus this journey: `registration-performance` for the current
+composer and `registration-draft-editor` for the page. Each body had 20 samples:
+10 Shift-Left presses that select the last character and 10 Right presses that
+collapse the selection at the end again. A sample runs from the key press to
+the end of Fabric's mount of the format bar's first commit that shows the new
+selection, both on the app's clock.
+
+| Composer | Body             | p50     | p95     | Maximum  |
+| -------- | ---------------- | ------- | ------- | -------- |
+| Current  | 1 paragraph      | 24.7 ms | 40.6 ms | 41.0 ms  |
+| Current  | 1,000 paragraphs | 66.4 ms | 72.7 ms | 141.9 ms |
+| Page     | 1 paragraph      | 24.7 ms | 30.1 ms | 30.7 ms  |
+| Page     | 1,000 paragraphs | 25.4 ms | 43.2 ms | 44.7 ms  |
+
+No main-queue stall of 100 ms or longer fell within a sample. Each run recorded
+one stall outside the samples: 153 ms for the current composer after it pasted
+the 1,000 paragraphs, and 143 ms for the page before the first paste, while it
+signed in and opened the message. On the 1,000-paragraph body the current
+composer's p50 was 42 ms above its one-paragraph p50 and its p95 32 ms above.
+The page's p50 stayed within 1 ms and its p95 was 13 ms higher. Evidence is in
+`artifacts/macos-inbox/journey.K3MuIx/` (current) and `journey.wbWaEx/` (page).
+
+The samples include the page bridge or the text view's selection event, React's
+commit and Fabric's mount, but not the display frame that draws the result. No
+selection budget exists; every sample stayed under the 200 ms interaction
+budgets. These are `Testing` builds on one host, one run each; a Release
+comparison is not measured. Physical iPhone and iPad, the rest of #822's
+comparison (startup, typing response, memory and packaged size) and the
+interactions the page lacks, such as the Slash Command Menu, remain outstanding.
+
 ## Finding
 
 **Proceed** to the dependent evaluations (#819–#822) on iPhone and iPad. A
