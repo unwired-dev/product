@@ -549,6 +549,11 @@ function ReaderBody({
         inbox={inbox}
         subject={message.subject}
         connection={connection}
+        message={{
+          name: message.sender,
+          address: message.address,
+          receivedAt: new Date(message.receivedAt).getTime(),
+        }}
       />
     );
   }

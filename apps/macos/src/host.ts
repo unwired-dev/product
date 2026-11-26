@@ -41,6 +41,7 @@ export const {
   sendReminders,
   blockedSenders,
   pins,
+  unsubscribe,
   inboxPreferences,
   outbox,
   wakes,
