@@ -65,6 +65,7 @@ import {
   composerStyles,
   DraftAssets,
   retires,
+  savedOf,
   SendingMailbox,
   useRecoveryJournal,
 } from './composer.tsx';
@@ -150,7 +151,7 @@ function EvaluationEditor({
   // Whether storage may not hold the stored version yet, because its save is pending or failed.
   // Another Draft's failed save does not make this editor's version unsaved.
   const unsaved = useRef(false);
-  const saved = state.kind === 'ready' && state.save === 'saved';
+  const saved = savedOf(state);
   useLayoutEffect(() => {
     if (saved) {
       unsaved.current = false;

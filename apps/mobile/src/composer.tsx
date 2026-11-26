@@ -3100,7 +3100,7 @@ function ReplyFooter({
 }
 
 // Whether the Drafts store holds every edit it was given.
-const savedOf = (state: DraftsState) =>
+export const savedOf = (state: DraftsState) =>
   state.kind === 'ready' && state.save === 'saved';
 
 // Keeps the editor's unsaved version, which `unsaved` returns, in a composer recovery record

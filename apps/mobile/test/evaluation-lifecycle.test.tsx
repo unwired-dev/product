@@ -235,13 +235,15 @@ describe('evaluation composer lifetime', () => {
     await phone.update({ ...before, subject: 'Stored locally' }, before);
     const base = draftOf(phone.getSnapshot(), id);
     ok(base);
-    expect(
-      await phone.journal({ ...base, subject: 'Recovered edit' }, base),
-    ).toBe(true);
+    await expect(
+      phone.journal({ ...base, subject: 'Recovered edit' }, base),
+    ).resolves.toBe(true);
     const reopened = createDrafts(here.native, registration, options);
     await reopened.load();
     await reopened.sync();
-    const [recovered] = (await reopened.recovered()) ?? [];
+    const records = await reopened.recovered();
+    ok(records, 'Expected storage to read the recovery records');
+    const [recovered] = records;
     ok(recovered?.base);
     reopened.take(id);
     await render(
