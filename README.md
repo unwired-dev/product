@@ -140,3 +140,7 @@ deterministic mocked journeys distinct from real integration evidence.
 Record runtime or exported API changes with `mise exec -- pnpm changeset`.
 Prepare package versions with `mise exec -- pnpm version-packages`. Package
 publishing is not wired because the current workspace packages are private.
+
+## Licence
+
+Copyright (c) 2026 Unwired, s.r.o. All rights reserved; see [LICENSE](LICENSE).
