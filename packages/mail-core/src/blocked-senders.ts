@@ -57,6 +57,157 @@ export const blockedDomain = (domain: string) => {
     : undefined;
 };
 
+// The domain Block Domain… offers for sender `address`: the exact domain of one plain address, as
+// it arrived. Nothing is inferred: a display name, list, parent domain or a domain a Blocked Domain
+// cannot match offers none.
+export const offeredDomain = (address: string) => {
+  const normalized = blockedAddress(address);
+  return normalized === undefined || !asciiDomain(address)
+    ? undefined
+    : blockedDomain(normalized.slice(normalized.lastIndexOf('@') + 1));
+};
+
+// The domain `domain` belongs to, which blocking `domain` leaves alone, when it is one a Blocked
+// Domain can match.
+export const parentDomain = (domain: string) =>
+  blockedDomain(domain.slice(domain.indexOf('.') + 1));
+
+// Whether a block of `block.domain` takes mail from normalized `address`: one at the domain, or at
+// a subdomain of it when it blocks them, that it does not exempt.
+const takes = (
+  block: Readonly<{
+    domain: string;
+    subdomains: boolean;
+    exempt: readonly string[];
+  }>,
+  address: string,
+) => {
+  const domain = address.slice(address.lastIndexOf('@') + 1);
+  return (
+    (domain === block.domain ||
+      (block.subdomains && domain.endsWith(`.${block.domain}`))) &&
+    !block.exempt.includes(address)
+  );
+};
+
+// The exact addresses among `addresses`, such as the person's contacts, that a block of `domain`
+// would take, normalized, deduplicated and sorted as `blockDomain` stores its exemptions.
+export const addressesAtDomain = (
+  domain: string,
+  subdomains: boolean,
+  addresses: readonly string[],
+) =>
+  Arr.sort(
+    new Set(
+      addresses.flatMap((address) => {
+        const normalized = asciiDomain(address)
+          ? blockedAddress(address)
+          : undefined;
+        return normalized !== undefined &&
+          takes({ domain, subdomains, exempt: [] }, normalized)
+          ? [normalized]
+          : [];
+      }),
+    ),
+    Order.String,
+  );
+
+// RFC 3492's Punycode parameters, for reading an `xn--` label.
+const base = 36;
+const tMin = 1;
+const tMax = 26;
+const maxCodePoint = 1_114_111;
+const adapt = (delta: number, points: number, first: boolean) => {
+  let scaled = first ? Math.floor(delta / 700) : Math.floor(delta / 2);
+  scaled += Math.floor(scaled / points);
+  let k = 0;
+  while (scaled > ((base - tMin) * tMax) / 2) {
+    scaled = Math.floor(scaled / (base - tMin));
+    k += base;
+  }
+  return k + Math.floor(((base - tMin + 1) * scaled) / (scaled + 38));
+};
+// A Punycode digit's value: a to z are 0 to 25, 0 to 9 are 26 to 35.
+const digit = (character: string) => {
+  const code = character.codePointAt(0) ?? 0;
+  if (code >= 97 && code <= 122) {
+    return code - 97;
+  }
+  return code >= 48 && code <= 57 ? code - 22 : base;
+};
+// The Unicode form of the Punycode after a label's `xn--`, or undefined when it does not decode.
+const decodeLabel = (input: string) => {
+  const delimiter = Math.max(0, input.lastIndexOf('-'));
+  const output = [...input]
+    .slice(0, delimiter)
+    .map((character) => character.codePointAt(0) ?? 0);
+  let code = 128;
+  let index = 0;
+  let bias = 72;
+  for (let at = delimiter > 0 ? delimiter + 1 : 0; at < input.length;) {
+    const old = index;
+    for (let k = base, weight = 1; ; k += base) {
+      const value = digit(input[at] ?? '');
+      at += 1;
+      if (value >= base || index >= 2 ** 31) {
+        return undefined;
+      }
+      index += value * weight;
+      const threshold = Math.min(tMax, Math.max(tMin, k - bias));
+      if (value < threshold) {
+        break;
+      }
+      weight *= base - threshold;
+    }
+    bias = adapt(index - old, output.length + 1, old === 0);
+    code += Math.floor(index / (output.length + 1));
+    index %= output.length + 1;
+    if (code > maxCodePoint) {
+      return undefined;
+    }
+    output.splice(index, 0, code);
+    index += 1;
+  }
+  return String.fromCodePoint(...output);
+};
+
+// The scripts lookalike names borrow Latin-looking letters from, by their blocks' first and last
+// characters.
+const lookalikeScripts = [
+  { script: 'cyrillic', from: '\u0400', to: '\u052F' },
+  { script: 'greek', from: '\u0370', to: '\u03FF' },
+  { script: 'armenian', from: '\u0530', to: '\u058F' },
+] as const;
+
+// How Blocked Domain `domain` shows when it has an `xn--` label: its Unicode name and the first
+// character outside ASCII, with that character's script when lookalikes borrow from it. None for a
+// plain ASCII name or a label that does not decode.
+export const shownDomain = (domain: string) => {
+  if (!/(?:^|\.)xn--/u.test(domain)) {
+    return undefined;
+  }
+  const labels = domain
+    .split('.')
+    .map((each) =>
+      each.startsWith('xn--') ? decodeLabel(each.slice(4)) : each,
+    );
+  if (labels.includes(undefined)) {
+    return undefined;
+  }
+  const shown = labels.join('.');
+  const character = [...shown].find((each) => each > '\u007F');
+  if (character === undefined) {
+    return undefined;
+  }
+  return {
+    shown,
+    character,
+    script: lookalikeScripts.find(
+      ({ from, to }) => character >= from && character <= to,
+    )?.script,
+  };
+};
+
 // A Blocked Sender: an exact normalized address, the Mail Profile that blocks it and when, in
 // milliseconds since the epoch, and how many arrivals this device moved to Trash for it since then;
 // a block stored before #2141 has no count.
@@ -445,17 +596,6 @@ const profilesOf = (stored: Stored) => [
     ].map(({ profile }) => profile),
   ),
 ];
-
-// Whether Blocked Domain `block` takes an arrival from `address`, a normalized address: one at its
-// domain, or at a subdomain of it when it blocks them, that it does not exempt.
-const takes = (block: BlockedDomain, address: string) => {
-  const domain = address.slice(address.lastIndexOf('@') + 1);
-  return (
-    (domain === block.domain ||
-      (block.subdomains && domain.endsWith(`.${block.domain}`))) &&
-    !block.exempt.includes(address)
-  );
-};
 
 // A sender's move count. One stored before senders kept it counts its kept receipts that arrived
 // since it was blocked.
