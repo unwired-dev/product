@@ -74,16 +74,14 @@ const styles = StyleSheet.create({
     borderCurve: 'continuous',
   },
   rowText: { flex: 1 },
-  zone: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
-  divider: { height: StyleSheet.hairlineWidth },
+  // The frames' footer lines: a 14pt symbol 6pt before the text, inset 4pt in the iPhone sheet.
+  line: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  sheetLine: { paddingLeft: spacing.xs },
+  divider: { height: 1 },
   buttons: { flexDirection: 'row', justifyContent: 'flex-end', gap: spacing.s },
-  pickerHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.s,
-    minHeight: 44,
-  },
-  passed: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
+  pickerHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.s },
+  // The iPhone frame's title bar sits 29pt below the sheet's top, its rows 14pt apart.
+  sheetPicker: { paddingTop: 29, gap: 14 },
 });
 
 // `at` as `options`, with their time zone, name it in the person's language.
@@ -134,7 +132,9 @@ function ReminderDateTime({
   const setLabel = (
     <SwiftUIText
       modifiers={[
-        font({ textStyle: 'headline' }),
+        popover
+          ? font({ textStyle: 'subheadline', weight: 'semibold' })
+          : font({ textStyle: 'headline' }),
         ...(popover ? [] : [frame({ maxWidth: Infinity })]),
       ]}>
       {t('drafts.reminder.set')}
@@ -143,7 +143,10 @@ function ReminderDateTime({
   return (
     <ArrowKeys
       onReturn={set}
-      contentStyle={[styles.choices, popover && styles.popover]}>
+      contentStyle={[
+        styles.choices,
+        popover ? styles.popover : styles.sheetPicker,
+      ]}>
       <View style={styles.pickerHeader}>
         <Host matchContents>
           <SwiftUIButton
@@ -154,7 +157,7 @@ function ReminderDateTime({
               labelStyle('iconOnly'),
               buttonStyle(popover ? 'bordered' : 'glass'),
               buttonBorderShape('circle'),
-              controlSize(popover ? 'small' : 'large'),
+              ...(popover ? [] : [controlSize('large')]),
               tint(colors.textPrimary),
             ]}
           />
@@ -188,10 +191,10 @@ function ReminderDateTime({
         />
       </Host>
       {passed ? (
-        <View style={styles.passed}>
+        <View style={[styles.line, !popover && styles.sheetLine]}>
           <SFSymbol
             name="exclamationmark.triangle.fill"
-            size={12}
+            size={14}
             color={colors.statusDestructive}
           />
           <Text
@@ -210,6 +213,7 @@ function ReminderDateTime({
               modifiers={[
                 buttonStyle('bordered'),
                 buttonBorderShape('roundedRectangle'),
+                font({ textStyle: 'subheadline' }),
                 tint(colors.textPrimary),
               ]}
             />
@@ -297,10 +301,10 @@ function ReminderChoices({
       {popover ? (
         <View style={[styles.divider, { backgroundColor: colors.separator }]} />
       ) : null}
-      <View style={styles.zone}>
+      <View style={[styles.line, !popover && styles.sheetLine]}>
         <SFSymbol
           name="clock"
-          size={12}
+          size={14}
           color={colors.textSecondary}
         />
         <Text style={[textStyles.footnote, { color: colors.textSecondary }]}>
@@ -452,6 +456,7 @@ function ReminderChoices({
           ]}>
           <SFSymbol
             name={popover ? 'calendar' : 'calendar.badge.clock'}
+            scale={popover ? 'small' : undefined}
             color={colors.textPrimary}
           />
           <Text
@@ -474,6 +479,7 @@ function ReminderChoices({
               modifiers={[
                 buttonStyle('bordered'),
                 buttonBorderShape('roundedRectangle'),
+                font({ textStyle: 'subheadline' }),
                 tint(colors.textPrimary),
               ]}
             />
@@ -489,6 +495,7 @@ function ReminderChoices({
               modifiers={[
                 buttonStyle('borderedProminent'),
                 buttonBorderShape('roundedRectangle'),
+                font({ textStyle: 'subheadline' }),
                 tint(colors.accentFill),
               ]}
             />
