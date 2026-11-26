@@ -191,6 +191,18 @@ order, exactly as for [Gmail](gmail-inbox.md):
   the Inbox shows the message as Microsoft has it;
 - each change goes only to the connection that showed the message.
 
+Mail-core also keeps each Microsoft message's Outlook categories, which Outlook
+stores on the message apart from its folder
+([#3019](https://github.com/unwired-dev/product/issues/3019), part of
+[#1684](https://github.com/unwired-dev/product/issues/1684)). Listing, delta rounds,
+search and organizing read them back, and a category change uses the same queue
+as the changes above. Assigning or removing a category first reads the message's
+categories as Microsoft has them now, then writes them back with only that
+category added or removed. So a category another Outlook client changed meanwhile
+stays as that client left it. The write uses the existing `Mail.ReadWrite` grant.
+The hosts don't offer categories yet: the approved Categories panel, the category
+list in Settings and its `MailboxSettings` consent are later #1684 slices.
+
 Online search covers every folder of each Microsoft mailbox beside Gmail's.
 Microsoft orders its results by sent time and returns up to 1,000 matches; the
 Inbox lists all returned results newest first.

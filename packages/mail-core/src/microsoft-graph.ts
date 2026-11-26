@@ -17,7 +17,7 @@ import { messageCalendar } from './message-body.ts';
 const graphRoot = 'https://graph.microsoft.com/v1.0';
 
 const listed =
-  'id,conversationId,receivedDateTime,subject,bodyPreview,from,isRead';
+  'id,conversationId,receivedDateTime,subject,bodyPreview,from,isRead,categories';
 
 // A folder's newest messages, or older mail for a cache refill, newest first.
 export const graphMessages = (view: string, limit: number, until?: string) =>
@@ -44,9 +44,9 @@ export const graphAttachments = (id: string) =>
 export const graphAttachment = (id: string, attachment: string) =>
   `${graphRoot}/me/messages/${id}/attachments/${attachment}`;
 
-// Where a message is and whether it was read, which organizing reads back.
+// Where a message is, whether it was read and its categories, which organizing reads back.
 export const graphPlacement = (id: string) =>
-  `${graphRoot}/me/messages/${id}?$select=id,parentFolderId,isRead`;
+  `${graphRoot}/me/messages/${id}?$select=id,parentFolderId,isRead,categories`;
 
 // A well-known folder's own ID, which a message's parentFolderId names.
 export const graphWellKnownFolder = (name: WellKnownFolder) =>
@@ -134,6 +134,7 @@ const GraphListedSchema = Schema.Struct({
   bodyPreview: Text,
   isRead: Schema.optionalKey(Schema.Boolean),
   from: Schema.optionalKey(Schema.NullOr(RecipientSchema)),
+  categories: Schema.optionalKey(Schema.Array(Schema.String)),
 });
 type GraphListed = typeof GraphListedSchema.Type;
 
@@ -238,18 +239,67 @@ export const graphLabels = (
   folder: string | undefined,
   isRead: boolean | undefined,
   roles: FolderRoles,
+  categories?: readonly string[],
 ) => {
   const role = folder === undefined ? undefined : roles.get(folder);
   const place = role === undefined ? folder : roleLabels[role];
   return [
     ...(place === undefined ? [] : [place]),
     ...(isRead === false ? ['UNREAD'] : []),
+    ...categoryLabels(categories),
   ];
 };
 
-// The one Graph change an organizing action makes. Star and Gmail labels have none for Microsoft
-// mail, which offers neither.
-export type GraphChange = Readonly<{ read: boolean } | { folder: string }>;
+// An Outlook category is a message label of its own: its name in base64url after a prefix that
+// neither a role label nor a Graph folder ID has, so it never names a folder.
+const categoryPrefix = 'CATEGORY_';
+const categoryLabel = (name: string) =>
+  `${categoryPrefix}${Base64Url.encode(name)}`;
+// A name too long for a label stays on the message in Graph, unlisted.
+export const categoryLabels = (names: readonly string[] = []) =>
+  names.map(categoryLabel).filter((label) => label.length <= 512);
+const categoryName = (label: string) =>
+  label.startsWith(categoryPrefix)
+    ? Result.getOrUndefined(
+        Base64Url.decodeString(label.slice(categoryPrefix.length)),
+      )
+    : undefined;
+const categoryNames = (labels: readonly string[]) => {
+  const names = labels.map(categoryName);
+  return names.every(
+    (name): name is string => name !== undefined && name !== '',
+  )
+    ? names
+    : undefined;
+};
+
+// The categories a label or unlabel action assigns or removes, or none for any other action.
+export const categoryChange = (action: GmailAction) => {
+  if (action.kind !== 'label' && action.kind !== 'unlabel') {
+    return undefined;
+  }
+  const add = categoryNames(action.add);
+  const remove = categoryNames(action.remove);
+  return add === undefined ||
+    remove === undefined ||
+    add.length + remove.length === 0
+    ? undefined
+    : { add, remove };
+};
+// A message's categories after a change, keeping every other category as Graph has it now.
+export const changedCategories = (
+  current: readonly string[],
+  { add, remove }: NonNullable<ReturnType<typeof categoryChange>>,
+) => [
+  ...current.filter((name) => !remove.includes(name)),
+  ...add.filter((name) => !current.includes(name)),
+];
+
+// The one Graph change an organizing action makes. Star has none for Microsoft mail, which doesn't
+// offer it, and a category change sets the message's whole category list.
+export type GraphChange = Readonly<
+  { read: boolean } | { folder: string } | { categories: readonly string[] }
+>;
 // The well-known folder each removal from the Inbox, or Undo, moves a message to.
 const folderMoves: Partial<Record<GmailAction['kind'], WellKnownFolder>> = {
   archive: 'archive',
@@ -278,6 +328,7 @@ const GraphPlacementSchema = Schema.Struct({
   id: GraphId,
   parentFolderId: GraphId,
   isRead: Schema.Boolean,
+  categories: Schema.optionalKey(Schema.Array(Schema.String)),
 });
 // A message after a change, or as organizing reads it back.
 export const decodeGraphPlacement = json(GraphPlacementSchema);
@@ -322,7 +373,11 @@ export const decodeGraphSearch = json(
 // Inbox, and a search result's say where it is.
 export const listedMessage = (
   message: GraphListed,
-  labels = ['INBOX', ...(message.isRead === false ? ['UNREAD'] : [])],
+  labels = [
+    'INBOX',
+    ...(message.isRead === false ? ['UNREAD'] : []),
+    ...categoryLabels(message.categories),
+  ],
 ) => {
   const sender = message.from?.emailAddress;
   const address = sender?.address?.trim() ?? '';

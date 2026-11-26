@@ -24,22 +24,30 @@ extension RegistrationStore {
       generation: expected)
   }
 
-  // The one Microsoft write: one message's read state, or its move to a well-known folder or a
-  // folder ID. This file writes the request, so only identifiers and the read state cross from
-  // TypeScript.
+  // The one Microsoft write: one message's read state, its Outlook categories, or its move to a
+  // well-known folder or a folder ID. This file writes the request, so only identifiers, the read
+  // state and category names cross from TypeScript.
   func graphModify(
-    message: String, read: Bool?, folder: String?, connection: String, address: String,
-    generation: String
+    message: String, read: Bool?, folder: String?, categories: [String]? = nil,
+    connection: String, address: String, generation: String
   ) async throws -> [String: Any] {
     func valid(_ value: String) -> Bool {
       value.range(of: #"^[\w=-]{1,512}$"#, options: .regularExpression) != nil
     }
-    guard valid(message), (read == nil) != (folder == nil), folder.map(valid) ?? true,
+    // An Outlook category name: one line of at most 255 characters.
+    func name(_ value: String) -> Bool {
+      !value.isEmpty && value.count <= 255
+        && !value.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains)
+    }
+    guard valid(message), [read != nil, folder != nil, categories != nil].filter({ $0 }).count == 1,
+      folder.map(valid) ?? true, categories?.allSatisfy(name) ?? true,
       let url = URL(
         string: "https://graph.microsoft.com/v1.0/me/messages/\(message)"
           + (folder == nil ? "" : "/move"))
     else { throw RegistrationError.unavailable }
-    let body: [String: Any] = folder.map { ["destinationId": $0] } ?? ["isRead": read ?? false]
+    let body: [String: Any] =
+      folder.map { ["destinationId": $0] } ?? categories.map { ["categories": $0] }
+      ?? ["isRead": read ?? false]
     return try await graphCall(
       url: url, method: folder == nil ? "PATCH" : "POST",
       body: try JSONSerialization.data(withJSONObject: body), connection: connection,

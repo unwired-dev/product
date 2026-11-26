@@ -74,6 +74,9 @@ import {
   fileData,
   graphAttachment,
   graphAttachments,
+  categoryChange,
+  categoryLabels,
+  changedCategories,
   graphChange,
   graphChildFolders,
   graphFolders,
@@ -108,6 +111,7 @@ const folderMessage = (
   listedMessage(message, [
     view,
     ...(message.isRead === false ? ['UNREAD'] : []),
+    ...categoryLabels(message.categories),
   ]);
 
 // Every delta page links to the next page or, at the round's end, to the changes after it.
@@ -631,7 +635,12 @@ export function createGraphReader(
       });
     }
     const roles = yield* folderRoles(scope);
-    return graphLabels(message.parentFolderId, message.isRead, roles);
+    return graphLabels(
+      message.parentFolderId,
+      message.isRead,
+      roles,
+      message.categories,
+    );
   });
 
   // Move to's folders: every folder apart from the well-known ones, nested ones included, each
@@ -697,6 +706,25 @@ export function createGraphReader(
       : Option.some(yield* placed(scope, message.id, found));
   });
 
+  // The change a category action writes: the message's categories as Graph has them now with only
+  // the requested ones assigned or removed, so a category changed elsewhere stays as it was left.
+  // None once Graph no longer has the message.
+  const categoryWrite = Effect.fnUntraced(function* (
+    scope: MailboxScope,
+    id: string,
+    requested: NonNullable<ReturnType<typeof categoryChange>>,
+  ) {
+    const found = yield* graphGet(scope)(
+      graphPlacement(id),
+      decodeGraphPlacement,
+    ).pipe(Effect.catchTag('GmailNotFound', () => Effect.void));
+    return found === undefined
+      ? undefined
+      : {
+          categories: changedCategories(found.categories ?? [], requested),
+        };
+  });
+
   // Graph's labels after one change, or none when Graph refuses it for good: the message or folder
   // no longer exists, or the action has no Graph change. A change sets a state rather than
   // toggling one, so a request whose reply was lost is safely sent again.
@@ -704,7 +732,11 @@ export function createGraphReader(
     scope: MailboxScope,
     { action, message }: PendingChange,
   ) {
-    const change = graphChange(action);
+    const categories = categoryChange(action);
+    const change =
+      categories === undefined
+        ? graphChange(action)
+        : yield* categoryWrite(scope, message.id, categories);
     const changed =
       change === undefined
         ? Option.none()
@@ -737,7 +769,12 @@ export function createGraphReader(
       messages: page.value.map((message) =>
         listedMessage(
           message,
-          graphLabels(message.parentFolderId, message.isRead, roles),
+          graphLabels(
+            message.parentFolderId,
+            message.isRead,
+            roles,
+            message.categories,
+          ),
         ),
       ),
       next: page['@odata.nextLink'],
@@ -1196,7 +1233,8 @@ export function createGraphReader(
     modify,
     // Microsoft mail offers only the actions Graph can make.
     offers: (action: GmailAction) =>
-      graphChange(action) !== undefined &&
+      (graphChange(action) !== undefined ||
+        categoryChange(action) !== undefined) &&
       !unavailableActions().includes(action.kind),
     // Archive moves a message to Archive, which its labels then show.
     applied: (read: readonly string[], action: GmailAction) =>
