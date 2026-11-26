@@ -320,6 +320,7 @@ function useOffer(inbox: Source, id: string, receivedAt: number | undefined) {
           ...offer,
           message: id,
           receivedAt,
+          delivered: outbox.delivered,
           ...(receiving?.epoch === undefined ? {} : { epoch: receiving.epoch }),
         })
       : undefined;

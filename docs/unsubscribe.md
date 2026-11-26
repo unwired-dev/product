@@ -103,12 +103,15 @@ the provider sees it. The reader passes the requests it showed for the message
 (`outbox.unsubscribe(connection, offer, { message, retrying })`), and one of
 them confirmed meanwhile also answers in place of another. Once a retry is
 confirmed, the unknown requests it tried again are marked answered: they stay
-in the Outbox for Check Again but no longer stand for the list, so a message the
-list sends after the 14 days offers a fresh request with its own recipient. The
-retry stays in the Outbox until each mark holds in storage, and Check Again
-finding an answered request in Sent, or one a confirmed retry still in the
-Outbox tried again, retires it without recording it again, so the list's 14
-days still run from the retry. The reader keeps showing the retry's receipt,
+in the Outbox for Check Again but no longer stand for the list, even while
+storage refuses the mark, so a message the list sends after the 14 days offers a
+fresh request with its own recipient. A fresh request never tries again one
+confirmed since, and a confirmation older than the 14 days answers neither
+through a refused retry's chain. The retry stays in the Outbox until each mark
+holds in storage, and Check Again finding an answered request in Sent, or one a
+confirmed retry still in the Outbox tried again, retires it without recording it
+again, so the list's 14 days still run from the retry; while storage refuses the
+retry's confirmed time, the found request waits rather than recording its own. The reader keeps showing the retry's receipt,
 with its recipient, rather than the answered request's date.
 
 It waits in the Outbox under the Undo Send Window and is then claimed and sent
@@ -125,19 +128,23 @@ Check Again finds it in Sent, the Outbox records the request through the
 `requests` it was created with (the host's `unsubscribe.record`) before the
 entry leaves, so a relaunch in between loses neither the request nor its
 record. The entry first keeps the time the provider confirmed it, and waits
-while storage refuses that; the reader shows it sent at once. While storage
+while storage refuses that; the reader shows it sent at once. A relaunch after
+that time is kept records the request from it, never asking Check Again whether
+it was sent. While storage
 refuses the record, the entry stays in the Outbox and saves it again later and
 after a relaunch with that same time, and is never sent again. Once that time is
 saved, an IMAP request never files its Sent copy again, even after a refused step
 or a relaunch, so a copy the person moved or deleted meanwhile stays that way. A record
 older than the one storage holds for the Profile and list leaves the newer one
-in place and counts as saved. `pendingUnsubscribe(snapshot, connection, { identity, message, epoch, receivedAt })` finds
+in place and counts as saved. `pendingUnsubscribe(snapshot, connection, { identity, message, epoch, receivedAt, delivered })` finds
 the newest request the Outbox holds for the list with that Mailing List
 Identity, or, for a list without one, for that message, so two lists sharing an
 address never take each other's state. A request confirmed for the message
 itself comes before a newer one for the list. A request confirmed for another
 message stands for one that arrived at `receivedAt` only within the list's 14
-days, as a recorded one does, and not while that time is unknown; past those days the reader and the admission (`receivedAt` in its
+days, as a recorded one does, and not while that time is unknown; `delivered`
+(the reader passes `outbox.delivered`) gives a confirmed time storage does not
+hold yet. Past those days the reader and the admission (`receivedAt` in its
 source) offer the request again. It looks only at the connection's
 current incarnation (`epoch`): a request from before the mailbox was removed and
 added again is refused, and never tried again for the new one: the reader passes

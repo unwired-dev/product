@@ -148,6 +148,11 @@ async function receiver(provider: Provider, state = 'connected', smtp = true) {
       requests: unsubscribe,
     });
   const outbox = relaunch();
+  // A relaunch that also reopens the Drafts' storage, as a new process does.
+  const reopen = async () => {
+    await phone.relaunch();
+    return relaunch();
+  };
   // Every message the provider took, as raw text, and the copies its Sent mailbox holds.
   const sent = () =>
     ({
@@ -179,6 +184,7 @@ async function receiver(provider: Provider, state = 'connected', smtp = true) {
     unsubscribe,
     stepping,
     relaunch,
+    reopen,
   };
 }
 
@@ -868,6 +874,34 @@ describe('recording a mailto unsubscribe request', () => {
     },
   );
 
+  it('records a confirmed Gmail request whose leaving storage refused after a relaunch, never asking whether it was sent', async () => {
+    expect.hasAssertions();
+    const phone = await receiver('gmail');
+    const id = await start(phone);
+    const refused = refuseLeavingOnce(phone);
+    later(undoSendWindow);
+    await phone.outbox.process();
+    await vi.waitFor(() => {
+      expect(refused.done).toBe(true);
+    });
+    expect(pending(phone)?.unsubscribe?.sentAt).toBe(clock.now);
+    phone.outbox.dispose();
+
+    const relaunched = await phone.reopen();
+    try {
+      expect(relaunched.getSnapshot()).toMatchObject([
+        { id, state: 'sending' },
+      ]);
+      await relaunched.process();
+      await vi.waitFor(() => {
+        expect(relaunched.getSnapshot()).toStrictEqual([]);
+      });
+      expect(phone.sent()).toHaveLength(1);
+    } finally {
+      relaunched.dispose();
+    }
+  });
+
   it('records a confirmed IMAP request whose record waited after a relaunch that cannot reach its mailbox, and answers for it with its recipient', async () => {
     expect.hasAssertions();
     const phone = await receiver('imap');
@@ -1200,6 +1234,168 @@ describe('recording a mailto unsubscribe request', () => {
       await expect(
         phone.unsubscribe.sentRequest(profile, listed, clock.now),
       ).resolves.toBeUndefined();
+    } finally {
+      phone.outbox.dispose();
+    }
+  });
+
+  // Storage refuses every step that would keep when `refused` was confirmed.
+  const refuseKeeping = (
+    phone: Awaited<ReturnType<typeof receiver>>,
+    refused?: string,
+  ) => {
+    phone.stepping.before = async (id, step) => {
+      const entry = phone.drafts.getOutbox().find((each) => each.id === id);
+      const next = entry === undefined ? undefined : step(entry);
+      return (refused === undefined || id === refused) &&
+        next !== undefined &&
+        'state' in next &&
+        entry?.unsubscribe?.sentAt === undefined &&
+        next.unsubscribe?.sentAt !== undefined
+        ? 'refuse'
+        : undefined;
+    };
+  };
+  // The request the reader finds for `message`, which the list sent at `receivedAt`.
+  const heldFor = (
+    phone: Awaited<ReturnType<typeof receiver>>,
+    message: string,
+    receivedAt: number,
+  ) =>
+    pendingUnsubscribe(phone.outbox.getSnapshot(), receiving.gmail.id, {
+      ...listed,
+      message,
+      receivedAt,
+      delivered: phone.outbox.delivered,
+    });
+
+  it('offers a request again to a message the list sent more than 14 days after one confirmed only in memory, as storage refuses its time', async () => {
+    expect.hasAssertions();
+    const phone = await receiver('gmail');
+    try {
+      const id = await start(phone);
+      refuseKeeping(phone);
+      later(undoSendWindow);
+      await phone.outbox.process();
+      await vi.waitFor(() => {
+        expect(phone.outbox.delivered(id)).toBeDefined();
+      });
+      expect(pending(phone)?.unsubscribe?.sentAt).toBeUndefined();
+
+      later(unsubscribeOfferReturnsAfter + 1);
+      expect(heldFor(phone, '9.INBOX', clock.now)).toBeUndefined();
+      expect(heldFor(phone, source, clock.now)?.id).toBe(id);
+      const again = waitingId(
+        await phone.outbox.unsubscribe(receiving.gmail.id, listed, {
+          message: '9.INBOX',
+          receivedAt: clock.now,
+        }),
+      );
+      expect(again).not.toBe(id);
+    } finally {
+      phone.outbox.dispose();
+    }
+  });
+
+  it('offers another message’s own request more than 14 days after a confirmed retry, never the unknown request it answered though its mark was refused', async () => {
+    expect.hasAssertions();
+    const phone = await receiver('gmail');
+    try {
+      const original = await lose(phone);
+      const retry = await start(phone);
+      refuseAnswered(phone, original);
+      later(undoSendWindow);
+      await phone.outbox.process();
+      await vi.waitFor(() => {
+        expect(phone.outbox.delivered(retry)).toBeDefined();
+      });
+
+      later(15 * 86_400_000);
+      expect(heldFor(phone, '9.INBOX', clock.now)).toBeUndefined();
+      const fresh = waitingId(
+        await phone.outbox.unsubscribe(
+          receiving.gmail.id,
+          { ...listed, address: 'other@lists.alza.example', subject: 'stop' },
+          { message: '9.INBOX', receivedAt: clock.now },
+        ),
+      );
+      const entries = phone.outbox.getSnapshot();
+      expect(entries.find(({ id }) => id === fresh)).toMatchObject({
+        draft: { to: [{ address: 'other@lists.alza.example' }] },
+        unsubscribe: { message: '9.INBOX' },
+      });
+      expect(
+        entries.find(({ id }) => id === fresh)?.unsubscribe?.retries,
+      ).toBeUndefined();
+      // The unknown request stays for Check Again.
+      expect(entries.some(({ id }) => id === original)).toBe(true);
+    } finally {
+      phone.outbox.dispose();
+    }
+  });
+
+  it('offers a request again more than 14 days after the unknown request a refused retry tried again was found sent', async () => {
+    expect.hasAssertions();
+    const phone = await receiver('gmail');
+    try {
+      const original = await lose(phone);
+      const retry = await start(phone);
+      phone.become('authorization');
+      later(undoSendWindow);
+      await phone.outbox.process();
+      expect(pending(phone)).toMatchObject({ id: retry, state: 'failed' });
+      phone.become('connected');
+      await phone.outbox.check(original);
+      await vi.waitFor(() => {
+        expect(phone.outbox.delivered(original)).toBeDefined();
+      });
+      expect(pending(phone)).toMatchObject({ id: retry, state: 'failed' });
+
+      later(15 * 86_400_000);
+      const fresh = waitingId(
+        await phone.outbox.unsubscribe(receiving.gmail.id, listed, {
+          message: '9.INBOX',
+          receivedAt: clock.now,
+        }),
+      );
+      expect([fresh === original, fresh === retry]).toStrictEqual([
+        false,
+        false,
+      ]);
+      expect(
+        phone.outbox.getSnapshot().find(({ id }) => id === fresh)?.unsubscribe
+          ?.retries,
+      ).toStrictEqual([retry]);
+    } finally {
+      phone.outbox.dispose();
+    }
+  });
+
+  it('keeps the list’s 14 days from a retry confirmed only in memory when Check Again finds the unknown request sent', async () => {
+    expect.hasAssertions();
+    const phone = await receiver('gmail');
+    try {
+      const original = await lose(phone);
+      const profile = profileOf(pending(phone));
+      const retry = await start(phone);
+      refuseKeeping(phone, retry);
+      later(undoSendWindow);
+      await phone.outbox.process();
+      await vi.waitFor(() => {
+        expect(phone.outbox.delivered(retry)).toBeDefined();
+      });
+      const confirmedAt = clock.now;
+
+      later(15 * 86_400_000);
+      await phone.outbox.check(original);
+      phone.stepping.before = async () => undefined;
+      await vi.waitFor(async () => {
+        await phone.outbox.process();
+        expect(phone.outbox.getSnapshot()).toStrictEqual([]);
+      });
+      await expect(
+        phone.unsubscribe.sentRequest(profile, listed, confirmedAt),
+      ).resolves.toMatchObject({ sentAt: confirmedAt });
     } finally {
       phone.outbox.dispose();
     }
