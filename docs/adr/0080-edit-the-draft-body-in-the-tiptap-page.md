@@ -71,9 +71,11 @@ recommendation and the decision it supports. Facts link to their evidence;
   comparison with the current composer was measured:
   [#822](https://github.com/unwired-dev/product/issues/822) closed without a native
   result. The only latency comparisons, for gate 5, are in Mac `Testing` builds:
-  composer opening ([#2955](https://github.com/unwired-dev/product/issues/2955))
-  and selection changes ([#2951](https://github.com/unwired-dev/product/issues/2951)).
-  Memory on the Mac is recorded by [#2957](https://github.com/unwired-dev/product/issues/2957).
+  typing and formatting feedback
+  ([#2962](https://github.com/unwired-dev/product/issues/2962)), composer opening
+  ([#2955](https://github.com/unwired-dev/product/issues/2955)) and selection
+  changes ([#2951](https://github.com/unwired-dev/product/issues/2951)). Memory on
+  the Mac is recorded by [#2957](https://github.com/unwired-dev/product/issues/2957).
   The table probes compare behaviour, not speed.
 
 ## Assessment
@@ -138,7 +140,16 @@ outside evaluation builds; only gates 1, 3 and 5 may instead be recorded as a
 release limit:
 
 1. Physical iPhone and iPad runs, with hardware keyboards, IME composition,
-   dictation, autocorrection and VoiceOver, including inside table cells.
+   dictation, autocorrection and VoiceOver, including inside table cells. On the
+   Mac, keys posted at the HID event tap with the system's inline predictions on
+   reached the page without delay
+   ([#2966](https://github.com/unwired-dev/product/issues/2966),
+   [evidence](../draft-editor-evaluation.md#inline-predictions-2966)); a
+   physical keyboard is still to be tried. Two text defects need fixing:
+   automatic capitalization moves the caret
+   ([#2971](https://github.com/unwired-dev/product/issues/2971)), and typing
+   through an inline prediction repeats its last letters
+   ([#2972](https://github.com/unwired-dev/product/issues/2972)).
 2. Native exits as [#778](https://github.com/unwired-dev/product/issues/778)
    guards them for the current composer (iPhone **Back** and edge swipes, Mac
    window close, Command-W and **Quit**), and the Mac two-window journey on one
@@ -180,10 +191,17 @@ release limit:
    and the current composer's interactions the page lacks. The Slash Command
    Menu is met on iPhone and iPad Simulators by
    [#2952](https://github.com/unwired-dev/product/issues/2952); the Mac menu,
-   startup, typing response and physical devices remain. On Mac,
-   [#2955](https://github.com/unwired-dev/product/issues/2955) timed opening a new
-   message and a saved Draft in both composers on a loaded host; repeat it on an
-   idle one ([results](../draft-editor-evaluation.md#composer-opening-2955)).
+   startup and physical devices remain. Typing and formatting feedback in Mac
+   `Testing` builds is measured by
+   [#2962](https://github.com/unwired-dev/product/issues/2962): the page's p95
+   to edit was 17.1 ms from key press for typing and 21.9 ms from button release
+   for the format bar, against the current composer's 17.2 and 41.7 ms; neither
+   met the next-rendered-frame criterion in every group
+   ([evidence](../draft-editor-evaluation.md#typing-response-2962)). On Mac,
+   [#2955](https://github.com/unwired-dev/product/issues/2955) timed opening a
+   new message and a saved Draft in both composers on a loaded host; repeat it
+   on an idle one
+   ([results](../draft-editor-evaluation.md#composer-opening-2955)).
    [#2953](https://github.com/unwired-dev/product/issues/2953) measured packaged
    size: the page adds about 0.86 MB to the iPhone and iPad app and to the Mac
    app, and about 0.16 MB compressed
@@ -200,6 +218,10 @@ release limit:
    the current composer; a session with four Inbox windows and composers grew by
    261–278 MiB and 331–384 MiB
    ([evidence](../draft-editor-evaluation.md#memory-2957)).
+   [#2965](https://github.com/unwired-dev/product/issues/2965) timed each
+   composer's launch and the first composer after it on Mac in `Testing` builds;
+   the launch fixtures differ
+   ([results](../draft-editor-evaluation.md#launch-and-first-composer-2965)).
 6. The Tiptap and ProseMirror notices in the distributed app; the licence
    inventory must list the page's packages. Met by
    [#2916](https://github.com/unwired-dev/product/issues/2916): every bundle that

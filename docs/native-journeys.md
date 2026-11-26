@@ -50,9 +50,10 @@ stalls overlapping sample windows and in the whole session. Missing or malformed
 probe evidence, including a click sample without its mouse events, fails the journey.
 
 A key sample runs from the key press the app records to the first edit of the
-focused body's text storage that begins with the expected text and the bold,
-italic and underline marks of each of its characters, so a later key press
-cannot hide a late result. A format bar sample runs the same way from the mouse
+focused body's text storage that shows exactly the expected text and the bold,
+italic and underline marks of each of its characters. Each sample needs its own
+edit, after the previous sample's, and a draw after it that no later edit
+replaced, so a later key press cannot hide a late or missing result. A format bar sample runs the same way from the mouse
 release the app records. Both times come from the app, so these samples exclude
 XCUITest. It compares that duration to `1000 / maximumFramesPerSecond`
 of the key window's display, the interval at the display's maximum supported refresh
@@ -83,6 +84,45 @@ samples, p50, p95, maximum, budget and stalls. The final line has the
 query overhead, the synthetic press duration and every session stall. It
 measures neither Mail View switching, keyboard or accessibility journeys, nor the
 iPhone and iPad references.
+
+## Mac typing response journey
+
+The `testTypingResponse` journey compares typing and formatting feedback in both
+Mac composers ([#2962](https://github.com/unwired-dev/product/issues/2962)). It runs
+the current composer in a `registration-performance` `Testing` build, signed in as
+the [performance journey](#mac-performance-journey) is, and the Draft editor page
+in a `registration-draft-editor` `Testing` build:
+
+```sh
+for scenario in registration-performance registration-draft-editor; do
+  UNWIRED_MOCK_SCENARIO=$scenario \
+  mise exec -- pnpm --filter @private-email/macos native:build Testing
+  mise exec -- pnpm --filter @private-email/macos test:native \
+    "$PWD/artifacts/macos-inbox/DerivedData/Build/Products/Testing/UnwiredMail.app" \
+    testTypingResponse
+done
+```
+
+In a new message it takes the performance journey's typing and formatting steps
+and measures them the same way, with the same `PERFORMANCE` lines: each key press
+or format bar release the app records, to the first body edit that shows the
+expected text and marks, and to the first draw after it, placed in its display
+frame. For the page, `apps/macos/src/page-typing-probe.ts` supplies the edit and
+the draw. A `MutationObserver` notes each change of the editor's text and marks
+when ProseMirror has changed the DOM. The next animation frame then notes its start,
+and a task queued from that frame notes the end of its rendering update, which
+stands for the draw. The page times them with `performance.timeOrigin` and
+`performance.now()`, milliseconds since 1970 in WebKit's process, and sends them
+once that frame has rendered. The app converts them to its uptime clock when it
+writes them. A page sample therefore includes WebKit's event delivery from the
+app, ProseMirror's edit and WebKit's style, layout and paint. It leaves out
+WebKit's layer commit to the app and the window server's composite, as the current
+composer's text view draw leaves out compositing. The two clocks agree only to the
+resolution of WebKit's timer, 1 ms, and the app converts every note with one
+offset, so notes the page timed alike keep their order. Both builds launch with
+the system's inline predictions off, which otherwise delayed three of the page's
+key presses by about 5 s ([#2966](https://github.com/unwired-dev/product/issues/2966)).
+The lines are an XCTest attachment named for the composer.
 
 ## Mac composer opening journey
 
@@ -188,6 +228,27 @@ four-composer increase is the whole session's growth, including three more Inbox
 windows that list each build's own mailboxes. The pasted paragraph replaces the pasteboard
 for the run, which gets its earlier contents back unless something else wrote it
 since.
+
+## Mac launch and first composer journey
+
+The `testLaunchAndFirstComposer` journey times what a launch costs each Mac
+composer ([#2965](https://github.com/unwired-dev/product/issues/2965)). It runs in
+the same two builds and sign-ins as the
+[composer opening journey](#mac-composer-opening-journey); run it with that loop,
+naming `testLaunchAndFirstComposer` instead.
+
+Ten times, it quits and launches the app, then opens a new message, the first
+composer of that app, and closes it. A `launch-to-first-list` sample runs from the
+launch request until an accessibility query finds the Inbox's first listed row
+(and, in the performance build, the **All Inboxes** sidebar row), as in the
+[performance journey](#mac-performance-journey). A `first-composer` sample runs
+from the mouse release the app records until the body and the format bar's
+**Undo** are shown; for the page, it includes starting its WebKit processes and
+loading it. Both include XCUITest's queries, so they are upper bounds, compared
+with the [performance budgets](agents/native-validation.md#performance-qualification)
+for launch (1 second) and an empty composer (300 ms). The two builds' scenarios
+list different mail, so their launches are not like for like; the first composers
+open the same empty New Message. It writes `PERFORMANCE` lines in the same format.
 
 ## Mac keyboard and accessibility journey
 
@@ -625,6 +686,25 @@ becomes an Attachment whose bytes verify, and the body keeps its text and no ima
 After **Save**, a relaunch and reopening the Draft, the Attachment is still listed.
 The dropped and reopened page are kept as attachments; the journey closes its Finder
 window and removes the folder.
+
+## Mac Slash Command Menu journey
+
+The `testSlashCommandMenu` journey and its `Dark` variant use the same
+`registration-performance` `Testing` build and sign-in as the
+[performance journey](#mac-performance-journey)
+([#2789](https://github.com/unwired-dev/product/issues/2789)):
+
+```sh
+mise exec -- pnpm --filter @private-email/macos test:native \
+  "$PWD/artifacts/macos-inbox/DerivedData/Build/Products/Testing/UnwiredMail.app" \
+  testSlashCommandMenu
+```
+
+A New Message body gets `Hi`, a new line and `/`, which opens the Basic Blocks
+under it. Typing `he` leaves the three headings; Down Arrow and Return set
+Heading 2, which the **Text style** pop-up shows, and remove the query. After
+typing, two Command-Z take back the typing and then restore `/he` as a
+paragraph. The open and filtered menus are kept as attachments.
 
 ## Mac list indent journey
 

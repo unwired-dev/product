@@ -11,6 +11,7 @@ import { AppState } from 'react-native';
 import { deliverAdmitted } from './delivery.ts';
 import {
   followBadge,
+  followReminderNotifications,
   followNotificationActions,
   followWakes,
   freshness,
@@ -59,6 +60,7 @@ if (!previewInbox) {
   // The App Icon Badge follows the Inbox wherever synchronization runs, foreground or background,
   // and permission changed in the system's settings while the app was away.
   followBadge();
+  followReminderNotifications();
   AppState.addEventListener('change', (state) => {
     if (state === 'active') {
       void notifications.load();

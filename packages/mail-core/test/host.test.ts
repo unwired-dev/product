@@ -302,6 +302,7 @@ function syntheticHost(reporting?: NativeErrorReporting, productSync = false) {
       sweeps.count += 1;
       return Promise.resolve(null);
     },
+    scheduleReminderNotifications: () => Promise.resolve(null),
   };
   const host = createHost(
     () => {

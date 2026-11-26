@@ -321,8 +321,20 @@ slash query the same way and then runs as the format bar's item does: Generate a
 Draft… opens its prompt, and a text tool rewrites the whole authored body. With an iPad hardware
 keyboard, Up and Down Arrow move the highlight through every section and Escape
 or Command-period closes the menu. Insert Template…, Translate to… and the Mac
-menu are later slices
+menu's Insert and writing tools are later slices
 ([#2117](https://github.com/unwired-dev/product/issues/2117)).
+
+On the Mac, the same `/` opens the menu's **Basic Blocks**
+([#2789](https://github.com/unwired-dev/product/issues/2789)): a 320pt glass menu
+under the `/`'s line, or over it when more room is there, that scrolls inside the
+composer's room while the body keeps focus. Each row is led by its icon and ends
+with its Markdown marker (`#`, `##`, `###`, `-`, `1.`, `>`, three backticks); the
+first match shows highlighted. Typing filters the rows as on iPad and iPhone, and
+a result with none closes the menu and leaves the typed text. Up and Down Arrow
+move the highlight, Return, Tab or a click sets the caret's block as the Text
+style pop-up does and removes the slash query as one Undo step, and Escape,
+deleting the `/`, moving the caret or leaving the body closes the menu. VoiceOver
+hears **Slash commands** as it opens and each highlighted row with its marker.
 
 Each block can also be centered, right-aligned or justified; a block without an
 alignment is start-aligned, and a Draft holding any other alignment is not saved
@@ -1099,10 +1111,24 @@ the same; while a file is still being added its dimmed row reads
 Removing a reminder on Send, Discard or an empty Close reaches the other devices
 when they synchronize. A composer already open shows a reminder another device set,
 changed or removed as soon as this device synchronizes
-([#2897](https://github.com/unwired-dev/product/issues/2897)). Reminders schedule no
-notification yet, and a reminder whose
-removal storage refused after Send or Discard stays stored; later #658 slices add
-those.
+([#2897](https://github.com/unwired-dev/product/issues/2897)). A reminder whose
+removal storage refused after Send or Discard stays stored; a later #658 slice
+removes it.
+
+A due reminder posts a notification on the device that set its current value
+([#2990](https://github.com/unwired-dev/product/issues/2990)), scheduled for its
+due instant: storage records which reminders this device set (`notifies`), and a
+device that takes a reminder from another device's Private Sync record schedules
+none, so once the devices synchronize one Trusted Device notifies per revision. Of
+two concurrent changes only the device whose write wins keeps its notification.
+Reminders stored before this notify nowhere. Changing or removing a reminder, or
+sending or discarding its Draft, replaces or withdraws the pending or delivered
+notification at once on that device, and at its next synchronization for a change
+made elsewhere; a device that stays offline can still post a reminder another
+device changed or removed meanwhile. Its content and the device's Show Sender and
+Subject level are described in
+[New Mail Notifications](new-mail-notifications.md#send-reminder-notifications).
+A tap only opens the app until a later #2833 slice opens the Draft.
 
 ## Verification
 
