@@ -285,6 +285,25 @@ comparison. The 1-minute host load from other work was about 50.
 - The recordings sample 30 frames a second, so a difference within one frame is
   not seen.
 
+[#2939](https://github.com/unwired-dev/product/issues/2939) adds the Move picker,
+which the synthetic Gmail mailbox lacks. It ran on a `registration-imap-folders`
+Release Simulator build of `e6cd8cb16` with the same toolchain, on owned iPhone 18
+Pro and iPad Pro 11-inch (M5) Simulators in portrait, at a 1-minute host load of
+about 3. `agent-device` signed in, connected the synthetic IMAP account, chose its
+Spam and Trash folders, and opened **Folders** on "Welcome to IMAP" in All Mail,
+recording the screen in Light and Dark with Reduce Motion on and off.
+
+- In all four runs on each device the picker opened with the message's Inbox
+  selected and unavailable, **Move to Sent Messages**, **Move to Bulk Mail** and
+  **Move to Deleted Messages** in reach, and closed with its own control: the
+  iPhone Move sheet with **Close**, the iPad Folders popover with a tap outside.
+- The iPhone Move sheet keeps its slide: it rises and settles in about 0.45 seconds and
+  falls in about 0.3, the same with Reduce Motion on and off, as the other sheets do.
+- The system changes the iPad Folders popover's motion: without Reduce Motion it
+  grows out of **Folders** into place, with it it fades in at its final size.
+  Both take about 0.2 seconds, and it fades out at its final size in both
+  settings, in Light and Dark.
+
 ## iPad keyboard and accessibility journey to the end, 2026-11-25
 
 [#1873](https://github.com/unwired-dev/product/issues/1873): the iPad
@@ -522,9 +541,9 @@ presenter; each names the appearances it ran in. Host load from other work was
   tap needed in its journey and a refused `agent-device` press that leaves a
   popover open (2026-11-25 entry above).
 - **Deferred** to [#2873](https://github.com/unwired-dev/product/issues/2873):
-  the iPad Folders popover; VoiceOver focus when a presenter opens and its
-  return when it closes; Reduce Motion on the iPhone Move sheet (the other
-  presenters are in the 2026-11-25 entry above); a compact iPad window, where the
+  the iPad Folders popover beyond opening it and closing it with a tap outside,
+  in Light and Dark (2026-11-25 Reduce Motion entry above); VoiceOver focus when a presenter opens and its
+  return when it closes; a compact iPad window, where the
   composer and Filters turn into sheets and the Move and Labels popovers, chosen
   by device rather than width, adapt as SwiftUI decides; a hardware keyboard,
   including Escape on the Labels popover; the software keyboard in New Label and
@@ -536,7 +555,11 @@ presenter; each names the appearances it ran in. Host load from other work was
   no journey or the synthetic mailbox has. `agent-device` cannot turn VoiceOver
   on, rotate the device or resize an iPad window. Rotation with the Gmail
   presenters and the Move picker is the 2026-11-25 entry above
-  ([#2907](https://github.com/unwired-dev/product/issues/2907)). The `registration-apple`
+  ([#2907](https://github.com/unwired-dev/product/issues/2907)). Reduce Motion on
+  every presenter, the iPhone Move sheet and iPad Folders popover included, is
+  the 2026-11-25 entry above
+  ([#2914](https://github.com/unwired-dev/product/issues/2914),
+  [#2939](https://github.com/unwired-dev/product/issues/2939)). The `registration-apple`
   journey, whose Move steps rotate to landscape before opening the picker and
   check its keyboard there, stopped under host load before them.
 
