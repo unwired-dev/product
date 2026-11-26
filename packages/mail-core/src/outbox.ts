@@ -40,6 +40,7 @@ import {
 import { mailboxesOf } from './registration-snapshot.ts';
 import { canOpenInbox } from './registration.ts';
 import { imageCharacter } from './semantic-document.ts';
+import { unsubscribeOfferReturnsAfter } from './unsubscribe.ts';
 
 export type { OutboxCheck, OutboxSnapshotEntry } from './outbox-copy.ts';
 
@@ -117,7 +118,9 @@ export const unsendable = (
 // The newest `mailto:` unsubscribe request `connection`, in its incarnation `epoch`, holds in
 // `outbox` for the list with `identity`, or for `message` when the list has none, which the reader
 // shows until it leaves the Outbox, across relaunches; an unknown one a confirmed retry answered no
-// longer stands for it, and one from before the connection was added again never does.
+// longer stands for it, and one from before the connection was added again never does. A request
+// confirmed for another message stands for one the list sent at `receivedAt` only within the
+// list's 14 days, as a recorded request does.
 export const pendingUnsubscribe = <
   E extends Pick<OutboxEntry, 'draft' | 'unsubscribe' | 'epoch'>,
 >(
@@ -127,12 +130,22 @@ export const pendingUnsubscribe = <
     identity,
     message,
     epoch,
-  }: Readonly<{ identity?: string; message: string; epoch?: string }>,
+    receivedAt,
+  }: Readonly<{
+    identity?: string;
+    message: string;
+    epoch?: string;
+    receivedAt?: number | undefined;
+  }>,
 ) =>
   Arr.reverse(outbox).find(
     ({ draft, unsubscribe, epoch: incarnation }) =>
       unsubscribe !== undefined &&
       unsubscribe.answered !== true &&
+      (unsubscribe.message === message ||
+        unsubscribe.sentAt === undefined ||
+        receivedAt === undefined ||
+        receivedAt <= unsubscribe.sentAt + unsubscribeOfferReturnsAfter) &&
       draft.connection === connection &&
       (incarnation ?? 'legacy') === (epoch ?? 'legacy') &&
       (identity === undefined
@@ -147,6 +160,8 @@ type UnsubscribeSource = Readonly<{
   message: string;
   retrying?: readonly string[] | undefined;
   epoch?: string | undefined;
+  // When the message arrived.
+  receivedAt?: number | undefined;
 }>;
 
 // Where the Outbox keeps a confirmed unsubscribe request by the Product Account, Mail Profile,
@@ -505,6 +520,9 @@ export function createOutbox({
   // and message that offered them.
   const confirmedRequests = new Map<string, { at: number; to?: string }>();
   const confirmedMessages = new Map<string, { at: number; to?: string }>();
+  // When this session filed the Sent copy of an IMAP unsubscribe request, kept until the entry
+  // holds that time in storage.
+  const filedRequests = new Map<string, number>();
   // When the message `id` was confirmed as sent, and to whom for an unsubscribe request confirmed
   // this session or still waiting for its record; otherwise only among the latest sends.
   const deliveredOf = (
@@ -938,6 +956,26 @@ export function createOutbox({
     return true;
   };
 
+  // A filed request keeps when it was confirmed before it leaves, so neither a refused step nor a
+  // relaunch files it again. Resolves false while storage refuses that, and it waits.
+  const keepFiled = (id: string): Effect.Effect<boolean> => {
+    const confirmedAt = filedRequests.get(id) ?? confirmedRequests.get(id)?.at;
+    return confirmedAt === undefined ||
+      entryOf(id)?.unsubscribe?.sentAt !== undefined
+      ? Effect.succeed(true)
+      : write(id, (each) => {
+          if (each.unsubscribe === undefined) {
+            return undefined;
+          }
+          return each.unsubscribe.sentAt === undefined
+            ? {
+                ...each,
+                unsubscribe: { ...each.unsubscribe, sentAt: confirmedAt },
+              }
+            : each;
+        });
+  };
+
   // Files an accepted message's Sent copy, and records it as sent once the copy is there. A
   // connection removed meanwhile has nowhere to keep it, so the message is recorded as sent; one
   // waiting for its password keeps the copy waiting.
@@ -950,7 +988,8 @@ export function createOutbox({
     // since, so only its record is saved again, without opening its mailbox.
     const filed =
       entry.unsubscribe?.sentAt !== undefined ||
-      confirmedRequests.has(entry.id);
+      confirmedRequests.has(entry.id) ||
+      filedRequests.has(entry.id);
     if (
       (!filed && !(yield* Effect.promise(() => openSender(entry.draft)))) ||
       !current()
@@ -974,24 +1013,16 @@ export function createOutbox({
         (yield* Effect.promise(() =>
           mailbox.inbox.fileSent(entry.message, messageId),
         )) ?? (yield* answer(entry));
-      // A filed request keeps when it was confirmed before it leaves, so neither a refused step
-      // nor a relaunch files it again.
       if (problem === undefined && entry.unsubscribe !== undefined) {
-        const confirmedAt = yield* Clock.currentTimeMillis;
-        yield* write(entry.id, (each) =>
-          each.unsubscribe === undefined ||
-          each.unsubscribe.sentAt !== undefined
-            ? undefined
-            : {
-                ...each,
-                unsubscribe: { ...each.unsubscribe, sentAt: confirmedAt },
-              },
-        );
+        filedRequests.set(entry.id, yield* Clock.currentTimeMillis);
       }
     }
     if (
       problem === undefined &&
-      !(yield* recordRequest(entryOf(entry.id) ?? entry))
+      !(
+        (yield* keepFiled(entry.id)) &&
+        (yield* recordRequest(entryOf(entry.id) ?? entry))
+      )
     ) {
       problem = 'offline';
     }
@@ -1438,7 +1469,7 @@ export function createOutbox({
   const admitUnsubscribe = async (
     connection: string,
     offer: Extract<UnsubscribeOffer, { kind: 'mailto' }>,
-    { message: source, retrying = [], epoch }: UnsubscribeSource,
+    { message: source, retrying = [], epoch, receivedAt }: UnsubscribeSource,
   ): Promise<MailtoUnsubscribe> => {
     const mailbox = mailboxesOf(registration.getSnapshot().snapshot).find(
       ({ id }) => id === connection,
@@ -1449,6 +1480,7 @@ export function createOutbox({
     const held = pendingUnsubscribe(drafts.getOutbox(), connection, {
       ...offer,
       message: source,
+      receivedAt,
       ...(mailbox?.epoch === undefined ? {} : { epoch: mailbox.epoch }),
     });
     const standing = standingOf(held, retrying);
@@ -1617,7 +1649,8 @@ export function createOutbox({
     // one address with only its subject and body. It waits out the Undo Send Window like any
     // message; Undo only takes it out of the Outbox. Admissions run one at a time, and a request
     // the Outbox holds for the same connection and list, or for the same message without a list
-    // identity, answers in place of another; only a refused or unknown one may be tried again, and
+    // identity, answers in place of another, one confirmed for another message only within the
+    // list's 14 days; only a refused or unknown one may be tried again, and
     // trying it again sends that same request, taking a refused one out once it is admitted. An
     // unknown one confirmed before its retry is handed off answers in place of the retry.
     unsubscribe: (

@@ -145,6 +145,7 @@ const email = async ({
   connection,
   epoch,
   message,
+  receivedAt,
   offer,
 }: Readonly<{
   outbox: ReturnType<typeof useOutbox>;
@@ -152,8 +153,9 @@ const email = async ({
   connection: string;
   // The connection's incarnation the request was confirmed for.
   epoch: string;
-  // The message that offered the request.
+  // The message that offered the request, and when it arrived.
   message: string;
+  receivedAt: number | undefined;
   offer: Extract<UnsubscribeOffer, { kind: 'mailto' }>;
 }>) => {
   const admitted = await outbox
@@ -161,6 +163,7 @@ const email = async ({
       message,
       retrying: entries.get(key)?.requests,
       epoch,
+      receivedAt,
     })
     .catch(() => ({ kind: 'failed' }) as const);
   update(key, (each) => ({
@@ -290,8 +293,10 @@ function useConfirmed(
 
 // The opened message's offer in the scoped mailbox and Profile, its Unsubscribe state, and why
 // the receiving connection cannot send a `mailto:` request, if it cannot. A `mailto:` request shows
-// as the Outbox holds it, across relaunches, then as sent once the Outbox confirmed it.
-function useOffer(inbox: Source, id: string) {
+// as the Outbox holds it, across relaunches, then as sent once the Outbox confirmed it; one
+// confirmed for another message of the list only when this one arrived, at `receivedAt`, within
+// the list's 14 days.
+function useOffer(inbox: Source, id: string, receivedAt: number | undefined) {
   const store = use(UnsubscribeContext);
   const signedIn = use(AccountContext);
   const account = signedIn?.account;
@@ -314,6 +319,7 @@ function useOffer(inbox: Source, id: string) {
       ? pendingUnsubscribe(queued, connection, {
           ...offer,
           message: id,
+          receivedAt,
           ...(receiving?.epoch === undefined ? {} : { epoch: receiving.epoch }),
         })
       : undefined;
@@ -360,6 +366,7 @@ function useOffer(inbox: Source, id: string) {
           connection,
           epoch: receiving?.epoch ?? 'legacy',
           message: id,
+          receivedAt,
           offer: sending,
         })
       : click(store, { key, profile }, sending));
@@ -458,10 +465,18 @@ function useAsking(key: string) {
 
 // The More menu's Unsubscribe… for the opened message, with its confirmation, which opens below the
 // group of More since the banner may be scrolled out of view. `confirmation` takes the sender's
-// name.
-export function useUnsubscribeMenu(inbox: Source, id: string) {
+// name; `receivedAt` is when the message arrived, if it is known yet.
+export function useUnsubscribeMenu(
+  inbox: Source,
+  id: string,
+  receivedAt: number | undefined,
+) {
   const { t } = useLocalization();
-  const { offer, address, blocked, key, offered, send } = useOffer(inbox, id);
+  const { offer, address, blocked, key, offered, send } = useOffer(
+    inbox,
+    id,
+    receivedAt,
+  );
   const { asking, ask, close } = useAsking(key);
   if (offer === undefined || address === undefined) {
     return { items: [], confirmation: () => null };
@@ -732,7 +747,7 @@ export function UnsubscribeBanner({
     outcome,
     offered,
     send,
-  } = useOffer(inbox, id);
+  } = useOffer(inbox, id, receivedAt);
   const { asking, ask, close } = useAsking(key);
   const { anchor, items } = useBlockSender();
   const seconds = useSecondsUntil(

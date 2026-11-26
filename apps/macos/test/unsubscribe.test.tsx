@@ -46,7 +46,11 @@ function Reader({
   const [shown, setShown] = useState(0);
   onShow(setShown);
   const id = ids[shown] ?? '';
-  const { items, confirmation: confirm } = useUnsubscribeMenu(inbox, id);
+  const { items, confirmation: confirm } = useUnsubscribeMenu(
+    inbox,
+    id,
+    receivedAt,
+  );
   onMenu(items);
   return (
     <>

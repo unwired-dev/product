@@ -129,10 +129,13 @@ request keeps that time as soon as its Sent copy is filed and never files it
 again, even after a refused step or a relaunch, so a copy the person moved or
 deleted meanwhile stays that way. A record
 older than the one storage holds for the Profile and list leaves the newer one
-in place and counts as saved. `pendingUnsubscribe(snapshot, connection, { identity, message, epoch })` finds
+in place and counts as saved. `pendingUnsubscribe(snapshot, connection, { identity, message, epoch, receivedAt })` finds
 the newest request the Outbox holds for the list with that Mailing List
 Identity, or, for a list without one, for that message, so two lists sharing an
-address never take each other's state. It looks only at the connection's
+address never take each other's state. A request confirmed for another message
+stands for one that arrived at `receivedAt` only within the list's 14 days, as a
+recorded one does; past them the reader and the admission (`receivedAt` in its
+source) offer the request again. It looks only at the connection's
 current incarnation (`epoch`): a request from before the mailbox was removed and
 added again is refused, and never tried again for the new one: the reader passes
 the incarnation it confirmed for (`epoch` in the admission's source), and a

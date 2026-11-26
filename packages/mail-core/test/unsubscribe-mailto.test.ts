@@ -14,7 +14,10 @@ import { syntheticConnections } from '../src/testing/gmail-mailbox.ts';
 import { createSyntheticGmail } from '../src/testing/gmail-mailbox.ts';
 import { createSyntheticGraph } from '../src/testing/graph-mailbox.ts';
 import { createSyntheticImap } from '../src/testing/imap-mailbox.ts';
-import { createUnsubscribe } from '../src/unsubscribe.ts';
+import {
+  createUnsubscribe,
+  unsubscribeOfferReturnsAfter,
+} from '../src/unsubscribe.ts';
 import { device, present } from './draft-sync-fixture.ts';
 import { account } from './outbox-fixture.ts';
 
@@ -808,46 +811,62 @@ describe('recording a mailto unsubscribe request', () => {
     }
   });
 
-  // Storage refuses once the step that would take a request out of the Outbox as sent.
-  const refuseLeavingOnce = (phone: Awaited<ReturnType<typeof receiver>>) => {
-    const refused = { done: false };
+  // Storage refuses once the step that would take a request out of the Outbox as sent, and with
+  // `checkpoint`, once the step that keeps when its filed copy was confirmed.
+  const refuseLeavingOnce = (
+    phone: Awaited<ReturnType<typeof receiver>>,
+    checkpoint = false,
+  ) => {
+    const refused = { done: false, checkpoint: !checkpoint };
     phone.stepping.before = async (id, step) => {
       const entry = phone.drafts.getOutbox().find((each) => each.id === id);
       const next = entry === undefined ? undefined : step(entry);
-      if (refused.done || next === undefined || 'state' in next) {
+      if (next === undefined) {
         return undefined;
       }
-      refused.done = true;
-      return 'refuse';
+      if (!('state' in next)) {
+        const leaving = !refused.done;
+        refused.done = true;
+        return leaving ? 'refuse' : undefined;
+      }
+      const keeping =
+        !refused.checkpoint &&
+        entry?.unsubscribe?.sentAt === undefined &&
+        next.unsubscribe?.sentAt !== undefined;
+      refused.checkpoint ||= keeping;
+      return keeping ? 'refuse' : undefined;
     };
     return refused;
   };
 
-  it('never files the Sent copy again for a confirmed IMAP request whose leaving storage refused, though the copy was deleted before a relaunch', async () => {
-    expect.hasAssertions();
-    const phone = await receiver('imap');
-    const id = await start(phone, 'imap');
-    const refused = refuseLeavingOnce(phone);
-    later(undoSendWindow);
-    await phone.outbox.process();
-    await vi.waitFor(() => {
-      expect(refused.done).toBe(true);
-    });
-    expect(phone.outbox.getSnapshot()).toMatchObject([{ id }]);
-    phone.imap.expunge('Sent', 1);
-    phone.outbox.dispose();
-
-    const relaunched = phone.relaunch();
-    try {
-      await relaunched.process();
-      await vi.waitFor(() => {
-        expect(relaunched.getSnapshot()).toStrictEqual([]);
+  it.each([false, true])(
+    'never files the Sent copy again for a confirmed IMAP request whose leaving storage refused, though the copy was deleted before a relaunch (its filed time refused too: %s)',
+    async (checkpoint) => {
+      expect.hasAssertions();
+      const phone = await receiver('imap');
+      const id = await start(phone, 'imap');
+      const refused = refuseLeavingOnce(phone, checkpoint);
+      later(undoSendWindow);
+      await vi.waitFor(async () => {
+        await phone.outbox.process();
+        expect(refused).toStrictEqual({ done: true, checkpoint: true });
       });
-      expect([phone.sent().length, phone.filed()]).toStrictEqual([1, 1]);
-    } finally {
-      relaunched.dispose();
-    }
-  });
+      expect(phone.outbox.getSnapshot()).toMatchObject([{ id }]);
+      phone.imap.expunge('Sent', 1);
+      phone.outbox.dispose();
+
+      const relaunched = phone.relaunch();
+      try {
+        await relaunched.process();
+        await vi.waitFor(() => {
+          expect(relaunched.getSnapshot()).toStrictEqual([]);
+        });
+        expect([phone.sent().length, phone.filed()]).toStrictEqual([1, 1]);
+      } finally {
+        relaunched.dispose();
+      }
+    },
+  );
 
   it('records a confirmed IMAP request whose record waited after a relaunch that cannot reach its mailbox, and answers for it with its recipient', async () => {
     expect.hasAssertions();
@@ -877,6 +896,40 @@ describe('recording a mailto unsubscribe request', () => {
       expect([phone.sent().length, phone.filed()]).toStrictEqual([1, 1]);
     } finally {
       relaunched.dispose();
+    }
+  });
+
+  it('offers a request again to a message the list sent more than 14 days after a confirmed one whose record waited', async () => {
+    expect.hasAssertions();
+    const phone = await receiver('gmail');
+    try {
+      const id = await start(phone);
+      phone.kept.owner = 'another-product-account';
+      later(undoSendWindow);
+      await phone.outbox.process();
+      const confirmedAt = clock.now;
+      await vi.waitFor(() => {
+        expect(pending(phone)?.unsubscribe?.sentAt).toBe(confirmedAt);
+      });
+      const newer = (receivedAt: number) =>
+        pendingUnsubscribe(phone.outbox.getSnapshot(), receiving.gmail.id, {
+          ...listed,
+          message: '9.INBOX',
+          receivedAt,
+        });
+      expect(newer(confirmedAt + unsubscribeOfferReturnsAfter)).toMatchObject({
+        id,
+      });
+
+      later(unsubscribeOfferReturnsAfter + 1);
+      expect(newer(clock.now)).toBeUndefined();
+      const again = await phone.outbox.unsubscribe(receiving.gmail.id, listed, {
+        message: '9.INBOX',
+        receivedAt: clock.now,
+      });
+      expect(waitingId(again)).not.toBe(id);
+    } finally {
+      phone.outbox.dispose();
     }
   });
 
