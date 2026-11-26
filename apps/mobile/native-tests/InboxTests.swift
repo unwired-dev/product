@@ -4919,6 +4919,68 @@ final class InboxTests: XCTestCase {
     }
   }
 
+  // #2944: the Draft editor page journals a New Message's unsaved edits, so Restore reopens them in
+  // the page after the app was terminated; Discard removes them, so the next launch offers nothing.
+  func testDraftEditorRecovery() throws {
+    continueAfterFailure = false
+    let environment = ProcessInfo.processInfo.environment
+    XCTAssertEqual(environment["UNWIRED_TEST_SCENARIO"], "registration-draft-editor")
+    let app = XCUIApplication(bundleIdentifier: try XCTUnwrap(environment["UNWIRED_BUNDLE_ID"]))
+    addTeardownBlock { if app.state != .notRunning { app.terminate() } }
+    app.launch()
+    XCTAssertTrue(app.staticTexts["Your mail,\non your devices."].waitForExistence(timeout: 60))
+    signInToDraftEditor(app)
+    app.buttons["New Message"].tap()
+    let body = app.webViews.textViews["Message body"]
+    XCTAssertTrue(body.waitForExistence(timeout: 30))
+    waitUntil({ self.pageReady(app) }, timeout: 30)
+    // The empty editor fills the page; focus its first paragraph, again if a loaded host's first
+    // tap lands before the page's editor takes focus.
+    let firstParagraph = body.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 0))
+      .withOffset(CGVector(dx: 24, dy: 24))
+    for _ in 0..<3 where !app.keyboards.firstMatch.exists {
+      firstParagraph.tap()
+      _ = app.keyboards.firstMatch.waitForExistence(timeout: 10)
+    }
+    body.typeText("Typed before the end")
+    let typed = webText("Typed before the end", in: app)
+    XCTAssertTrue(typed.waitForExistence(timeout: 20))
+    let subject = app.textFields["Subject"]
+    subject.tap()
+    type("Kept by the page", into: subject)
+    // The editor journals 2 s after the last edit; nothing on screen shows the write.
+    _ = XCTWaiter.wait(for: [XCTestExpectation(description: "Recovery journal")], timeout: 5)
+
+    // Terminating runs no Close or save; Restore reopens the page on the recovered edits.
+    let offer = app.alerts["Recover unsaved message?"]
+    app.terminate()
+    app.launch()
+    XCTAssertTrue(offer.waitForExistence(timeout: 45))
+    assertRecoveryOffer(offer)
+    attachScreen("Recover unsaved message", of: app, to: self)
+    offer.buttons["Restore"].tap()
+    XCTAssertTrue(offer.waitForNonExistence(timeout: 10))
+    XCTAssertTrue(app.webViews.textViews["Message body"].waitForExistence(timeout: 30))
+    XCTAssertTrue(typed.waitForExistence(timeout: 20))
+    XCTAssertEqual(subject.value as? String, "Kept by the page")
+    attachScreen("Restored Draft editor page", of: app, to: self)
+
+    // The restored page leaves the record until a Save Draft, Send or Discard; Discard removes it.
+    app.terminate()
+    app.launch()
+    XCTAssertTrue(offer.waitForExistence(timeout: 45))
+    assertRecoveryOffer(offer)
+    offer.buttons["Discard"].tap()
+    XCTAssertTrue(offer.waitForNonExistence(timeout: 10))
+    XCTAssertFalse(app.webViews.textViews["Message body"].exists)
+    // The alert closes before storage removes the record.
+    _ = XCTWaiter.wait(for: [XCTestExpectation(description: "Record removal")], timeout: 3)
+    app.terminate()
+    app.launch()
+    XCTAssertTrue(app.buttons["New Message"].waitForExistence(timeout: 45))
+    XCTAssertFalse(offer.waitForExistence(timeout: 10))
+  }
+
   // #2610: on iPhone the composer is the system sheet over the Inbox, which stays out of reach.
   // Its downward swipe is Close: an untouched Draft closes, and changed content asks first while
   // the sheet stays. Save Draft then closes it, and Send sends from it.

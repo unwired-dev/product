@@ -841,6 +841,22 @@ attachments. The journey then continues with the Thread steps under
 [Mock Mail Sessions](mock-mail-sessions.md). CI does not run this scenario; it is
 local native evidence.
 
+The `testDraftEditorRecovery` journey checks the same for the Draft editor page
+([#2944](https://github.com/unwired-dev/product/issues/2944)) in a
+`registration-draft-editor` Release build, which the
+[Draft editor evaluation](draft-editor-evaluation.md#run-the-evaluation) builds:
+
+```sh
+UNWIRED_JOURNEY=testDraftEditorRecovery mise exec -- pnpm --filter @private-email/mobile test:native \
+  "$PWD/artifacts/mock-mail/DerivedData/Build/Products/Release-iphonesimulator/UnwiredMail.app"
+```
+
+After signing in, a New Message gets body text typed into the page and a subject.
+Five seconds later the journey terminates and relaunches the app, and **Restore**
+reopens the page with the same body and subject. A second termination offers the
+record again, Discard removes it, and a third launch offers nothing. The offer and
+the restored page are kept as attachments. CI does not run it.
+
 ## iPhone and iPad keyboard and accessibility journey
 
 The Expo native journey for a `registration-performance` Release build drives
