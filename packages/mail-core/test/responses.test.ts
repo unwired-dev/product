@@ -178,7 +178,8 @@ async function reader(
     mailbox = work,
     mailboxes: ReadonlyArray<typeof alex> = [alex, work],
   ) =>
-    startResponse({ navigation, drafts, inbox }, english, {
+    // Try Again on the Mac keeps a forwarded file that wasn't added.
+    startResponse({ navigation, drafts, inbox, keep: true }, english, {
       kind,
       mailbox,
       message,

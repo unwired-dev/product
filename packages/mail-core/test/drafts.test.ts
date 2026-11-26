@@ -3840,7 +3840,7 @@ describe('adding files and images to Drafts', () => {
     await drafts.fill(
       id,
       (each) => ({ ...each, attachments: [...assetsOf(each), plan] }),
-      [{ asset: plan, source: { kind: 'unavailable' }, download }],
+      [{ asset: plan, source: { kind: 'unavailable' }, download, keep: true }],
     );
     await vi.waitFor(() => {
       expect(assetsOf(draft())).toMatchObject([
@@ -3920,15 +3920,57 @@ describe('adding files and images to Drafts', () => {
     expect(assetsOf(draft()).at(-1)).toMatchObject({ state: 'failed' });
     expect(moved.release).toHaveBeenCalledWith();
     expect(storage.assets()).toHaveLength(1);
-
-    // A client without Try Again keeps no failed file.
-    const plain = received('plain');
+    // Nor one whose mailbox moves while its file is read.
+    session.change(connected('account-a', [alex, other]));
+    const moving = received('moving', true, other);
     storage.failNextImport('locked');
-    await drafts.attach(id, [plain.file]);
+    await drafts.attach(id, [moving.file]);
+    await vi.waitFor(() => {
+      expect(drafts.getRetries().size).toBe(1);
+    });
+    storage.holdImports();
+    const native = vi.spyOn(storage.native, 'importDraftAsset');
+    const [reading] = [...drafts.getRetries()];
+    const retrying = drafts.retryImport(present(reading, 'the failed file'));
+    await vi.waitFor(() => {
+      expect(native).toHaveBeenCalledWith(
+        expect.anything(),
+        reading,
+        expect.anything(),
+      );
+    });
+    native.mockRestore();
+    session.change(
+      connected('account-a', [alex, { ...other, profile: 'personal' }]),
+    );
+    storage.releaseImports();
+    await retrying;
+    expect(assetsOf(draft()).at(-1)).toMatchObject({ state: 'failed' });
+    expect(moving.release).toHaveBeenCalledWith();
+    expect(storage.assets()).toHaveLength(1);
+
+    // A client without Try Again keeps no failed file, nor downloads a forward again.
+    const plain = received('plain');
+    const download = vi.fn<Download>();
+    const forwarded = drafts.prepare({ name: 'plain.txt', type: 'text/plain' });
+    storage.failNextImport('locked');
+    await drafts.fill(
+      id,
+      (each) => ({ ...each, attachments: [...assetsOf(each), forwarded] }),
+      [
+        {
+          asset: forwarded,
+          source: plain.file.source,
+          download,
+          release: plain.release,
+        },
+      ],
+    );
     await vi.waitFor(() => {
       expect(plain.release).toHaveBeenCalledWith();
     });
     expect(drafts.getRetries().size).toBe(0);
+    expect(download).not.toHaveBeenCalled();
   });
 
   it('refuses files over the limits and reports damaged or missing bytes', async () => {

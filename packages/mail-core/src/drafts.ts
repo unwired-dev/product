@@ -2803,6 +2803,11 @@ export function createDrafts(
       if (!wanted || outcome.success.owner !== account) {
         return yield* discardBytes(account, asset.id);
       }
+      // Its mailbox may have moved into another Mail Profile while native code read it.
+      if (!staysInProfile(asset.id, read)) {
+        yield* discardBytes(account, asset.id);
+        return yield* failAsset(current, asset, { retry: undefined });
+      }
       yield* imported(current, account, { asset, ...outcome.success });
     });
 
@@ -2896,7 +2901,11 @@ export function createDrafts(
       if (unhold !== undefined) {
         holders.add({ id: asset.id, release: unhold });
       }
-      void importThenPublish(asset, source, { download, keep: keep === true });
+      // Only a client offering Try Again downloads a forwarded file again.
+      void importThenPublish(asset, source, {
+        download: keep === true ? download : undefined,
+        keep: keep === true,
+      });
     }
     return true;
   };

@@ -731,8 +731,8 @@ Downloaded Attachment again without a picker. Each received attachment's file st
 device while it can be retried; Try Again downloads a forwarded one again, from its
 mailbox's current Inbox, when it wasn't downloaded or went missing, and only while the
 message lists it alone in its place: another file, or several alike in name, type and
-size, is not added. A file whose Draft now sends from another Mail Profile is not added
-either. Cancel arriving once an import failed leaves Try Again in place. Only the Mac
+size, is not added. Nor is a received file whose mailbox moved into another Mail Profile,
+even while its file was being read. Cancel arriving once an import failed leaves Try Again in place. Only the Mac
 keeps a picked, pasted or received copy (`keep`). The copy is deleted once the file is added or removed, when its Draft is
 discarded or sent, when a composer that never saved it closes, on sign-out and at
 launch; a file too large for Drafts is not retried. Only complete files can be sent: `unsendableAssets` in
