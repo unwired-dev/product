@@ -52,7 +52,8 @@ recommendation and the decision it supports. Facts link to their evidence;
   ([Semantic mismatches](../draft-editor-evaluation.md#semantic-mismatches)): the
   page drops alignment, color, background and fonts
   ([#2884](https://github.com/unwired-dev/product/issues/2884) restores them), has
-  no Slash Command Menu, shows Inline Images at thumbnail size
+  no Slash Command Menu on Mac (iPhone and iPad have it since
+  [#2952](https://github.com/unwired-dev/product/issues/2952)), shows Inline Images at thumbnail size
   ([#2786](https://github.com/unwired-dev/product/issues/2786)), and adds Tiptap's
   extra keyboard shortcuts and **Attach Instead** and **Show Inline**.
 - **Licensing.** Tiptap, ProseMirror and esbuild are MIT and need no paid service
@@ -149,8 +150,10 @@ release limit:
    both composers in Release builds on the same fixtures and devices, including
    selection-change latency on large, many-block Drafts
    ([review note](https://github.com/unwired-dev/product/issues/822#issuecomment-6114571758)),
-   and the current composer's interactions the page lacks, such as the Slash
-   Command Menu.
+   and the current composer's interactions the page lacks. The Slash Command
+   Menu is met on iPhone and iPad Simulators by
+   [#2952](https://github.com/unwired-dev/product/issues/2952); the Mac menu, the
+   #822 measurements and physical devices remain.
 6. The Tiptap and ProseMirror notices in the distributed app; the licence
    inventory must list the page's packages. Met by
    [#2916](https://github.com/unwired-dev/product/issues/2916): every bundle that

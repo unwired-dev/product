@@ -93,6 +93,8 @@ export function simulatedPage(
       selection?: Readonly<{ start: number; end: number }>;
       marks?: readonly string[];
       kind?: string;
+      // The caret's line, which the page reports while it starts with a slash.
+      caret?: Readonly<{ top: number; bottom: number }>;
     }>,
   ) => {
     const page = target();

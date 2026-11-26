@@ -666,6 +666,19 @@ Insert filtered", "Slash Command Menu Writing tools", "Slash Command Menu Writin
 and "Shorten Text from the Slash Command Menu" are named with the appearance. VoiceOver speech and the
 other blocks are covered by Jest and the mail-core tests.
 
+`testDraftEditorSlashMenu` runs the same menu in the Draft editor page
+([#2952](https://github.com/unwired-dev/product/issues/2952)) on a
+`registration-draft-editor` Release build with `UNWIRED_JOURNEY=testDraftEditorSlashMenu`.
+After signing in and turning Mail Assistance on, a `/` typed on a New Message body's second line
+opens the menu with its Basic Blocks. Typing `heading 2` filters it to **Heading 2**, selected,
+and Return from the software keyboard makes the line a Heading 2 without the typed text. On the
+next line, a tap on **Heading 2** after `/he` does the same, and one **Undo** restores `/he`.
+Typing `/sho` on a new line filters to **Shorten Text**, whose tap removes the query and opens the
+synthetic model's review panel. The captures "Draft editor page Slash Command Menu", "… filtered",
+"Heading 2 from the Draft editor page Slash Command Menu", "… Writing tools filtered" and "Shorten
+Text from the Draft editor page Slash Command Menu" are named with the appearance. Escape, the
+arrows, Tab and Attach File… are covered by Jest and the page tests.
+
 ## iPhone composer sheet journey
 
 `testComposerSheet` runs on a `registration-declined` Release build with

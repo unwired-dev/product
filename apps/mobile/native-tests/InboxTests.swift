@@ -2587,10 +2587,8 @@ final class InboxTests: XCTestCase {
     add(shot)
   }
 
-  // The Tiptap evaluation editor (#818, #819, #820): a new Draft is typed into the packaged page,
-  // formatted and edited with assistance, saved with Save Draft through the encrypted Draft store,
-  // and reopened after relaunch. Focus, resize and teardown are recorded.
-  private func draftEditorJourney(_ app: XCUIApplication) {
+  // A `registration-draft-editor` build's new Product Account connects the synthetic Gmail mailbox.
+  private func signInToDraftEditor(_ app: XCUIApplication) {
     app.buttons["Continue"].tap()
     app.buttons["Sign in with Google"].tap()
     let recoveryKey = app.staticTexts["recovery-key"]
@@ -2603,6 +2601,13 @@ final class InboxTests: XCTestCase {
     app.buttons["Confirm Recovery Key"].tap()
     XCTAssertTrue(
       app.buttons["Unread. Rowan Hale. Garden plans for spring"].waitForExistence(timeout: 20))
+  }
+
+  // The Tiptap evaluation editor (#818, #819, #820): a new Draft is typed into the packaged page,
+  // formatted and edited with assistance, saved with Save Draft through the encrypted Draft store,
+  // and reopened after relaunch. Focus, resize and teardown are recorded.
+  private func draftEditorJourney(_ app: XCUIApplication) {
+    signInToDraftEditor(app)
     enableAssistance(app)
     // The disposable Draft belongs to this run's synthetic Product Account only.
     app.buttons["New Message"].tap()
@@ -5188,6 +5193,76 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(keep.waitForExistence(timeout: 60))
     XCTAssertFalse(menu.exists)
     attachScreen("Shorten Text from the Slash Command Menu", of: app, to: self)
+    keep.tap()
+  }
+
+  // #2952: the Draft editor page opens the current composer's Slash Command Menu: a / first in a
+  // body block opens it, typing filters it, Return and a tap choose a block, one Undo restores the
+  // typed text, and a Writing tool runs on the body.
+  func testDraftEditorSlashMenu() throws {
+    continueAfterFailure = false
+    let environment = ProcessInfo.processInfo.environment
+    XCTAssertEqual(environment["UNWIRED_TEST_SCENARIO"], "registration-draft-editor")
+    let app = XCUIApplication(bundleIdentifier: try XCTUnwrap(environment["UNWIRED_BUNDLE_ID"]))
+    addTeardownBlock { if app.state != .notRunning { app.terminate() } }
+    app.launch()
+    XCTAssertTrue(app.staticTexts["Your mail,\non your devices."].waitForExistence(timeout: 60))
+    signInToDraftEditor(app)
+    // The Writing tools rows need Mail Assistance.
+    enableAssistance(app)
+    app.buttons["New Message"].tap()
+    let body = app.webViews.textViews["Message body"]
+    XCTAssertTrue(body.waitForExistence(timeout: 30))
+    waitUntil({ self.pageReady(app) }, timeout: 30)
+    // The empty editor fills the page; focus its first paragraph, again if a loaded host's first
+    // tap lands before the page's editor takes focus.
+    let firstParagraph = body.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 0))
+      .withOffset(CGVector(dx: 24, dy: 24))
+    for _ in 0..<3 where !app.keyboards.firstMatch.exists {
+      firstParagraph.tap()
+      _ = app.keyboards.firstMatch.waitForExistence(timeout: 10)
+    }
+    let menu = app.descendants(matching: .any)["Slash commands"]
+    let row = { (name: String) in menu.buttons[name] }
+    body.typeText("Plan\n/")
+    XCTAssertTrue(menu.waitForExistence(timeout: 60))
+    for name in ["Text", "Heading 1", "Heading 2", "Heading 3", "Bulleted List"] {
+      XCTAssertTrue(row(name).exists, name)
+    }
+    attachScreen("Draft editor page Slash Command Menu", of: app, to: self)
+    body.typeText("heading 2")
+    waitUntil({ !row("Heading 1").exists && row("Heading 2").exists }, timeout: 60)
+    XCTAssertTrue(row("Heading 2").isSelected)
+    attachScreen("Draft editor page Slash Command Menu filtered", of: app, to: self)
+    // Return from the software keyboard takes the highlighted Heading 2 and removes the query.
+    body.typeText("\n")
+    waitUntil({ !menu.exists && !self.webText("/heading 2", in: app).exists }, timeout: 60)
+    attachScreen("Heading 2 from the Draft editor page Slash Command Menu", of: app, to: self)
+    // A tap takes a row; one Undo restores the typed text.
+    body.typeText("Agenda\n/he")
+    XCTAssertTrue(menu.waitForExistence(timeout: 60))
+    waitUntil({ !row("Text").exists && row("Heading 2").exists }, timeout: 60)
+    row("Heading 2").tap()
+    waitUntil({ !menu.exists && !self.webText("/he", in: app).exists }, timeout: 60)
+    formatControl("Undo", in: app).tap()
+    XCTAssertTrue(webText("/he", in: app).waitForExistence(timeout: 60))
+    XCTAssertFalse(menu.exists)
+    // Close Format resumes typing on iPhone.
+    if app.buttons["Close Format"].exists {
+      app.buttons["Close Format"].tap()
+      XCTAssertTrue(app.buttons["Format"].waitForExistence(timeout: 10))
+    }
+    // A text tool removes the query and runs on the body through the synthetic model.
+    body.typeText("\n/sho")
+    XCTAssertTrue(menu.waitForExistence(timeout: 60))
+    waitUntil({ !row("Text").exists && row("Shorten Text").exists }, timeout: 60)
+    attachScreen("Draft editor page Slash Command Menu Writing tools filtered", of: app, to: self)
+    row("Shorten Text").tap()
+    let keep = app.buttons["Keep your text and close this suggestion"]
+    XCTAssertTrue(keep.waitForExistence(timeout: 60))
+    XCTAssertFalse(menu.exists)
+    XCTAssertFalse(webText("/sho", in: app).exists)
+    attachScreen("Shorten Text from the Draft editor page Slash Command Menu", of: app, to: self)
     keep.tap()
   }
 

@@ -153,6 +153,8 @@ type Page = Readonly<{
   posted: Update[];
   // Pastes the page asked the host to read from the pasteboard.
   pastes: () => number;
+  // Keys the page handed to the host's Slash Command Menu.
+  keys: string[];
   command: (command: Command) => void;
   // Each character arrives as text input does in WebKit.
   type: (text: string) => void;
@@ -165,6 +167,7 @@ async function open(
 ): Promise<Page> {
   vi.resetModules();
   const posted: Update[] = [];
+  const keys: string[] = [];
   let pastes = 0;
   globalThis.ReactNativeWebView = {
     postMessage: (message) => {
@@ -172,6 +175,8 @@ async function open(
       ok(decoded, `Expected a valid page message: ${message}`);
       if (decoded.type === 'paste') {
         pastes += 1;
+      } else if (decoded.type === 'key') {
+        keys.push(decoded.key);
       } else {
         posted.push(decoded);
       }
@@ -201,6 +206,7 @@ async function open(
     editor,
     posted,
     pastes: () => pastes,
+    keys,
     command: draftCommand,
     type: (text) => {
       for (const character of text) {
@@ -561,6 +567,42 @@ describe('the Tiptap evaluation page', () => {
       { kind: 'bulleted', spans: [{ text: 'a' }] },
       paragraph('next'),
     ]);
+  });
+
+  it('reports where a line starting with a slash is, for the Slash Command Menu', async () => {
+    expect.hasAssertions();
+    const page = await open(paragraphs('Hello'));
+    const { editor } = page;
+    editor.commands.setTextSelection(nth(textblocks(editor), 0).to);
+    press(page, 'Enter');
+    page.type('/he');
+    expect(page.posted.at(-1)?.caret).toStrictEqual({
+      top: expect.any(Number),
+      bottom: expect.any(Number),
+    });
+    press(page, 'Enter');
+    expect(page.posted.at(-1)?.caret).toBeUndefined();
+    page.type('a /');
+    expect(page.posted.at(-1)?.caret).toBeUndefined();
+  });
+
+  it('hands Return, Tab, the arrows and Escape to the host only while its menu shows', async () => {
+    expect.hasAssertions();
+    const page = await open(paragraphs('/he'));
+    const { editor } = page;
+    editor.commands.setTextSelection(nth(textblocks(editor), 0).to);
+    press(page, 'Escape');
+    expect(page.keys).toStrictEqual([]);
+    page.command({ type: 'menu', open: true });
+    const keys = ['ArrowDown', 'ArrowUp', 'Tab', 'Enter', 'Escape'];
+    expect(keys.map((key) => press(page, key))).toStrictEqual(
+      keys.map(() => true),
+    );
+    expect(page.keys).toStrictEqual(keys);
+    page.command({ type: 'menu', open: false });
+    press(page, 'Enter');
+    expect(page.keys).toStrictEqual(keys);
+    expect(textBodyOf(page)).toStrictEqual(paragraphs('/he', ''));
   });
 
   it('continues an empty list item or quote line with Return, as the current composer does', async () => {

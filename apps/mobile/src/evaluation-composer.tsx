@@ -1,11 +1,24 @@
-import type { Command } from '@private-email/draft-editor/messages';
+import type {
+  Command,
+  PageMessage,
+} from '@private-email/draft-editor/messages';
 import type {
   CapturedDraftText,
   DraftTextPurpose,
+  SlashTool,
 } from '@private-email/mail-core/assistance';
-import type { Draft, PickSource } from '@private-email/mail-core/drafts';
+import type {
+  Draft,
+  PickSource,
+  SlashCommand,
+} from '@private-email/mail-core/drafts';
 import type { SendRefusal } from '@private-email/mail-core/outbox';
-import type { Link } from '@private-email/mail-core/semantic-document';
+import type {
+  Link,
+  Selection,
+  SemanticDocument,
+} from '@private-email/mail-core/semantic-document';
+import type { ComponentProps } from 'react';
 import type { ViewInstance } from 'react-native';
 
 import {
@@ -15,13 +28,16 @@ import {
 } from '@private-email/draft-editor/messages';
 import { editorPage } from '@private-email/draft-editor/page';
 import {
+  canSuggestReply,
   captureDraftText,
   draftReplacement,
   isTextTool,
   sameDraftAssistanceSource,
+  slashTools,
 } from '@private-email/mail-core/assistance';
 import {
   addRecipients,
+  applySlashBlock,
   draftOf,
   entryOf,
   isEmptyDraft,
@@ -30,6 +46,7 @@ import {
   withSender,
 } from '@private-email/mail-core/drafts';
 import {
+  displayOf,
   editableLinkAt,
   imagesOf,
   replaceSelection,
@@ -63,8 +80,13 @@ import {
   ComposerNotices,
   composerStyles,
   DraftAssets,
+  isSlashInsert,
+  isSlashTool,
   retires,
   SendingMailbox,
+  slashPickers,
+  SlashMenuPanel,
+  useSlashMenu,
 } from './composer.tsx';
 import {
   PhoneControls,
@@ -95,7 +117,17 @@ const s = composerStyles;
 const styles = StyleSheet.create({
   scroll: { flexGrow: 1 },
   // The regular composer's minimum body height.
-  body: { flex: 1, minHeight: 160, backgroundColor: 'transparent' },
+  body: { flex: 1, minHeight: 160 },
+  page: { flex: 1, backgroundColor: 'transparent' },
+  // The Slash Command Menu floats over the body, from the caret's line.
+  slashMenu: {
+    position: 'absolute',
+    zIndex: 1,
+    left: 0,
+    right: 0,
+    pointerEvents: 'box-none',
+  },
+  slashMenuAbove: { paddingBottom: spacing.xs },
   notice: { ...textStyles.subheadline, paddingHorizontal: spacing.l },
   // Menus float over the content below or above their control.
   // Over the body, and under the Close question, whose outside tap must reach it first.
@@ -109,6 +141,110 @@ const phoneInsets =
   Platform.OS !== 'ios' || Platform.isPad
     ? ''
     : `document.documentElement.style.cssText = '--draft-inset-top: 4px; --draft-inset-x: 20px; --draft-line-height: calc(22 / 17); --draft-text: light-dark(${palette.light.textPrimary}, ${palette.dark.textPrimary})';`;
+
+type PageKey = Extract<PageMessage, { type: 'key' }>['key'];
+
+// The menu's Writing tools the page runs: each but Generate a Draft…, which has no prompt here.
+const isPageTool = (tool: SlashTool): tool is Exclude<SlashTool, 'generate'> =>
+  tool !== 'generate';
+
+// The Slash Command Menu, as in the current composer: its rows follow the body and selection the
+// page reports, with the Writing tools the page runs, and the page hands it its keys while it
+// shows.
+function usePageSlashMenu(
+  draft: Draft,
+  page: PageState | undefined,
+  {
+    closing,
+    sending,
+    busy,
+    run,
+  }: Readonly<{
+    closing: Closing | undefined;
+    sending: boolean;
+    busy: Readonly<{ current: boolean }>;
+    run: (command: Command) => void;
+  }>,
+) {
+  const assistance = use(AssistanceContext);
+  const menu = useSlashMenu(draft, page?.selection ?? { start: 0, end: 0 }, {
+    paused: closing === 'saving' || sending,
+    pausedNow: busy,
+    tools: (body, query) =>
+      assistance === undefined
+        ? []
+        : slashTools(body, query, canSuggestReply(draft)).filter(isPageTool),
+  });
+  const ready = page !== undefined;
+  const shown = menu.shown !== undefined;
+  useEffect(() => {
+    if (ready) {
+      run({ type: 'menu', open: shown });
+    }
+  }, [ready, run, shown]);
+  return {
+    ...menu,
+    // After the page reports `body` in place of `previous`: a typed / opens the menu, and typing
+    // filters or closes it.
+    reported: (
+      previous: SemanticDocument,
+      body: SemanticDocument,
+      selection: Selection,
+    ) => {
+      const before = displayOf(previous).text;
+      const after = displayOf(body).text;
+      const caret = selection.end;
+      menu.typed(
+        body,
+        selection,
+        after.length === before.length + 1 ? after.slice(caret - 1, caret) : '',
+      );
+    },
+  };
+}
+
+// The page's Slash Command Menu under the caret's line, or over it when only there is room for it,
+// staying inside the body's `height`, as the current composer places it.
+function PageSlashMenu({
+  page,
+  height,
+  shown,
+  ...panel
+}: Omit<
+  ComponentProps<typeof SlashMenuPanel>,
+  'shown' | 'origin' | 'maxHeight' | 'onContentHeight'
+> & {
+  readonly page: PageState | undefined;
+  readonly height: number;
+  readonly shown: ComponentProps<typeof SlashMenuPanel>['shown'] | undefined;
+}) {
+  const [rows, setRows] = useState(0);
+  const caret = page?.caret;
+  if (shown === undefined || caret === undefined) {
+    return null;
+  }
+  // Room less the menu's padding and margin.
+  const below = height - caret.bottom - 24;
+  const above = caret.top - spacing.s - 24;
+  const flipped = rows > below && above > below;
+  return (
+    <View
+      style={[
+        styles.slashMenu,
+        flipped
+          ? [styles.slashMenuAbove, { bottom: height - caret.top }]
+          : { top: caret.bottom },
+      ]}>
+      <SlashMenuPanel
+        {...panel}
+        shown={shown}
+        origin={flipped ? 'bottom left' : 'top left'}
+        maxHeight={Math.max(flipped ? above : below, 0)}
+        onContentHeight={setRows}
+      />
+    </View>
+  );
+}
 
 // The Tiptap evaluation editor for one Draft, in the current composer's layout: the packaged page
 // edits the body, and native controls format it, add files and offer writing tools. Nothing is
@@ -176,6 +312,8 @@ function EvaluationEditor({
     answer?.(allowed);
   }, []);
   const [stopped, setStopped] = useState(false);
+  // The body's height, which the Slash Command Menu stays inside.
+  const [bodyHeight, setBodyHeight] = useState(0);
   const mounted = useRef(true);
   const onRebindNow = useRef(onRebind);
   useLayoutEffect(() => {
@@ -429,6 +567,72 @@ function EvaluationEditor({
       document: result.document,
       selection: result.selection ?? reported.selection,
     });
+  };
+  const slashMenu = usePageSlashMenu(draft, pageState, {
+    closing,
+    sending,
+    busy,
+    run,
+  });
+  // A Writing tool chosen in the menu, captured once the page reports the body without its query.
+  const slashTool = useRef<Exclude<SlashTool, 'generate'>>(undefined);
+  // Choosing a block removes the query and sets the caret's block as one edit in the page, so one
+  // Undo restores the text as typed. An Insert command removes the query and opens its picker, and
+  // a Writing tool removes it and runs as from the format bar.
+  const chooseSlash = (kind?: SlashCommand) => {
+    const reported = pageNow.current;
+    const body = textOf(authored.current.body);
+    const choice = reported && slashMenu.choice(body, reported.selection, kind);
+    if (
+      !mounted.current ||
+      busy.current ||
+      reported === undefined ||
+      reported.revision !== bodyRevision.current ||
+      choice === undefined
+    ) {
+      return;
+    }
+    slashMenu.close();
+    const blockKind =
+      isSlashInsert(choice.kind) || isSlashTool(choice.kind)
+        ? undefined
+        : choice.kind;
+    const result =
+      blockKind === undefined
+        ? replaceSelection(body, choice.query, '')
+        : applySlashBlock(body, choice.query, blockKind);
+    run({
+      type: 'replace',
+      revision: reported.revision,
+      document: result.document,
+      selection: result.selection ?? {
+        start: choice.query.start,
+        end: choice.query.start,
+      },
+    });
+    if (isSlashInsert(choice.kind)) {
+      void add(...slashPickers[choice.kind]);
+    } else if (isSlashTool(choice.kind) && isPageTool(choice.kind)) {
+      slashTool.current = choice.kind;
+    }
+  };
+  const runSlashTool = () => {
+    const tool = slashTool.current;
+    slashTool.current = undefined;
+    if (tool !== undefined) {
+      capture(tool);
+    }
+  };
+  // The keys the page hands over while the menu shows.
+  const slashKey = (key: PageKey) => {
+    const reported = pageNow.current;
+    if (key === 'Escape') {
+      slashMenu.close();
+    } else if (key === 'Enter' || key === 'Tab') {
+      chooseSlash();
+    } else if (reported !== undefined && slashMenu.moving) {
+      slashMenu.move(key, textOf(authored.current.body), reported.selection);
+    }
   };
   // The page loads once with the opened body; later edits never reload it.
   // oxlint-disable-next-line react/hook-use-state -- The mounted page keeps its original source.
@@ -721,91 +925,114 @@ function EvaluationEditor({
             {stopped ? (
               <View style={s.fill} />
             ) : (
-              <WebView
-                ref={view}
-                allowsInlineMediaPlayback={false}
-                allowsLinkPreview={false}
-                automaticallyAdjustContentInsets={false}
-                cacheEnabled={false}
-                dataDetectorTypes="none"
-                hideKeyboardAccessoryView
-                incognito
-                injectedJavaScriptBeforeContentLoaded={injected}
-                javaScriptCanOpenWindowsAutomatically={false}
-                // Closing the Format panel returns to typing where the person left off.
-                keyboardDisplayRequiresUserAction={false}
-                mediaPlaybackRequiresUserAction
-                onContentProcessDidTerminate={stop}
-                onError={stop}
-                onMessage={({ nativeEvent }) => {
-                  if (!mounted.current || pageStopped.current) {
-                    return;
-                  }
-                  const message = decodeMessage(nativeEvent.data);
-                  if (message === undefined) {
-                    return;
-                  }
-                  // A paste carrying images, which native code reads from the pasteboard.
-                  if (message.type === 'paste') {
-                    void add('paste', true);
-                    return;
-                  }
-                  // A delayed report of an earlier body revision never replaces a newer one.
-                  if (message.revision < (pageNow.current?.revision ?? 0)) {
-                    return;
-                  }
-                  const {
-                    document: reported,
-                    attachments: attached = [],
-                    type: _,
-                    frozen,
-                    ...next
-                  } = message;
-                  const flushed =
-                    frozen && next.revision === bodyRevision.current;
-                  pageNow.current = next;
-                  setPageState(next);
-                  if (reported === undefined || flushed) {
+              <View
+                style={styles.body}
+                onLayout={({ nativeEvent }) => {
+                  setBodyHeight(nativeEvent.layout.height);
+                }}>
+                <WebView
+                  ref={view}
+                  allowsInlineMediaPlayback={false}
+                  allowsLinkPreview={false}
+                  automaticallyAdjustContentInsets={false}
+                  cacheEnabled={false}
+                  dataDetectorTypes="none"
+                  hideKeyboardAccessoryView
+                  incognito
+                  injectedJavaScriptBeforeContentLoaded={injected}
+                  javaScriptCanOpenWindowsAutomatically={false}
+                  // Closing the Format panel returns to typing where the person left off.
+                  keyboardDisplayRequiresUserAction={false}
+                  mediaPlaybackRequiresUserAction
+                  onContentProcessDidTerminate={stop}
+                  onError={stop}
+                  onMessage={({ nativeEvent }) => {
+                    if (!mounted.current || pageStopped.current) {
+                      return;
+                    }
+                    const message = decodeMessage(nativeEvent.data);
+                    if (message === undefined) {
+                      return;
+                    }
+                    // A paste carrying images, which native code reads from the pasteboard.
+                    if (message.type === 'paste') {
+                      void add('paste', true);
+                      return;
+                    }
+                    if (message.type === 'key') {
+                      slashKey(message.key);
+                      return;
+                    }
+                    // A delayed report of an earlier body revision never replaces a newer one.
+                    if (message.revision < (pageNow.current?.revision ?? 0)) {
+                      return;
+                    }
+                    const {
+                      document: reported,
+                      attachments: attached = [],
+                      type: _,
+                      frozen,
+                      ...next
+                    } = message;
+                    const flushed =
+                      frozen && next.revision === bodyRevision.current;
+                    pageNow.current = next;
+                    setPageState(next);
+                    if (reported === undefined || flushed) {
+                      if (frozen) {
+                        paused.current?.(true);
+                      }
+                      return;
+                    }
+                    bodyRevision.current = next.revision;
+                    // Editing again retires captured text, as in the current composer.
+                    forget();
+                    const previous = authored.current;
+                    // The host gives the page the Draft's text without its tables (#2865), and no paste
+                    // makes a table, so the page reports none.
+                    const { body, attachments } = knownAssets(known.current, {
+                      document: textOf(reported),
+                      attachments: attached,
+                    });
+                    change({
+                      ...previous,
+                      body: withText(previous.body, body),
+                      ...(attachments.length === 0 &&
+                      previous.attachments === undefined
+                        ? {}
+                        : { attachments }),
+                    });
+                    slashMenu.reported(
+                      textOf(previous.body),
+                      body,
+                      next.selection,
+                    );
+                    runSlashTool();
                     if (frozen) {
                       paused.current?.(true);
                     }
-                    return;
+                  }}
+                  // Only the page itself loads; every navigation it could start is cancelled.
+                  onShouldStartLoadWithRequest={({ url, navigationType }) =>
+                    url === 'about:blank' && navigationType === 'other'
                   }
-                  bodyRevision.current = next.revision;
-                  // Editing again retires captured text, as in the current composer.
-                  forget();
-                  const previous = authored.current;
-                  // The host gives the page the Draft's text without its tables (#2865), and no paste
-                  // makes a table, so the page reports none.
-                  const { body, attachments } = knownAssets(known.current, {
-                    document: textOf(reported),
-                    attachments: attached,
-                  });
-                  change({
-                    ...previous,
-                    body: withText(previous.body, body),
-                    ...(attachments.length === 0 &&
-                    previous.attachments === undefined
-                      ? {}
-                      : { attachments }),
-                  });
-                  if (frozen) {
-                    paused.current?.(true);
-                  }
-                }}
-                // Only the page itself loads; every navigation it could start is cancelled.
-                onShouldStartLoadWithRequest={({ url, navigationType }) =>
-                  url === 'about:blank' && navigationType === 'other'
-                }
-                pointerEvents={closing === 'saving' ? 'none' : 'auto'}
-                originWhitelist={['*']}
-                setSupportMultipleWindows={false}
-                source={source}
-                style={[
-                  styles.body,
-                  { backgroundColor: colors.surfaceContent },
-                ]}
-              />
+                  pointerEvents={closing === 'saving' ? 'none' : 'auto'}
+                  originWhitelist={['*']}
+                  setSupportMultipleWindows={false}
+                  source={source}
+                  style={[
+                    styles.page,
+                    { backgroundColor: colors.surfaceContent },
+                  ]}
+                />
+                <PageSlashMenu
+                  page={pageState}
+                  height={bodyHeight}
+                  shown={slashMenu.shown}
+                  titleOf={slashMenu.titleOf}
+                  onChoose={chooseSlash}
+                />
+              </View>
             )}
             <DraftAssets
               draft={owned}

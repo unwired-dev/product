@@ -830,8 +830,9 @@ function EvaluationEditor({
               }
               const message = decodeMessage(nativeEvent.data);
               // The page refused a paste carrying files; the Mac has no native pasteboard import
-              // for the page, so pasted images are not added here.
-              if (message === undefined || message.type === 'paste') {
+              // for the page, so pasted images are not added here. Without a Slash Command Menu
+              // here, the page hands over no keys.
+              if (message === undefined || message.type !== 'update') {
                 return;
               }
               // A delayed report of an earlier body revision never replaces a newer one.
