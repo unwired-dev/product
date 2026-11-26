@@ -1159,10 +1159,11 @@ const DraftBehavior = Extension.create<unknown, { typing: boolean }>({
               flatDelete(tr, from, to);
               start = tr.selection.from;
               tr.insertText(text);
-              // Text the system replaces in a line beside the caret, as automatic capitalization
+              // Text the system replaces in a line before the caret, as automatic capitalization
               // and correction do, leaves the caret where it was.
               if (
                 selection.empty &&
+                from < selection.head &&
                 $from.sameParent(view.state.doc.resolve(to))
               ) {
                 const replaced = new StepMap([from, to - from, text.length]);

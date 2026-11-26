@@ -1659,6 +1659,20 @@ describe('the Tiptap evaluation page', () => {
     expect(bodyOf(page)).toStrictEqual([
       { kind: 'paragraph', spans: [{ text: 'Typing the test' }] },
     ]);
+    // A correction from the caret on leaves the caret after the corrected word.
+    const corrected = await open([
+      { kind: 'paragraph', spans: [{ text: 'teh tail' }] },
+    ]);
+    corrected.editor.commands.setTextSelection(2);
+    corrected.editor.view.someProp('handleTextInput', (handle) =>
+      handle(corrected.editor.view, 2, 4, 'he', () =>
+        corrected.editor.state.tr.insertText('he', 2, 4),
+      ),
+    );
+    corrected.type('n');
+    expect(bodyOf(corrected)).toStrictEqual([
+      { kind: 'paragraph', spans: [{ text: 'then tail' }] },
+    ]);
   });
 
   it('replaces the body revision it was computed from as one undoable edit', async () => {
