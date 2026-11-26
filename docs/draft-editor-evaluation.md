@@ -257,8 +257,10 @@ again, and **Remove**.
   Mac as the current composer's body pastes, so pasted image data goes inline and a
   pasted file goes inline when it is an image and otherwise becomes an Attachment
   ([#2929](https://github.com/unwired-dev/product/issues/2929)). The page never reads
-  pasted or dropped file data, and files dropped on the page are refused on every
-  host. A paste that
+  pasted or dropped file data. Files dropped on the page are attached on Mac, where
+  native code reads them from the drag pasteboard as the current composer attaches
+  files dropped on it ([#2950](https://github.com/unwired-dev/product/issues/2950));
+  iPhone and iPad refuse them. A paste that
   carries an image beside text is treated as an image paste, so its text is not
   pasted; paste the text separately. Text and supported formatting without images
   paste as before. A copied or cut Inline Image pastes back
@@ -666,11 +668,33 @@ stepped back and forward through both conversions; after **Save**, a relaunch an
 reopening, the image was in place with its thumbnail. The journey's mock copy needed
 the app's own user-selected file entitlement for the open panel to appear.
 
-Outstanding for #820: pasting image data into the page on Mac, and dropping files on
-the page on every host, which need native interception in the web view (the page
-refuses both unread); **Paste Image** and in-page paste on a device; and physical
-iPhone and iPad runs. Website data after account removal and a network capture are
+Outstanding for #820: dropping files on the page on iPhone and iPad, which needs
+native interception in the web view (the page refuses them unread; Mac image paste is
+met by [#2929](https://github.com/unwired-dev/product/issues/2929) and Mac drops are
+recorded in [Mac file drops](#mac-file-drops-2950)); **Paste Image** and in-page paste
+on a device; and physical iPhone and iPad runs. Website data after account removal and a network capture are
 recorded in [Website data and network](#website-data-and-network-2922).
+
+### Mac file drops (#2950)
+
+[#2950](https://github.com/unwired-dev/product/issues/2950) attaches files dropped on
+the page on Mac, as the current composer attaches files dropped anywhere on it. The
+page still never reads the dropped data: it refuses the drop and asks the host, and
+native code reads the file URLs of the drag from the drag pasteboard and imports them
+as Attachments, images included, through the same import as **Attach Files…**.
+iPhone and iPad ignore the request, since native code there cannot read a drop on
+the page.
+
+The `testDraftEditorFileDrop` journey
+([Mac Draft editor file drop journey](native-journeys.md#mac-draft-editor-file-drop-journey))
+ran on 2026-11-26 with Xcode 27.2 and macOS 27.2.1 on the Mac mini M4, in a
+`registration-draft-editor` `Testing` build. It drags a text file from a Finder window
+onto the page: the file, kept in the test runner's own temporary folder outside the
+app's container, becomes an Attachment whose bytes the import reads and verifies, so
+the drop grants the sandboxed app access to it. The page's text and images are
+unchanged. After **Save**, a relaunch and reopening the Draft, the Attachment is
+still there. XCUITest's drag starts a drag session in Finder only from the file's
+row in the column, not from the preview's title.
 
 ### Save ordering (#821)
 
@@ -721,7 +745,7 @@ The page journals its unsaved edits to a composer recovery record as the current
 composer does, and **Restore** reopens them in the page. On Mac
 `testDraftEditorRecoveryAfterForceQuit` proves it after a force quit
 ([#2933](https://github.com/unwired-dev/product/issues/2933),
-[Mac composer recovery journey](native-journeys.md#mac-composer-recovery-journey)), and
+[Mac Draft editor file drop journey](native-journeys.md#mac-draft-editor-file-drop-journey)), and
 on iPhone and iPad `testDraftEditorRecovery` after XCUITest terminates the app
 ([#2944](https://github.com/unwired-dev/product/issues/2944),
 [iPhone and iPad composer recovery journey](native-journeys.md#iphone-and-ipad-composer-recovery-journey)). The regular iPhone, iPad and Mac composers now
@@ -870,6 +894,48 @@ This leaves out App Store thinning, encryption and download compression, and
 production builds, which do not package the page yet. Startup, typing response
 and memory remain unmeasured, as do physical iPhone and iPad.
 
+### Selection-change latency (#2951)
+
+[#2951](https://github.com/unwired-dev/product/issues/2951) measures part of
+[ADR 0080](adr/0080-edit-the-draft-body-in-the-tiptap-page.md)'s gate 5: the cost
+of a selection change on a large, many-block Draft in both Mac composers. Each
+format bar commit computes the Link control's and the Writing tools' state from
+the whole document with mail-core's `selectedText` and `canRewrite`
+([#822 review note](https://github.com/unwired-dev/product/issues/822#issuecomment-6114571758)).
+The [selection-change journey](native-journeys.md#mac-selection-change-journey)
+ran on 2026-11-26 on the Mac reference host: a Mac mini M4 (`Mac16,10`) with
+16 GB memory on macOS 27.2.1 (`26B131`), Xcode 27.2 (`27B52`), with a 60 Hz
+display and a 1-minute load below 4. The builds were `Testing` builds of main
+at `01c50416b` plus this journey: `registration-performance` for the current
+composer and `registration-draft-editor` for the page. Each body had 20 samples:
+10 Shift-Left presses that select the last character and 10 Right presses that
+collapse the selection at the end again. A sample runs from the key press to
+the end of Fabric's mount of the format bar's first commit that shows the new
+selection, both on the app's clock.
+
+| Composer | Body             | p50     | p95     | Maximum  |
+| -------- | ---------------- | ------- | ------- | -------- |
+| Current  | 1 paragraph      | 24.7 ms | 40.6 ms | 41.0 ms  |
+| Current  | 1,000 paragraphs | 66.4 ms | 72.7 ms | 141.9 ms |
+| Page     | 1 paragraph      | 24.7 ms | 30.1 ms | 30.7 ms  |
+| Page     | 1,000 paragraphs | 25.4 ms | 43.2 ms | 44.7 ms  |
+
+No main-queue stall of 100 ms or longer fell within a sample. Each run recorded
+one stall outside the samples: 153 ms for the current composer after it pasted
+the 1,000 paragraphs, and 143 ms for the page before the first paste, while it
+signed in and opened the message. On the 1,000-paragraph body the current
+composer's p50 was 42 ms above its one-paragraph p50 and its p95 32 ms above.
+The page's p50 stayed within 1 ms and its p95 was 13 ms higher. Evidence is in
+`artifacts/macos-inbox/journey.K3MuIx/` (current) and `journey.wbWaEx/` (page).
+
+The samples include the page bridge or the text view's selection event, React's
+commit and Fabric's mount, but not the display frame that draws the result. No
+selection budget exists; every sample stayed under the 200 ms interaction
+budgets. These are `Testing` builds on one host, one run each; a Release
+comparison is not measured. Physical iPhone and iPad, the rest of #822's
+comparison (startup, typing response, memory and packaged size) and the
+interactions the page lacks, such as the Mac Slash Command Menu, remain outstanding.
+
 ## Finding
 
 **Proceed** to the dependent evaluations (#819–#822) on iPhone and iPad. A
@@ -891,9 +957,10 @@ owns that decision.
 
 **#820 finding.** Inline Images and Attachments keep their Draft Asset identity
 through page editing, conversion, Undo, Redo, saving and reopening on iPhone and iPad
-simulators, and the page receives only native thumbnails. Image paste and drop into
-the page need native web-view work before they match the current composer on Mac,
-and drops on every host. The current composer does not offer conversion yet. This
+simulators, and the page receives only native thumbnails. Pasted images
+([#2929](https://github.com/unwired-dev/product/issues/2929)) and dropped files
+([Mac file drops](#mac-file-drops-2950)) are added on Mac. Drops on iPhone and iPad
+need native web-view work before they match the current composer. The current composer does not offer conversion yet. This
 does not approve adoption; #823 owns that decision.
 
 **#821 finding.** In component journeys on both hosts, **Save Draft** stores the

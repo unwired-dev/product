@@ -6,6 +6,8 @@
 #import <os/log.h>
 #if UNWIRED_NATIVE_TESTING
 #import <QuartzCore/QuartzCore.h>
+#import <React/RCTSurfacePresenter.h>
+#import <ReactCommon/RCTHost.h>
 #import <objc/runtime.h>
 #endif
 #import <GoogleSignIn/GoogleSignIn.h>
@@ -778,6 +780,12 @@ extern "C" void UnwiredInstallComposerFormatting(void);
     [owner recordLifecycle:@"text-drawn" extra:@{@"uptime": @(clock_gettime_nsec_np(CLOCK_UPTIME_RAW) / 1e6),
         @"frameStart": @(owner.frameStart), @"milliseconds": @(owner.frameInterval)}];
   }));
+}
+
+// UnwiredCommands.m: the selection-change journey times the mounts of each window's surface.
+- (void)observeMounts:(id<RCTSurfacePresenterObserver>)observer
+{
+  [self.reactFactory.rootViewFactory.reactHost.surfacePresenter addObserver:observer];
 }
 #endif
 

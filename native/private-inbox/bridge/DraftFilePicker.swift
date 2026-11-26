@@ -272,10 +272,17 @@ private func pickedFile(_ url: URL, name: String? = nil, type declared: UTType? 
   import AppKit
 
   @MainActor enum DraftFilePicker {
-    // Pasting and dropping go through the composer's own text view on Mac; a paste into the Draft
-    // editor page, which never reads file data, asks for the pasteboard here.
+    // Pasting and dropping go through the composer's own text view on Mac; a paste into or drop
+    // on the Draft editor page, which never reads file data, asks for the general or drag
+    // pasteboard's files here.
     static func pick(_ source: String) async throws -> [[String: String]] {
       if source == "paste" { return try pasted() }
+      if source == "drop" {
+        let urls =
+          NSPasteboard(name: .drag).readObjects(
+            forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
+        return urls.prefix(pickLimit).map { pickedFile($0) }
+      }
       guard source == "photos" || source == "files" else { throw RegistrationError.unavailable }
       let panel = NSOpenPanel()
       panel.canChooseFiles = true
