@@ -138,6 +138,38 @@ describe('queued message link privacy', () => {
     );
   });
 
+  // #2909: the system can close the alert without a choice; the link it asked about goes with it,
+  // so choosing a link again asks again.
+  it('asks again after the system closes the confirmation without a choice', async () => {
+    expect.hasAssertions();
+    const open = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined);
+    const gmail = createSyntheticGmail();
+    const id = gmail.deliver({
+      at: Date.UTC(2020, 0, 1),
+      content: {
+        html: '<a href="https://garden.invalid/plan">garden plan</a>',
+      },
+    });
+    const store = createInboxStore(gmail.native);
+    await store.load();
+    const app = await render(view(store, id));
+    try {
+      const link = await screen.findByRole('link', { name: 'garden plan' });
+      await fireEvent.press(link);
+      await fireEvent(
+        screen.getByTestId('link-confirmation'),
+        'accessibilityEscape',
+      );
+      expect(screen.queryByTestId('link-confirmation')).toBeNull();
+      await fireEvent.press(link);
+      await fireEvent.press(screen.getByRole('button', { name: 'Open Link' }));
+      expect(open.mock.calls).toStrictEqual([['https://garden.invalid/plan']]);
+    } finally {
+      await app.unmount();
+      open.mockRestore();
+    }
+  });
+
   it.each(['forget', 'message', 'account', 'unmount'] as const)(
     'never reveals queued keyboard or WebKit links after %s',
     async (transition) => {
