@@ -1673,9 +1673,34 @@ RCT_EXPORT_METHOD(refresh)
 @property (nonatomic, copy) RCTDirectEventBlock onArrow;
 @property (nonatomic, copy) RCTDirectEventBlock onTab;
 @property (nonatomic, copy) RCTDirectEventBlock onEscape;
+@property (nonatomic) BOOL handlesReturn;
+@property (nonatomic, copy) RCTDirectEventBlock onReturn;
 @end
 
 @implementation UnwiredArrowKeysView
+- (BOOL)canBecomeFirstResponder { return self.handlesReturn; }
+
+- (void)updateReturnResponder
+{
+  if (self.handlesReturn && self.window && !self.isFirstResponder) {
+    [self becomeFirstResponder];
+  } else if ((!self.handlesReturn || !self.window) && self.isFirstResponder) {
+    [self resignFirstResponder];
+  }
+}
+
+- (void)didMoveToWindow
+{
+  [super didMoveToWindow];
+  [self updateReturnResponder];
+}
+
+- (void)setHandlesReturn:(BOOL)handlesReturn
+{
+  _handlesReturn = handlesReturn;
+  [self updateReturnResponder];
+}
+
 - (NSArray<UIKeyCommand *> *)keyCommands
 {
   NSMutableArray<UIKeyCommand *> *commands = [NSMutableArray array];
@@ -1698,7 +1723,17 @@ RCT_EXPORT_METHOD(refresh)
     command.wantsPriorityOverSystemBehavior = YES;
     [commands addObject:command];
   }
+  if (self.handlesReturn) {
+    UIKeyCommand *command = [UIKeyCommand keyCommandWithInput:@"\r" modifierFlags:0 action:@selector(returnKey:)];
+    command.wantsPriorityOverSystemBehavior = YES;
+    [commands addObject:command];
+  }
   return commands;
+}
+
+- (void)returnKey:(UIKeyCommand *)command
+{
+  if (self.onReturn) self.onReturn(@{});
 }
 
 - (void)escapeKey:(UIKeyCommand *)command
@@ -1730,6 +1765,8 @@ RCT_EXPORT_VIEW_PROPERTY(tabs, BOOL)
 RCT_EXPORT_VIEW_PROPERTY(onTab, RCTDirectEventBlock)
 RCT_EXPORT_VIEW_PROPERTY(escape, BOOL)
 RCT_EXPORT_VIEW_PROPERTY(onEscape, RCTDirectEventBlock)
+RCT_EXPORT_VIEW_PROPERTY(handlesReturn, BOOL)
+RCT_EXPORT_VIEW_PROPERTY(onReturn, RCTDirectEventBlock)
 - (UIView *)view { return [UnwiredArrowKeysView new]; }
 @end
 #endif

@@ -1724,7 +1724,7 @@ final class InboxTests: XCTestCase {
       return picker.descendants(matching: .any).matching(NSPredicate(
         format: "label ENDSWITH %@ OR label ENDSWITH %@",
         date.formatted(format.locale(Locale(identifier: "en_US"))),
-        date.formatted(format.locale(Locale(identifier: "en_GB")))
+        " " + date.formatted(format.locale(Locale(identifier: "en_GB")))
       )).firstMatch
     }
     let set = app.buttons["Set Reminder"]

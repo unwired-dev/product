@@ -22,39 +22,6 @@ index 19645fa991e0f134d34b7b416096de85618045aa..c16766a98c1619bb9db5af83639314a8
        .onChange(of: selectedDetent) { newDetent in
          if let serialized = detentSerializationMap[newDetent] {
            eventDispatcher?(["presentationDetents": ["detent": serialized]])
-diff --git a/ios/Modifiers/ViewModifierRegistry.swift b/ios/Modifiers/ViewModifierRegistry.swift
-index 07a856574df36a69b802bd483caf4e33ae05a976..157a9f802b61f95ca453a208574c6df0b3079923 100644
---- a/ios/Modifiers/ViewModifierRegistry.swift
-+++ b/ios/Modifiers/ViewModifierRegistry.swift
-@@ -260,6 +260,17 @@ internal struct LabelsHiddenModifier: ViewModifier, Record {
-   }
- }
- 
-+// Return, or Enter, presses this button, as `keyboardShortcut(.defaultAction)` (#2979).
-+internal struct DefaultActionModifier: ViewModifier, Record {
-+  func body(content: Content) -> some View {
-+#if os(tvOS)
-+    content
-+#else
-+    content.keyboardShortcut(.defaultAction)
-+#endif
-+  }
-+}
-+
- internal struct DisabledModifier: ViewModifier, Record {
-   @Field var disabled: Bool = true
- 
-@@ -2007,6 +2018,10 @@ extension ViewModifierRegistry {
-       return try LabelsHiddenModifier(from: params, appContext: appContext)
-     }
- 
-+    register("defaultAction") { params, appContext, _ in
-+      return try DefaultActionModifier(from: params, appContext: appContext)
-+    }
-+
-     register("disabled") { params, appContext, _ in
-       return try DisabledModifier(from: params, appContext: appContext)
-     }
 diff --git a/ios/Popover/PopoverView.swift b/ios/Popover/PopoverView.swift
 index dac02b2ea14de86cf43387b1bcefe995dfb07c4d..40438dc6edc33fbba41534916b5333fde3493525 100644
 --- a/ios/Popover/PopoverView.swift

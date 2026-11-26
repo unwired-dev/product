@@ -15,7 +15,6 @@ import {
   buttonBorderShape,
   buttonStyle,
   controlSize,
-  createModifier,
   datePickerStyle,
   font,
   frame,
@@ -42,7 +41,7 @@ import {
   View,
 } from 'react-native';
 
-import { Button, ContextMenu, SFSymbol } from './design.tsx';
+import { ArrowKeys, Button, ContextMenu, SFSymbol } from './design.tsx';
 import { useLocalization } from './localization.ts';
 import { useNow } from './mailbox-state.ts';
 import { textStyles, usePalette } from './theme.ts';
@@ -93,9 +92,6 @@ const formatAt = (
   options: Intl.DateTimeFormatOptions,
 ) => new Intl.DateTimeFormat(locale, options).format(at);
 
-// Return presses the button it modifies, from the `@expo/ui` patch.
-const defaultAction = createModifier('defaultAction');
-
 // Choose Date and Time…: the system's calendar and time from `start`, in the device's time zone,
 // then the zone line and Set Reminder. Days before today can't be chosen, and Set Reminder waits
 // for a time that has not passed, checking again when pressed. Back returns to the times.
@@ -144,7 +140,9 @@ function ReminderDateTime({
     </SwiftUIText>
   );
   return (
-    <>
+    <ArrowKeys
+      onReturn={set}
+      contentStyle={[styles.choices, popover && styles.popover]}>
       <View style={styles.pickerHeader}>
         <Host matchContents>
           <SwiftUIButton
@@ -222,7 +220,6 @@ function ReminderDateTime({
                 buttonBorderShape('capsule'),
                 tint(colors.accentFill),
                 inactive(passed),
-                defaultAction,
               ]}>
               {setLabel}
             </SwiftUIButton>
@@ -238,13 +235,12 @@ function ReminderDateTime({
               controlSize('large'),
               tint(colors.accentFill),
               inactive(passed),
-              defaultAction,
             ]}>
             {setLabel}
           </SwiftUIButton>
         </Host>
       )}
-    </>
+    </ArrowKeys>
   );
 }
 
@@ -314,18 +310,16 @@ function ReminderChoices({
   };
   if (picking) {
     return (
-      <View style={[styles.choices, popover && styles.popover]}>
-        <ReminderDateTime
-          popover={popover}
-          start={stored ?? tomorrow ?? opened}
-          zone={zone}
-          onBack={() => {
-            onPicking(false);
-          }}
-          onSet={choose}
-          onClose={onClose}
-        />
-      </View>
+      <ReminderDateTime
+        popover={popover}
+        start={stored ?? tomorrow ?? opened}
+        zone={zone}
+        onBack={() => {
+          onPicking(false);
+        }}
+        onSet={choose}
+        onClose={onClose}
+      />
     );
   }
   const rows = times.map(({ time: choice, dueAt }) => {
