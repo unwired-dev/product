@@ -22,8 +22,8 @@ const Offset = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
 
 // The page's messages. After every edit or selection change it reports the formatting at the
 // selection, and the body and Attachments when they changed; `revision` counts its body edits. A
-// paste carrying files asks the host to read the pasteboard instead: the page never reads them.
-// While the host's Slash Command Menu shows, the keys that drive it reach the host instead of the
+// paste or drop carrying files asks the host to read the pasteboard instead: the page never reads
+// them. While the host's Slash Command Menu shows, the keys that drive it reach the host instead of the
 // body.
 const PageMessageSchema = Schema.fromJsonString(
   Schema.Union([
@@ -52,6 +52,7 @@ const PageMessageSchema = Schema.fromJsonString(
       ),
     }),
     Schema.Struct({ type: Schema.Literal('paste') }),
+    Schema.Struct({ type: Schema.Literal('drop') }),
     Schema.Struct({
       type: Schema.Literal('key'),
       key: Schema.Literals(['Enter', 'Tab', 'ArrowUp', 'ArrowDown', 'Escape']),

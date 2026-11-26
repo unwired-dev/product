@@ -25,6 +25,8 @@ import {
   assetsOf,
   bodyRecipientQuery,
   bodyRecipientSuggestions,
+  bodySuggestionSections,
+  recipientRole,
   createDrafts,
   draftSummary,
   isEmptyDraft,
@@ -1493,6 +1495,7 @@ describe('entering Draft recipients', () => {
       query: { start: 1, end: 4, text: 'an' },
       recipient: anna,
       greeting: 'Hi Anna,',
+      name: 'Anna',
     };
     const added = addBodyRecipient(typed, choice);
     expect(added.draft.body).toStrictEqual(lines('', 'Hi Anna,', '', ''));
@@ -1507,6 +1510,139 @@ describe('entering Draft recipients', () => {
         choice,
       ).draft.to,
     ).toStrictEqual([{ address: 'tomas@example.com' }]);
+  });
+
+  it('puts only the name in written text and lists people already on the Draft with their role', () => {
+    expect.hasAssertions();
+    const anna = { name: 'Anna Svobodová', address: 'anna@example.com' };
+    const tomas = { name: 'Tomáš Dvořák', address: 'tomas@example.com' };
+    const lena = { address: 'lena@example.com' };
+    const onDraft = { ...draft, to: [tomas], cc: [lena] };
+
+    // People already on the Draft follow the recent correspondents, once each, with their role;
+    // the To field's suggestions still leave them out.
+    const correspondents = [
+      { sender: 'Anna Svobodová', address: 'anna@example.com' },
+      { sender: 'Tomáš Dvořák', address: 'TOMAS@example.com' },
+      { sender: 'Me', address: 'me@example.com' },
+    ];
+    const sections = (text: string, contacts = correspondents.slice(0, 0)) =>
+      bodySuggestionSections(
+        onDraft,
+        { start: 0, end: text.length + 1, text },
+        { correspondents, contacts, excluded: ['me@example.com'] },
+      );
+    expect(sections('')).toStrictEqual({
+      query: { start: 0, end: 1, text: '' },
+      recent: [
+        anna,
+        { name: 'Tomáš Dvořák', address: 'TOMAS@example.com' },
+        lena,
+      ],
+      contacts: [],
+    });
+    expect(recipientRole(onDraft, 'tomas@EXAMPLE.com')).toBe('to');
+    expect(recipientRole(onDraft, 'lena@example.com')).toBe('cc');
+    expect(recipientRole(onDraft, 'anna@example.com')).toBeUndefined();
+    // Contacts never repeat a recent row, and find a person on the Draft by their Contacts name.
+    expect(
+      sections('l', [
+        { sender: 'Lena Fischer', address: 'lena@example.com' },
+        { sender: 'Lukas', address: 'lukas@example.com' },
+      ]),
+    ).toStrictEqual({
+      query: { start: 0, end: 2, text: 'l' },
+      recent: [lena],
+      contacts: [{ name: 'Lukas', address: 'lukas@example.com' }],
+    });
+    expect(
+      sections('fi', [{ sender: 'Lena Fischer', address: 'lena@example.com' }]),
+    ).toStrictEqual({
+      query: { start: 0, end: 3, text: 'fi' },
+      recent: [],
+      contacts: [{ name: 'Lena Fischer', address: 'lena@example.com' }],
+    });
+    // A Mail Profile address already on the Draft, such as a self-Bcc, is listed with its role.
+    expect(
+      bodySuggestionSections(
+        { ...onDraft, bcc: [{ address: 'me@example.com' }] },
+        { start: 0, end: 3, text: 'me' },
+        { correspondents, contacts: [], excluded: ['me@example.com'] },
+      ).recent,
+    ).toStrictEqual([{ name: 'Me', address: 'me@example.com' }]);
+    expect(
+      recipientSuggestions({ ...onDraft, entries: { to: 't' } }, 'to', {
+        correspondents,
+      }),
+    ).toStrictEqual([]);
+
+    // In written text only the query is replaced, by the name, keeping marks, other text and
+    // images; a new person goes to To once.
+    const image = {
+      text: '\uFFFC',
+      image: { id: 'image0001', name: 'a.png', type: '', state: 'importing' },
+    } as const;
+    const written: Draft = {
+      ...onDraft,
+      body: [
+        { kind: 'paragraph' as const, spans: [{ text: 'Hi Tomáš,' }] },
+        {
+          kind: 'paragraph' as const,
+          spans: [
+            image,
+            { text: ' I’ll ask @an', marks: ['bold' as const] },
+            { text: ' today' },
+          ],
+        },
+      ],
+    };
+    const query = { start: 21, end: 24, text: 'an' };
+    const added = addBodyRecipient(written, {
+      query,
+      recipient: anna,
+      greeting: 'Hi Anna,',
+      name: 'Anna',
+    });
+    expect(added.draft.body).toStrictEqual([
+      written.body[0],
+      {
+        kind: 'paragraph',
+        spans: [
+          image,
+          { text: ' I’ll ask Anna', marks: ['bold'] },
+          { text: ' today' },
+        ],
+      },
+    ]);
+    expect(added.selection).toStrictEqual({ start: 25, end: 25 });
+    expect(added.draft.to).toStrictEqual([tomas, anna]);
+    expect(added.draft.cc).toStrictEqual([lena]);
+
+    // A person already on the Draft keeps their role and is not added again, in written text and
+    // in an otherwise empty body, which still gets the greeting.
+    const again = addBodyRecipient(written, {
+      query,
+      recipient: lena,
+      greeting: 'Hi,',
+      name: 'lena@example.com',
+    });
+    expect(again.draft.to).toStrictEqual([tomas]);
+    expect(again.draft.cc).toStrictEqual([lena]);
+    const empty = addBodyRecipient(
+      { ...onDraft, body: [{ kind: 'paragraph', spans: [{ text: '@to' }] }] },
+      {
+        query: { start: 0, end: 3, text: 'to' },
+        recipient: tomas,
+        greeting: 'Hi Tomáš,',
+        name: 'Tomáš',
+      },
+    );
+    expect(empty.draft.body).toStrictEqual([
+      { kind: 'paragraph', spans: [{ text: 'Hi Tomáš,' }] },
+      { kind: 'paragraph', spans: [] },
+      { kind: 'paragraph', spans: [] },
+    ]);
+    expect(empty.draft.to).toStrictEqual([tomas]);
   });
 
   it('summarizes recipients by their To, Cc and Bcc roles', () => {

@@ -118,6 +118,43 @@ The journey writes one `PERFORMANCE` JSON line per interaction, with the
 composer, to `xcodebuild.log` and as an XCTest attachment, in the performance
 journey's format.
 
+## Mac selection-change journey
+
+The `testSelectionChangeLatency` journey compares selection changes in both Mac
+composers ([#2951](https://github.com/unwired-dev/product/issues/2951)). It runs the
+current composer in a `registration-performance` `Testing` build, signed in as
+the [performance journey](#mac-performance-journey) is, and the Draft editor page
+in a `registration-draft-editor` `Testing` build:
+
+```sh
+for scenario in registration-performance registration-draft-editor; do
+  UNWIRED_MOCK_SCENARIO=$scenario \
+  mise exec -- pnpm --filter @private-email/macos native:build Testing
+  mise exec -- pnpm --filter @private-email/macos test:native \
+    "$PWD/artifacts/macos-inbox/DerivedData/Build/Products/Testing/UnwiredMail.app" \
+    testSelectionChangeLatency
+done
+```
+
+In a new message it pastes one generated paragraph into the body, then replaces it
+with 1,000 paragraphs, about 67,000 characters. At the end of each body it makes
+20 selection changes: Shift-Left selects the last character and Right collapses
+the selection at the end again, 10 times each. It waits until **Add Link** is
+available for each selected character and unavailable at each caret. A sample
+runs from the key press the app records to the end of Fabric's mount of the
+format bar's first commit afterwards that shows the new selection, before the
+journey saw it. The Link control arms a record in each commit, which also
+computes the Writing tools' state, and the app writes it when Fabric has mounted
+that window's next update. Both ends come from the app's clock, so the samples
+exclude XCUITest. They include WebKit, the page bridge, React's commit and
+Fabric's mount, but not the display frame that draws the result. A sample without
+its record fails the journey.
+
+The journey writes one `PERFORMANCE` JSON line per body to `xcodebuild.log` and
+as an XCTest attachment, with the composer, the samples, p50, p95, maximum,
+main-queue stalls of 100 ms or longer during the samples, and the display's frame
+interval.
+
 ## Mac keyboard and accessibility journey
 
 The `testKeyboardAndAccessibility` journey uses the same `registration-performance`
@@ -548,6 +585,25 @@ context menu convert it, two **Undo** and two **Redo** step through both
 conversions, and after **Save**, a relaunch and reopening the image is still
 between the words with its thumbnail. The inserted image, the context menu, the
 Attachment and the reopened Draft are kept as attachments.
+
+## Mac Draft editor file drop journey
+
+The `testDraftEditorFileDrop` journey uses the same build
+([#2950](https://github.com/unwired-dev/product/issues/2950)):
+
+```sh
+mise exec -- pnpm --filter @private-email/macos test:native \
+  "$PWD/artifacts/macos-inbox/DerivedData/Build/Products/Testing/UnwiredMail.app" \
+  testDraftEditorFileDrop
+```
+
+After signing in, a New Message gets body text. The journey writes `drop-note.txt`
+to a new folder in the test runner's temporary folder, shows it in Finder, moves
+Finder's window below the page and drags the file's row onto the body. The file
+becomes an Attachment whose bytes verify, and the body keeps its text and no image.
+After **Save**, a relaunch and reopening the Draft, the Attachment is still listed.
+The dropped and reopened page are kept as attachments; the journey closes its Finder
+window and removes the folder.
 
 ## Mac list indent journey
 
