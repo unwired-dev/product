@@ -675,7 +675,10 @@ app follows under the issue named:
   Basic Blocks (#2789); Insert Template…, Translate to…, which reads only a
   selection, and the rest of the Mac menu wait for #2117,
   and Show Formatting Toolbar for #2118. The touch menus draw Heading 1 to 3 with the
-  format bar's H1–H3 glyphs and Quote with the `text.quote` symbol.
+  format bar's H1–H3 glyphs and Quote with the `text.quote` symbol. The Mac
+  menu's rows draw AppKit text, which covers more ink than the Figma export at
+  1×, and its Light glass edge is lighter than the frame's; the owner accepted
+  both as native rendering (#2789).
 - **Trusted Devices:** iPhone and iPad rows show the device symbol, Current
   Device and last activity (#2607), with the exact time where the iPhone frame
   draws "3 days ago". The Mac rows and the disclosure chevron wait for the rest
