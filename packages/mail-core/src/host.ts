@@ -30,6 +30,7 @@ import type { NativePins } from './pins.ts';
 import type { NativeRegistrationVault } from './registration-vault.ts';
 import type { NativeRemoteContent } from './remote-content.ts';
 import type {
+  NativeReminderNotifications,
   NativeSendReminderSync,
   NativeSendReminders,
 } from './send-reminders.ts';
@@ -55,7 +56,10 @@ import { createOutbox } from './outbox.ts';
 import { createPins } from './pins.ts';
 import { createRegistration } from './registration.ts';
 import { createRemoteContentSettings } from './remote-content.ts';
-import { createSendReminders } from './send-reminders.ts';
+import {
+  createSendReminders,
+  followReminderNotifications,
+} from './send-reminders.ts';
 import { createUnsubscribe } from './unsubscribe.ts';
 
 const decodeReportingResponse = Schema.decodeUnknownOption(
@@ -93,6 +97,7 @@ export interface NativeHostModule
     NativeMailTemplateSync,
     NativeSendReminders,
     NativeSendReminderSync,
+    NativeReminderNotifications,
     NativeBlockedSenders,
     NativeBlockedSenderSync,
     NativeInboxPreferences,
@@ -633,6 +638,7 @@ export function createHost(
   let following = false;
   let followingActions = false;
   let followingBadge = false;
+  let followingReminders = false;
   return {
     registration,
     gmailMailboxes,
@@ -672,6 +678,26 @@ export function createHost(
       if (!followingBadge) {
         followingBadge = true;
         notifications.followBadge({ registration, mailboxes: gmailMailboxes });
+      }
+    },
+    // Keeps this device's Send Reminder notifications on the reminders it set for the life of the
+    // process; a later call starts no second follower.
+    followReminderNotifications: () => {
+      if (!followingReminders) {
+        followingReminders = true;
+        followReminderNotifications(
+          {
+            scheduleReminderNotifications: (owner, scheduled) =>
+              native().scheduleReminderNotifications(owner, scheduled),
+          },
+          {
+            reminders: sendReminders,
+            drafts,
+            settings: notifications,
+            translate,
+          },
+        );
+        void notifications.load();
       }
     },
     // Reads the actions chosen on notifications for the life of the process: Archive, Mark as

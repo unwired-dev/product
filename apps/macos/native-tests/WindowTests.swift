@@ -126,6 +126,72 @@ final class WindowTests: XCTestCase {
     XCTAssertEqual(token.count, 1)
   }
 
+  // #2789: / first in a body block opens the Slash Command Menu's Basic Blocks under it; typing
+  // filters them, Down and Return set the block, and one Undo restores the typed query.
+  func testSlashCommandMenu() throws {
+    try slashCommandMenu(appearance: "Light")
+  }
+
+  func testSlashCommandMenuDark() throws {
+    try slashCommandMenu(appearance: "Dark")
+  }
+
+  private func slashCommandMenu(appearance: String) throws {
+    continueAfterFailure = false
+    let environment = ProcessInfo.processInfo.environment
+    XCTAssertEqual(environment["UNWIRED_TEST_SCENARIO"], "registration-performance")
+    let app = XCUIApplication(url: URL(fileURLWithPath: try XCTUnwrap(environment["UNWIRED_APP_PATH"])))
+    app.launchArguments += [
+      "-ApplePersistenceIgnoreState", "YES", "-interfaceLanguage", "en",
+      "-UnwiredAppearance", appearance.lowercased(),
+    ]
+    app.launch()
+    addTeardownBlock { if app.state != .notRunning { app.terminate() } }
+    let window = app.windows["Inbox 1"]
+    performanceSetup(app, window: window)
+    func attach(_ name: String) {
+      let attachment = XCTAttachment(screenshot: window.screenshot())
+      attachment.name = "\(name) (\(appearance))"
+      attachment.lifetime = .keepAlways
+      add(attachment)
+    }
+    window.buttons["New Message"].click()
+    let body = window.textViews.firstMatch
+    XCTAssertTrue(body.waitForExistence(timeout: 15))
+    XCTAssertTrue(window.buttons["Undo"].waitForExistence(timeout: 30))
+    let style = window.popUpButtons["Text style"]
+    body.click()
+    body.typeText("Hi")
+    app.typeKey(.return, modifierFlags: [])
+    app.typeText("/")
+    // The menu's rows are its accessible elements, each read with its Markdown marker.
+    let text = window.buttons["Text"]
+    XCTAssertTrue(text.waitForExistence(timeout: 10))
+    XCTAssertTrue(window.buttons["Code Block, ```"].exists)
+    XCTAssertGreaterThan(text.frame.minY, body.frame.minY)
+    attach("Slash Command Menu")
+    app.typeText("he")
+    let second = window.buttons["Heading 2, ##"]
+    XCTAssertTrue(text.waitForNonExistence(timeout: 10))
+    XCTAssertTrue(second.exists)
+    attach("Slash Command Menu filtered")
+    // Down then Return sets Heading 2 and removes the query, keeping focus in the body.
+    app.typeKey(.downArrow, modifierFlags: [])
+    app.typeKey(.return, modifierFlags: [])
+    XCTAssertTrue(second.waitForNonExistence(timeout: 10))
+    waitUntil { body.value as? String == "Hi\n" }
+    waitUntil { (style.value as? String) == "Heading 2" }
+    app.typeText("Plan")
+    waitUntil { body.value as? String == "Hi\nPlan" }
+    // Undo takes back the typing, then restores the query as typed, as a paragraph.
+    app.typeKey("z", modifierFlags: .command)
+    waitUntil { body.value as? String == "Hi\n" }
+    app.typeKey("z", modifierFlags: .command)
+    waitUntil { body.value as? String == "Hi\n/he" }
+    waitUntil { (style.value as? String) == "Body" }
+    XCTAssertFalse(window.buttons["Heading 1, #"].exists)
+  }
+
   // #2597: Outdent and Indent follow the list buttons; Format › Increase Indent (Command-]) and
   // Decrease Indent (Command-[) and Tab and Shift-Tab nest the item three levels deep, Indent
   // switches off at the third, and each change is one Undo step.
@@ -2551,25 +2617,7 @@ final class WindowTests: XCTestCase {
   func testComposerOpening() throws {
     continueAfterFailure = false
     executionTimeAllowance = 600
-    let environment = ProcessInfo.processInfo.environment
-    let page = environment["UNWIRED_TEST_SCENARIO"] == "registration-draft-editor"
-    XCTAssertTrue(page || environment["UNWIRED_TEST_SCENARIO"] == "registration-performance")
-    let appURL = URL(fileURLWithPath: try XCTUnwrap(environment["UNWIRED_APP_PATH"]))
-    let evidence = appURL.deletingLastPathComponent().appendingPathComponent("lifecycle.jsonl")
-    let app = XCUIApplication(url: appURL)
-    app.launchArguments += ["-ApplePersistenceIgnoreState", "YES", "-interfaceLanguage", "en"]
-    app.launchEnvironment["UNWIRED_LIFECYCLE_PATH"] = evidence.path
-    app.launch()
-    addTeardownBlock { if app.state != .notRunning { app.terminate() } }
-    let window = app.windows["Inbox 1"]
-    if page {
-      XCTAssertTrue(window.waitForExistence(timeout: 30))
-      draftEditorSignIn(window)
-    } else {
-      performanceSetup(app, window: window)
-      // The Draft's row is listed with both mailboxes' Threads.
-      window.buttons["All Inboxes"].click()
-    }
+    let (app, window, evidence, page) = try signedInComposerApp()
     let body =
       page
       ? window.webViews.textViews["Message body"]
@@ -2625,7 +2673,89 @@ final class WindowTests: XCTestCase {
     // The running app keeps appending probe records; read them only after it quits.
     app.terminate()
     try reportPerformance(
-      groups, evidence: evidence, overhead: overhead, composer: page ? "page" : "current")
+      groups, evidence: evidence, overhead: overhead, name: "Composer opening",
+      composer: page ? "page" : "current")
+  }
+
+  // #2965: what a launch costs each composer, in the same builds as testComposerOpening. Each of 10
+  // samples quits and launches the app, timed from the launch request to the Inbox's first listed
+  // row, then opens a new message, the first composer of that app, which for the page starts its
+  // WebKit processes and loads it: from the click release the app records to the body and the
+  // format bar's Undo. The two builds list different mail, so their launches are not like for like.
+  func testLaunchAndFirstComposer() throws {
+    continueAfterFailure = false
+    executionTimeAllowance = 600
+    let (app, window, evidence, page) = try signedInComposerApp()
+    let listed =
+      page
+      ? window.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Garden plans for spring"))
+        .firstMatch
+      : window.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Jordan Lee")).firstMatch
+    // As in testWarmCachePerformance, the two mailboxes' sidebar must show too.
+    let sidebar = page ? nil : window.buttons["All Inboxes"]
+    let body =
+      page
+      ? window.webViews.textViews["Message body"]
+      : window.textViews.matching(NSPredicate(format: "label == %@", "Message")).firstMatch
+    let undo = window.buttons["Undo"]
+    let subject = window.textFields["Subject"]
+    var launches: [(start: Double, end: Double)] = []
+    var composers: [(start: Double, end: Double)] = []
+    var launchesOnFirstQuery = 0
+    var composersOnFirstQuery = 0
+    for _ in 0..<10 {
+      app.terminate()
+      var before = firstQueryResults
+      let start = uptime()
+      app.launch()
+      launches.append((start, until(listed, from: start, and: sidebar)))
+      launchesOnFirstQuery += firstQueryResults - before
+      XCTAssertFalse(subject.exists)
+      before = firstQueryResults
+      let open = uptime()
+      window.buttons["New Message"].click()
+      composers.append((open, until(body, from: open, and: undo)))
+      composersOnFirstQuery += firstQueryResults - before
+      // The untouched message closes without asking; the next launch starts without a composer.
+      window.buttons["Close"].click()
+      XCTAssertTrue(subject.waitForNonExistence(timeout: 10))
+    }
+    let overhead = queryOverhead(window.buttons["New Message"])
+    // The running app keeps appending probe records; read them only after it quits.
+    app.terminate()
+    try reportPerformance(
+      [
+        ("launch-to-first-list", 1000, launches, launchesOnFirstQuery, []),
+        ("first-composer", 300, composers, composersOnFirstQuery, []),
+      ], evidence: evidence, overhead: overhead, name: "Launch and first composer",
+      composer: page ? "page" : "current")
+  }
+
+  // Launches a registration-performance build, signed in as testWarmCachePerformance is and showing
+  // All Inboxes, or a registration-draft-editor build signed in to its Inbox.
+  private func signedInComposerApp() throws -> (
+    app: XCUIApplication, window: XCUIElement, evidence: URL, page: Bool
+  ) {
+    let environment = ProcessInfo.processInfo.environment
+    let page = environment["UNWIRED_TEST_SCENARIO"] == "registration-draft-editor"
+    XCTAssertTrue(page || environment["UNWIRED_TEST_SCENARIO"] == "registration-performance")
+    let appURL = URL(fileURLWithPath: try XCTUnwrap(environment["UNWIRED_APP_PATH"]))
+    let evidence = appURL.deletingLastPathComponent().appendingPathComponent("lifecycle.jsonl")
+    let app = XCUIApplication(url: appURL)
+    app.launchArguments += ["-ApplePersistenceIgnoreState", "YES", "-interfaceLanguage", "en"]
+    app.launchEnvironment["UNWIRED_LIFECYCLE_PATH"] = evidence.path
+    app.launch()
+    addTeardownBlock { if app.state != .notRunning { app.terminate() } }
+    let window = app.windows["Inbox 1"]
+    if page {
+      XCTAssertTrue(window.waitForExistence(timeout: 30))
+      draftEditorSignIn(window)
+    } else {
+      performanceSetup(app, window: window)
+      // The Draft's row is listed with both mailboxes' Threads.
+      window.buttons["All Inboxes"].click()
+    }
+    return (app, window, evidence, page)
   }
 
   // #2951: selection changes at the end of a one-paragraph and a 1,000-paragraph body, in the
@@ -4872,7 +5002,7 @@ final class WindowTests: XCTestCase {
     print(lines.map { "PERFORMANCE \($0)" }.joined(separator: "\n"))
     let attachment = XCTAttachment(
       data: Data((lines.joined(separator: "\n") + "\n").utf8), uniformTypeIdentifier: "public.json")
-    attachment.name = composer.map { "Composer opening (\($0) composer)" } ?? name
+    attachment.name = composer.map { "\(name) (\($0) composer)" } ?? name
     attachment.lifetime = .keepAlways
     add(attachment)
   }

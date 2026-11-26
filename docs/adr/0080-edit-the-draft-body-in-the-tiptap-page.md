@@ -218,6 +218,10 @@ release limit:
    the current composer; a session with four Inbox windows and composers grew by
    261–278 MiB and 331–384 MiB
    ([evidence](../draft-editor-evaluation.md#memory-2957)).
+   [#2965](https://github.com/unwired-dev/product/issues/2965) timed each
+   composer's launch and the first composer after it on Mac in `Testing` builds;
+   the launch fixtures differ
+   ([results](../draft-editor-evaluation.md#launch-and-first-composer-2965)).
 6. The Tiptap and ProseMirror notices in the distributed app; the licence
    inventory must list the page's packages. Met by
    [#2916](https://github.com/unwired-dev/product/issues/2916): every bundle that

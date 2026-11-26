@@ -312,6 +312,15 @@ function popoverOf(
     : popoverOf(element.parent);
 }
 
+// The native scroll view that holds an element.
+function scrollOf(
+  element: ReturnType<typeof screen.getByText> | null,
+): ReturnType<typeof screen.getByText> | null {
+  return element === null || element.type === 'RCTScrollView'
+    ? element
+    : scrollOf(element.parent);
+}
+
 const ignore = () => undefined;
 
 // Only the window host boundary is substituted, answering as the native module does.
@@ -2562,6 +2571,231 @@ describe('composing Drafts', () => {
     } finally {
       modules.mockRestore();
       Object.assign(appleContacts, { granted: false, addresses: [] });
+    }
+  });
+
+  it('sets a block from the body’s Slash Command Menu as one edit', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const frame = jest.fn(async () => ({ x: 32, y: 34, width: 6, height: 22 }));
+    const host: TurboModule &
+      Readonly<{
+        addListener: typeof ignore;
+        removeListeners: typeof ignore;
+        guardClose: typeof ignore;
+        forgetComposerTyping: typeof ignore;
+        setComposerIndents: typeof ignore;
+        composerCharacterFrame: typeof frame;
+      }> = {
+      addListener: ignore,
+      removeListeners: ignore,
+      guardClose: ignore,
+      forgetComposerTyping: ignore,
+      setComposerIndents: ignore,
+      composerCharacterFrame: frame,
+    };
+    const modules = windowHostWith(host);
+    const announce = jest.mocked(
+      AccessibilityInfo.announceForAccessibilityWithOptions,
+    );
+    try {
+      const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+      await render(
+        <App
+          drafts={createDrafts(storage.native, registration)}
+          registration={registration}
+        />,
+      );
+      await press('New Message');
+      const body = () => screen.getByLabelText('Message body');
+      // The native body reports the caret after each typed character.
+      const type = async (text: string) => {
+        await fireEvent.changeText(body(), text);
+        await fireEvent(body(), 'selectionChange', {
+          nativeEvent: { selection: { start: text.length, end: text.length } },
+        });
+      };
+      const key = async (name: string) => {
+        await fireEvent(body(), 'keyDown', { nativeEvent: { key: name } });
+      };
+      const menu = () => screen.queryByLabelText('Slash commands');
+      const rows = (options: Readonly<{ selected?: boolean }> = {}) => {
+        const shown = menu();
+        ok(shown !== null);
+        return within(shown)
+          .queryAllByRole('button', options)
+          .map(({ props }) => props.accessibilityLabel);
+      };
+      const lines = () =>
+        shownBody().map((spans) => spans.map(({ text }) => text).join(''));
+      const sizes = () =>
+        body()
+          .children.filter((line) => typeof line !== 'string')
+          .map(
+            (line) => StyleSheet.flatten<TextStyle>(line.props.style).fontSize,
+          );
+
+      // A / first in a block opens the Basic Blocks with the first highlighted, each with its
+      // Markdown marker, under the /'s line, and VoiceOver hears it open.
+      await type('Hi\n');
+      await type('Hi\n/');
+      await waitFor(() => {
+        expect(menu()).toBeOnTheScreen();
+      });
+      expect(frame).toHaveBeenCalledWith(body().props.testID, 3);
+      expect(rows()).toStrictEqual([
+        'Text',
+        'Heading 1, #',
+        'Heading 2, ##',
+        'Heading 3, ###',
+        'Bulleted List, -',
+        'Numbered List, 1.',
+        'Quote, >',
+        'Code Block, ```',
+      ]);
+      expect(rows({ selected: true })).toStrictEqual(['Text']);
+      expect(
+        within(screen.getByLabelText('Slash commands')).getByText(
+          'Basic Blocks',
+        ),
+      ).toBeOnTheScreen();
+      expect(announce).toHaveBeenCalledWith('Slash commands', {
+        queue: true,
+      });
+      expect(announce).toHaveBeenLastCalledWith('Text', { queue: true });
+      // It starts 7pt right of the / but stays inside the body near its trailing edge, and fits
+      // the room the composer shows as that changes while it is open.
+      const scroll = scrollOf(body());
+      ok(scroll !== null);
+      await fireEvent(body(), 'layout', {
+        nativeEvent: { layout: { x: 0, y: 0, width: 500, height: 400 } },
+      });
+      await fireEvent(scroll, 'layout', {
+        nativeEvent: { layout: { x: 0, y: 0, width: 500, height: 600 } },
+      });
+      expect(menu()).toHaveStyle({ left: 39, top: 59, height: 258 });
+      await fireEvent(body(), 'layout', {
+        nativeEvent: { layout: { x: 0, y: 0, width: 340, height: 400 } },
+      });
+      await fireEvent(scroll, 'layout', {
+        nativeEvent: { layout: { x: 0, y: 0, width: 340, height: 200 } },
+      });
+      expect(menu()).toHaveStyle({ left: 20, top: 59, height: 116 });
+      expect(body().props.keyDownEvents).toContainEqual(
+        expect.objectContaining({ key: 'Enter' }),
+      );
+
+      // Typing filters; Down and Up move the highlight, which VoiceOver hears with its marker;
+      // Escape closes the menu, keeping the text, and typing on does not reopen it.
+      await type('Hi\n/h');
+      await type('Hi\n/he');
+      expect(rows()).toStrictEqual([
+        'Heading 1, #',
+        'Heading 2, ##',
+        'Heading 3, ###',
+      ]);
+      expect(rows({ selected: true })).toStrictEqual(['Heading 1, #']);
+      expect(announce).toHaveBeenLastCalledWith('Heading 1, #', {
+        queue: true,
+      });
+      await key('ArrowDown');
+      expect(rows({ selected: true })).toStrictEqual(['Heading 2, ##']);
+      expect(announce).toHaveBeenLastCalledWith('Heading 2, ##', {
+        queue: true,
+      });
+      await key('ArrowUp');
+      expect(rows({ selected: true })).toStrictEqual(['Heading 1, #']);
+      await key('Escape');
+      expect(menu()).toBeNull();
+      expect(body().props.keyDownEvents).not.toContainEqual(
+        expect.objectContaining({ key: 'Enter' }),
+      );
+      await type('Hi\n/hea');
+      expect(menu()).toBeNull();
+      expect(lines()).toStrictEqual(['Hi', '/hea']);
+
+      // A result with no block closes it, deleting the / closes it, and a / after text opens none.
+      await type('Hi\n');
+      await type('Hi\n/');
+      await type('Hi\n/x');
+      expect(menu()).toBeNull();
+      await type('Hi\n');
+      await type('Hi\n/');
+      expect(menu()).toBeOnTheScreen();
+      await type('Hi\n');
+      expect(menu()).toBeNull();
+      await type('Hi\nA /');
+      expect(menu()).toBeNull();
+      // A / typed over a selected line opens it too.
+      await type('Hi\nab');
+      await fireEvent(body(), 'selectionChange', {
+        nativeEvent: { selection: { start: 3, end: 5 } },
+      });
+      await type('Hi\n/');
+      await waitFor(() => {
+        expect(menu()).toBeOnTheScreen();
+      });
+
+      // Moving the caret or leaving the body closes it.
+      await type('Hi\n');
+      await type('Hi\n/');
+      await fireEvent(body(), 'selectionChange', {
+        nativeEvent: { selection: { start: 0, end: 0 } },
+      });
+      expect(menu()).toBeNull();
+      await type('Hi\n');
+      await type('Hi\n/');
+      await fireEvent(body(), 'blur');
+      expect(menu()).toBeNull();
+
+      // An Undo or Redo that restores the / does not open it.
+      await type('Hi\n');
+      await type('Hi\n/');
+      expect(menu()).toBeOnTheScreen();
+      await press('Undo');
+      expect(menu()).toBeNull();
+      await press('Redo');
+      expect(lines()).toStrictEqual(['Hi', '/']);
+      expect(menu()).toBeNull();
+
+      // Return applies the highlighted block and removes the query as one edit; one Undo restores
+      // the text as typed, and the menu stays closed.
+      await type('Hi\n');
+      await type('Hi\n/');
+      await type('Hi\n/he');
+      await key('ArrowDown');
+      await key('ArrowDown');
+      await key('Enter');
+      expect(menu()).toBeNull();
+      expect(lines()).toStrictEqual(['Hi', '']);
+      expect(sizes()[1]).toBe(19);
+      expect(body().props.selection).toStrictEqual({ start: 3, end: 3 });
+      await press('Undo');
+      expect(lines()).toStrictEqual(['Hi', '/he']);
+      expect(sizes()[1]).not.toBe(19);
+      expect(menu()).toBeNull();
+
+      // A click chooses too, and Tab in a list chooses rather than indents.
+      await type('Hi\n');
+      await type('Hi\n/');
+      await press('Quote, >');
+      expect(lines()).toStrictEqual(['Hi', '']);
+      expect(menu()).toBeNull();
+      await type('');
+      await type('-');
+      await type('- ');
+      expect(body()).toHaveTextContent('•');
+      expect(body().props.keyDownEvents).toContainEqual(
+        expect.objectContaining({ key: 'Tab', shiftKey: true }),
+      );
+      await type('• /');
+      await type('• /co');
+      await key('Tab');
+      expect(lines()).toStrictEqual(['']);
+      expect(body()).not.toHaveTextContent('•');
+      expect(body().children[0]).toHaveStyle({ fontFamily: 'Menlo' });
+    } finally {
+      modules.mockRestore();
     }
   });
 
