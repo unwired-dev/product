@@ -767,8 +767,43 @@ saved-Draft samples, so the saved-Draft tails may come from other processes unde
 the same load. These runs therefore show neither that a composer misses the
 budgets on an idle host nor which opens faster. Repeat
 them on an idle host before reading them as a comparison. Physical iPhone and
-iPad, and #822's startup, typing response and memory measurements, are still
-outstanding.
+iPad, and #822's typing response and memory measurements, are still
+outstanding; startup is [below](#launch-and-first-composer-2965).
+
+### Launch and first composer (#2965)
+
+[#2965](https://github.com/unwired-dev/product/issues/2965) measures #822's
+"Release startup" for gate 5: what a launch costs each Mac composer, with the
+[launch and first composer journey](native-journeys.md#mac-launch-and-first-composer-journey).
+It ran on 2026-11-26 on the same Mac mini M4 (`Mac16,10`, 16 GB) with macOS 27.2.1
+(`26B131`) and Xcode 27.2 (`27B52`), from `6ba4b5405` with the journey added, in
+signed `Testing` builds: `registration-performance` for the current composer and
+`registration-draft-editor` for the page. Each has 10 samples per interaction. The
+one-minute load average stayed between 4 and 10 through both runs.
+
+| Composer | Launch to first list p50 / p95 / max | First composer p50 / p95 / max |
+| -------- | ------------------------------------ | ------------------------------ |
+| Current  | 745 / 761 / 761 ms                   | 392 / 418 / 418 ms             |
+| Page     | 825 / 1,012 / 1,012 ms               | 312 / 698 / 698 ms             |
+
+Each sample quits and launches the app. A launch runs from the launch request until
+an accessibility query finds the Inbox's first listed row, and in the current
+composer's build also the **All Inboxes** sidebar row. The first composer is the
+first New Message of that newly launched app, from the mouse release the app
+records until the body and the format bar's **Undo** are shown; for the page it
+includes starting the page's WebKit processes and loading the page. Samples include
+XCUITest's event completion and queries (about 23–33 ms per query), so they are
+upper bounds, and leave out the display frame that draws the result.
+
+The two builds' scenarios list different mail: the current composer's build opens
+two mailboxes and 250 added Threads, the page's build one mailbox. Their launches
+are therefore not like for like, and these runs do not show whether the page's
+bundle changes launch time. The first composers open the same empty New Message.
+The page's run recorded main-queue stalls of 140, 102 and 101 ms during launches
+and one of 156 ms during its slowest first composer (698 ms); the current
+composer's run recorded none. The current composer's first composers all exceeded
+the 300 ms empty-composer budget; the page's p95 did too, and half of its samples
+were within it. Release builds and physical iPhone and iPad are still outstanding.
 
 ## Finding
 

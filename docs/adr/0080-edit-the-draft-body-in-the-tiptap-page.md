@@ -154,6 +154,10 @@ release limit:
    timed opening a new message and a saved Draft in both composers on a loaded
    host; repeat it on an idle one
    ([results](../draft-editor-evaluation.md#composer-opening-2955)).
+   [#2965](https://github.com/unwired-dev/product/issues/2965) timed each
+   composer's launch and the first composer after it on Mac in `Testing` builds;
+   the launch fixtures differ
+   ([results](../draft-editor-evaluation.md#launch-and-first-composer-2965)).
 6. The Tiptap and ProseMirror notices in the distributed app; the licence
    inventory must list the page's packages. Met by
    [#2916](https://github.com/unwired-dev/product/issues/2916): every bundle that

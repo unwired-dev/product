@@ -118,6 +118,27 @@ The journey writes one `PERFORMANCE` JSON line per interaction, with the
 composer, to `xcodebuild.log` and as an XCTest attachment, in the performance
 journey's format.
 
+## Mac launch and first composer journey
+
+The `testLaunchAndFirstComposer` journey times what a launch costs each Mac
+composer ([#2965](https://github.com/unwired-dev/product/issues/2965)). It runs in
+the same two builds and sign-ins as the
+[composer opening journey](#mac-composer-opening-journey); run it with that loop,
+naming `testLaunchAndFirstComposer` instead.
+
+Ten times, it quits and launches the app, then opens a new message, the first
+composer of that app, and closes it. A `launch-to-first-list` sample runs from the
+launch request until an accessibility query finds the Inbox's first listed row
+(and, in the performance build, the **All Inboxes** sidebar row), as in the
+[performance journey](#mac-performance-journey). A `first-composer` sample runs
+from the mouse release the app records until the body and the format bar's
+**Undo** are shown; for the page, it includes starting its WebKit processes and
+loading it. Both include XCUITest's queries, so they are upper bounds, compared
+with the [performance budgets](agents/native-validation.md#performance-qualification)
+for launch (1 second) and an empty composer (300 ms). The two builds' scenarios
+list different mail, so their launches are not like for like; the first composers
+open the same empty New Message. It writes `PERFORMANCE` lines in the same format.
+
 ## Mac keyboard and accessibility journey
 
 The `testKeyboardAndAccessibility` journey uses the same `registration-performance`
