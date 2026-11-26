@@ -716,7 +716,7 @@ export function createGraphReader(
 
   // The change a category action writes: the message's categories as Graph has them now with only
   // the requested ones assigned or removed, so a category changed elsewhere stays as it was left.
-  // None once Graph no longer has the message.
+  // None, a refusal, once Graph no longer has the message or the list cannot be written back.
   const categoryWrite = Effect.fnUntraced(function* (
     scope: MailboxScope,
     id: string,
@@ -726,14 +726,14 @@ export function createGraphReader(
       graphPlacement(id),
       decodeGraphPlacement,
     ).pipe(Effect.catchTag('GmailNotFound', () => Effect.void));
-    return found === undefined
-      ? undefined
-      : {
-          categories: changedCategories(
-            (yield* sameMessage(id, found)).categories,
-            requested,
-          ),
-        };
+    if (found === undefined) {
+      return undefined;
+    }
+    const categories = changedCategories(
+      (yield* sameMessage(id, found)).categories,
+      requested,
+    );
+    return categories === undefined ? undefined : { categories };
   });
 
   // Graph's labels after one change, or none when Graph refuses it for good: the message or folder

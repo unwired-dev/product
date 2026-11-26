@@ -265,13 +265,15 @@ const categoryName = (label: string) => {
     : undefined;
   return name !== undefined && categoryLabel(name) === label ? name : undefined;
 };
+// A category name native code writes: one line of at most 255 characters, as Outlook allows.
+const writableName = (name: string | undefined): name is string =>
+  name !== undefined &&
+  name !== '' &&
+  name.length <= 255 &&
+  !/[\p{Cc}\u2028\u2029]/u.test(name);
 const categoryNames = (labels: readonly string[]) => {
   const names = labels.map(categoryName);
-  return names.every(
-    (name): name is string => name !== undefined && name !== '',
-  )
-    ? names
-    : undefined;
+  return names.every(writableName) ? names : undefined;
 };
 
 // The categories a label or unlabel action assigns or removes.
@@ -294,14 +296,18 @@ export const categoryChange = (
     ? undefined
     : { add, remove };
 };
-// A message's categories after a change, keeping every other category as Graph has it now.
+// A message's categories after a change, keeping every other category as Graph has it now, or
+// none when the list holds a name that cannot be written back.
 export const changedCategories = (
   current: readonly string[],
   { add, remove }: CategoryChange,
-) => [
-  ...current.filter((name) => !remove.includes(name)),
-  ...add.filter((name) => !current.includes(name)),
-];
+) => {
+  const changed = [
+    ...current.filter((name) => !remove.includes(name)),
+    ...add.filter((name) => !current.includes(name)),
+  ];
+  return changed.every(writableName) ? changed : undefined;
+};
 
 // The one Graph change an organizing action makes. Star has none for Microsoft mail, which doesn't
 // offer it, and a category change sets the message's whole category list.

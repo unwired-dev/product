@@ -561,6 +561,32 @@ describe('organizing Microsoft mail through Graph', () => {
     ]);
   });
 
+  it('refuses a category change Outlook could not store without holding back later changes', async () => {
+    expect.hasAssertions();
+    const graph = createSyntheticGraph({ messages: 0 });
+    const target = graph.deliver({ categories: ['Travel', 'x'.repeat(256)] });
+    const inbox = await opened(graph);
+    const [travel = '', twoLines = ''] = categoryLabels([
+      'Travel',
+      'Two\nlines',
+    ]);
+
+    // A name no Outlook category can have is never queued.
+    await inbox.organize(message(inbox, target), gmailAction.label(twoLines));
+    expect(ready(inbox.getSnapshot())).not.toHaveProperty('notice');
+    // Graph reports a name longer than Outlook allows, so the list can't be written back: removing
+    // Travel is refused and the next change still goes through.
+    await inbox.organize(message(inbox, target), gmailAction.unlabel(travel));
+    await inbox.organize(message(inbox, target), gmailAction.read);
+    expect(ready(inbox.getSnapshot()).pending).toBe(0);
+    expect(graph.modifies).toStrictEqual([{ message: target, read: true }]);
+    expect(graph.categoriesOf(target)).toStrictEqual([
+      'Travel',
+      'x'.repeat(256),
+    ]);
+    expect(message(inbox, target).labels).toStrictEqual(['INBOX', travel]);
+  });
+
   it('lists categories in search results and a delta round', async () => {
     expect.hasAssertions();
     const graph = createSyntheticGraph({ messages: 0 });

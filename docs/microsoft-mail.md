@@ -198,8 +198,11 @@ stores on the message apart from its folder
 search and organizing read them back, and a category change uses the same queue
 as the changes above. Assigning or removing a category first reads the message's
 categories as Microsoft has them now, then writes them back with only that
-category added or removed. So a category another Outlook client changed meanwhile
-stays as that client left it. The write uses the existing `Mail.ReadWrite` grant.
+category added or removed. So a category another Outlook client changed before
+that read stays as that client left it; a change made between the read and the
+write can be overwritten. A change whose list Outlook could not store, such as
+one with a name over 255 characters, is refused and the categories stay as
+Microsoft has them. The write uses the existing `Mail.ReadWrite` grant.
 The hosts don't offer categories yet: the approved Categories panel, the category
 list in Settings and its `MailboxSettings` consent are later #1684 slices.
 

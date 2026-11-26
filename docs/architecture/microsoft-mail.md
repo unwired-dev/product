@@ -182,7 +182,9 @@ name limit; a longer name stays on the message in Graph without a label. The
 reads the message's current categories, adds or removes only the requested names
 and writes the resulting list, so a category changed elsewhere before that read
 is kept. A read that omits the categories or describes another message writes
-nothing and the action waits for the next attempt. A change made in Outlook between that read and the write can still be
+nothing and the action waits for the next attempt. An action naming a category
+Outlook could not store is not queued, and a resulting list native code would
+refuse settles as a refusal instead of blocking the queue. A change made in Outlook between that read and the write can still be
 overwritten, because Graph's message PATCH replaces the whole list.
 Archive reconciliation requires that role rather than merely absence from Inbox.
 Authoritative placement replies require both parentFolderId and isRead; incomplete
