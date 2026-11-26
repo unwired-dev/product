@@ -138,7 +138,7 @@ async function device({ smtp = true, listed = true, sentFirst = false } = {}) {
   }
   const opened: SettingsDestination[] = [];
   const signIns: string[] = [];
-  await render(
+  const reader = () => (
     <AccountContext
       value={{
         mailboxes: mailboxesOf(snapshot),
@@ -174,9 +174,21 @@ async function device({ smtp = true, listed = true, sentFirst = false } = {}) {
           </MailboxScope>
         </InboxProvider>
       </UnsubscribeContext>
-    </AccountContext>,
+    </AccountContext>
   );
-  await screen.findByText('This week only.');
+  // Opens the message, as again after `close`.
+  const view = { unmount: async () => undefined as unknown };
+  const open = async () => {
+    const rendered = await render(reader());
+    view.unmount = rendered.unmount;
+    await screen.findByText('This week only.');
+  };
+  await open();
+  const close = async () => {
+    await act(async () => {
+      await view.unmount();
+    });
+  };
   // Ends the Undo Send Window and hands what is due to the mail server.
   const deliver = async () => {
     clock.now += undoSendWindow;
@@ -197,7 +209,7 @@ async function device({ smtp = true, listed = true, sentFirst = false } = {}) {
       },
       clock.now,
     );
-  return { imap, outbox, opened, signIns, deliver, recorded };
+  return { imap, outbox, opened, signIns, deliver, recorded, open, close };
 }
 
 // The one entry the Outbox holds.
@@ -327,6 +339,51 @@ describe('the reader’s mailto: Unsubscribe on the Mac', () => {
       expect(mail.outbox.getSnapshot()).toStrictEqual([]);
     });
     expect(screen.getByText(receipt)).toBeOnTheScreen();
+  });
+
+  it('shows the retry’s receipt on reopening a message whose unknown attempt Check Again found after another message’s retry', async () => {
+    expect.hasAssertions();
+    const mail = await device();
+    await confirm();
+    mail.imap.smtp.lost = true;
+    await mail.deliver();
+    const { id } = waiting(mail.outbox.getSnapshot());
+    await mail.close();
+    // Another message of the list tries the request again.
+    await act(async () => {
+      await mail.outbox.unsubscribe(
+        waiting(mail.outbox.getSnapshot()).draft.connection,
+        {
+          kind: 'mailto',
+          list: 'Alza.cz newsletter',
+          identity: 'newsletter.alza.example',
+          address: to,
+          subject: 'unsubscribe',
+        },
+        { message: '8.INBOX' },
+      );
+    });
+    await mail.deliver();
+    mail.imap.deliver('Sent', {
+      subject: 'unsubscribe',
+      raw: waiting(mail.imap.smtp.accepted).raw,
+    });
+    clock.now += 86_400_000;
+    jest.setSystemTime(clock.now);
+    await act(async () => {
+      await mail.outbox.check(id);
+    });
+    await waitFor(() => {
+      expect(mail.outbox.getSnapshot()).toStrictEqual([]);
+    });
+
+    await mail.open();
+
+    await expect(
+      screen.findByText(
+        `Emailed to ${to} on Nov 24. It’s in Sent. If their mail keeps coming after 14 days, you can try again.`,
+      ),
+    ).resolves.toBeOnTheScreen();
   });
 
   it('shows a request without a list identity sent before the reader first opened it', async () => {

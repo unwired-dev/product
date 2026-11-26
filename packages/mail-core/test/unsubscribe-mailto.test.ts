@@ -164,6 +164,7 @@ async function receiver(provider: Provider, state = 'connected', smtp = true) {
     ...phone,
     server,
     gmail,
+    imap,
     outbox,
     sent,
     filed,
@@ -779,6 +780,30 @@ describe('recording a mailto unsubscribe request', () => {
     },
   );
 
+  it('never files the Sent copy again for a confirmed IMAP request whose record waited, though the copy was deleted meanwhile', async () => {
+    expect.hasAssertions();
+    const phone = await receiver('imap');
+    try {
+      await start(phone, 'imap');
+      phone.kept.owner = 'another-product-account';
+      later(undoSendWindow);
+      await phone.outbox.process();
+      await vi.waitFor(() => {
+        expect(pending(phone, 'imap')?.unsubscribe?.sentAt).toBeDefined();
+      });
+      phone.imap.expunge('Sent', 1);
+
+      phone.kept.owner = account;
+      await phone.outbox.process();
+      await vi.waitFor(() => {
+        expect(phone.outbox.getSnapshot()).toStrictEqual([]);
+      });
+      expect([phone.sent().length, phone.filed()]).toStrictEqual([1, 1]);
+    } finally {
+      phone.outbox.dispose();
+    }
+  });
+
   it('never tries a request again for a connection added again since, whose message offers another address', async () => {
     expect.hasAssertions();
     const phone = await receiver('gmail');
@@ -796,6 +821,14 @@ describe('recording a mailto unsubscribe request', () => {
           current,
         ),
       ).toBeUndefined();
+      // A retry confirmed for the earlier incarnation, as a sign-in finishing meanwhile sends it.
+      await expect(
+        phone.outbox.unsubscribe(receiving.gmail.id, listed, {
+          message: source,
+          retrying: [old],
+          epoch: 'legacy',
+        }),
+      ).resolves.toStrictEqual({ kind: 'failed' });
 
       const fresh = waitingId(
         await phone.outbox.unsubscribe(

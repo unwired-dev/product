@@ -143,12 +143,15 @@ const email = async ({
   outbox,
   key,
   connection,
+  epoch,
   message,
   offer,
 }: Readonly<{
   outbox: ReturnType<typeof useOutbox>;
   key: string;
   connection: string;
+  // The connection's incarnation the request was confirmed for.
+  epoch: string;
   // The message that offered the request.
   message: string;
   offer: Extract<UnsubscribeOffer, { kind: 'mailto' }>;
@@ -157,6 +160,7 @@ const email = async ({
     .unsubscribe(connection, offer, {
       message,
       retrying: entries.get(key)?.requests,
+      epoch,
     })
     .catch(() => ({ kind: 'failed' }) as const);
   update(key, (each) => ({
@@ -218,6 +222,13 @@ const pendingStateOf = (
   waiting: pending?.state === 'waiting' ? pending.id : undefined,
 });
 
+// Whether `later` is sent and replaces `current`: anything but a sent outcome, or one that does
+// not know the recipient `later` names.
+const replaces = (current: Outcome, later: Outcome) =>
+  later?.kind === 'sent' &&
+  (current?.kind !== 'sent' ||
+    (current.to === undefined && later.to !== undefined));
+
 // The banner's outcome: a request the Outbox confirmed or that was recorded as sent, which an older
 // attempt still in the Outbox never masks; else the request the Outbox holds; else how the last
 // request ended.
@@ -226,7 +237,7 @@ const outcomeOf = (
   pending: OutboxSnapshotEntry | undefined,
   confirmed: Outcome,
 ): ReturnType<typeof pendingOf> | Outcome => {
-  if (confirmed !== undefined) {
+  if (replaces(entry.outcome, confirmed)) {
     return confirmed;
   }
   if (
@@ -268,9 +279,9 @@ function useConfirmed(
   useEffect(() => {
     if (at !== undefined) {
       update(key, (each) =>
-        each.outcome?.kind === 'sent'
-          ? each
-          : { ...each, outcome: emailed(at, to) },
+        replaces(each.outcome, emailed(at, to))
+          ? { ...each, outcome: emailed(at, to) }
+          : each,
       );
     }
   }, [key, at, to]);
@@ -343,7 +354,14 @@ function useOffer(inbox: Source, id: string) {
     }
     update(key, (each) => ({ ...each, sending: true }));
     await (sending.kind === 'mailto'
-      ? email({ outbox, key, connection, message: id, offer: sending })
+      ? email({
+          outbox,
+          key,
+          connection,
+          epoch: receiving?.epoch ?? 'legacy',
+          message: id,
+          offer: sending,
+        })
       : click(store, { key, profile }, sending));
   };
   return {
@@ -733,10 +751,12 @@ export function UnsubscribeBanner({
           ? {
               ...each,
               checked: true,
-              // A stored request supersedes a failure cached before it was sent from elsewhere.
-              ...(request === undefined || each.outcome?.kind === 'sent'
-                ? {}
-                : { outcome: emailed(request.sentAt, request.to) }),
+              // A stored request supersedes a failure cached before it was sent from elsewhere, and
+              // a receipt that does not know its recipient.
+              ...(request !== undefined &&
+              replaces(each.outcome, emailed(request.sentAt, request.to))
+                ? { outcome: emailed(request.sentAt, request.to) }
+                : {}),
             }
           : each,
       );

@@ -141,10 +141,12 @@ export const pendingUnsubscribe = <
   );
 
 // The message that offered a `mailto:` unsubscribe request, and the requests already made for it,
-// which answer in place of another once one is confirmed.
+// which answer in place of another once one is confirmed; with `epoch`, the connection's
+// incarnation it was confirmed for, which a connection added again since refuses.
 type UnsubscribeSource = Readonly<{
   message: string;
   retrying?: readonly string[] | undefined;
+  epoch?: string | undefined;
 }>;
 
 // Where the Outbox keeps a confirmed unsubscribe request by the Product Account, Mail Profile,
@@ -947,7 +949,9 @@ export function createOutbox({
       mailboxesOf(registration.getSnapshot().snapshot),
     );
     let problem: DeliveryProblem | undefined = 'offline';
-    if (sending === 'removed') {
+    // A confirmed request whose record storage refused filed its copy already; filing again could
+    // put back a copy the person moved or deleted since.
+    if (sending === 'removed' || entry.unsubscribe?.sentAt !== undefined) {
       problem = undefined;
     } else if (sending === 'password') {
       problem = 'authorization';
@@ -1404,11 +1408,14 @@ export function createOutbox({
   const admitUnsubscribe = async (
     connection: string,
     offer: Extract<UnsubscribeOffer, { kind: 'mailto' }>,
-    { message: source, retrying = [] }: UnsubscribeSource,
+    { message: source, retrying = [], epoch }: UnsubscribeSource,
   ): Promise<MailtoUnsubscribe> => {
     const mailbox = mailboxesOf(registration.getSnapshot().snapshot).find(
       ({ id }) => id === connection,
     );
+    if (epoch !== undefined && (mailbox?.epoch ?? 'legacy') !== epoch) {
+      return { kind: 'failed' };
+    }
     const held = pendingUnsubscribe(drafts.getOutbox(), connection, {
       ...offer,
       message: source,
