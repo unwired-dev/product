@@ -1,4 +1,5 @@
 import type { CommandTarget } from '@private-email/mail-core/commands';
+import type { MenuItem } from '@private-email/mail-core/context-menu';
 import type { GmailAction } from '@private-email/mail-core/gmail-actions';
 import type {
   ImapAction,
@@ -73,6 +74,7 @@ import { LabelChoices, NewLabel } from './new-label.tsx';
 import { usePinAction, usePinned } from './pins.tsx';
 import { ThreadActionsContext } from './reply-sheet.tsx';
 import { useAppearance, usePalette } from './theme.ts';
+import { useUnsubscribeItems } from './unsubscribe.tsx';
 
 const compact = Platform.OS === 'ios' && !Platform.isPad;
 
@@ -504,6 +506,8 @@ function MoreButton({
     toggle: () => void;
     actions: readonly Named[];
     renderLabels?: Labels | undefined;
+    // Unsubscribe… for a mailing list's message.
+    unsubscribe?: readonly MenuItem[];
   }>;
   // Move's destinations, which open beneath the toolbar.
   readonly folders:
@@ -569,6 +573,7 @@ function MoreButton({
                 ]),
           ],
         },
+        { items: more.unsubscribe ?? [] },
         ...(compact ? [{ items: items(['trash']) }] : []),
       ]}
       style={compact ? styles.compactMoreButton : styles.moreButton}>
@@ -706,7 +711,8 @@ const lastGroup = (
     ),
     more.actions.length === 0 &&
     more.renderLabels === undefined &&
-    folders === undefined ? null : (
+    folders === undefined &&
+    (more.unsubscribe ?? []).length === 0 ? null : (
       <MoreButton
         key="more"
         more={more}
@@ -720,6 +726,7 @@ const lastGroup = (
 // The toolbar and the panel or sheet one of its buttons opened. iPad shows Pin first in the last
 // group, before More; iPhone lists it in More and the Reply sheet, with the read state.
 function Toolbar({
+  id,
   archive,
   folders,
   more: organizing,
@@ -728,6 +735,8 @@ function Toolbar({
   onPanel,
   children,
 }: {
+  // The reader's message, which More may offer to unsubscribe from.
+  readonly id: string;
   readonly onPanel: PanelState['onPanel'];
   // The iPhone Labels sheet New Label… opened, which the reader's panel state also holds.
   readonly labeling?: boolean;
@@ -760,7 +769,10 @@ function Toolbar({
   readonly children: ReactNode;
 }) {
   const { t } = useLocalization();
-  const more = withPin(organizing, pin);
+  const more = {
+    ...withPin(organizing, pin),
+    unsubscribe: useUnsubscribeItems(id),
+  };
   // The reader's open panel lasts only while this toolbar shows it. Closing it, Move or organizing
   // becoming unavailable, or the toolbar leaving clears it, so no dismissal stays behind.
   const shown = more.open || folders?.open === true || labeling === true;
@@ -947,6 +959,7 @@ function ImapMessageActions({
         }
       />
       <Toolbar
+        id={id}
         onPanel={setPanel}
         pin={pinFor(message)}
         archive={
@@ -1061,6 +1074,7 @@ function RespondAndPin({
   }
   return (
     <Toolbar
+      id={message.id}
       onPanel={onPanel}
       pin={pinFor(message)}
       archive={undefined}
@@ -1239,6 +1253,7 @@ function GmailMessageActions({
       {/* Microsoft folders have no labels to create. */}
       {compact && !folders ? newLabel : null}
       <Toolbar
+        id={id}
         onPanel={setPanel}
         labeling={labels.sheet}
         pin={pinFor(message)}

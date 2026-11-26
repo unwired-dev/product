@@ -74,6 +74,38 @@ export const styles = StyleSheet.create({
     borderRadius: radius.card * ipadListScale,
     borderCurve: 'continuous',
   },
+  // A banner's buttons, 8pt apart; their 44pt touch targets reach into its padding, so the
+  // capsules keep the frame's rhythm.
+  bannerActions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.s,
+    marginVertical: -(44 - 28) / 2,
+  },
+  padBannerActions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.s * ipadListScale,
+    marginVertical: -(44 - 28 * ipadListScale) / 2,
+  },
+  // A system alert's anchor takes no room in the banner.
+  alertAnchor: { position: 'absolute' },
+  // The Unsubscribe banner's lines as its Schedule Banner frames set them (#2985); on iPhone it
+  // sits 4pt lower under the subject, and on iPad 1.5pt lower. The frames set the lines without the
+  // system font's own -0.08pt (13pt) and -0.23pt (15pt) tracking.
+  unsubscribeBanner: { marginTop: spacing.xs },
+  unsubscribeTitle: { lineHeight: 13, letterSpacing: 0.08 },
+  unsubscribeText: {
+    lineHeight: 16,
+    marginTop: spacing.xs,
+    letterSpacing: 0.08,
+  },
+  padUnsubscribeBanner: { marginTop: 1.5 },
+  padUnsubscribeTitle: { lineHeight: 15, letterSpacing: 0.23 },
+  padUnsubscribeText: {
+    marginTop: spacing.xs * ipadListScale,
+    letterSpacing: 0.23,
+  },
   marker: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
   bannerTitle: { ...textStyles.footnote, fontWeight: '500' },
   bannerText: { ...textStyles.footnote },

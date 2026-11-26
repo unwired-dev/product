@@ -2295,8 +2295,11 @@ extension UnwiredRegistration {
   ) {
     Task { @MainActor in
       #if UNWIRED_REGISTRATION_MOCK || UNWIRED_ASSISTANCE_MOCK || UNWIRED_ASSISTANCE_QUALIFICATION
-        // Every mock scenario build stays deterministic and never reaches a real server.
-        let outcome = OneClickUnsubscribe.Outcome.failed
+        // Every mock scenario build stays deterministic and never reaches a real server: the
+        // URL's last segment names the outcome, failed when it names none.
+        let outcome =
+          URL(string: url).flatMap { OneClickUnsubscribe.Outcome(rawValue: $0.lastPathComponent) }
+          ?? .failed
       #else
         let budget = RemoteContentBudget(bytes: 1024 * 1024)
         let outcome =
