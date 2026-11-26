@@ -14,19 +14,24 @@
     static let expired = "expired"
     // Folders as the server lists them, with their messages by UID.
     static let folders: [(folder: ImapListedFolder, messages: [ImapEnvelope])] = [
-      // The second message is larger than a message read allows, so it opens without its body.
-      (
-        listed("INBOX"),
-        [
-          envelope(1, "Sam Rivera", "sam@example.invalid", "Welcome to IMAP"),
-          envelope(
-            2, "Morgan Lee", "morgan@example.invalid", "Conference recording", size: 50_000_000),
-        ]
-      ),
+      (listed("INBOX"), inbox),
       (listed("Sent Messages", "\\Sent"), []),
       (listed("Bulk Mail"), [envelope(1, "Prize Desk", "prizes@example.invalid", "Unwanted offer")]),
       (listed("Deleted Messages"), [envelope(1, "Old Shop", "shop@example.invalid", "Old receipt")]),
     ]
+
+    // `registration-imap-folders` also lists a message larger than a message read allows, so it
+    // opens without its body.
+    private static let inbox: [ImapEnvelope] = {
+      let welcome = envelope(1, "Sam Rivera", "sam@example.invalid", "Welcome to IMAP")
+      guard
+        Bundle.main.object(forInfoDictionaryKey: "UnwiredMockScenario") as? String
+          == "registration-imap-folders"
+      else { return [welcome] }
+      let recording = envelope(
+        2, "Morgan Lee", "morgan@example.invalid", "Conference recording", size: 50_000_000)
+      return [welcome, recording]
+    }()
 
     private static func listed(_ name: String, _ attributes: String...) -> ImapListedFolder {
       ImapListedFolder(name: name, attributes: ["\\HasNoChildren"] + attributes, delimiter: "/")

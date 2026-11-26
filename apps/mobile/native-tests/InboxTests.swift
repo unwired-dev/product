@@ -3454,17 +3454,30 @@ final class InboxTests: XCTestCase {
       let more = app.buttons["More"]
       XCTAssertTrue(more.exists)
       let unread = app.buttons["Mark as Unread"]
-      more.tap()
-      XCTAssertTrue(unread.waitForExistence(timeout: 10))
-      for item in ["Pin", "Move to Spam", "Move to…", "Delete"] {
-        XCTAssertTrue(app.buttons[item].exists, "More lacks \(item)")
+      // The menu opens upward from the toolbar, so its first item, Pin, is nearest the button and
+      // Delete, in its own section, is farthest. It offers nothing else this message lacks.
+      let items = ["Pin", "Mark as Unread", "Move to Spam", "Move to…", "Delete"]
+      func checkMenu() {
+        XCTAssertTrue(unread.waitForExistence(timeout: 10))
+        let rows = items.map { app.buttons[$0].firstMatch }
+        for (item, row) in zip(items, rows) { XCTAssertTrue(row.exists, "More lacks \(item)") }
+        for (lower, upper) in zip(rows, rows.dropFirst()) {
+          XCTAssertGreaterThan(lower.frame.midY, upper.frame.midY, upper.label)
+        }
+        for absent in ["Unpin", "Mark as Read", "Not Spam", "Move to Inbox", "Labels"] {
+          XCTAssertFalse(app.buttons[absent].exists, "More offers \(absent)")
+        }
       }
+      more.tap()
+      checkMenu()
       capture("More menu")
-      // A tap beside the menu closes it and runs nothing: the message stays open and read.
+      // A tap beside the menu closes it and runs nothing: the same message stays open, read and
+      // unpinned.
       app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4)).tap()
       XCTAssertTrue(unread.waitForNonExistence(timeout: 5), "More stayed open after a tap beside")
+      XCTAssertTrue(text("Conference recording", in: app).exists)
       more.tap()
-      XCTAssertTrue(unread.waitForExistence(timeout: 10))
+      checkMenu()
       unread.tap()
       more.tap()
       let read = app.buttons["Mark as Read"]

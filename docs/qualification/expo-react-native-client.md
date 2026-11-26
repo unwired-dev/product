@@ -17,9 +17,10 @@ deferral still applies to unavailable release checks. Mac host evidence follows.
 [#2873](https://github.com/unwired-dev/product/issues/2873), runs the check of
 iPhone's reader **More** that the 2026-11-24 pass below deferred: More shows only
 for mail without Reply ([#2158](https://github.com/unwired-dev/product/issues/2158)),
-which no Mock Mail Session had. The synthetic IMAP server now lists a second Inbox
-message, Morgan Lee's **Conference recording**, larger than a message read allows, as
-a real server's reported size refuses it. It ran on `e6cd8cb16` with the journey and
+which no Mock Mail Session had. In `registration-imap-folders` the synthetic IMAP
+server now lists a second Inbox message, Morgan Lee's **Conference recording**, larger
+than a message read allows, which it refuses to download as a real server's reported
+size does. It ran on `e6cd8cb16` with the journey and
 fixture changes, on a `registration-imap-folders` Release Simulator build with
 Xcode 27.2 (`27B52`), the iOS 27.0 runtime and macOS 27.2.1, on iPhone 18 Pro in
 portrait, in Light and Dark. Each passed on its first attempt after a first Light
@@ -28,9 +29,11 @@ attempt whose Simulator failed to install the app during its data migration; the
 
 - The reader says **This message is too large to open on this device.** and
   offers no Reply sheet, so the toolbar keeps **More**.
-- More opens the system menu: Pin, Mark as Unread, Move to Spam and Move to…, then
-  Delete in its own section, as #2158 lists for IMAP mail.
-- A tap beside the menu closes it without a change. **Mark as Unread** marks the
+- More opens the system menu upward from the toolbar: Pin nearest the button, then
+  Mark as Unread, Move to Spam and Move to…, and Delete in its own section, as #2158
+  lists for IMAP mail, with nothing else.
+- A tap beside the menu closes it without a change: the message stays open, read and
+  unpinned. **Mark as Unread** marks the
   message unread: the Back button counts one unread message, and the menu then
   offers **Mark as Read**.
 
