@@ -65,7 +65,8 @@ const styles = StyleSheet.create({
     paddingVertical: 13,
   },
   switchRow: { minHeight: 56 },
-  text: { flex: 1, gap: 2 },
+  // Shrinks to the row, so a long domain wraps as the frames draw it.
+  text: { flex: 1, flexShrink: 1, gap: 2 },
   body: { ...textStyles.body },
   detail: { ...textStyles.footnote },
   separator: {
