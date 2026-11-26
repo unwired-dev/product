@@ -954,7 +954,11 @@ describe('mailbox connections and the unified Inbox', () => {
       gmail.fail({ status: 401 });
       await mailboxes.load();
       expect(ready(inbox.getSnapshot()).sync).toBe('authentication');
-      await registration.authorizeMailbox(alex);
+      // Cancelling the only mailbox's sign-in is not an authorization.
+      synthetic.google.outcome = 'cancelled';
+      await expect(registration.authorizeMailbox(alex)).resolves.toBe(false);
+      synthetic.google.outcome = undefined;
+      await expect(registration.authorizeMailbox(alex)).resolves.toBe(true);
       await mailboxes.load();
       expect(ready(mailbox(mailboxes.getSnapshot(), alex).state).sync).toBe(
         'current',

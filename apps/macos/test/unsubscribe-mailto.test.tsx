@@ -124,7 +124,7 @@ async function device({ smtp = true, listed = true, sentFirst = false } = {}) {
         subject: 'unsubscribe',
         ...(listed ? { identity: 'newsletter.alza.example' } : {}),
       },
-      id,
+      { message: id },
     );
     clock.now += undoSendWindow;
     jest.setSystemTime(clock.now);

@@ -136,7 +136,8 @@ const pendingOf = (pending: OutboxSnapshotEntry) => {
 };
 
 // Admits the `mailto:` request from `connection` in place of the message `key` names' last one; the
-// Outbox sends a refused or unknown request it holds again in place of `offer`. A connection that
+// Outbox sends a refused or unknown request it holds again in place of `offer`, and answers with
+// one of the message's requests confirmed meanwhile. A connection that
 // cannot send says why in place of an outcome.
 const email = async ({
   outbox,
@@ -153,7 +154,10 @@ const email = async ({
   offer: Extract<UnsubscribeOffer, { kind: 'mailto' }>;
 }>) => {
   const admitted = await outbox
-    .unsubscribe(connection, offer, message)
+    .unsubscribe(connection, offer, {
+      message,
+      retrying: entries.get(key)?.requests,
+    })
     .catch(() => ({ kind: 'failed' }) as const);
   update(key, (each) => ({
     ...each,
@@ -243,20 +247,20 @@ const emailed = (at: number, to: string | undefined): Outcome => ({
 });
 
 // The first of the message `key` names' `requests` the Outbox confirmed, else a request the Outbox
-// confirmed this session from `connection` for the message's list, and to whom when it knows; kept
-// for the session once found.
+// confirmed this session from `connection` in `profile` for the message, and to whom when it knows;
+// kept for the session once found.
 function useConfirmed(
   key: string,
   requests: readonly string[] | undefined,
   {
     connection,
-    ...list
-  }: Readonly<{ connection: string; identity?: string; message: string }>,
+    ...message
+  }: Readonly<{ connection: string; profile: string; message: string }>,
 ): Outcome {
   const outbox = useOutbox();
   const found =
     requests?.map(outbox.delivered).find((each) => each !== undefined) ??
-    outbox.emailedUnsubscribe(connection, list);
+    outbox.emailedUnsubscribe(connection, message);
   const at = found?.at;
   const to = found?.to;
   useEffect(() => {
@@ -313,7 +317,7 @@ function useOffer(inbox: Source, id: string) {
   }, [key, pendingId]);
   const confirmed = useConfirmed(key, entry.requests, {
     connection,
-    ...(offer?.identity === undefined ? {} : { identity: offer.identity }),
+    profile,
     message: id,
   });
   const outcome = outcomeOf(entry, pending, confirmed);
