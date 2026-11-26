@@ -11,6 +11,34 @@ The [mobile bootstrap](../expo-client.md) now uses Expo 57.0.25, React Native
 are available on the development host. The maintainer's earlier native-validation
 deferral still applies to unavailable release checks. Mac host evidence follows.
 
+## iPhone reader More on mail without Reply, 2026-11-26
+
+[#2942](https://github.com/unwired-dev/product/issues/2942), a slice of
+[#2873](https://github.com/unwired-dev/product/issues/2873), runs the check of
+iPhone's reader **More** that the 2026-11-24 pass below deferred: More shows only
+for mail without Reply ([#2158](https://github.com/unwired-dev/product/issues/2158)),
+which no Mock Mail Session had. In `registration-imap-folders` the synthetic IMAP
+server now lists a second Inbox message, Morgan Lee's **Conference recording**, larger
+than a message read allows, which it refuses to download as a real server's reported
+size does. It ran on `e6cd8cb16` with the journey and
+fixture changes, on a `registration-imap-folders` Release Simulator build with
+Xcode 27.2 (`27B52`), the iOS 27.0 runtime and macOS 27.2.1, on iPhone 18 Pro in
+portrait, in Light and Dark. Each passed on its first attempt after a first Light
+attempt whose Simulator failed to install the app during its data migration; the
+1-minute host load was 2–21. After review scoped the message to this session and
+checked the menu's order, both passed again on their first attempt at host loads of
+52–224.
+
+- The reader says **This message is too large to open on this device.** and
+  offers no Reply sheet, so the toolbar keeps **More**.
+- More opens the system menu upward from the toolbar: Pin nearest the button, then
+  Mark as Unread, Move to Spam and Move to…, and Delete in its own section, as #2158
+  lists for IMAP mail, with nothing else.
+- A tap beside the menu closes it without a change: the message stays open, read and
+  unpinned. **Mark as Unread** marks the
+  message unread: the Back button counts one unread message, and the menu then
+  offers **Mark as Read**.
+
 ## iPhone and iPad presenter checks in the other appearance, 2026-11-26
 
 [#2943](https://github.com/unwired-dev/product/issues/2943), a slice of
@@ -551,8 +579,8 @@ presenter; each names the appearances it ran in. Host load from other work was
   Filters popover and the iPhone composer is presented; Expand on iPad; a
   downward swipe on the iPhone Labels sheet in Dark and on the New Label sheet,
   and a swipe released early that keeps any sheet; the Dark-only and Light-only
-  checks above in the other appearance; and iPhone's More, which shows only for mail without Reply, which
-  no journey or the synthetic mailbox has. `agent-device` cannot turn VoiceOver
+  checks above in the other appearance; and iPhone's More, which shows only for mail without Reply
+  (the 2026-11-26 entry above, [#2942](https://github.com/unwired-dev/product/issues/2942)). `agent-device` cannot turn VoiceOver
   on, rotate the device or resize an iPad window. Rotation with the Gmail
   presenters and the Move picker is the 2026-11-25 entry above
   ([#2907](https://github.com/unwired-dev/product/issues/2907)). Reduce Motion on

@@ -3486,6 +3486,52 @@ final class InboxTests: XCTestCase {
     XCTAssertFalse(folders.exists)
     capture("Moved to Spam")
 
+    // #2942: a message larger than a message read allows opens without its body, so the iPhone
+    // reader offers no Reply sheet and keeps More, which opens the system menu (#2158).
+    if phone {
+      row("Conference recording").tap()
+      XCTAssertTrue(
+        text("This message is too large to open on this device.", in: app)
+          .waitForExistence(timeout: 15))
+      XCTAssertFalse(app.buttons["Reply"].exists)
+      let more = app.buttons["More"]
+      XCTAssertTrue(more.exists)
+      let unread = app.buttons["Mark as Unread"]
+      // The menu opens upward from the toolbar, so its first item, Pin, is nearest the button and
+      // Delete, in its own section, is farthest. It offers nothing else this message lacks.
+      let items = ["Pin", "Mark as Unread", "Move to Spam", "Move to…", "Delete"]
+      func checkMenu() {
+        XCTAssertTrue(unread.waitForExistence(timeout: 10))
+        let rows = items.map { app.buttons[$0].firstMatch }
+        for (item, row) in zip(items, rows) { XCTAssertTrue(row.exists, "More lacks \(item)") }
+        for (lower, upper) in zip(rows, rows.dropFirst()) {
+          XCTAssertGreaterThan(lower.frame.midY, upper.frame.midY, upper.label)
+        }
+        for absent in ["Unpin", "Mark as Read", "Not Spam", "Move to Inbox", "Labels"] {
+          XCTAssertFalse(app.buttons[absent].exists, "More offers \(absent)")
+        }
+      }
+      more.tap()
+      checkMenu()
+      capture("More menu")
+      // A tap beside the menu closes it and runs nothing: the same message stays open, read and
+      // unpinned.
+      app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4)).tap()
+      XCTAssertTrue(unread.waitForNonExistence(timeout: 5), "More stayed open after a tap beside")
+      XCTAssertTrue(text("Conference recording", in: app).exists)
+      more.tap()
+      checkMenu()
+      unread.tap()
+      more.tap()
+      let read = app.buttons["Mark as Read"]
+      XCTAssertTrue(read.waitForExistence(timeout: 10))
+      capture("More menu after Mark as Unread")
+      read.tap()
+      XCTAssertTrue(read.waitForNonExistence(timeout: 5))
+      app.navigationBars.buttons["BackButton"].tap()
+      XCTAssertTrue(more.waitForNonExistence(timeout: 10))
+    }
+
     openEmailAccounts()
     let change = settingsRow("Change…", "Spam: Bulk Mail · Trash: Deleted Messages · chosen by you")
     capture("Settings folders chosen")
