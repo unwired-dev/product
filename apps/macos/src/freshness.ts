@@ -4,6 +4,7 @@ import { AppState } from 'react-native';
 
 import {
   followBadge,
+  followReminderNotifications,
   followWakes,
   freshness,
   gmailMailboxes,
@@ -23,6 +24,7 @@ export const keepGmailFresh = () => {
     gmailMailboxes.watch();
     followWakes();
     followBadge();
+    followReminderNotifications();
     AppState.addEventListener('change', (state) => {
       if (state === 'active') {
         void notifications.load();
