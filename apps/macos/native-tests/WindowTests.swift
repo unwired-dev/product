@@ -493,6 +493,7 @@ final class WindowTests: XCTestCase {
     body.typeText("Dropped below this line")
     let typed = webText("Dropped below this line", in: window)
     XCTAssertTrue(typed.waitForExistence(timeout: 10))
+    let text = body.value as? String
 
     // A folder of the runner's own, outside the app's container: the app can read the file only
     // through the access the drop grants it.
@@ -539,7 +540,7 @@ final class WindowTests: XCTestCase {
     waitUntil { !row.label.contains("…") }
     XCTAssertFalse(row.label.contains("Not added"), row.label)
     let attached = row.label
-    XCTAssertTrue(typed.exists)
+    XCTAssertEqual(body.value as? String, text)
     XCTAssertEqual(body.images.count, 0)
     let dropped = XCTAttachment(screenshot: window.screenshot())
     dropped.name = "Draft editor page with a dropped file"
@@ -557,11 +558,13 @@ final class WindowTests: XCTestCase {
     draft.click()
     XCTAssertTrue(
       webText("Dropped below this line", in: relaunched).waitForExistence(timeout: 15))
-    // The reopened Attachment verifies as it did when dropped, not missing or damaged.
+    XCTAssertEqual(relaunched.webViews.textViews["Message body"].value as? String, text)
     let kept = relaunched.descendants(matching: .any)
       .matching(NSPredicate(format: "label BEGINSWITH %@", "drop-note.txt, ")).firstMatch
     XCTAssertTrue(kept.waitForExistence(timeout: 15))
-    waitUntil { kept.label == attached }
+    // The row shows the size before its bytes are read again; a damaged or missing file then
+    // adds why, so look again once that check has had time to finish.
+    Thread.sleep(forTimeInterval: 5)
     XCTAssertEqual(kept.label, attached)
     let reopened = XCTAttachment(screenshot: relaunched.screenshot())
     reopened.name = "Reopened Draft with the dropped file"
