@@ -84,6 +84,38 @@ query overhead, the synthetic press duration and every session stall. It
 measures neither Mail View switching, keyboard or accessibility journeys, nor the
 iPhone and iPad references.
 
+## Mac composer opening journey
+
+The `testComposerOpening` journey compares how long both Mac composers take to
+open a body ([#2955](https://github.com/unwired-dev/product/issues/2955)). It runs
+the current composer in a `registration-performance` `Testing` build, signed in as
+the [performance journey](#mac-performance-journey) is, and the Draft editor page
+in a `registration-draft-editor` `Testing` build:
+
+```sh
+for scenario in registration-performance registration-draft-editor; do
+  UNWIRED_MOCK_SCENARIO=$scenario \
+  mise exec -- pnpm --filter @private-email/macos native:build Testing
+  mise exec -- pnpm --filter @private-email/macos test:native \
+    "$PWD/artifacts/macos-inbox/DerivedData/Build/Products/Testing/UnwiredMail.app" \
+    testComposerOpening
+done
+```
+
+It opens a new message 10 times, then saves a Draft whose body holds one
+paragraph and opens it 10 times, closing the composer after each sample. A sample
+runs from the mouse release the app records until an accessibility query finds
+the body and the format bar's **Undo**, which the page shows once it is ready; for
+the Draft, the body must also show its paragraph. Like the performance journey's
+click samples, these include XCUITest's event completion and queries, so they are
+upper bounds. They are compared with the
+[performance budgets](agents/native-validation.md#performance-qualification) for
+an empty composer (300 ms) and a warm composer (200 ms).
+
+The journey writes one `PERFORMANCE` JSON line per interaction, with the
+composer, to `xcodebuild.log` and as an XCTest attachment, in the performance
+journey's format.
+
 ## Mac keyboard and accessibility journey
 
 The `testKeyboardAndAccessibility` journey uses the same `registration-performance`
