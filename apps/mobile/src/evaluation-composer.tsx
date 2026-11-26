@@ -232,6 +232,7 @@ function EvaluationEditor({
   }, [saved, settleJournal]);
   useLayoutEffect(() => {
     mounted.current = true;
+    store.hold(authored.current.id, rebind);
     return () => {
       mounted.current = false;
       paused.current?.(false);
