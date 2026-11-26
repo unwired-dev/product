@@ -158,7 +158,7 @@ export function SaveOutcomeToast({ shown }: { readonly shown: Shown }) {
       />
     );
   }
-  return useReaderToast(toast, shown?.open === true);
+  return useReaderToast(toast, shown?.open === true, said ?? '');
 }
 
 // The Profiles on this Mac that save received attachments to Downloads, by preference key, and

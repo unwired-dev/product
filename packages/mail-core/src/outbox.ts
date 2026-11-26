@@ -116,8 +116,10 @@ export const unsendable = (
 // The newest `mailto:` unsubscribe request `connection` holds in `outbox` for the list with
 // `identity`, or for `message` when the list has none, which the reader shows until it leaves the
 // Outbox, across relaunches.
-export const pendingUnsubscribe = (
-  outbox: readonly OutboxSnapshotEntry[],
+export const pendingUnsubscribe = <
+  E extends Pick<OutboxEntry, 'draft' | 'unsubscribe'>,
+>(
+  outbox: readonly E[],
   connection: string,
   { identity, message }: Readonly<{ identity?: string; message: string }>,
 ) =>
@@ -1204,6 +1206,71 @@ export function createOutbox({
     plan(() => void process());
   }
 
+  // One unsubscribe admission at a time, so two confirmations cannot both admit a request.
+  const admissions = Semaphore.makeUnsafe(1);
+  const admitUnsubscribe = async (
+    connection: string,
+    offer: Extract<UnsubscribeOffer, { kind: 'mailto' }>,
+    source: string,
+  ): Promise<MailtoUnsubscribe> => {
+    const held = pendingUnsubscribe(drafts.getOutbox(), connection, {
+      ...offer,
+      message: source,
+    });
+    if (
+      held !== undefined &&
+      held.state !== 'failed' &&
+      held.state !== 'unknown'
+    ) {
+      return { kind: 'waiting', id: held.id };
+    }
+    const account = ownerOf(registration);
+    const mailbox = mailboxesOf(registration.getSnapshot().snapshot).find(
+      ({ id }) => id === connection,
+    );
+    if (mailbox === undefined || account === undefined) {
+      return { kind: 'failed' };
+    }
+    const refused = unsendable(mailbox);
+    if (refused !== undefined) {
+      return { kind: refused };
+    }
+    const at = Date.now();
+    const draft: Draft = {
+      id: `${at.toString(36)}.${Math.random().toString(36).slice(2, 14)}`,
+      connection,
+      from: mailbox.address,
+      to: [{ address: offer.address }],
+      cc: [],
+      bcc: [],
+      subject: offer.subject ?? '',
+      body: paragraphsOf(offer.body ?? ''),
+      updatedAt: at,
+    };
+    const message =
+      refusalOf(draft) === undefined
+        ? messageOf(draft, mailbox.provider)
+        : undefined;
+    const admitted =
+      message !== undefined &&
+      (await drafts.enqueue({
+        id: draft.id,
+        draft,
+        message,
+        sendAt: at + undoSendWindow,
+        state: 'waiting',
+        epoch: epochOf(draft),
+        unsubscribe: {
+          account,
+          profile: mailbox.profile,
+          list: offer.list,
+          message: source,
+          ...(offer.identity === undefined ? {} : { identity: offer.identity }),
+        },
+      }));
+    return admitted ? { kind: 'waiting', id: draft.id } : { kind: 'failed' };
+  };
+
   return {
     subscribe: (listener: () => void) => {
       listeners.add(listener);
@@ -1312,61 +1379,20 @@ export function createOutbox({
     // Admits the confirmed `mailto:` unsubscribe request `offer` makes, an ordinary message that is
     // never a Draft, from `connection`, the Mailbox Connection that received it, to the offer's
     // one address with only its subject and body. It waits out the Undo Send Window like any
-    // message; Undo only takes it out of the Outbox.
-    unsubscribe: async (
+    // message; Undo only takes it out of the Outbox. Admissions run one at a time, and a request
+    // the Outbox holds for the same connection and list, or for the same message without a list
+    // identity, answers in place of another; only a refused or unknown one may be tried again.
+    unsubscribe: (
       connection: string,
       offer: Extract<UnsubscribeOffer, { kind: 'mailto' }>,
       // The message that offered it.
       source: string,
-    ): Promise<MailtoUnsubscribe> => {
-      const account = ownerOf(registration);
-      const mailbox = mailboxesOf(registration.getSnapshot().snapshot).find(
-        ({ id }) => id === connection,
-      );
-      if (mailbox === undefined || account === undefined) {
-        return { kind: 'failed' };
-      }
-      const refused = unsendable(mailbox);
-      if (refused !== undefined) {
-        return { kind: refused };
-      }
-      const at = Date.now();
-      const draft: Draft = {
-        id: `${at.toString(36)}.${Math.random().toString(36).slice(2, 14)}`,
-        connection,
-        from: mailbox.address,
-        to: [{ address: offer.address }],
-        cc: [],
-        bcc: [],
-        subject: offer.subject ?? '',
-        body: paragraphsOf(offer.body ?? ''),
-        updatedAt: at,
-      };
-      const message =
-        refusalOf(draft) === undefined
-          ? messageOf(draft, mailbox.provider)
-          : undefined;
-      const admitted =
-        message !== undefined &&
-        (await drafts.enqueue({
-          id: draft.id,
-          draft,
-          message,
-          sendAt: at + undoSendWindow,
-          state: 'waiting',
-          epoch: epochOf(draft),
-          unsubscribe: {
-            account,
-            profile: mailbox.profile,
-            list: offer.list,
-            message: source,
-            ...(offer.identity === undefined
-              ? {}
-              : { identity: offer.identity }),
-          },
-        }));
-      return admitted ? { kind: 'waiting', id: draft.id } : { kind: 'failed' };
-    },
+    ): Promise<MailtoUnsubscribe> =>
+      Effect.runPromise(
+        admissions.withPermit(
+          Effect.promise(() => admitUnsubscribe(connection, offer, source)),
+        ),
+      ),
     // When the message `id` left the Outbox confirmed as sent, among the latest sends.
     delivered: (id: string) =>
       drafts.getSent().find((sent) => sent.id === id)?.sentAt,

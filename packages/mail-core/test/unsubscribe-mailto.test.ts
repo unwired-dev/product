@@ -265,6 +265,23 @@ describe('a mailto unsubscribe request', () => {
     }
   });
 
+  it('admits one request when the same list is confirmed twice at once', async () => {
+    expect.hasAssertions();
+    const phone = await receiver('gmail');
+    try {
+      const [first, second] = await Promise.all([
+        phone.outbox.unsubscribe(receiving.gmail.id, offer, source),
+        phone.outbox.unsubscribe(receiving.gmail.id, offer, source),
+      ]);
+      expect({
+        same: waitingId(first) === waitingId(second),
+        outbox: phone.drafts.getOutbox().length,
+      }).toStrictEqual({ same: true, outbox: 1 });
+    } finally {
+      phone.outbox.dispose();
+    }
+  });
+
   it('only leaves the Outbox at Edit after its connection needs authorization before handoff', async () => {
     expect.hasAssertions();
     const phone = await receiver('gmail');

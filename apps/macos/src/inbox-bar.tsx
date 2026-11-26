@@ -275,18 +275,28 @@ export function useReaderToastPlace() {
 }
 
 // Shows `toast` as the reader's toast while it is `open`, and once more as it closes so it fades
-// out; it never replaces another toast shown since, and clears only its own as it goes. Without a
-// reader it returns `toast` to place in line.
-export function useReaderToast(toast: ReactNode, open: boolean) {
+// out. It takes the place only as it opens or `shown` names another toast, so a later render never
+// replaces another toast shown since, and it clears only its own as it goes. Without a reader it
+// returns `toast` to place in line.
+export function useReaderToast(
+  toast: ReactNode,
+  open: boolean,
+  shown: object | string,
+) {
   const showToast = use(ReaderToastContext);
   const owner = useMemo(() => ({}), []);
-  const shown = useRef(false);
+  // What it showed open last, if it is still open.
+  const showing = useRef<object | string>(undefined);
   useLayoutEffect(() => {
-    const showing = open && toast !== null;
-    if (showing || shown.current) {
-      showToast?.(owner, toast, showing);
+    const opened = open && toast !== null ? shown : undefined;
+    if (opened !== undefined || showing.current !== undefined) {
+      showToast?.(
+        owner,
+        toast,
+        opened !== undefined && opened !== showing.current,
+      );
     }
-    shown.current = showing;
+    showing.current = opened;
   });
   useLayoutEffect(
     () => () => {
