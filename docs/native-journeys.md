@@ -155,6 +155,40 @@ as an XCTest attachment, with the composer, the samples, p50, p95, maximum,
 main-queue stalls of 100 ms or longer during the samples, and the display's frame
 interval.
 
+## Mac composer memory journey
+
+The `testComposerMemory` journey compares the memory both composers hold
+([#2957](https://github.com/unwired-dev/product/issues/2957)): the current composer
+in the `registration-performance` `Testing` build, after the same sign-in as the
+[performance journey](#mac-performance-journey), and the
+[Draft editor page](draft-editor-evaluation.md) in the `registration-draft-editor`
+`Testing` build. Build each and run the same command on it:
+
+```sh
+mise exec -- pnpm --filter @private-email/macos test:native \
+  "$PWD/artifacts/macos-inbox/DerivedData/Build/Products/Testing/UnwiredMail.app" \
+  testComposerMemory
+```
+
+It reads memory in three states: the Inbox with no composer; that window's New
+Message with one generated paragraph of 50,007 characters pasted into its body;
+and four Inbox windows, each with such a New Message. A composer counts once its
+body shows the whole paragraph. Each state is read three times, a second apart.
+A reading is the physical footprint (`ri_phys_footprint`, which `footprint`
+reports as `phys_footprint`) of the app and of every process macOS holds it
+responsible for, such as its WebKit content, networking and GPU processes and
+system helpers. The journey fails when the app is not running, a process cannot be
+read, or, for the page, no WebKit content process is among them. It writes one
+`PERFORMANCE` JSON line per state to `xcodebuild.log`, and the same states as a
+JSON array in an XCTest attachment, with each reading's processes, its total,
+the state's median total and that median's increase over the first state. No
+memory budget exists, so it records the readings and judges none. The builds'
+mailboxes differ, so only the one-composer increases compare across builds; the
+four-composer increase is the whole session's growth, including three more Inbox
+windows that list each build's own mailboxes. The pasted paragraph replaces the pasteboard
+for the run, which gets its earlier contents back unless something else wrote it
+since.
+
 ## Mac keyboard and accessibility journey
 
 The `testKeyboardAndAccessibility` journey uses the same `registration-performance`
@@ -837,6 +871,20 @@ and the Outbox then offers its **Undo**. The editor's bottom, not the keyboard e
 fold: the keyboard's typing predictions sit above that element. The captures "Composer sheet", "Composer sheet asks before
 closing", "Composer body fills the sheet", "Composer Send asks for a recipient" and "Composer sheet
 with keyboard" are named with the appearance.
+
+## iPhone Draft editor sheet journey
+
+`testDraftEditorSheet` runs the same swipes on the Draft editor page's composer
+([#2961](https://github.com/unwired-dev/product/issues/2961)), in the
+`registration-draft-editor` Release build that the
+[Draft editor evaluation](draft-editor-evaluation.md#run-the-evaluation) describes, with
+`UNWIRED_JOURNEY=testDraftEditorSheet` on iPhone; iPad skips it. After signing in, New Message
+opens the page in the system sheet over the Inbox, whose rows are out of reach. Swiping the
+untouched sheet down closes it. In a second New Message, with two paragraphs typed into the page,
+the swipe asks **Save Draft** or **Delete Draft** while the sheet and its text stay, the last
+paragraph in sight beneath the question; **Keep Editing** keeps both, and on the next swipe **Save Draft** closes the sheet. The Inbox then lists the Draft, which
+reopens in the page with its text, and a swipe closes it without asking. The captures "Draft
+editor sheet asks before closing" and "Draft editor sheet reopened" are named with the appearance.
 
 ## iPad composer card journey
 

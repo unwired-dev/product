@@ -67,12 +67,13 @@ recommendation and the decision it supports. Facts link to their evidence;
   [#2916](https://github.com/unwired-dev/product/issues/2916) the page build lists
   the files it bundles beside that module, so `scripts/licence-inventory.mjs` and
   the archive's `ThirdPartyNotices.txt` include the page's packages.
-- **Measurements.** The packaged page is about 351 KB. No memory or battery
+- **Measurements.** The packaged page is about 351 KB. No battery
   comparison with the current composer was measured:
   [#822](https://github.com/unwired-dev/product/issues/822) closed without a native
   result. The only latency comparisons, for gate 5, are in Mac `Testing` builds:
   composer opening ([#2955](https://github.com/unwired-dev/product/issues/2955))
   and selection changes ([#2951](https://github.com/unwired-dev/product/issues/2951)).
+  Memory on the Mac is recorded by [#2957](https://github.com/unwired-dev/product/issues/2957).
   The table probes compare behaviour, not speed.
 
 ## Assessment
@@ -158,7 +159,11 @@ release limit:
    recovery record of [ADR 0077](0077-remove-friction-that-privacy-does-not-require.md)
    and prove that they restore after a forced termination. The page does so on Mac
    since [#2933](https://github.com/unwired-dev/product/issues/2933) and on iPhone
-   and iPad since [#2944](https://github.com/unwired-dev/product/issues/2944).
+   and iPad since [#2944](https://github.com/unwired-dev/product/issues/2944). On iPhone the
+   page composer is the system sheet over the Inbox, so **Back** and edge swipes
+   cannot reach it; its downward swipe closes it as **Close** does, run natively on
+   the iPhone Simulator by [#2961](https://github.com/unwired-dev/product/issues/2961).
+   A compact iPad window has not run it.
 3. File drops on iPhone and iPad, and **Paste Image** and in-page paste on a
    device. Image paste on Mac is met by
    [#2929](https://github.com/unwired-dev/product/issues/2929): native code reads
@@ -183,8 +188,8 @@ release limit:
    ([review note](https://github.com/unwired-dev/product/issues/822#issuecomment-6114571758)),
    and the current composer's interactions the page lacks. The Slash Command
    Menu is met on iPhone and iPad Simulators by
-   [#2952](https://github.com/unwired-dev/product/issues/2952); the Mac menu, the
-   other #822 measurements and physical devices remain. On Mac,
+   [#2952](https://github.com/unwired-dev/product/issues/2952); the Mac menu,
+   startup, typing response and physical devices remain. On Mac,
    [#2955](https://github.com/unwired-dev/product/issues/2955) timed opening a new
    message and a saved Draft in both composers on a loaded host; repeat it on an
    idle one ([results](../draft-editor-evaluation.md#composer-opening-2955)).
@@ -198,6 +203,12 @@ release limit:
    30.1 and 40.6 ms on one paragraph
    ([evidence](../draft-editor-evaluation.md#selection-change-latency-2951)); a
    Release comparison remains.
+   [#2957](https://github.com/unwired-dev/product/issues/2957) recorded memory:
+   with a pasted 50,007-character paragraph, one composer added 141–147 MiB to the
+   app and the processes it is responsible for with the page, and 204–260 MiB with
+   the current composer; a session with four Inbox windows and composers grew by
+   261–278 MiB and 331–384 MiB
+   ([evidence](../draft-editor-evaluation.md#memory-2957)).
 6. The Tiptap and ProseMirror notices in the distributed app; the licence
    inventory must list the page's packages. Met by
    [#2916](https://github.com/unwired-dev/product/issues/2916): every bundle that
