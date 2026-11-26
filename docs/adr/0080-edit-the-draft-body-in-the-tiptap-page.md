@@ -53,7 +53,8 @@ recommendation and the decision it supports. Facts link to their evidence;
   ([Semantic mismatches](../draft-editor-evaluation.md#semantic-mismatches)): the
   page drops alignment, color, background and fonts
   ([#2884](https://github.com/unwired-dev/product/issues/2884) restores them), has
-  no Slash Command Menu, shows Inline Images at thumbnail size
+  no Slash Command Menu on Mac (iPhone and iPad have it since
+  [#2952](https://github.com/unwired-dev/product/issues/2952)), shows Inline Images at thumbnail size
   ([#2786](https://github.com/unwired-dev/product/issues/2786)), and adds Tiptap's
   extra keyboard shortcuts and **Attach Instead** and **Show Inline**.
 - **Licensing.** Tiptap, ProseMirror and esbuild are MIT and need no paid service
@@ -85,8 +86,9 @@ recommendation and the decision it supports. Facts link to their evidence;
   two Mac windows, racing imports, refused saves and another Product Account;
   the native Mac two-window run passed
   ([#2938](https://github.com/unwired-dev/product/issues/2938)), as did Mac
-  force-quit recovery ([#2933](https://github.com/unwired-dev/product/issues/2933));
-  native iPhone and iPad app-termination runs are outstanding.
+  force-quit recovery ([#2933](https://github.com/unwired-dev/product/issues/2933))
+  and iPhone and iPad termination recovery
+  ([#2944](https://github.com/unwired-dev/product/issues/2944)).
 - **Assistance.** Rewrites, translation and reply suggestions run through the
   current on-device capture and review, and the page refuses a result for another
   body revision. No vendor AI, Yjs or CRDT collaboration is enabled or adopted.
@@ -136,12 +138,12 @@ release limit:
    Draft, run natively. On Mac, Command-W and **Quit** passed in
    [#2876](https://github.com/unwired-dev/product/issues/2876), and the window's
    close button and two windows on one Draft in #2938
-   ([evidence](../draft-editor-evaluation.md#save-ordering-821)). On iPhone and iPad the evaluation loses open edits when the
-   app ends before **Save Draft**; production must journal them to the encrypted
+   ([evidence](../draft-editor-evaluation.md#save-ordering-821)). Production must
+   journal open edits to the encrypted
    recovery record of [ADR 0077](0077-remove-friction-that-privacy-does-not-require.md)
-   and prove that they restore after a forced termination. On Mac the page journals
-   them and restores them after a force quit since
-   [#2933](https://github.com/unwired-dev/product/issues/2933). On iPhone the
+   and prove that they restore after a forced termination. The page does so on Mac
+   since [#2933](https://github.com/unwired-dev/product/issues/2933) and on iPhone
+   and iPad since [#2944](https://github.com/unwired-dev/product/issues/2944). On iPhone the
    page composer is the system sheet over the Inbox, so **Back** and edge swipes
    cannot reach it; its downward swipe closes it as **Close** does, run natively on
    the iPhone Simulator by [#2961](https://github.com/unwired-dev/product/issues/2961).
@@ -162,11 +164,13 @@ release limit:
    both composers in Release builds on the same fixtures and devices, including
    selection-change latency on large, many-block Drafts
    ([review note](https://github.com/unwired-dev/product/issues/822#issuecomment-6114571758)),
-   and the current composer's interactions the page lacks, such as the Slash
-   Command Menu. On Mac, [#2955](https://github.com/unwired-dev/product/issues/2955)
-   timed opening a new message and a saved Draft in both composers on a loaded
-   host; repeat it on an idle one
-   ([results](../draft-editor-evaluation.md#composer-opening-2955)).
+   and the current composer's interactions the page lacks. The Slash Command
+   Menu is met on iPhone and iPad Simulators by
+   [#2952](https://github.com/unwired-dev/product/issues/2952); the Mac menu, the
+   #822 measurements and physical devices remain. On Mac,
+   [#2955](https://github.com/unwired-dev/product/issues/2955) timed opening a new
+   message and a saved Draft in both composers on a loaded host; repeat it on an
+   idle one ([results](../draft-editor-evaluation.md#composer-opening-2955)).
 6. The Tiptap and ProseMirror notices in the distributed app; the licence
    inventory must list the page's packages. Met by
    [#2916](https://github.com/unwired-dev/product/issues/2916): every bundle that

@@ -583,12 +583,24 @@ unavailable: in the system popover on iPad, which one tap outside and Command-pe
 Escape, each close, and in the system Move sheet on iPhone, which **Close** and a downward swipe
 each close. Before the first close the picker turns to Landscape and back to Portrait, and after
 each turn it is still shown with its folders, and on iPhone **Close**, in reach
-([#2931](https://github.com/unwired-dev/product/issues/2931)). **Move to Bulk Mail** then
-requests the move: the reader closes and the list reports **Moved: “Welcome to IMAP”.** at once,
-before the server answers. The synthetic server discards
+([#2931](https://github.com/unwired-dev/product/issues/2931)). On iPhone the sheet then opens
+again, and "bulk" is typed into its search at the sheet's foot: the other folders, the selected
+Inbox among them, leave the list, and the search field and **Move to Bulk Mail** stay above the
+software keyboard ([#2943](https://github.com/unwired-dev/product/issues/2943)).
+**Move to Bulk Mail** then requests the move: the reader closes and the list reports
+**Moved: “Welcome to IMAP”.** at once, before the server answers. The synthetic server discards
 moves, so what the server keeps is left to the mail-core IMAP organize tests. The captures
-"Folders popover" or "Move sheet", the same in Landscape, and "Moved to Spam" are named with the
-appearance.
+"Folders popover" or "Move sheet", the same in Landscape, on iPhone "Move sheet search", and "Moved
+to Spam" are named with the appearance.
+
+On iPhone it then opens Morgan Lee's **Conference recording**, which is larger than a
+message read allows ([#2942](https://github.com/unwired-dev/product/issues/2942)). The
+reader says **This message is too large to open on this device.**, so it offers no Reply
+sheet and keeps **More**, which opens the system menu
+([#2158](https://github.com/unwired-dev/product/issues/2158)): Pin, Mark as Unread, Move to
+Spam and Move to…, then Delete. A tap beside the menu closes it without a change; **Mark as
+Unread** then makes the menu offer **Mark as Read**. The captures "More menu" and "More menu
+after Mark as Unread" are named with the appearance.
 
 Settings › Signatures then lists the IMAP Sending Identity with None
 ([#2059](https://github.com/unwired-dev/product/issues/2059)). Its signature is typed,
@@ -716,6 +728,19 @@ Insert filtered", "Slash Command Menu Writing tools", "Slash Command Menu Writin
 and "Shorten Text from the Slash Command Menu" are named with the appearance. VoiceOver speech and the
 other blocks are covered by Jest and the mail-core tests.
 
+`testDraftEditorSlashMenu` runs the same menu in the Draft editor page
+([#2952](https://github.com/unwired-dev/product/issues/2952)) on a
+`registration-draft-editor` Release build with `UNWIRED_JOURNEY=testDraftEditorSlashMenu`.
+After signing in and turning Mail Assistance on, a `/` typed on a New Message body's second line
+opens the menu with its Basic Blocks. Typing `heading 2` filters it to **Heading 2**, selected,
+and Return from the software keyboard makes the line a Heading 2 without the typed text. On the
+next line, a tap on **Heading 2** after `/he` does the same, and one **Undo** restores `/he`.
+Typing `/sho` on a new line filters to **Shorten Text**, whose tap removes the query and opens the
+synthetic model's review panel. The captures "Draft editor page Slash Command Menu", "… filtered",
+"Heading 2 from the Draft editor page Slash Command Menu", "… Writing tools filtered" and "Shorten
+Text from the Draft editor page Slash Command Menu" are named with the appearance. Escape, the
+arrows, Tab and Attach File… are covered by Jest and the page tests.
+
 ## iPhone composer sheet journey
 
 `testComposerSheet` runs on a `registration-declined` Release build with
@@ -829,6 +854,22 @@ and a third relaunch asks nothing. The alert and the restored composer are kept 
 attachments. The journey then continues with the Thread steps under
 [Mock Mail Sessions](mock-mail-sessions.md). CI does not run this scenario; it is
 local native evidence.
+
+The `testDraftEditorRecovery` journey checks the same for the Draft editor page
+([#2944](https://github.com/unwired-dev/product/issues/2944)) in a
+`registration-draft-editor` Release build, which the
+[Draft editor evaluation](draft-editor-evaluation.md#run-the-evaluation) builds:
+
+```sh
+UNWIRED_JOURNEY=testDraftEditorRecovery mise exec -- pnpm --filter @private-email/mobile test:native \
+  "$PWD/artifacts/mock-mail/DerivedData/Build/Products/Release-iphonesimulator/UnwiredMail.app"
+```
+
+After signing in, a New Message gets body text typed into the page and a subject.
+Five seconds later the journey terminates and relaunches the app, and **Restore**
+reopens the page with the same body and subject. A second termination offers the
+record again, Discard removes it, and a third launch offers nothing. The offer and
+the restored page are kept as attachments. CI does not run it.
 
 ## iPhone and iPad keyboard and accessibility journey
 

@@ -3458,12 +3458,79 @@ final class InboxTests: XCTestCase {
     }
     folders.tap()
     XCTAssertTrue(spam.waitForExistence(timeout: 10))
+    if phone {
+      // #2943: the Move sheet's search, at its foot, rises above the software keyboard, and the
+      // folders it finds stay in reach above it.
+      let search = app.textFields["Search"]
+      focus(search) { self.hasFocus(search) }
+      XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10))
+      type("bulk", into: search)
+      // Bulk Mail is the only folder left, so it is the only row to keep above the keyboard.
+      waitUntil {
+        !app.buttons["Move to Sent Messages"].exists
+          && !app.buttons["Move to Deleted Messages"].exists
+          && !app.buttons.matching(
+            NSPredicate(format: "label == %@ AND selected == YES", "Inbox")
+          ).firstMatch.exists
+      }
+      _ = settledFrame(of: search)
+      XCTAssertLessThanOrEqual(search.frame.maxY, keyboardTop(app))
+      XCTAssertTrue(spam.isHittable)
+      XCTAssertLessThanOrEqual(spam.frame.maxY, keyboardTop(app))
+      capture("Move sheet search")
+    }
     spam.tap()
     // The reader closes and the list reports the move at once, before the server answers. The
     // synthetic server discards moves; mail-core's imap-organize tests cover the server's side.
     XCTAssertTrue(text("Moved: “Welcome to IMAP”.", in: app).waitForExistence(timeout: 15))
     XCTAssertFalse(folders.exists)
     capture("Moved to Spam")
+
+    // #2942: a message larger than a message read allows opens without its body, so the iPhone
+    // reader offers no Reply sheet and keeps More, which opens the system menu (#2158).
+    if phone {
+      row("Conference recording").tap()
+      XCTAssertTrue(
+        text("This message is too large to open on this device.", in: app)
+          .waitForExistence(timeout: 15))
+      XCTAssertFalse(app.buttons["Reply"].exists)
+      let more = app.buttons["More"]
+      XCTAssertTrue(more.exists)
+      let unread = app.buttons["Mark as Unread"]
+      // The menu opens upward from the toolbar, so its first item, Pin, is nearest the button and
+      // Delete, in its own section, is farthest. It offers nothing else this message lacks.
+      let items = ["Pin", "Mark as Unread", "Move to Spam", "Move to…", "Delete"]
+      func checkMenu() {
+        XCTAssertTrue(unread.waitForExistence(timeout: 10))
+        let rows = items.map { app.buttons[$0].firstMatch }
+        for (item, row) in zip(items, rows) { XCTAssertTrue(row.exists, "More lacks \(item)") }
+        for (lower, upper) in zip(rows, rows.dropFirst()) {
+          XCTAssertGreaterThan(lower.frame.midY, upper.frame.midY, upper.label)
+        }
+        for absent in ["Unpin", "Mark as Read", "Not Spam", "Move to Inbox", "Labels"] {
+          XCTAssertFalse(app.buttons[absent].exists, "More offers \(absent)")
+        }
+      }
+      more.tap()
+      checkMenu()
+      capture("More menu")
+      // A tap beside the menu closes it and runs nothing: the same message stays open, read and
+      // unpinned.
+      app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4)).tap()
+      XCTAssertTrue(unread.waitForNonExistence(timeout: 5), "More stayed open after a tap beside")
+      XCTAssertTrue(text("Conference recording", in: app).exists)
+      more.tap()
+      checkMenu()
+      unread.tap()
+      more.tap()
+      let read = app.buttons["Mark as Read"]
+      XCTAssertTrue(read.waitForExistence(timeout: 10))
+      capture("More menu after Mark as Unread")
+      read.tap()
+      XCTAssertTrue(read.waitForNonExistence(timeout: 5))
+      app.navigationBars.buttons["BackButton"].tap()
+      XCTAssertTrue(more.waitForNonExistence(timeout: 10))
+    }
 
     openEmailAccounts()
     let change = settingsRow("Change…", "Spam: Bulk Mail · Trash: Deleted Messages · chosen by you")
@@ -4852,6 +4919,68 @@ final class InboxTests: XCTestCase {
     }
   }
 
+  // #2944: the Draft editor page journals a New Message's unsaved edits, so Restore reopens them in
+  // the page after the app was terminated; Discard removes them, so the next launch offers nothing.
+  func testDraftEditorRecovery() throws {
+    continueAfterFailure = false
+    let environment = ProcessInfo.processInfo.environment
+    XCTAssertEqual(environment["UNWIRED_TEST_SCENARIO"], "registration-draft-editor")
+    let app = XCUIApplication(bundleIdentifier: try XCTUnwrap(environment["UNWIRED_BUNDLE_ID"]))
+    addTeardownBlock { if app.state != .notRunning { app.terminate() } }
+    app.launch()
+    XCTAssertTrue(app.staticTexts["Your mail,\non your devices."].waitForExistence(timeout: 60))
+    signInToDraftEditor(app)
+    app.buttons["New Message"].tap()
+    let body = app.webViews.textViews["Message body"]
+    XCTAssertTrue(body.waitForExistence(timeout: 30))
+    waitUntil({ self.pageReady(app) }, timeout: 30)
+    // The empty editor fills the page; focus its first paragraph, again if a loaded host's first
+    // tap lands before the page's editor takes focus.
+    let firstParagraph = body.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 0))
+      .withOffset(CGVector(dx: 24, dy: 24))
+    for _ in 0..<3 where !app.keyboards.firstMatch.exists {
+      firstParagraph.tap()
+      _ = app.keyboards.firstMatch.waitForExistence(timeout: 10)
+    }
+    body.typeText("Typed before the end")
+    let typed = webText("Typed before the end", in: app)
+    XCTAssertTrue(typed.waitForExistence(timeout: 20))
+    let subject = app.textFields["Subject"]
+    subject.tap()
+    type("Kept by the page", into: subject)
+    // The editor journals 2 s after the last edit; nothing on screen shows the write.
+    _ = XCTWaiter.wait(for: [XCTestExpectation(description: "Recovery journal")], timeout: 5)
+
+    // Terminating runs no Close or save; Restore reopens the page on the recovered edits.
+    let offer = app.alerts["Recover unsaved message?"]
+    app.terminate()
+    app.launch()
+    XCTAssertTrue(offer.waitForExistence(timeout: 45))
+    assertRecoveryOffer(offer)
+    attachScreen("Recover unsaved message", of: app, to: self)
+    offer.buttons["Restore"].tap()
+    XCTAssertTrue(offer.waitForNonExistence(timeout: 10))
+    XCTAssertTrue(app.webViews.textViews["Message body"].waitForExistence(timeout: 30))
+    XCTAssertTrue(typed.waitForExistence(timeout: 20))
+    XCTAssertEqual(subject.value as? String, "Kept by the page")
+    attachScreen("Restored Draft editor page", of: app, to: self)
+
+    // The restored page leaves the record until a Save Draft, Send or Discard; Discard removes it.
+    app.terminate()
+    app.launch()
+    XCTAssertTrue(offer.waitForExistence(timeout: 45))
+    assertRecoveryOffer(offer)
+    offer.buttons["Discard"].tap()
+    XCTAssertTrue(offer.waitForNonExistence(timeout: 10))
+    XCTAssertFalse(app.webViews.textViews["Message body"].exists)
+    // The alert closes before storage removes the record.
+    _ = XCTWaiter.wait(for: [XCTestExpectation(description: "Record removal")], timeout: 3)
+    app.terminate()
+    app.launch()
+    XCTAssertTrue(app.buttons["New Message"].waitForExistence(timeout: 45))
+    XCTAssertFalse(offer.waitForExistence(timeout: 10))
+  }
+
   // #2610: on iPhone the composer is the system sheet over the Inbox, which stays out of reach.
   // Its downward swipe is Close: an untouched Draft closes, and changed content asks first while
   // the sheet stays. Save Draft then closes it, and Send sends from it.
@@ -5277,6 +5406,76 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(keep.waitForExistence(timeout: 60))
     XCTAssertFalse(menu.exists)
     attachScreen("Shorten Text from the Slash Command Menu", of: app, to: self)
+    keep.tap()
+  }
+
+  // #2952: the Draft editor page opens the current composer's Slash Command Menu: a / first in a
+  // body block opens it, typing filters it, Return and a tap choose a block, one Undo restores the
+  // typed text, and a Writing tool runs on the body.
+  func testDraftEditorSlashMenu() throws {
+    continueAfterFailure = false
+    let environment = ProcessInfo.processInfo.environment
+    XCTAssertEqual(environment["UNWIRED_TEST_SCENARIO"], "registration-draft-editor")
+    let app = XCUIApplication(bundleIdentifier: try XCTUnwrap(environment["UNWIRED_BUNDLE_ID"]))
+    addTeardownBlock { if app.state != .notRunning { app.terminate() } }
+    app.launch()
+    XCTAssertTrue(app.staticTexts["Your mail,\non your devices."].waitForExistence(timeout: 60))
+    signInToDraftEditor(app)
+    // The Writing tools rows need Mail Assistance.
+    enableAssistance(app)
+    app.buttons["New Message"].tap()
+    let body = app.webViews.textViews["Message body"]
+    XCTAssertTrue(body.waitForExistence(timeout: 30))
+    waitUntil({ self.pageReady(app) }, timeout: 30)
+    // The empty editor fills the page; focus its first paragraph, again if a loaded host's first
+    // tap lands before the page's editor takes focus.
+    let firstParagraph = body.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 0))
+      .withOffset(CGVector(dx: 24, dy: 24))
+    for _ in 0..<3 where !app.keyboards.firstMatch.exists {
+      firstParagraph.tap()
+      _ = app.keyboards.firstMatch.waitForExistence(timeout: 10)
+    }
+    let menu = app.descendants(matching: .any)["Slash commands"]
+    let row = { (name: String) in menu.buttons[name] }
+    body.typeText("Plan\n/")
+    XCTAssertTrue(menu.waitForExistence(timeout: 60))
+    for name in ["Text", "Heading 1", "Heading 2", "Heading 3", "Bulleted List"] {
+      XCTAssertTrue(row(name).exists, name)
+    }
+    attachScreen("Draft editor page Slash Command Menu", of: app, to: self)
+    body.typeText("heading 2")
+    waitUntil({ !row("Heading 1").exists && row("Heading 2").exists }, timeout: 60)
+    XCTAssertTrue(row("Heading 2").isSelected)
+    attachScreen("Draft editor page Slash Command Menu filtered", of: app, to: self)
+    // Return from the software keyboard takes the highlighted Heading 2 and removes the query.
+    body.typeText("\n")
+    waitUntil({ !menu.exists && !self.webText("/heading 2", in: app).exists }, timeout: 60)
+    attachScreen("Heading 2 from the Draft editor page Slash Command Menu", of: app, to: self)
+    // A tap takes a row; one Undo restores the typed text.
+    body.typeText("Agenda\n/he")
+    XCTAssertTrue(menu.waitForExistence(timeout: 60))
+    waitUntil({ !row("Text").exists && row("Heading 2").exists }, timeout: 60)
+    row("Heading 2").tap()
+    waitUntil({ !menu.exists && !self.webText("/he", in: app).exists }, timeout: 60)
+    formatControl("Undo", in: app).tap()
+    XCTAssertTrue(webText("/he", in: app).waitForExistence(timeout: 60))
+    XCTAssertFalse(menu.exists)
+    // Close Format resumes typing on iPhone.
+    if app.buttons["Close Format"].exists {
+      app.buttons["Close Format"].tap()
+      XCTAssertTrue(app.buttons["Format"].waitForExistence(timeout: 10))
+    }
+    // A text tool removes the query and runs on the body through the synthetic model.
+    body.typeText("\n/sho")
+    XCTAssertTrue(menu.waitForExistence(timeout: 60))
+    waitUntil({ !row("Text").exists && row("Shorten Text").exists }, timeout: 60)
+    attachScreen("Draft editor page Slash Command Menu Writing tools filtered", of: app, to: self)
+    row("Shorten Text").tap()
+    let keep = app.buttons["Keep your text and close this suggestion"]
+    XCTAssertTrue(keep.waitForExistence(timeout: 60))
+    XCTAssertFalse(menu.exists)
+    XCTAssertFalse(webText("/sho", in: app).exists)
+    attachScreen("Shorten Text from the Draft editor page Slash Command Menu", of: app, to: self)
     keep.tap()
   }
 

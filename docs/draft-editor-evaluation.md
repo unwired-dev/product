@@ -93,10 +93,9 @@ their controls stop accepting input and leave VoiceOver immediately.
   has received and ignores a late report of an earlier edit, also while Close,
   Save Draft or Send waits for the page.
 - **Durability.** Edits reach the Drafts only when **Save Draft** or **Send** stores
-  them, and reopening shows the stored version. On iPhone and iPad ending the app
-  before that loses them. On Mac the editor also journals them, about 2 seconds after
-  an edit, to a device-local composer recovery record, which the next launch offers to
-  restore in the page (ADR 0077, #2933).
+  them, and reopening shows the stored version. The editor also journals them, about
+  2 seconds after an edit, to a device-local composer recovery record, which the next
+  launch offers to restore in the page (ADR 0077; Mac #2933, iPhone and iPad #2944).
 - **Failures.** If the page stops, the editor says so and clears assistance previews.
   Callbacks from a stopped or closed page cannot submit edits or accept results.
   **Save Draft** still stores the body the page last reported; reopen the Draft to
@@ -166,6 +165,19 @@ the current composer's:
   one edit that one **Undo** reverts and **Redo** restores; surrounding formatting is
   kept. A result for an earlier body revision is never applied: any edit retires the
   capture, and the page refuses a replacement computed from another revision.
+- **Slash Command Menu.** On iPhone and iPad a `/` typed first in a body block
+  opens the current composer's [Slash Command Menu](drafts.md#composing)
+  ([#2952](https://github.com/unwired-dev/product/issues/2952)) with the same rows,
+  less **Generate a Draft…**: the host reads the query from the body and selection
+  the page reports, and the page reports where the caret's line is, so the menu
+  hangs under it, or over it without room. While it shows, the page hands Return,
+  Tab, Up Arrow, Down Arrow and Escape to the host instead of editing. A Basic
+  Block removes the query and sets the block as one edit that one **Undo**
+  reverts; an Insert command removes the query and opens its picker, and a Writing
+  tool removes it and runs as from the format bar, once the page reports that its
+  replacement made the edit, so a removal the page refused as stale runs neither.
+  Moving the caret or leaving the body closes the menu, and an Undo or Redo that
+  restores a `/` does not open it. The Mac page has none, as the Mac composer has none yet.
 - **Paste.** Pasted HTML keeps only supported meaning: headings one to three,
   paragraphs, lists, quotes, code and the five marks. Smaller headings, tables and
   styled text become paragraphs; a heading or code inside a quote or list item
@@ -685,11 +697,16 @@ second, the window's close button asked **Save**, **Don’t Save** and **Cancel*
 version as a conflicting copy. After a relaunch, the conflicting copy held only
 the second window's text and the original only the first's.
 
-Outstanding for #821: on iPhone and iPad, edits lost when the app ends before **Save Draft**. On Mac
-the page journals its unsaved edits to a composer recovery record as the current
-composer does, and **Restore** reopens them in the page; `testDraftEditorRecoveryAfterForceQuit`
-proves it after a force quit ([#2933](https://github.com/unwired-dev/product/issues/2933),
-[Mac composer recovery journey](native-journeys.md#mac-composer-recovery-journey)). The regular iPhone, iPad and Mac composers now
+Outstanding for #821: the Mac two-window journey on one Draft and the window's close
+button natively (the Command-W and **Quit** questions passed on 2026-11-25, #2876).
+The page journals its unsaved edits to a composer recovery record as the current
+composer does, and **Restore** reopens them in the page. On Mac
+`testDraftEditorRecoveryAfterForceQuit` proves it after a force quit
+([#2933](https://github.com/unwired-dev/product/issues/2933),
+[Mac composer recovery journey](native-journeys.md#mac-composer-recovery-journey)), and
+on iPhone and iPad `testDraftEditorRecovery` after XCUITest terminates the app
+([#2944](https://github.com/unwired-dev/product/issues/2944),
+[iPhone and iPad composer recovery journey](native-journeys.md#iphone-and-ipad-composer-recovery-journey)). The regular iPhone, iPad and Mac composers now
 use the same save model. On iPhone both composers cover the
 Inbox and reader, so system **Back** cannot leave them
 ([#778](https://github.com/unwired-dev/product/issues/778)). On 2026-11-26 the

@@ -275,7 +275,7 @@ const inset = 20;
 const fieldInset = 16;
 const fieldLabelWidth = 80;
 const padInset = 32 * ipadListScale;
-const padFieldInset = spacing.xxl * ipadListScale;
+export const padFieldInset = spacing.xxl * ipadListScale;
 const padLabelWidth = 64 * ipadListScale;
 // Compact 44pt and regular 41.4pt field rows reach 44pt targets. Each includes its row's rule:
 // iPhone's 1pt and iPad's 1.15pt, the Mac recipe's point at 1.15×.
@@ -3100,7 +3100,7 @@ function ReplyFooter({
 }
 
 // Whether the Drafts store holds every edit it was given.
-const savedOf = (state: DraftsState) =>
+export const savedOf = (state: DraftsState) =>
   state.kind === 'ready' && state.save === 'saved';
 
 // Keeps the editor's unsaved version, which `unsaved` returns, in a composer recovery record
@@ -3109,7 +3109,7 @@ const savedOf = (state: DraftsState) =>
 // editor closes on and resolves once its records are gone. The
 // second journals at once, as after a save that keeps the editor open; the third too, unless
 // unsaved edits have a write scheduled.
-function useRecoveryJournal(
+export function useRecoveryJournal(
   edited: unknown,
   unsaved: () => Recovery | undefined,
   editor: (id: string) => void,
@@ -3835,25 +3835,25 @@ function BodyRecipientMenu({
   );
 }
 
-const isSlashInsert = (kind: SlashCommand): kind is SlashInsert =>
+export const isSlashInsert = (kind: SlashCommand): kind is SlashInsert =>
   slashInserts.some((each) => each === kind);
 
 // The picker each Insert command opens, as the format bar's Attach File and Insert Image do.
-const slashPickers: Readonly<
+export const slashPickers: Readonly<
   Record<SlashInsert, readonly [PickSource, boolean]>
 > = {
   attachFile: ['files', false],
   insertImage: ['photos', true],
 };
 
-const isSlashTool = (kind: SlashCommand): kind is SlashTool =>
+export const isSlashTool = (kind: SlashCommand): kind is SlashTool =>
   slashToolGroups.some((group) => group.some((each) => each === kind));
 
 // The Slash Command Menu in an editor's body. Typing / as the first non-whitespace character of a
 // body block opens its Basic Blocks, Insert commands and the writing `tools` that apply at the
 // caret; typing filters them. An empty result, a caret move, leaving the body, Escape or a choice
 // closes it, keeping the typed text.
-function useSlashMenu(
+export function useSlashMenu(
   draft: Draft,
   selection: Selection,
   {
@@ -4014,9 +4014,7 @@ const slashIcons: Readonly<Record<SlashCommand, string>> = {
   ...textToolSymbols,
 };
 
-// The body's Slash Command Menu while it shows, under the query's line: a glass menu of Basic
-// Blocks, then Insert commands, then the writing tools in untitled groups, the highlighted row
-// filled.
+// The body's Slash Command Menu while it shows, under the query's line.
 function BodySlashMenu({
   shown,
   titleOf,
@@ -4027,178 +4025,199 @@ function BodySlashMenu({
   readonly titleOf: (kind: SlashCommand) => string;
   readonly onChoose: (kind: SlashCommand) => void;
 }) {
+  if (shown === undefined) {
+    return null;
+  }
+  return (
+    <BodyMenuAnchor
+      start={shown.query.start}
+      end={shown.query.end}
+      {...anchor}>
+      {(place) => (
+        <SlashMenuPanel
+          shown={shown}
+          titleOf={titleOf}
+          onChoose={onChoose}
+          {...place}
+        />
+      )}
+    </BodyMenuAnchor>
+  );
+}
+
+// The Slash Command Menu as it shows from `origin`: a glass menu of Basic Blocks, then Insert
+// commands, then the writing tools in untitled groups, the highlighted row filled.
+export function SlashMenuPanel({
+  shown,
+  titleOf,
+  onChoose,
+  origin,
+  maxHeight,
+  onContentHeight,
+}: Readonly<{
+  shown: NonNullable<ReturnType<typeof useSlashMenu>['shown']>;
+  titleOf: (kind: SlashCommand) => string;
+  onChoose: (kind: SlashCommand) => void;
+  origin: string;
+  maxHeight: number | undefined;
+  onContentHeight: (height: number) => void;
+}>) {
   const colors = usePalette();
   const { t } = useLocalization();
   const { size } = use(ComposerLayoutContext);
   const sized = layoutStyles[size];
   const list = useRef<ScrollViewInstance>(null);
   const rowEnds = useRef(new Map<SlashCommand, number>());
-  const maxHeightNow = useRef<number>(undefined);
   // Scrolls as far as the highlighted row needs to show, as the highlight moves or its row lays out.
-  const reveal = useCallback((end: number | undefined) => {
-    const maxHeight = maxHeightNow.current;
-    if (end !== undefined && maxHeight !== undefined) {
-      list.current?.scrollTo({
-        y: Math.max(end - maxHeight, 0),
-        animated: false,
-      });
-    }
-  }, []);
-  const active = shown?.active;
+  const reveal = useCallback(
+    (end: number | undefined) => {
+      if (end !== undefined && maxHeight !== undefined) {
+        list.current?.scrollTo({
+          y: Math.max(end - maxHeight, 0),
+          animated: false,
+        });
+      }
+    },
+    [maxHeight],
+  );
+  const { active } = shown;
   useEffect(() => {
-    if (active !== undefined) {
-      reveal(rowEnds.current.get(active));
-    }
+    reveal(rowEnds.current.get(active));
   }, [active, reveal]);
-  if (shown === undefined) {
-    return null;
-  }
   const compact = size === 'compact';
   return (
-    <BodyMenuAnchor
-      start={shown.query.start}
-      end={shown.query.end}
-      {...anchor}>
-      {({ origin, maxHeight, onContentHeight }) => {
-        maxHeightNow.current = maxHeight;
-        return (
-          <GlassPanel
-            open
-            origin={origin}
-            cornerRadius={radius.touchMenu}
-            style={compact ? styles.slashMenu : sized.bodySuggestions}>
-            <ScrollView
-              accessibilityLabel={t('drafts.slashMenu.title')}
-              keyboardShouldPersistTaps="always"
-              ref={list}
-              style={{ maxHeight }}
-              // A new height, as the keyboard moves, keeps the highlighted row in view.
-              onLayout={() => {
-                reveal(rowEnds.current.get(shown.active));
-              }}
-              onContentSizeChange={(_width, height) => {
-                onContentHeight(height);
-                reveal(rowEnds.current.get(shown.active));
-              }}>
-              {[
-                {
-                  key: 'blocks',
-                  title: t('drafts.slashMenu.basicBlocks'),
-                  kinds: shown.kinds.filter(
-                    (kind) => !isSlashInsert(kind) && !isSlashTool(kind),
-                  ),
-                },
-                {
-                  key: 'insert',
-                  title: t('drafts.slashMenu.insert'),
-                  kinds: shown.kinds.filter(isSlashInsert),
-                },
-                ...slashToolGroups.map((group) => ({
-                  key: group[0],
-                  title: undefined,
-                  kinds: shown.kinds.filter((kind) =>
-                    group.some((each) => each === kind),
-                  ),
-                })),
-              ]
-                .filter((section) => section.kinds.length > 0)
-                .map((section, index) => (
-                  // Rows stay the list's own children, so their layout places the highlight.
-                  <Fragment key={section.key}>
-                    {index === 0 ? null : (
-                      <View
-                        style={[
-                          styles.slashSeparator,
-                          { backgroundColor: colors.separator },
-                        ]}
-                      />
-                    )}
-                    {section.title === undefined ? null : (
-                      <Text
-                        style={[
-                          styles.suggestionSection,
-                          sized.suggestionSection,
-                          styles.monogramSection,
-                          { color: colors.textSecondary },
-                        ]}>
-                        {section.title}
-                      </Text>
-                    )}
-                    {section.kinds.map((kind) => {
-                      const chosen = shown.highlighted && kind === shown.active;
-                      const filled = chosen && !compact;
-                      const ink = filled
-                        ? colors.accentOnFill
-                        : colors.textPrimary;
-                      const icon = slashIcons[kind];
-                      const glyph = /^H\d$/u.test(icon);
-                      let highlight = null;
-                      if (chosen) {
-                        highlight = {
-                          backgroundColor: compact
-                            ? colors.fillQuiet
-                            : colors.accentFill,
-                        };
+    <GlassPanel
+      open
+      origin={origin}
+      cornerRadius={radius.touchMenu}
+      style={compact ? styles.slashMenu : sized.bodySuggestions}>
+      <ScrollView
+        accessibilityLabel={t('drafts.slashMenu.title')}
+        keyboardShouldPersistTaps="always"
+        ref={list}
+        style={{ maxHeight }}
+        // A new height, as the keyboard moves, keeps the highlighted row in view.
+        onLayout={() => {
+          reveal(rowEnds.current.get(shown.active));
+        }}
+        onContentSizeChange={(_width, height) => {
+          onContentHeight(height);
+          reveal(rowEnds.current.get(shown.active));
+        }}>
+        {[
+          {
+            key: 'blocks',
+            title: t('drafts.slashMenu.basicBlocks'),
+            kinds: shown.kinds.filter(
+              (kind) => !isSlashInsert(kind) && !isSlashTool(kind),
+            ),
+          },
+          {
+            key: 'insert',
+            title: t('drafts.slashMenu.insert'),
+            kinds: shown.kinds.filter(isSlashInsert),
+          },
+          ...slashToolGroups.map((group) => ({
+            key: group[0],
+            title: undefined,
+            kinds: shown.kinds.filter((kind) =>
+              group.some((each) => each === kind),
+            ),
+          })),
+        ]
+          .filter((section) => section.kinds.length > 0)
+          .map((section, index) => (
+            // Rows stay the list's own children, so their layout places the highlight.
+            <Fragment key={section.key}>
+              {index === 0 ? null : (
+                <View
+                  style={[
+                    styles.slashSeparator,
+                    { backgroundColor: colors.separator },
+                  ]}
+                />
+              )}
+              {section.title === undefined ? null : (
+                <Text
+                  style={[
+                    styles.suggestionSection,
+                    sized.suggestionSection,
+                    styles.monogramSection,
+                    { color: colors.textSecondary },
+                  ]}>
+                  {section.title}
+                </Text>
+              )}
+              {section.kinds.map((kind) => {
+                const chosen = shown.highlighted && kind === shown.active;
+                const filled = chosen && !compact;
+                const ink = filled ? colors.accentOnFill : colors.textPrimary;
+                const icon = slashIcons[kind];
+                const glyph = /^H\d$/u.test(icon);
+                let highlight = null;
+                if (chosen) {
+                  highlight = {
+                    backgroundColor: compact
+                      ? colors.fillQuiet
+                      : colors.accentFill,
+                  };
+                }
+                return (
+                  <Pressable
+                    key={kind}
+                    accessibilityLabel={titleOf(kind)}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: chosen }}
+                    onLayout={({ nativeEvent: { layout } }) => {
+                      const end = layout.y + layout.height;
+                      rowEnds.current.set(kind, end);
+                      if (kind === shown.active) {
+                        reveal(end);
                       }
-                      return (
-                        <Pressable
-                          key={kind}
-                          accessibilityLabel={titleOf(kind)}
-                          accessibilityRole="button"
-                          accessibilityState={{ selected: chosen }}
-                          onLayout={({ nativeEvent: { layout } }) => {
-                            const end = layout.y + layout.height;
-                            rowEnds.current.set(kind, end);
-                            if (kind === shown.active) {
-                              reveal(end);
-                            }
-                          }}
-                          onPress={() => {
-                            onChoose(kind);
-                          }}
-                          style={({ pressed }) => [
-                            styles.suggestion,
-                            styles.slashRow,
-                            pressed
-                              ? {
-                                  backgroundColor: colors.accentSelectionSubtle,
-                                }
-                              : null,
-                            highlight,
-                          ]}>
-                          <View style={styles.slashIcon}>
-                            {glyph ? (
-                              <Text style={[styles.slashGlyph, { color: ink }]}>
-                                {icon}
-                              </Text>
-                            ) : null}
-                            {glyph || icon === '' ? null : (
-                              <SFSymbol
-                                name={icon}
-                                color={ink}
-                                size={15}
-                              />
-                            )}
-                          </View>
-                          <Text
-                            numberOfLines={1}
-                            style={[
-                              styles.suggestionName,
-                              sized.suggestionName,
-                              { flex: 1, color: ink },
-                            ]}>
-                            {titleOf(kind)}
-                          </Text>
-                        </Pressable>
-                      );
-                    })}
-                  </Fragment>
-                ))}
-            </ScrollView>
-          </GlassPanel>
-        );
-      }}
-    </BodyMenuAnchor>
+                    }}
+                    onPress={() => {
+                      onChoose(kind);
+                    }}
+                    style={({ pressed }) => [
+                      styles.suggestion,
+                      styles.slashRow,
+                      pressed
+                        ? {
+                            backgroundColor: colors.accentSelectionSubtle,
+                          }
+                        : null,
+                      highlight,
+                    ]}>
+                    <View style={styles.slashIcon}>
+                      {glyph ? (
+                        <Text style={[styles.slashGlyph, { color: ink }]}>
+                          {icon}
+                        </Text>
+                      ) : null}
+                      {glyph || icon === '' ? null : (
+                        <SFSymbol
+                          name={icon}
+                          color={ink}
+                          size={15}
+                        />
+                      )}
+                    </View>
+                    <Text
+                      numberOfLines={1}
+                      style={[
+                        styles.suggestionName,
+                        sized.suggestionName,
+                        { flex: 1, color: ink },
+                      ]}>
+                      {titleOf(kind)}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </Fragment>
+          ))}
+      </ScrollView>
+    </GlassPanel>
   );
 }
 

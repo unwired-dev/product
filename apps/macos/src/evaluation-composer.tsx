@@ -844,6 +844,10 @@ function EvaluationEditor({
                 void add('paste', true);
                 return;
               }
+              // Without a Slash Command Menu here, the page's keys need nothing.
+              if (message.type === 'key') {
+                return;
+              }
               // A delayed report of an earlier body revision never replaces a newer one.
               if (message.revision < (pageNow.current?.revision ?? 0)) {
                 return;
