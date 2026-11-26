@@ -4584,10 +4584,25 @@ describe('composing Drafts', () => {
   );
 
   // Choose Date and Time… shows the picker in the same sheet or popover, starting at Tomorrow
-  // Morning or the stored reminder; a time that has passed can't be set.
-  it.each(['compact', 'regular'] as const)(
-    'sets a Send Reminder at a picked date and time on %s',
-    async (size) => {
+  // Morning or the stored reminder; a time that has passed can't be set. Cancel on iPad, or a
+  // swipe down on iPhone, keeps the earlier reminder.
+  it.each([
+    {
+      size: 'compact',
+      close: async () => {
+        const sheet = screen
+          .getAllByTestId('bottom-sheet')
+          .find((each) => each.props.style === undefined);
+        ok(sheet);
+        await act(async () => {
+          await fireEvent(sheet, 'accessibilityEscape');
+        });
+      },
+    },
+    { size: 'regular', close: () => press('Cancel') },
+  ] as const)(
+    'sets a Send Reminder at a picked date and time on $size',
+    async ({ size, close }) => {
       expect.hasAssertions();
       // Noon on a Monday.
       const noon = new Date(2026, 9, 12, 12);
@@ -4650,17 +4665,7 @@ describe('composing Drafts', () => {
           text: later.toISOString(),
         });
         await pick(new Date(2026, 9, 20, 8));
-        if (size === 'regular') {
-          await press('Cancel');
-        } else {
-          const sheet = screen
-            .getAllByTestId('bottom-sheet')
-            .find((each) => each.props.style === undefined);
-          ok(sheet);
-          await act(async () => {
-            await fireEvent(sheet, 'accessibilityEscape');
-          });
-        }
+        await close();
         await expect(stored()).resolves.toStrictEqual([
           {
             draft: id,
