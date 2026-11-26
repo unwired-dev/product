@@ -63,6 +63,7 @@ allowance=120
 [[ "$journey" == testGermanStrings* ]] && allowance=600
 [[ "$journey" == testComposerRecoveryAfterForceQuit ]] && allowance=300
 [[ "$journey" == testComposerOpening ]] && allowance=600
+[[ "$journey" == testSelectionChangeLatency ]] && allowance=600
 [[ "$UNWIRED_TEST_SCENARIO" == registration-draft-editor ]] && allowance=900
 # Concurrent XCUITest runs share one desktop and time out each other's event synthesis, so one
 # journey runs per user at a time. The kernel releases the lock when its owner exits.
