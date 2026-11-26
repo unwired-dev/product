@@ -83,7 +83,10 @@ recommendation and the decision it supports. Facts link to their evidence;
 - **Draft synchronization.** The page uses the existing Draft store, save model,
   and conflicting copies. Component journeys cover late page reports,
   two Mac windows, racing imports, refused saves and another Product Account;
-  native two-window and app-termination runs are outstanding.
+  the native Mac two-window run passed
+  ([#2938](https://github.com/unwired-dev/product/issues/2938)), as did Mac
+  force-quit recovery ([#2933](https://github.com/unwired-dev/product/issues/2933));
+  native iPhone and iPad app-termination runs are outstanding.
 - **Assistance.** Rewrites, translation and reply suggestions run through the
   current on-device capture and review, and the page refuses a result for another
   body revision. No vendor AI, Yjs or CRDT collaboration is enabled or adopted.
@@ -130,7 +133,10 @@ release limit:
 2. Native exits as [#778](https://github.com/unwired-dev/product/issues/778)
    guards them for the current composer (iPhone **Back** and edge swipes, Mac
    window close, Command-W and **Quit**), and the Mac two-window journey on one
-   Draft, run natively. On iPhone and iPad the evaluation loses open edits when the
+   Draft, run natively. On Mac, Command-W and **Quit** passed in
+   [#2876](https://github.com/unwired-dev/product/issues/2876), and the window's
+   close button and two windows on one Draft in #2938
+   ([evidence](../draft-editor-evaluation.md#save-ordering-821)). On iPhone and iPad the evaluation loses open edits when the
    app ends before **Save Draft**; production must journal them to the encrypted
    recovery record of [ADR 0077](0077-remove-friction-that-privacy-does-not-require.md)
    and prove that they restore after a forced termination. On Mac the page journals

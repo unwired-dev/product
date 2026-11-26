@@ -29,6 +29,16 @@ not choose now discards the pending link: before, it left the link pending and
 the alert's own presentation closed, so choosing a link again in that reader
 showed nothing.
 
+## Mac Draft editor page in two windows, 2026-11-25
+
+[#2938](https://github.com/unwired-dev/product/issues/2938) ran the Mac
+`registration-draft-editor` journey on a signed `Testing` build on the Mac mini M4,
+macOS 27.2.1 and Xcode 27.2 (`27B52`): `Executed 1 test, with 0 failures`. Two
+windows on one saved Draft kept both versions, the second as a conflicting copy,
+and the window's close button asked as Command-W does
+([evidence](../draft-editor-evaluation.md#save-ordering-821)). Physical devices,
+VoiceOver and iPhone and iPad journaling were not run.
+
 ## iPhone and iPad composer system menus, 2026-11-25
 
 [#2787](https://github.com/unwired-dev/product/issues/2787), part of
