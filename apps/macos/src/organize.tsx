@@ -70,6 +70,7 @@ import {
 import { NewLabel } from './new-label.tsx';
 import { usePinAction, usePinned } from './pins.tsx';
 import { textStyles, usePalette } from './theme.ts';
+import { useUnsubscribeMenu } from './unsubscribe.tsx';
 
 const styles = StyleSheet.create({
   bar: {
@@ -304,7 +305,7 @@ function Toolbar({
   move,
   pin,
   more,
-  labels,
+  below,
   children,
   ref,
 }: {
@@ -312,8 +313,8 @@ function Toolbar({
   readonly move?: ReactNode;
   readonly pin?: PinAction | undefined;
   readonly more: readonly PopUpItem[];
-  // Gmail's Labels popover, below the group of More, which opens it.
-  readonly labels?: ReactNode;
+  // The popovers More opens, below its group: Gmail's Labels and the Unsubscribe confirmation.
+  readonly below?: ReactNode;
   readonly children: ReactNode;
   // The view a sheet asked from the toolbar attaches to.
   readonly ref?: Ref<View>;
@@ -370,7 +371,7 @@ function Toolbar({
             variant="toolbar"
           />
         )}
-        {labels}
+        {below}
       </GlassGroup>
     </View>
   );
@@ -526,6 +527,7 @@ function ImapMessageActions({
   const mailbox = useMailbox();
   const anchor = useRef<View>(null);
   const pinFor = usePinFor(anchor);
+  const unsubscribe = useUnsubscribeMenu(inbox, id);
   const message = useSyncExternalStore(inbox.subscribe, () =>
     inbox.message(id),
   );
@@ -587,7 +589,8 @@ function ImapMessageActions({
             />
           )
         }
-        more={moreMenu(t, target, undefined)}>
+        below={unsubscribe.confirmation(message.sender)}
+        more={[...moreMenu(t, target, undefined), ...unsubscribe.items]}>
         {children}
       </Toolbar>
     </>
@@ -616,6 +619,7 @@ function GmailMessageActions({
   const provider = mailbox?.provider ?? 'gmail';
   const anchor = useRef<View>(null);
   const pinFor = usePinFor(anchor);
+  const unsubscribe = useUnsubscribeMenu(store, id);
   // The message New Label… last opened Labels for, and how often it was chosen.
   const [labelling, setLabelling] =
     useState<Readonly<{ message: GmailMessage; opening: number }>>();
@@ -646,7 +650,8 @@ function GmailMessageActions({
         ref={anchor}
         actions={[]}
         pin={pinFor(message)}
-        more={[]}>
+        below={unsubscribe.confirmation(message.sender)}
+        more={unsubscribe.items}>
         {children}
       </Toolbar>
     );
@@ -719,60 +724,66 @@ function GmailMessageActions({
             onMove={move}
           />
         }
-        labels={
-          labelling?.message.id !== message.id ||
-          !('createLabel' in store) ? undefined : (
-            <NewLabel
-              opening={labelling.opening}
-              anchor={anchor}
-              labels={state.labels}
-              onApply={(label) => {
-                void store.organize(
-                  labelling.message,
-                  gmailAction.label(label),
-                );
-              }}
-              onCreate={(name) => store.createLabel(labelling.message, name)}
-            />
-          )
+        below={
+          <>
+            {unsubscribe.confirmation(message.sender)}
+            {labelling?.message.id !== message.id ||
+            !('createLabel' in store) ? undefined : (
+              <NewLabel
+                opening={labelling.opening}
+                anchor={anchor}
+                labels={state.labels}
+                onApply={(label) => {
+                  void store.organize(
+                    labelling.message,
+                    gmailAction.label(label),
+                  );
+                }}
+                onCreate={(name) => store.createLabel(labelling.message, name)}
+              />
+            )}
+          </>
         }
         // A Microsoft message is in one folder: it moves, but has no labels to add or remove.
-        more={moreMenu(
-          t,
-          target,
-          provider === 'gmail'
-            ? [
-                {
-                  items: state.labels.map(({ id: label, name }) => ({
-                    key: `${target}\nlabel\n${label}`,
-                    title: name,
-                    checked: applied.has(label),
-                    run: () => {
-                      act(
-                        applied.has(label)
-                          ? gmailAction.unlabel(label)
-                          : gmailAction.label(label),
-                      );
-                    },
-                  })),
-                },
-                {
-                  items: [
-                    {
-                      key: `${target}\nnewLabel`,
-                      title: t('gmailActions.newLabel'),
+        more={[
+          ...moreMenu(
+            t,
+            target,
+            provider === 'gmail'
+              ? [
+                  {
+                    items: state.labels.map(({ id: label, name }) => ({
+                      key: `${target}\nlabel\n${label}`,
+                      title: name,
+                      checked: applied.has(label),
                       run: () => {
-                        setLabelling((last) => ({
-                          message,
-                          opening: (last?.opening ?? 0) + 1,
-                        }));
+                        act(
+                          applied.has(label)
+                            ? gmailAction.unlabel(label)
+                            : gmailAction.label(label),
+                        );
                       },
-                    },
-                  ],
-                },
-              ]
-            : undefined,
-        )}>
+                    })),
+                  },
+                  {
+                    items: [
+                      {
+                        key: `${target}\nnewLabel`,
+                        title: t('gmailActions.newLabel'),
+                        run: () => {
+                          setLabelling((last) => ({
+                            message,
+                            opening: (last?.opening ?? 0) + 1,
+                          }));
+                        },
+                      },
+                    ],
+                  },
+                ]
+              : undefined,
+          ),
+          ...unsubscribe.items,
+        ]}>
         {children}
       </Toolbar>
     </>

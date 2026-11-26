@@ -203,12 +203,15 @@ transport and known native exit gaps.
   Hardware keyboard Up, Down and Tab on iPad are a later slice.
 - The **Body Recipient Shortcut** adds a person from the body: typing
   @ at a paragraph start or after whitespace in an otherwise empty authored body
-  opens Recipient Suggestions under the @. Whitespace, the signature and quoted
+  opens Recipient Suggestions under the @; on the Mac, so does an @ in written
+  text. Whitespace, the signature and quoted
   history leave the body empty; text or an Inline Image does not. An @ inside an
   address, a word or code opens nothing. A bare @ lists up to four recent
   correspondents of the Draft's Mail Profile; typed text filters them as To does
   and adds Apple Contacts the app can already read, so the body never asks for
-  Contacts access. Typed text without a match shows **No Matches**, and when
+  Contacts access. On the Mac, people already in To, Cc or Bcc are listed too,
+  after recent correspondents, with their role (To, Cc or Bcc) at the row's
+  trailing edge, which VoiceOver reads as “in To”. Typed text without a match shows **No Matches**, and when
   Contacts can't be read a note says only recent mail is shown. On the Mac, Up and
   Down Arrow move the highlight and Return, Tab or a click chooses; on iPhone and
   iPad, a tap chooses, a hardware keyboard's Up and Down Arrow move the highlight,
@@ -216,10 +219,15 @@ transport and known native exit gaps.
   line. Choosing a person not on
   the Draft adds them to To and replaces only the query with “Hi <given name>,”
   (the given name Apple Contacts records, else the display name, else “Hi,”), an
-  empty paragraph and the caret, as one edit that one Undo reverts. A space,
+  empty paragraph and the caret, as one edit that one Undo reverts. In written
+  text the query becomes the given name, else the display name, else the
+  address, and an earlier greeting is never rewritten. Choosing a person already
+  on the Draft inserts the same text and keeps their role without adding them
+  again; VoiceOver hears “Inserted <text>”. A space,
   Escape on the Mac, a caret move or leaving the body closes the suggestions and
-  keeps the typed text. People already on the Draft and nonempty bodies are a
-  later slice. On the Mac, native code
+  keeps the typed text. On iPhone and iPad, people already on the Draft and
+  written text are a later slice of
+  [#2073](https://github.com/unwired-dev/product/issues/2073). On the Mac, native code
   reads Apple Contacts and supplies the frame of the @, which the composer uses
   to place the menu. On iPhone and iPad, Expo Contacts reads them, and a
   transparent copy of the body up to the query's line holds the menu under it,
@@ -1071,8 +1079,10 @@ the same; while a file is still being added its dimmed row reads
 "Send Now — waiting for terms.pdf".
 
 Removing a reminder on Send, Discard or an empty Close reaches the other devices
-when they synchronize. A composer already open shows another device's change once
-the Draft is opened again. Reminders schedule no notification yet, and a reminder whose
+when they synchronize. A composer already open shows a reminder another device set,
+changed or removed as soon as this device synchronizes
+([#2897](https://github.com/unwired-dev/product/issues/2897)). Reminders schedule no
+notification yet, and a reminder whose
 removal storage refused after Send or Discard stays stored; later #658 slices add
 those.
 

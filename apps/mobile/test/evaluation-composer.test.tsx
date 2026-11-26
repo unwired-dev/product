@@ -21,6 +21,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from '@testing-library/react-native';
 import { DeviceEventEmitter, Keyboard } from 'react-native';
 
@@ -826,6 +827,185 @@ describe('the Tiptap evaluation composer', () => {
     },
   );
 
+  it('opens the Slash Command Menu from the page and applies its choice as one page edit', async () => {
+    expect.hasAssertions();
+    injectedScripts.length = 0;
+    const mock = createMockMailSession('open-read-relaunch');
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    await render(
+      <AssistanceContext value={mock.assistance}>
+        <App drafts={drafts} />
+      </AssistanceContext>,
+    );
+    await press('New Message');
+    const { report, revision } = simulatedPage();
+    const sent = (command: Command) => commandScript(command);
+    await report({});
+    const paragraph = (text: string) => ({
+      kind: 'paragraph' as const,
+      spans: [{ text }].filter((span) => span.text !== ''),
+    });
+    const lines = (text: string): SemanticDocument => {
+      const [first = '', ...rest] = text.split('\n');
+      return [paragraph(first), ...rest.map(paragraph)];
+    };
+    const caret = { top: 30, bottom: 52 };
+    // The page reports each typed character with the caret after it, and the caret's line.
+    const typeEach = async (before: string, typed: string) => {
+      for (let end = 1; end <= typed.length; end += 1) {
+        const text = before + typed.slice(0, end);
+        await report({
+          document: lines(text),
+          selection: { start: text.length, end: text.length },
+          caret,
+        });
+      }
+    };
+    const key = async (name: string) => {
+      await act(async () => {
+        await fireEvent(screen.getByTestId('message-webview'), 'message', {
+          nativeEvent: { data: JSON.stringify({ type: 'key', key: name }) },
+        });
+      });
+    };
+    const menu = () => screen.queryByLabelText('Slash commands');
+    const rows = (options: Readonly<{ selected?: boolean }> = {}) => {
+      const shown = menu();
+      ok(shown !== null, 'Expected the Slash Command Menu');
+      return within(shown)
+        .queryAllByRole('button', options)
+        .map(({ props }) => props.accessibilityLabel);
+    };
+
+    // A / first in a block opens the Basic Blocks, Insert and the text tools, without Generate a
+    // Draft…, and the page hands the menu its keys.
+    await typeEach('', 'Hi\n/');
+    expect(rows()).toStrictEqual([
+      'Text',
+      'Heading 1',
+      'Heading 2',
+      'Heading 3',
+      'Bulleted List',
+      'Numbered List',
+      'Quote',
+      'Code Block',
+      'Attach File…',
+      'Insert Image…',
+      'Rewrite',
+      'Proofread',
+      'Break into Paragraphs',
+      'Expand Text',
+      'Shorten Text',
+      'Make More Friendly',
+      'Make More Neutral',
+    ]);
+    expect(lastCommand()).toBe(sent({ type: 'menu', open: true }));
+
+    // Typing filters it; Down Arrow moves the highlight and Return chooses it, removing the query
+    // and setting the block as one replacement of the reported revision.
+    await typeEach('Hi\n/', 'he');
+    expect(rows()).toStrictEqual(['Heading 1', 'Heading 2', 'Heading 3']);
+    await key('ArrowDown');
+    expect(rows({ selected: true })).toStrictEqual(['Heading 2']);
+    await key('Enter');
+    expect(injectedScripts.slice(-2)).toStrictEqual([
+      sent({
+        type: 'replace',
+        revision: revision(),
+        document: [paragraph('Hi'), { kind: 'heading2', spans: [] }],
+        selection: { start: 3, end: 3 },
+      }),
+      sent({ type: 'menu', open: false }),
+    ]);
+    expect(menu()).toBeNull();
+
+    // Escape closes it, keeping the text, and typing on does not reopen it; so does moving the caret.
+    await typeEach('', 'Hi\n/');
+    await key('Escape');
+    expect(menu()).toBeNull();
+    await typeEach('Hi\n/', 'he');
+    expect(menu()).toBeNull();
+    await typeEach('', 'Hi\n/he');
+    expect(menu()).not.toBeNull();
+    await report({ selection: { start: 5, end: 5 }, caret });
+    expect(menu()).toBeNull();
+
+    // A / typed over selected text opens it too.
+    await report({ selection: { start: 3, end: 6 }, caret });
+    await report({
+      document: lines('Hi\n/'),
+      selection: { start: 4, end: 4 },
+      caret,
+    });
+    expect(menu()).not.toBeNull();
+
+    // Choosing from it, then Undo restoring the /, does not reopen it.
+    await press('Heading 2');
+    await report({
+      document: [paragraph('Hi'), { kind: 'heading2', spans: [] }],
+      selection: { start: 3, end: 3 },
+      replaced: revision(),
+    });
+    await report({
+      document: lines('Hi\n/'),
+      selection: { start: 4, end: 4 },
+      caret,
+      restored: true,
+    });
+    expect(menu()).toBeNull();
+
+    // Attach File… removes the query and, once the page reports that edit, opens the Files picker.
+    storage.addFile('file:///plan.pdf', 'plan');
+    storage.pickNext('files', [
+      { uri: 'file:///plan.pdf', name: 'plan.pdf', type: 'application/pdf' },
+    ]);
+    await typeEach('', 'Hi\n/att');
+    await press('Attach File…');
+    await report({
+      document: lines('Hi\n'),
+      selection: { start: 3, end: 3 },
+      replaced: revision(),
+    });
+    await waitFor(() => {
+      expect(
+        injectedScripts.filter((script) => script.includes('"plan.pdf"')),
+      ).toHaveLength(1);
+    });
+
+    // A text tool whose removal the page refused for an edit made first never runs, even when
+    // that edit leaves the same text.
+    await typeEach('', 'Hi\n/rew');
+    await press('Rewrite');
+    await report({
+      document: lines('Hi\n'),
+      selection: { start: 3, end: 3 },
+    });
+    expect(screen.queryByText(syntheticRewrite)).toBeNull();
+
+    // A text tool removes the query and, once the page reports that edit, runs as from the format
+    // bar.
+    await typeEach('', 'Hi\n/rew');
+    await press('Rewrite');
+    expect(injectedScripts.slice(-2)).toStrictEqual([
+      sent({
+        type: 'replace',
+        revision: revision(),
+        document: lines('Hi\n'),
+        selection: { start: 3, end: 3 },
+      }),
+      sent({ type: 'menu', open: false }),
+    ]);
+    await report({
+      document: lines('Hi\n'),
+      selection: { start: 3, end: 3 },
+      replaced: revision(),
+    });
+    await expect(
+      screen.findByText(syntheticRewrite),
+    ).resolves.toBeOnTheScreen();
+  });
+
   it('suggests a reply in a reply Draft and replaces the whole authored body', async () => {
     expect.hasAssertions();
     injectedScripts.length = 0;
@@ -992,6 +1172,18 @@ describe('the Tiptap evaluation composer', () => {
       });
     });
     const pasted = lastAdded();
+    // Native code cannot read files dropped on the page here, so a drop adds nothing.
+    storage.addFile('file:///scan.png', 'scan');
+    storage.pickNext('drop', [
+      { uri: 'file:///scan.png', name: 'scan.png', type: 'image/png' },
+    ]);
+    const beforeDrop = lastSent();
+    await act(async () => {
+      await fireEvent(screen.getByTestId('message-webview'), 'message', {
+        nativeEvent: { data: '{"type":"drop"}' },
+      });
+    });
+    expect(lastSent()).toStrictEqual(beforeDrop);
     // The page can name only assets the host gave it.
     const forged = {
       id: 'forged000001',

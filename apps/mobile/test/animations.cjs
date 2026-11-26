@@ -120,12 +120,32 @@ jest.mock('@expo/ui/swift-ui', () => {
         )
       : null;
   }
-  // An alert shows its title, message and actions while presented.
-  function Alert({ testID, title, isPresented, children }) {
-    return isPresented
+  // An alert shows its title, message and actions while presented. Like the native view, it keeps
+  // its own presentation, which follows the prop's changes, and reports the system's dismissal.
+  function Alert({
+    testID,
+    title,
+    isPresented,
+    onIsPresentedChange,
+    children,
+  }) {
+    const [requested, setRequested] = React.useState(isPresented);
+    const [shown, setShown] = React.useState(isPresented);
+    if (requested !== isPresented) {
+      setRequested(isPresented);
+      setShown(isPresented);
+    }
+    return shown
       ? React.createElement(
           View,
-          { testID, accessibilityViewIsModal: true },
+          {
+            testID,
+            accessibilityViewIsModal: true,
+            onAccessibilityEscape: () => {
+              setShown(false);
+              onIsPresentedChange?.(false);
+            },
+          },
           React.createElement(Text, { accessibilityRole: 'header' }, title),
           children,
         )
