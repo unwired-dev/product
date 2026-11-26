@@ -3660,7 +3660,7 @@ describe('adding files and images to Drafts', () => {
     expect(unsendableAssets(reopened)).toHaveLength(3);
   });
 
-  it('Try Again reads a failed file again, and its copy goes once added, removed or discarded', async () => {
+  it('reads a failed file again on Try Again, and its copy goes once added, removed or discarded', async () => {
     expect.hasAssertions();
     const { storage, drafts, id, draft } = await opened();
     const pick = { kind: 'file', uri: 'file:///notes.txt' } as const;

@@ -1508,6 +1508,13 @@ function AssetStatus({
   status: string;
 }>) {
   const colors = usePalette();
+  let statusColor =
+    preview?.kind === 'damaged' && !checking
+      ? colors.statusDestructive
+      : colors.textSecondary;
+  if (failed) {
+    statusColor = colors.statusWarning;
+  }
   return (
     <View style={styles.assetStatusRow}>
       {checking ? (
@@ -1529,11 +1536,7 @@ function AssetStatus({
         style={[
           styles.assetStatus,
           {
-            color: failed
-              ? colors.statusWarning
-              : preview?.kind === 'damaged' && !checking
-                ? colors.statusDestructive
-                : colors.textSecondary,
+            color: statusColor,
           },
         ]}>
         {status}
@@ -4387,18 +4390,13 @@ function Editor({
     }
     await send(delay);
   };
-  // The file still importing that Send waits for, named above the body and as Send's help.
+  // The file still importing that Send waits for, named above the body and in the Send menu.
   const waiting = addingName(draft, imports);
   const sendButton = (
     <SendMenu
       disabled={closing === 'saving'}
       sendable={blocked === undefined}
       waiting={waiting}
-      help={
-        waiting === undefined
-          ? undefined
-          : t('drafts.assets.stillImporting', { name: waiting })
-      }
       onSend={() => {
         void sendAsking();
       }}

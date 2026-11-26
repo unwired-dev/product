@@ -989,6 +989,16 @@ const unreadable = (source: AssetSource) => {
     : undefined;
 };
 
+// Why an import failed, when it is known.
+const failedReason = (source: AssetSource, code: string | undefined) => {
+  if (code === 'too-large') {
+    return 'too-large' as const;
+  }
+  return source.kind === 'received' && code === 'attachment-missing'
+    ? ('not-downloaded' as const)
+    : undefined;
+};
+
 // Sources a failed import can read again: a picked or dropped file, which native code keeps while
 // the import can be retried, pasted bytes, or a Downloaded Attachment.
 const retryable = (source: AssetSource) =>
@@ -1555,6 +1565,49 @@ export function createDrafts(
     (id: string, next: (asset: Asset) => Asset) => readonly Draft[]
   >();
   const listeners = new Set<() => void>();
+  // Deletes the copy native code keeps of a picked file after its import failed.
+  const discardCopy = (source: AssetSource) =>
+    source.kind === 'file'
+      ? Effect.tryPromise({
+          try: () => storage.discardPickedDraftFiles([source.uri]),
+          catch: failureOf,
+        }).pipe(Effect.asVoid, Effect.catchTag('DraftStorageFailure', report))
+      : Effect.void;
+
+  const setRetries = () => {
+    retries = new Set(retained.keys());
+    for (const listener of listeners) {
+      listener();
+    }
+  };
+
+  // Forgets the failed imports in `ids`, deleting their copies.
+  const release = (ids: readonly string[]) => {
+    const sources = ids.flatMap((id) => {
+      const entry = retained.get(id);
+      retained.delete(id);
+      return entry === undefined ? [] : [entry.source];
+    });
+    if (sources.length > 0) {
+      setRetries();
+      void runLogged(Effect.forEach(sources, discardCopy, { discard: true }));
+    }
+  };
+
+  // A failed import stays retryable only while a Draft or queued message has its asset, so Remove
+  // and discarding the Draft delete its copy.
+  const releaseRemoved = (drafts: readonly Draft[]) => {
+    if (retained.size === 0) {
+      return;
+    }
+    const present = new Set(
+      [...drafts, ...outbox.map((entry) => entry.draft)].flatMap((draft) =>
+        assetsOf(draft).map(({ id }) => id),
+      ),
+    );
+    release([...retained.keys()].filter((id) => !present.has(id)));
+  };
+
   const publish = (next: DraftsState, notify?: () => void) => {
     state = next;
     if (next.kind === 'ready') {
@@ -2439,49 +2492,6 @@ export function createDrafts(
       catch: failureOf,
     }).pipe(Effect.asVoid, Effect.catchTag('DraftStorageFailure', report));
 
-  // Deletes the copy native code keeps of a picked file after its import failed.
-  const discardCopy = (source: AssetSource) =>
-    source.kind === 'file'
-      ? Effect.tryPromise({
-          try: () => storage.discardPickedDraftFiles([source.uri]),
-          catch: failureOf,
-        }).pipe(Effect.asVoid, Effect.catchTag('DraftStorageFailure', report))
-      : Effect.void;
-
-  const setRetries = () => {
-    retries = new Set(retained.keys());
-    for (const listener of listeners) {
-      listener();
-    }
-  };
-
-  // Forgets the failed imports in `ids`, deleting their copies.
-  const release = (ids: readonly string[]) => {
-    const sources = ids.flatMap((id) => {
-      const entry = retained.get(id);
-      retained.delete(id);
-      return entry === undefined ? [] : [entry.source];
-    });
-    if (sources.length > 0) {
-      setRetries();
-      void runLogged(Effect.forEach(sources, discardCopy));
-    }
-  };
-
-  // A failed import stays retryable only while a Draft or queued message has its asset, so Remove
-  // and discarding the Draft delete its copy.
-  const releaseRemoved = (drafts: readonly Draft[]) => {
-    if (retained.size === 0) {
-      return;
-    }
-    const present = new Set(
-      [...drafts, ...outbox.map((entry) => entry.draft)].flatMap((draft) =>
-        assetsOf(draft).map(({ id }) => id),
-      ),
-    );
-    release([...retained.keys()].filter((id) => !present.has(id)));
-  };
-
   // A failed import fails its asset, unless it was cancelled or its account left meanwhile, and
   // stays retryable when reading its source again could succeed.
   const importFailed = Effect.fnUntraced(function* (
@@ -2505,11 +2515,7 @@ export function createDrafts(
     if (!tooLarge) {
       yield* report(failure);
     }
-    const reason = tooLarge
-      ? ('too-large' as const)
-      : source.kind === 'received' && code === 'attachment-missing'
-        ? ('not-downloaded' as const)
-        : undefined;
+    const reason = failedReason(source, code);
     if (wanted) {
       yield* settle(
         current,
