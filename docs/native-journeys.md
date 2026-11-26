@@ -515,6 +515,27 @@ reopens the page with the same subject and body. A second force quit offers the
 record again, Discard removes it, and a third launch offers nothing. The restored
 page is kept as an attachment.
 
+## Mac Draft editor Inline Image journey
+
+The `testDraftEditorInlineImage` journey runs the Draft editor page's Inline
+Image steps in the same `registration-draft-editor` `Testing` build
+([#2948](https://github.com/unwired-dev/product/issues/2948)):
+
+```sh
+mise exec -- pnpm --filter @private-email/macos test:native \
+  "$PWD/artifacts/macos-inbox/DerivedData/Build/Products/Testing/UnwiredMail.app" \
+  testDraftEditorInlineImage
+```
+
+After signing in, a New Message gets two words with the caret between them, then
+**Insert Image…** chooses a PNG the journey wrote beside the mock copy, through
+the system open panel's Go to Folder. The page shows the image between the words
+with its native thumbnail. **Attach Instead** and **Show Inline** from the row's
+context menu convert it, two **Undo** and two **Redo** step through both
+conversions, and after **Save**, a relaunch and reopening the image is still
+between the words with its thumbnail. The inserted image, the context menu, the
+Attachment and the reopened Draft are kept as attachments.
+
 ## Mac list indent journey
 
 The `testListIndent` journey and its `Dark` variant use the same
