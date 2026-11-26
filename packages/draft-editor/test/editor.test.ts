@@ -1637,7 +1637,7 @@ describe('the Tiptap evaluation page', () => {
     expect.hasAssertions();
     // WebKit offers "feedback" by replacing the word before the caret; its inline prediction
     // ends in a compositionend at once, a word picked from the bubble does not.
-    const complete = (page: Page, ending: readonly Event[]) => {
+    const complete = (page: Page, after: () => void) => {
       const { view } = page.editor;
       page.editor.commands.setTextSelection(14);
       const text = view.dom.querySelector('p')?.firstChild;
@@ -1667,25 +1667,34 @@ describe('the Tiptap evaluation page', () => {
         vi.useRealTimers();
       });
       const uncancelled = view.dom.dispatchEvent(input);
-      for (const event of ending) {
-        view.dom.dispatchEvent(event);
-      }
+      after();
       vi.runAllTimers();
       return [uncancelled, bodyOf(page), page.editor.state.selection.from];
     };
     const predicted = await open(paragraphs('typing feedba'));
-    const shown = complete(predicted, [new CompositionEvent('compositionend')]);
+    const shown = complete(predicted, () =>
+      predicted.editor.view.dom.dispatchEvent(
+        new CompositionEvent('compositionend'),
+      ),
+    );
     predicted.type('ck');
     expect([shown, bodyOf(predicted)]).toStrictEqual([
       [false, undefined, 14],
       paragraphs('typing feedback'),
     ]);
     const picked = await open(paragraphs('typing feedba'));
-    expect(complete(picked, [])).toStrictEqual([
+    expect(complete(picked, Fn.constVoid)).toStrictEqual([
       false,
       paragraphs('typing feedback'),
       16,
     ]);
+    // A pick still pending when Save or Send freezes the page stays out of the frozen body.
+    const frozen = await open(paragraphs('typing feedba'));
+    expect(
+      complete(frozen, () => {
+        frozen.command({ type: 'editable', editable: false });
+      }),
+    ).toStrictEqual([false, paragraphs('typing feedba'), 14]);
   });
 
   it('replaces the body revision it was computed from as one undoable edit', async () => {

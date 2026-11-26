@@ -1144,8 +1144,15 @@ const DraftBehavior = Extension.create<unknown, { typing: boolean }>({
                   return false;
                 }
                 event.preventDefault();
+                const { doc } = view.state;
                 completion = setTimeout(() => {
-                  if (view.state.selection.from === from) {
+                  // Only into the body and caret it was offered for, before the host freezes it.
+                  if (
+                    view.editable &&
+                    view.state.doc === doc &&
+                    view.state.selection.empty &&
+                    view.state.selection.from === from
+                  ) {
                     view.dispatch(
                       view.state.tr.insertText(
                         completed.slice(word.length),
