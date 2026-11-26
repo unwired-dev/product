@@ -20,6 +20,7 @@
     "registration-sync-status-paused",
     "registration-invitation",
     "registration-imap-folders",
+    "registration-unsubscribe",
     "categorization-spike",
     "assistance-qualification"
   ],
@@ -42,6 +43,7 @@
     "registration-sync-status",
     "registration-sync-status-paused",
     "registration-invitation",
-    "registration-imap-folders"
+    "registration-imap-folders",
+    "registration-unsubscribe"
   ]
 }

@@ -1956,6 +1956,51 @@ final class InboxTests: XCTestCase {
     row.tap()
   }
 
+  // #2985: each newsletter's banner offers Unsubscribe…, the system alert confirms it, and the
+  // banner then shows the mock request's outcome: sent, failed and uncertain.
+  private func unsubscribeJourney(_ app: XCUIApplication) {
+    connectAlternateMailbox(app)
+    // The iPad frames are drawn in landscape.
+    if UIDevice.current.userInterfaceIdiom == .pad { rotate(app, to: .landscapeLeft) }
+    let appearance = ProcessInfo.processInfo.environment["UNWIRED_APPEARANCE", default: ""]
+    // The screen's capture, as app captures in Landscape come out turned.
+    func capture(_ name: String) {
+      let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+      shot.name = "Unsubscribe \(name) (\(appearance))"
+      shot.lifetime = .keepAlways
+      add(shot)
+    }
+    for (list, outcome, name) in [
+      ("Trail Notes", "Unsubscribe request sent", "sent"),
+      ("Market Weekly", "Couldn’t send the request", "failed"),
+      ("City Bulletin", "No clear answer to the request", "uncertain"),
+    ] {
+      // After the first message, iPhone goes back from the reader to the Inbox.
+      if UIDevice.current.userInterfaceIdiom == .phone && name != "sent" {
+        app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Back")).firstMatch.tap()
+      }
+      let row = app.buttons.matching(
+        NSPredicate(format: "label CONTAINS %@", "\(list). This week in \(list)")
+      ).firstMatch
+      XCTAssertTrue(row.waitForExistence(timeout: 20), list)
+      let toolbar = app.buttons["New Message"].firstMatch
+      for _ in 0..<3 where row.frame.maxY > toolbar.frame.minY { app.swipeUp(velocity: .slow) }
+      row.tap()
+      let offer = app.buttons["Unsubscribe…"].firstMatch
+      XCTAssertTrue(offer.waitForExistence(timeout: 20), list)
+      // The button stays disabled until the saved-request lookup answers.
+      waitUntil { offer.isEnabled && offer.isHittable }
+      if name == "sent" { capture("banner") }
+      offer.tap()
+      let alert = app.alerts["Unsubscribe from \(list)?"]
+      XCTAssertTrue(alert.waitForExistence(timeout: 10), list)
+      if name == "sent" { capture("confirmation") }
+      alert.buttons["Unsubscribe"].tap()
+      XCTAssertTrue(labelled(app, outcome).waitForExistence(timeout: 20), list)
+      capture(name)
+    }
+  }
+
   private func labelled(_ app: XCUIApplication, _ text: String) -> XCUIElement {
     app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", text))
       .firstMatch
@@ -4189,6 +4234,7 @@ final class InboxTests: XCTestCase {
       case "registration-sync-status": try syncStatusJourney(app)
       case "registration-sync-status-paused": try pausedSyncStatusJourney(app)
       case "registration-imap-folders": try imapFoldersJourney(app)
+      case "registration-unsubscribe": unsubscribeJourney(app)
       case "registration-invitation":
         invitationJourney(app)
         invitationStatesJourney(app)

@@ -10,7 +10,9 @@ sends a `mailto:` request through the Outbox.
 [#2967](https://github.com/unwired-dev/product/issues/2967) adds the Mac reader's
 banner, confirmation and outcomes for one-click offers and
 [#2968](https://github.com/unwired-dev/product/issues/2968) its `mailto:` states,
-under [ADR 0044](adr/0044-isolate-standards-based-unsubscribe-actions.md).
+and [#2985](https://github.com/unwired-dev/product/issues/2985) the iPhone and iPad
+reader's one-click states, whose `mailto:` states follow in a later #654 slice, under
+[ADR 0044](adr/0044-isolate-standards-based-unsubscribe-actions.md).
 
 ## Finding the offer
 
@@ -241,6 +243,19 @@ waiting request's **Undo**. The
 Mac's ⌘Z undoes organizing only, not a send, so the frames' note that ⌘Z undoes
 the request waits for a Mac Undo Send shortcut.
 
+## The iPhone and iPad reader
+
+A message with a one-click offer shows the Unsubscribe banner
+(`apps/mobile/src/unsubscribe.tsx`), above the message on iPhone and beneath
+its header on iPad, and the reader's More menu (⋯) adds **Unsubscribe…**; a
+`mailto:`-only message waits for a later slice, and the count line as on the Mac.
+**Unsubscribe…**, from the banner or the menu, opens a system alert that names
+the list, the sender and the receiving address. **Cancel** sends nothing.
+**Unsubscribe** calls `unsubscribe.request` once, for the reader's Mail Profile,
+which owns the receiving connection. The banner then shows the outcomes above,
+with **Try Again**, the disabled buttons and each message's state keyed as on
+the Mac.
+
 ## Verification
 
 ```sh
@@ -276,6 +291,18 @@ adding one changes fixtures that other suites count. For #2968 a local capture
 journey over temporary fixtures took the confirmation, waiting, sent,
 needs-sign-in and receive-only states in Light and Dark on macOS 27.2 for the
 design judge; it is not part of the committed suite.
+
+On iPhone,
+`apps/mobile/test/inbox.test.tsx` opens a synthetic Gmail message in the reader
+and covers the banner, the menu item, Cancel, one request per confirmation, a
+failure, Try Again and the dated Sent state, which replaces a failure:
+
+```sh
+mise exec -- pnpm --dir apps/mobile exec jest test/inbox.test.tsx -t 'Unsubscribe|asked to leave'
+```
+
+The [iPhone and iPad Unsubscribe journey](native-journeys.md#iphone-and-ipad-unsubscribe-journey)
+runs the banner, the confirmation and each outcome in the real app.
 
 The native tests cover the request bytes, redirects and every outcome,
 including a loopback HTTPS server that takes the request and never answers:

@@ -739,6 +739,20 @@ window saves. The second window's close button asks; **Cancel** keeps the window
 and its text, and **Save** closes it and keeps its version as a conflicting copy.
 After a relaunch, each Draft holds the saved body and only its own window's text.
 
+## iPhone and iPad Unsubscribe journey
+
+The Expo native journey for a `registration-unsubscribe` Release build connects the
+synthetic Gmail mailbox ([#2985](https://github.com/unwired-dev/product/issues/2985)).
+Build it as in [Mock Mail Sessions](mock-mail-sessions.md) with
+`UNWIRED_MOCK_SCENARIO=registration-unsubscribe` and run it once per appearance
+(`UNWIRED_APPEARANCE=light`, then `dark`), as the
+[IMAP folder journey](#iphone-and-ipad-imap-spam-and-trash-folder-journey) does.
+It opens each newsletter, presses the banner's **Unsubscribe…**, confirms in the
+system alert and waits for the outcome: sent for Trail Notes, failed for Market
+Weekly and uncertain for City Bulletin. On iPad it runs in landscape, as the frames
+are drawn. It captures the banner, the confirmation and each outcome, named with
+the appearance, for the [design judge](agents/design-judge.md).
+
 ## iPhone and iPad IMAP Spam and Trash folder journey
 
 The Expo native journey for a `registration-imap-folders` Release build signs in
