@@ -300,8 +300,8 @@ export function createUnsubscribe(
       }
       return { owner, revision, requests: document?.requests ?? [] };
     });
-  // Records `request`, replacing the Profile's earlier one for the list. Resolves whether storage
-  // holds it.
+  // Records `request`, replacing the Profile's earlier one for the list; a newer one stays. Resolves
+  // whether storage holds it or the newer one.
   const remember = (
     account: string | undefined,
     request: SentUnsubscribeRequest,
@@ -309,6 +309,15 @@ export function createUnsubscribe(
     runLogged(
       Effect.gen(function* () {
         const { owner, revision, requests } = yield* opened(account);
+        if (
+          requests.some(
+            (each) =>
+              matches(request.profile, request.identity)(each) &&
+              each.sentAt > request.sentAt,
+          )
+        ) {
+          return true;
+        }
         const document = yield* Schema.encodeEffect(DocumentSchema)({
           requests: [
             ...requests.filter(

@@ -102,7 +102,10 @@ the provider sees it. The reader passes the requests it showed for the message
 them confirmed meanwhile also answers in place of another. Once a retry is
 confirmed, the unknown requests it tried again are marked answered: they stay
 in the Outbox for Check Again but no longer stand for the list, so a message the
-list sends after the 14 days offers a fresh request with its own recipient.
+list sends after the 14 days offers a fresh request with its own recipient. The
+retry stays in the Outbox until each mark holds in storage, and Check Again
+finding an answered request in Sent retires it without recording it again, so
+the list's 14 days still run from the retry.
 
 It waits in the Outbox under the Undo Send Window and is then claimed and sent
 like any message, so it appears in the connection's Sent mailbox and an
@@ -119,7 +122,9 @@ Check Again finds it in Sent, the Outbox records the request through the
 entry leaves, so a relaunch in between loses neither the request nor its
 record. While storage refuses the record, the entry stays in the Outbox with the
 time the provider confirmed it, saved again later and after a relaunch with that
-same time, and is never sent again; the reader shows it sent at once. `pendingUnsubscribe(snapshot, connection, { identity, message })` finds
+same time, and is never sent again; the reader shows it sent at once. A record
+older than the one storage holds for the Profile and list leaves the newer one
+in place and counts as saved. `pendingUnsubscribe(snapshot, connection, { identity, message })` finds
 the newest request the Outbox holds for the list with that Mailing List
 Identity, or, for a list without one, for that message, so two lists sharing an
 address never take each other's state. `outbox.delivered(id)` says when one

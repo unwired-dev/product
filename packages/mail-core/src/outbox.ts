@@ -523,6 +523,11 @@ export function createOutbox({
     yield* Effect.promise(() => drafts.restore(id, 'queued'));
     return true;
   });
+  // Whether the unknown unsubscribe request `id` still stands for its list.
+  const unanswered = (id: string) => {
+    const request = entryOf(id)?.unsubscribe;
+    return request !== undefined && request.answered !== true;
+  };
   // A confirmed unsubscribe request is recorded before it leaves the Outbox, so a relaunch cannot
   // lose it. Resolves false while storage refuses the record, so the confirmed outcome is saved
   // again later rather than retiring the entry without it.
@@ -534,6 +539,11 @@ export function createOutbox({
       return true;
     }
     const { account, profile, list, identity, message } = request;
+    // An unknown request found sent after its retry answered for the list leaves without
+    // restarting the list's 14 days.
+    if (request.answered === true) {
+      return true;
+    }
     // A record saved again keeps the time the provider first confirmed the request.
     const sentAt =
       request.sentAt ??
@@ -549,8 +559,8 @@ export function createOutbox({
     );
     publish();
     // The unknown requests it tried again no longer stand for the list, though they stay for
-    // Check Again.
-    for (const id of request.retries ?? []) {
+    // Check Again. It stays in the Outbox until each one is marked.
+    for (const id of (request.retries ?? []).filter(unanswered)) {
       yield* write(id, (each) =>
         each.unsubscribe === undefined || each.unsubscribe.answered === true
           ? undefined
@@ -558,17 +568,18 @@ export function createOutbox({
       );
     }
     const recorded =
-      identity === undefined ||
-      requests === undefined ||
-      (yield* Effect.promise(() =>
-        requests.record(account, {
-          profile,
-          identity,
-          list,
-          sentAt,
-          ...(to === undefined ? {} : { to }),
-        }),
-      ));
+      !(request.retries ?? []).some(unanswered) &&
+      (identity === undefined ||
+        requests === undefined ||
+        (yield* Effect.promise(() =>
+          requests.record(account, {
+            profile,
+            identity,
+            list,
+            sentAt,
+            ...(to === undefined ? {} : { to }),
+          }),
+        )));
     // Kept with the entry, so a relaunch saves the same outcome again.
     if (!recorded && request.sentAt === undefined) {
       yield* write(entry.id, (each) =>

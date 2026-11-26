@@ -110,6 +110,7 @@ async function receiver(provider: Provider, state = 'connected', smtp = true) {
     },
     phone.registration,
   );
+  // `before` may answer 'refuse' to have storage refuse the step.
   const stepping = {
     before: async (
       _id: string,
@@ -120,10 +121,10 @@ async function receiver(provider: Provider, state = 'connected', smtp = true) {
     // Each Outbox step waits for `stepping` first, as a competing writer would delay it.
     drafts: {
       ...phone.drafts,
-      deliver: async (id, step) => {
-        await stepping.before(id, step);
-        return phone.drafts.deliver(id, step);
-      },
+      deliver: async (id, step) =>
+        (await stepping.before(id, step)) === 'refuse'
+          ? false
+          : phone.drafts.deliver(id, step),
     },
     mailboxes,
     registration: phone.registration,
@@ -840,6 +841,108 @@ describe('recording a mailto unsubscribe request', () => {
         to: [{ address: 'other@lists.alza.example' }],
         subject: 'stop',
       });
+    } finally {
+      phone.outbox.dispose();
+    }
+  });
+
+  // Storage refuses to mark `original` answered.
+  const refuseAnswered = (
+    phone: Awaited<ReturnType<typeof receiver>>,
+    original: string,
+  ) => {
+    phone.stepping.before = async (id, step) => {
+      const entry = phone.drafts.getOutbox().find((each) => each.id === id);
+      const next = entry === undefined ? undefined : step(entry);
+      return id === original &&
+        next !== undefined &&
+        'unsubscribe' in next &&
+        next.unsubscribe?.answered === true
+        ? 'refuse'
+        : undefined;
+    };
+  };
+
+  it('keeps a confirmed retry in the Outbox until the unknown request it tries again is marked answered', async () => {
+    expect.hasAssertions();
+    const phone = await receiver('gmail');
+    try {
+      const original = await lose(phone);
+      const retry = await start(phone);
+      refuseAnswered(phone, original);
+      later(undoSendWindow);
+      await phone.outbox.process();
+      await vi.waitFor(() => {
+        expect(phone.outbox.delivered(retry)).toBeDefined();
+      });
+      expect(phone.outbox.getSnapshot().map(({ id }) => id)).toStrictEqual([
+        original,
+        retry,
+      ]);
+
+      phone.stepping.before = async () => undefined;
+      await phone.outbox.process();
+      await vi.waitFor(() => {
+        expect(phone.outbox.getSnapshot()).toMatchObject([
+          { id: original, unsubscribe: { answered: true } },
+        ]);
+      });
+      // The lost original and the retry, never the retry again.
+      expect(phone.gmail.sends).toHaveLength(2);
+    } finally {
+      phone.outbox.dispose();
+    }
+  });
+
+  it('keeps the list’s 14 days from a confirmed retry when Check Again later finds the unknown request sent', async () => {
+    expect.hasAssertions();
+    const phone = await receiver('gmail');
+    try {
+      const original = await lose(phone);
+      const profile = profileOf(pending(phone));
+      const retry = await start(phone);
+      later(undoSendWindow);
+      await phone.outbox.process();
+      await vi.waitFor(() => {
+        expect(phone.outbox.delivered(retry)).toBeDefined();
+      });
+
+      later(15 * 86_400_000);
+      await phone.outbox.check(original);
+      await vi.waitFor(() => {
+        expect(phone.outbox.getSnapshot()).toStrictEqual([]);
+      });
+      await expect(
+        phone.unsubscribe.sentRequest(profile, listed, clock.now),
+      ).resolves.toBeUndefined();
+    } finally {
+      phone.outbox.dispose();
+    }
+  });
+
+  it('keeps a newer confirmation for the list when an older one is saved after it', async () => {
+    expect.hasAssertions();
+    const phone = await receiver('gmail');
+    try {
+      const request = {
+        profile: 'default',
+        identity: listed.identity,
+        list: listed.list,
+      };
+      await phone.unsubscribe.record(account, {
+        ...request,
+        sentAt: clock.now,
+      });
+
+      await expect(
+        phone.unsubscribe.record(account, {
+          ...request,
+          sentAt: clock.now - 86_400_000,
+        }),
+      ).resolves.toBe(true);
+      await expect(
+        phone.unsubscribe.sentRequest('default', listed, clock.now),
+      ).resolves.toMatchObject({ sentAt: clock.now });
     } finally {
       phone.outbox.dispose();
     }
