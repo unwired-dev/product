@@ -119,7 +119,9 @@ function ReminderDateTime({
   const passed = at <= Math.max(current, checked);
   useEffect(() => {
     if (passed) {
-      AccessibilityInfo.announceForAccessibility(t('drafts.reminder.timePassed'));
+      AccessibilityInfo.announceForAccessibility(
+        t('drafts.reminder.timePassed'),
+      );
     }
   }, [passed, t]);
   const set = () => {
