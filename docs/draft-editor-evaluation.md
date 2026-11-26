@@ -779,7 +779,8 @@ It ran on 2026-11-26 on the same Mac mini M4 (`Mac16,10`, 16 GB) with macOS 27.2
 (`26B131`) and Xcode 27.2 (`27B52`), from `6ba4b5405` with the journey added, in
 signed `Testing` builds: `registration-performance` for the current composer and
 `registration-draft-editor` for the page. Each has 10 samples per interaction. The
-one-minute load average stayed between 4 and 10 through both runs.
+one-minute load average read between 4 and 10 in snapshots before and after each
+build and run.
 
 | Composer | Launch to first list p50 / p95 / max | First composer p50 / p95 / max |
 | -------- | ------------------------------------ | ------------------------------ |
@@ -802,8 +803,8 @@ bundle changes launch time. The first composers open the same empty New Message.
 The page's run recorded main-queue stalls of 140, 102 and 101 ms during launches
 and one of 156 ms during its slowest first composer (698 ms); the current
 composer's run recorded none. The current composer's first composers all exceeded
-the 300 ms empty-composer budget; the page's p95 did too, and half of its samples
-were within it. Release builds and physical iPhone and iPad are still outstanding.
+the 300 ms empty-composer budget; the page's p95 did too, and one of its samples
+was within it. Release builds and physical iPhone and iPad are still outstanding.
 
 ## Finding
 
