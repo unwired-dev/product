@@ -236,5 +236,7 @@ the qualification build, and one of the same build with the check compiled out.
   "Pay the supplier the 500 euros today. Do not pay the supplier." in both the
   check and the plain edit: guardrails, not the check, decide such text.
 
-Until the owner accepts this result, or a later model or prompt passes every
-case, only the qualification build runs the check.
+The check qualifies only when every case that must ask comes back as a
+clarification and no ordinary text is flagged; a `limited` case leaves it
+unqualified on that device. Until the owner accepts this result, or a later model
+or prompt meets that bar, only the qualification build runs the check.
