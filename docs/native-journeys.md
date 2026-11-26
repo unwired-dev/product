@@ -537,8 +537,9 @@ Once the connection joins All Mail, its message's **Folders** lists the connecti
 unavailable: in the system popover on iPad, which one tap outside and Command-period, UIKit's
 Escape, each close, and in the system Move sheet on iPhone, which **Close** and a downward swipe
 each close. On iPhone the sheet then opens again, and "bulk" is typed into its search at the
-sheet's foot: Sent Messages leaves the list, and the search field and **Move to Bulk Mail** stay
-above the software keyboard ([#2943](https://github.com/unwired-dev/product/issues/2943)).
+sheet's foot: the other folders, the selected Inbox among them, leave the list, and the search
+field and **Move to Bulk Mail** stay above the software keyboard
+([#2943](https://github.com/unwired-dev/product/issues/2943)).
 **Move to Bulk Mail** then requests the move: the reader closes and the list reports
 **Moved: “Welcome to IMAP”.** at once, before the server answers. The synthetic server discards
 moves, so what the server keeps is left to the mail-core IMAP organize tests. The captures

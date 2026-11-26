@@ -28,9 +28,10 @@ from other work was 30–180.
   and the popover stays shown while the iPad turns to Landscape and back. CI runs
   the same journey in Dark.
 - Move sheet search, in Light and Dark: the `registration-imap-folders` journey now
-  types "bulk" into the iPhone Move sheet's search on IMAP mail. Sent Messages
-  leaves the list, and the search field and **Move to Bulk Mail** stay above the
-  software keyboard, which the 2026-11-24 pass had checked by hand in Dark. Bulk Mail
+  types "bulk" into the iPhone Move sheet's search on IMAP mail. The other
+  folders, the selected Inbox among them, leave the list, and the search field and
+  **Move to Bulk Mail** stay above the software keyboard, which the 2026-11-24 pass
+  had checked by hand in Dark. Bulk Mail
   then takes the move from the search's result. It passed on iPhone in both
   appearances.
 - Already run in both appearances by later entries: the Reply sheet's Close

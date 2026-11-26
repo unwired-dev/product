@@ -3443,7 +3443,14 @@ final class InboxTests: XCTestCase {
       focus(search) { self.hasFocus(search) }
       XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10))
       type("bulk", into: search)
-      waitUntil { !app.buttons["Move to Sent Messages"].exists }
+      // Bulk Mail is the only folder left, so it is the only row to keep above the keyboard.
+      waitUntil {
+        !app.buttons["Move to Sent Messages"].exists
+          && !app.buttons["Move to Deleted Messages"].exists
+          && !app.buttons.matching(
+            NSPredicate(format: "label == %@ AND selected == YES", "Inbox")
+          ).firstMatch.exists
+      }
       _ = settledFrame(of: search)
       XCTAssertLessThanOrEqual(search.frame.maxY, keyboardTop(app))
       XCTAssertTrue(spam.isHittable)
