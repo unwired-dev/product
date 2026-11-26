@@ -243,17 +243,20 @@ const emailed = (at: number, to: string | undefined): Outcome => ({
 });
 
 // The first of the message `key` names' `requests` the Outbox confirmed, else a request the Outbox
-// confirmed this session for the message from `connection`, and to whom when it knows; kept for the
-// session once found.
+// confirmed this session from `connection` for the message's list, and to whom when it knows; kept
+// for the session once found.
 function useConfirmed(
   key: string,
   requests: readonly string[] | undefined,
-  { connection, message }: Readonly<{ connection: string; message: string }>,
+  {
+    connection,
+    ...list
+  }: Readonly<{ connection: string; identity?: string; message: string }>,
 ): Outcome {
   const outbox = useOutbox();
   const found =
     requests?.map(outbox.delivered).find((each) => each !== undefined) ??
-    outbox.emailedUnsubscribe(connection, message);
+    outbox.emailedUnsubscribe(connection, list);
   const at = found?.at;
   const to = found?.to;
   useEffect(() => {
@@ -310,6 +313,7 @@ function useOffer(inbox: Source, id: string) {
   }, [key, pendingId]);
   const confirmed = useConfirmed(key, entry.requests, {
     connection,
+    ...(offer?.identity === undefined ? {} : { identity: offer.identity }),
     message: id,
   });
   const outcome = outcomeOf(entry, pending, confirmed);

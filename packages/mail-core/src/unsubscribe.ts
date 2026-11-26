@@ -381,9 +381,9 @@ export function createUnsubscribe(
       return outcome;
     },
     // Records `request`, a confirmed `mailto:` request, for `account`, only while it is signed in.
-    record: async (account: string, request: SentUnsubscribeRequest) => {
-      await remember(account, request);
-    },
+    // Resolves whether storage holds it.
+    record: (account: string, request: SentUnsubscribeRequest) =>
+      remember(account, request),
   };
 }
 export type Unsubscribe = ReturnType<typeof createUnsubscribe>;

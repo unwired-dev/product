@@ -87,17 +87,18 @@ async function receiver(provider: Provider, state = 'connected', smtp = true) {
   );
   await mailboxes.load();
   // The device's sent unsubscribe requests, kept in memory as native storage would; a commit
-  // finishes once `hold` resolves.
+  // finishes once `hold` resolves, and storage answers for `owner`.
   const kept = {
     revision: 0,
     document: null as string | null,
     hold: Promise.resolve(),
+    owner: account,
   };
   const unsubscribe = createUnsubscribe(
     {
       requestUnsubscribe: async () => ({ outcome: 'failed' }),
       openUnsubscribeRequests: async () => ({
-        owner: account,
+        owner: kept.owner,
         revision: kept.revision,
         document: kept.document,
       }),
@@ -656,6 +657,77 @@ describe('recording a mailto unsubscribe request', () => {
     }
   });
 
+  it('answers with an unknown request Check Again found sent before its retry was admitted', async () => {
+    expect.hasAssertions();
+    const phone = await receiver('gmail');
+    try {
+      const id = await lose(phone);
+      await phone.outbox.check(id);
+      await vi.waitFor(() => {
+        expect(pending(phone)).toBeUndefined();
+      });
+
+      await expect(start(phone)).resolves.toBe(id);
+      expect(phone.outbox.getSnapshot()).toStrictEqual([]);
+      expect(phone.gmail.sends).toHaveLength(1);
+    } finally {
+      phone.outbox.dispose();
+    }
+  });
+
+  it('never sends a retry once the unknown request found sent, though a retry between them was refused', async () => {
+    expect.hasAssertions();
+    const phone = await receiver('gmail');
+    try {
+      const id = await lose(phone);
+      await start(phone);
+      phone.become('authorization');
+      later(undoSendWindow);
+      await phone.outbox.process();
+      expect(pending(phone)?.state).toBe('failed');
+      phone.become('connected');
+      const retry = await start(phone);
+      await phone.outbox.check(id);
+      later(undoSendWindow);
+      await phone.outbox.process();
+
+      await vi.waitFor(() => {
+        expect(pending(phone)).toBeUndefined();
+      });
+      expect(phone.gmail.sends).toHaveLength(1);
+      expect(phone.outbox.delivered(retry)).toStrictEqual(
+        phone.outbox.delivered(id),
+      );
+    } finally {
+      phone.outbox.dispose();
+    }
+  });
+
+  it('keeps a confirmed request in the Outbox until storage records it, without sending it again', async () => {
+    expect.hasAssertions();
+    const phone = await receiver('gmail');
+    try {
+      await start(phone);
+      const profile = profileOf(pending(phone));
+      phone.kept.owner = 'another-product-account';
+      later(undoSendWindow);
+      await phone.outbox.process();
+      expect(pending(phone)).toBeDefined();
+
+      phone.kept.owner = account;
+      await phone.outbox.process();
+      await vi.waitFor(() => {
+        expect(pending(phone)).toBeUndefined();
+      });
+      await expect(
+        phone.unsubscribe.sentRequest(profile, listed, clock.now),
+      ).resolves.toMatchObject({ to: listed.address });
+      expect(phone.gmail.sends).toHaveLength(1);
+    } finally {
+      phone.outbox.dispose();
+    }
+  });
+
   it('answers for the message that offered a request without a list identity once it is sent', async () => {
     expect.hasAssertions();
     const phone = await receiver('gmail');
@@ -668,11 +740,15 @@ describe('recording a mailto unsubscribe request', () => {
 
       await vi.waitFor(() => {
         expect(
-          phone.outbox.emailedUnsubscribe(receiving.gmail.id, source),
+          phone.outbox.emailedUnsubscribe(receiving.gmail.id, {
+            message: source,
+          }),
         ).toStrictEqual({ at: clock.now, to: offer.address });
       });
       expect(
-        phone.outbox.emailedUnsubscribe(receiving.gmail.id, '8.INBOX'),
+        phone.outbox.emailedUnsubscribe(receiving.gmail.id, {
+          message: '8.INBOX',
+        }),
       ).toBeUndefined();
     } finally {
       phone.outbox.dispose();

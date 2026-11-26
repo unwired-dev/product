@@ -133,9 +133,24 @@ export const pendingUnsubscribe = <
         : unsubscribe.identity === identity),
   );
 
-// Where the Outbox keeps a confirmed unsubscribe request by the message that offered it.
-const messageKey = (account: string, connection: string, message: string) =>
-  `${account}\n${connection}\n${message}`;
+// Where the Outbox keeps a confirmed unsubscribe request by its list: the Mailing List Identity, or
+// the message that offered it when the list has none, as `pendingUnsubscribe` matches.
+const requestKey = (
+  account: string,
+  connection: string,
+  { identity, message }: Readonly<{ identity?: string; message: string }>,
+) =>
+  `${account}\n${connection}\n${identity === undefined ? `message\n${message}` : `list\n${identity}`}`;
+
+// The unknown requests a retry of `held` tries again: those `held` tried again, also through a
+// refused retry, and `held` itself when its delivery is unknown.
+const retriesOf = (held: OutboxEntry | undefined) => {
+  const retries = [
+    ...(held?.unsubscribe?.retries ?? []),
+    ...(held?.state === 'unknown' ? [held.id] : []),
+  ];
+  return retries.length === 0 ? {} : { retries };
+};
 
 // One paragraph per line of a `mailto:` body; a span never holds a line break or an image's
 // character.
@@ -463,10 +478,10 @@ export function createOutbox({
   });
 
   // The unsubscribe requests confirmed this session, when and to whom, which the capped Sent
-  // history may forget, by Outbox identifier and by Product Account, connection and the message
-  // that offered them.
+  // history may forget, by Outbox identifier, and the latest one's identifier by Product Account,
+  // connection and list.
   const confirmedRequests = new Map<string, { at: number; to?: string }>();
-  const confirmedMessages = new Map<string, { at: number; to?: string }>();
+  const confirmedLists = new Map<string, string>();
   // When the message `id` left the Outbox confirmed as sent, and to whom for an unsubscribe request
   // confirmed this session; otherwise only among the latest sends.
   const deliveredOf = (
@@ -482,35 +497,48 @@ export function createOutbox({
     (entry?.unsubscribe?.retries ?? [])
       .map((id) => ({ id, delivered: deliveredOf(id) }))
       .find(({ delivered }) => delivered !== undefined);
+  // Takes the unsubscribe request `id` out of the Outbox unsent once an unknown request it tries
+  // again was confirmed, answering as that one did. Resolves whether it did.
+  const superseded = Effect.fnUntraced(function* (id: string) {
+    const retried = retriedOf(entryOf(id));
+    if (retried?.delivered === undefined) {
+      return false;
+    }
+    confirmedRequests.set(id, retried.delivered);
+    yield* Effect.promise(() => drafts.restore(id, 'queued'));
+    return true;
+  });
   // A confirmed unsubscribe request is recorded before it leaves the Outbox, so a relaunch cannot
-  // lose it.
+  // lose it. Resolves false while storage refuses the record, so the confirmed outcome is saved
+  // again later rather than retiring the entry without it.
   const recordRequest = Effect.fnUntraced(function* (
     entry: OutboxEntry | undefined,
   ) {
     const request = entry?.unsubscribe;
     if (entry === undefined || request === undefined) {
-      return;
+      return true;
     }
     const sentAt = yield* Clock.currentTimeMillis;
     const to = entry.draft.to[0]?.address;
     const sent = { at: sentAt, ...(to === undefined ? {} : { to }) };
     const { account, profile, list, identity, message } = request;
     confirmedRequests.set(entry.id, sent);
-    confirmedMessages.set(
-      messageKey(account, entry.draft.connection, message),
-      sent,
+    confirmedLists.set(
+      requestKey(account, entry.draft.connection, { identity, message }),
+      entry.id,
     );
-    if (identity !== undefined && requests !== undefined) {
-      yield* Effect.promise(() =>
-        requests.record(account, {
-          profile,
-          identity,
-          list,
-          sentAt,
-          ...(to === undefined ? {} : { to }),
-        }),
-      );
+    if (identity === undefined || requests === undefined) {
+      return true;
     }
+    return yield* Effect.promise(() =>
+      requests.record(account, {
+        profile,
+        identity,
+        list,
+        sentAt,
+        ...(to === undefined ? {} : { to }),
+      }),
+    );
   });
 
   const record = Effect.fnUntraced(function* (
@@ -528,7 +556,9 @@ export function createOutbox({
       if (awaiting !== undefined && (yield* answer(awaiting)) !== undefined) {
         return false;
       }
-      yield* recordRequest(awaiting);
+      if (!(yield* recordRequest(awaiting))) {
+        return false;
+      }
       // Read on each compare-and-set attempt, so a retried step keeps a current time.
       const clock = yield* Clock.Clock;
       return yield* write(id, (entry) =>
@@ -708,19 +738,20 @@ export function createOutbox({
     const account = ownerOf(registration);
     // An unsubscribe request never follows the unknown request it tries again once that one was
     // confirmed; it leaves the Outbox, answering as that one did.
-    const retried = retriedOf(entryOf(id));
-    if (retried?.delivered !== undefined) {
-      confirmedRequests.set(id, retried.delivered);
-      yield* Effect.promise(() => drafts.restore(id, 'queued'));
+    if (yield* superseded(id)) {
       return;
     }
     // Storage holds 'sending' before Gmail sees the message, so an interruption reads as unknown.
     const handed = yield* write(id, (each) =>
-      current() && each.state === 'queued' && each.claim === 'held'
+      current() &&
+      each.state === 'queued' &&
+      each.claim === 'held' &&
+      retriedOf(each) === undefined
         ? withState(each, 'sending')
         : undefined,
     );
     if (!handed) {
+      yield* superseded(id);
       return;
     }
     // No provider request started. Keep the held claim retryable when execution ended mid-write.
@@ -742,6 +773,12 @@ export function createOutbox({
         kind: problem === 'wait' ? 'queued' : 'failed',
         problem: problem === 'wait' ? 'offline' : problem,
       });
+      return;
+    }
+    // Storage was awaited meanwhile, so the unknown request a retry tries again may be confirmed.
+    if (retriedOf(sending) !== undefined) {
+      yield* keep(id, { kind: 'queued', problem: 'offline' });
+      yield* superseded(id);
       return;
     }
     const outcome = yield* Effect.promise(() => submit(sending, draft));
@@ -846,8 +883,8 @@ export function createOutbox({
           mailbox.inbox.fileSent(entry.message, messageId),
         )) ?? (yield* answer(entry));
     }
-    if (problem === undefined) {
-      yield* recordRequest(entry);
+    if (problem === undefined && !(yield* recordRequest(entry))) {
+      problem = 'offline';
     }
     const clock = yield* Clock.Clock;
     yield* write(
@@ -1266,18 +1303,24 @@ export function createOutbox({
 
   // The answer a held unsubscribe request gives in place of another: itself while it may still be
   // sent, else the first of it and the unknown requests it tries again confirmed meanwhile.
+  // A request this session confirmed for the list, `earlier`, answers too, as when Check Again
+  // confirmed the held one before its retry was admitted.
   const standingOf = (
     held: OutboxEntry | undefined,
+    earlier: string | undefined,
   ): MailtoUnsubscribe | undefined => {
-    if (held === undefined) {
-      return undefined;
-    }
-    if (held.state !== 'failed' && held.state !== 'unknown') {
+    if (
+      held !== undefined &&
+      held.state !== 'failed' &&
+      held.state !== 'unknown'
+    ) {
       return { kind: 'waiting', id: held.id };
     }
-    const sent = [held.id, ...(held.unsubscribe?.retries ?? [])].find(
-      (id) => deliveredOf(id) !== undefined,
-    );
+    const sent = [
+      earlier,
+      held?.id,
+      ...(held?.unsubscribe?.retries ?? []),
+    ].find((id) => id !== undefined && deliveredOf(id) !== undefined);
     return sent === undefined ? undefined : { kind: 'waiting', id: sent };
   };
   // One unsubscribe admission at a time, so two confirmations cannot both admit a request.
@@ -1287,15 +1330,18 @@ export function createOutbox({
     offer: Extract<UnsubscribeOffer, { kind: 'mailto' }>,
     source: string,
   ): Promise<MailtoUnsubscribe> => {
-    const held = pendingUnsubscribe(drafts.getOutbox(), connection, {
-      ...offer,
-      message: source,
-    });
-    const standing = standingOf(held);
+    const list = { ...offer, message: source };
+    const held = pendingUnsubscribe(drafts.getOutbox(), connection, list);
+    const account = ownerOf(registration);
+    const standing = standingOf(
+      held,
+      account === undefined
+        ? undefined
+        : confirmedLists.get(requestKey(account, connection, list)),
+    );
     if (standing !== undefined) {
       return standing;
     }
-    const account = ownerOf(registration);
     const mailbox = mailboxesOf(registration.getSnapshot().snapshot).find(
       ({ id }) => id === connection,
     );
@@ -1335,9 +1381,7 @@ export function createOutbox({
           list: offer.list,
           message: source,
           ...(offer.identity === undefined ? {} : { identity: offer.identity }),
-          ...(held?.state === 'unknown'
-            ? { retries: [...(held.unsubscribe?.retries ?? []), held.id] }
-            : {}),
+          ...retriesOf(held),
         },
       }));
     if (!admitted) {
@@ -1479,13 +1523,19 @@ export function createOutbox({
     // When the message `id` left the Outbox confirmed as sent, and to whom for an unsubscribe
     // request confirmed this session; otherwise only among the latest sends.
     delivered: deliveredOf,
-    // When this session confirmed an unsubscribe request `connection` sent for `message`, the
-    // message that offered it, and to whom; the reader may never have seen its Outbox identifier.
-    emailedUnsubscribe: (connection: string, message: string) => {
+    // When this session confirmed an unsubscribe request `connection` sent to the list with
+    // `identity`, or for `message` when the list has none, and to whom; the reader may never have
+    // seen its Outbox identifier.
+    emailedUnsubscribe: (
+      connection: string,
+      list: Readonly<{ identity?: string; message: string }>,
+    ) => {
       const account = ownerOf(registration);
-      return account === undefined
-        ? undefined
-        : confirmedMessages.get(messageKey(account, connection, message));
+      const id =
+        account === undefined
+          ? undefined
+          : confirmedLists.get(requestKey(account, connection, list));
+      return id === undefined ? undefined : confirmedRequests.get(id);
     },
     // Returns a message to the Drafts, as Undo, after a refusal, or when the person chooses to
     // edit one whose delivery is unknown; only while it is `only` when given. An Invitation

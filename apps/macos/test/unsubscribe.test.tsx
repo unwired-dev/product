@@ -105,7 +105,7 @@ async function opened({
       requests.push(owner);
       return outcomes[requests.length - 1]?.() ?? Promise.resolve('failed');
     },
-    record: () => Promise.resolve(),
+    record: () => Promise.resolve(true),
   };
   const mailboxes = [
     {

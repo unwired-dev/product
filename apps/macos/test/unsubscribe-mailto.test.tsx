@@ -32,9 +32,10 @@ const to = 'leave@alza.example';
 const clock = { now: 0 };
 
 // A device whose iCloud Mail mailbox, with an outgoing server when `smtp`, received a newsletter
-// that unsubscribes only by email. Only the native unsubscribe record and the AppKit controls are
-// substituted.
-async function device({ smtp = true } = {}) {
+// that unsubscribes only by email, with a Mailing List Identity when `listed`. With `sentFirst`,
+// the Outbox sends the message's request before the reader first opens it. Only the native
+// unsubscribe record and the AppKit controls are substituted.
+async function device({ smtp = true, listed = true, sentFirst = false } = {}) {
   // Outcomes outlive a reader for the app's lifetime, so each test opens its own connection.
   const mara = { id: `connection-${crypto.randomUUID()}`, address };
   const snapshot: RegistrationSnapshot = {
@@ -65,7 +66,9 @@ async function device({ smtp = true } = {}) {
         'From: Alza.cz <news@alza.example>',
         `To: ${address}`,
         'Subject: Black Friday',
-        'List-Id: Alza.cz newsletter <newsletter.alza.example>',
+        ...(listed
+          ? ['List-Id: Alza.cz newsletter <newsletter.alza.example>']
+          : []),
         `List-Unsubscribe: <mailto:${to}?subject=unsubscribe>`,
         'Content-Type: text/plain; charset=utf-8',
         '',
@@ -109,6 +112,24 @@ async function device({ smtp = true } = {}) {
     throw new Error('Expected the IMAP mailbox');
   }
   await mailbox.inbox.load();
+  if (sentFirst) {
+    await drafts.load();
+    // The offer the message makes, as the reader reads it from the message's headers.
+    await outbox.unsubscribe(
+      mara.id,
+      {
+        kind: 'mailto',
+        list: 'Alza.cz',
+        address: to,
+        subject: 'unsubscribe',
+        ...(listed ? { identity: 'newsletter.alza.example' } : {}),
+      },
+      id,
+    );
+    clock.now += undoSendWindow;
+    jest.setSystemTime(clock.now);
+    await outbox.process();
+  }
   const opened: SettingsDestination[] = [];
   const signIns: string[] = [];
   await render(
@@ -271,6 +292,19 @@ describe('the reader’s mailto: Unsubscribe on the Mac', () => {
       screen.findByText('Unsubscribe request sent'),
     ).resolves.toBeOnTheScreen();
     expect(mail.outbox.getSnapshot()).toMatchObject([{ state: 'unknown' }]);
+  });
+
+  it('shows a request without a list identity sent before the reader first opened it', async () => {
+    expect.hasAssertions();
+    const mail = await device({ listed: false, sentFirst: true });
+    await expect(
+      screen.findByText(
+        `Emailed to ${to} on Nov 24. It’s in Sent. If their mail keeps coming after 14 days, you can try again.`,
+      ),
+    ).resolves.toBeOnTheScreen();
+    expect(mail.imap.smtp.accepted).toHaveLength(1);
+    expect(mail.outbox.getSnapshot()).toStrictEqual([]);
+    expect(screen.queryByRole('button', { name: 'Unsubscribe…' })).toBeNull();
   });
 
   it('takes the request back with the toast’s Undo and offers it again', async () => {

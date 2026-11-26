@@ -93,9 +93,12 @@ second confirmation, as from another window, answers with that request, and
 only a refused or unknown one is tried again. Trying one again sends the same
 recipient, subject and body, never another message's offer for the list, and a
 refused one leaves the Outbox once its retry is admitted. A retry keeps the
-identifiers of the unknown requests it tries again: once one of them is
-confirmed, a further confirmation answers with that one, and a retry not yet
-handed off leaves the Outbox unsent, answering as that one did.
+identifiers of the unknown requests it tries again, also through a refused
+retry: once one of them is confirmed, a further confirmation answers with that
+one, and a retry not yet handed off leaves the Outbox unsent, answering as that
+one did; the handoff checks again as it marks the retry sending and just before
+the provider sees it. A request this session confirmed for the list, or for the
+message when the list has none, also answers in place of another.
 
 It waits in the Outbox under the Undo Send Window and is then claimed and sent
 like any message, so it appears in the connection's Sent mailbox and an
@@ -110,14 +113,15 @@ source message. Once the provider confirms the send, or
 Check Again finds it in Sent, the Outbox records the request through the
 `requests` it was created with (the host's `unsubscribe.record`) before the
 entry leaves, so a relaunch in between loses neither the request nor its
-record. `pendingUnsubscribe(snapshot, connection, { identity, message })` finds
+record. While storage refuses the record, the entry stays in the Outbox with its
+confirmed outcome kept to save again, and is never sent again. `pendingUnsubscribe(snapshot, connection, { identity, message })` finds
 the newest request the Outbox holds for the list with that Mailing List
 Identity, or, for a list without one, for that message, so two lists sharing an
 address never take each other's state. `outbox.delivered(id)` says when one
 that left was confirmed and, for a request confirmed this session, to whom, even
 after the capped Sent history forgets it. `outbox.emailedUnsubscribe(connection,
-message)` says the same of a request confirmed this session for the message
-that offered it, so a reader that never saw the request's identifier, as after
+{ identity, message })` says the same of a request confirmed this session for
+the list with that Mailing List Identity, or for that message, so a reader that never saw the request's identifier, as after
 a relaunch, still shows it sent.
 
 | Result                      | When                                                                                                                  |
