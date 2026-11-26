@@ -153,7 +153,10 @@ release limit:
    and the current composer's interactions the page lacks. The Slash Command
    Menu is met on iPhone and iPad Simulators by
    [#2952](https://github.com/unwired-dev/product/issues/2952); the Mac menu, the
-   #822 measurements and physical devices remain.
+   #822 measurements and physical devices remain. On Mac,
+   [#2955](https://github.com/unwired-dev/product/issues/2955) timed opening a new
+   message and a saved Draft in both composers on a loaded host; repeat it on an
+   idle one ([results](../draft-editor-evaluation.md#composer-opening-2955)).
 6. The Tiptap and ProseMirror notices in the distributed app; the licence
    inventory must list the page's packages. Met by
    [#2916](https://github.com/unwired-dev/product/issues/2916): every bundle that
