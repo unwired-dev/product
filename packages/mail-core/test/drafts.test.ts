@@ -1544,7 +1544,7 @@ describe('entering Draft recipients', () => {
     expect(recipientRole(onDraft, 'tomas@EXAMPLE.com')).toBe('to');
     expect(recipientRole(onDraft, 'lena@example.com')).toBe('cc');
     expect(recipientRole(onDraft, 'anna@example.com')).toBeUndefined();
-    // Contacts never repeat a person on the Draft or a recent row.
+    // Contacts never repeat a recent row, and find a person on the Draft by their Contacts name.
     expect(
       sections('l', [
         { sender: 'Lena Fischer', address: 'lena@example.com' },
@@ -1554,6 +1554,13 @@ describe('entering Draft recipients', () => {
       query: { start: 0, end: 2, text: 'l' },
       recent: [lena],
       contacts: [{ name: 'Lukas', address: 'lukas@example.com' }],
+    });
+    expect(
+      sections('fi', [{ sender: 'Lena Fischer', address: 'lena@example.com' }]),
+    ).toStrictEqual({
+      query: { start: 0, end: 3, text: 'fi' },
+      recent: [],
+      contacts: [{ name: 'Lena Fischer', address: 'lena@example.com' }],
     });
     expect(
       recipientSuggestions({ ...onDraft, entries: { to: 't' } }, 'to', {

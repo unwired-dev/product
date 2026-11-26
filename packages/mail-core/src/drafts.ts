@@ -485,7 +485,8 @@ export const bodyRecipientSuggestions = (
 
 // Up to four people for the query, as the To field matches them: recent `correspondents`, newest
 // first, then people already on the Draft, and for typed text the `contacts` left over, one row
-// kept for them. People already on the Draft stay listed, so the menu can show their role.
+// kept for them. People already on the Draft stay listed, also when only their Contacts name
+// matches, so the menu can show their role.
 export function bodySuggestionSections(
   draft: Draft,
   query: BodyRecipientQuery,
@@ -514,11 +515,7 @@ export function bodySuggestionSections(
       ? []
       : suggestionsFor(typed, {
           correspondents: contacts,
-          excluded: [
-            ...excluded,
-            ...addressesOf(draft),
-            ...recent.map(({ address }) => address),
-          ],
+          excluded: [...excluded, ...recent.map(({ address }) => address)],
           limit: 4,
         });
   const shown = recent.slice(0, matched.length === 0 ? 4 : 3);

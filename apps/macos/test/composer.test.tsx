@@ -2574,7 +2574,7 @@ describe('composing Drafts', () => {
       forgetComposerTyping: ignore,
       setComposerIndents: ignore,
       composerCharacterFrame: async () => ({
-        x: 0,
+        x: 400,
         y: 0,
         width: 8,
         height: 16,
@@ -2614,7 +2614,10 @@ describe('composing Drafts', () => {
       const written = 'Hi Tomáš,\nI’ll ask ';
 
       // After a space in written text, @ opens the suggestions; a person already on the Draft
-      // shows their role.
+      // shows their role. An @ near the body's trailing edge keeps the menu inside the body.
+      await fireEvent(body(), 'layout', {
+        nativeEvent: { layout: { x: 0, y: 0, width: 500, height: 300 } },
+      });
       await type(written);
       await type(`${written}@`);
       await expect(
@@ -2622,6 +2625,7 @@ describe('composing Drafts', () => {
           name: 'Tomáš Dvořák, tomas@example.invalid, in To',
         }),
       ).resolves.toBeOnTheScreen();
+      expect(menu()).toHaveStyle({ left: 180 });
       expect(screen.getByText('To')).toBeOnTheScreen();
       expect(
         screen.getByRole('button', { name: 'Ana Kovač, ana@example.invalid' }),

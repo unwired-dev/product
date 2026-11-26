@@ -2868,7 +2868,7 @@ function useBodyRecipients(
   // Where the body shows the @, and where the body sits, for the menu under the @.
   const [anchor, setAnchor] =
     useState<Readonly<{ at: number; left: number; top: number }>>();
-  const [body, setBody] = useState({ x: 0, y: 0 });
+  const [body, setBody] = useState({ x: 0, y: 0, width: 0 });
   useEffect(() => {
     if (armed === undefined) {
       return;
@@ -2900,7 +2900,16 @@ function useBodyRecipients(
           style: [
             styles.bodySuggestions,
             {
-              left: body.x + anchor.left - spacing.s,
+              // Under the @, kept inside the body near its trailing edge.
+              left:
+                body.x +
+                Math.max(
+                  0,
+                  Math.min(
+                    anchor.left - spacing.s,
+                    body.width - styles.bodySuggestions.width,
+                  ),
+                ),
               top: body.y + anchor.top + spacing.xs,
             },
           ],
@@ -2953,8 +2962,12 @@ function useBodyRecipients(
     // Typed Return and Tab choose the highlighted suggestion while any shows.
     choosing: keys === choosingKeys,
     close,
-    placeBody: ({ x, y }: Readonly<{ x: number; y: number }>) => {
-      setBody({ x, y });
+    placeBody: ({
+      x,
+      y,
+      width,
+    }: Readonly<{ x: number; y: number; width: number }>) => {
+      setBody({ x, y, width });
     },
     // After a body edit inserting `inserted`: typing @ opens suggestions, and leaving its query
     // closes them.
