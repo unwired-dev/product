@@ -514,8 +514,8 @@ function WaitingToast({ id }: { readonly id: string | undefined }) {
         open={open}
         symbol="paperplane"
         message={t('unsubscribe.waitingToast')}
-        // As the approved U3 frame draws it.
-        messageWidth={210}
+        // The approved U3 frame's 348pt toast: a 210pt message and 26pt before Undo.
+        messageWidth={220}
         action={t('outbox.undo')}
         onAction={() => {
           void outbox.undo(shown, 'waiting');
