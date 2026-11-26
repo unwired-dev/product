@@ -555,6 +555,27 @@ reopens the page with the same subject and body. A second force quit offers the
 record again, Discard removes it, and a third launch offers nothing. The restored
 page is kept as an attachment.
 
+## Mac Draft editor Inline Image journey
+
+The `testDraftEditorInlineImage` journey runs the Draft editor page's Inline
+Image steps in the same `registration-draft-editor` `Testing` build
+([#2948](https://github.com/unwired-dev/product/issues/2948)):
+
+```sh
+mise exec -- pnpm --filter @private-email/macos test:native \
+  "$PWD/artifacts/macos-inbox/DerivedData/Build/Products/Testing/UnwiredMail.app" \
+  testDraftEditorInlineImage
+```
+
+After signing in, a New Message gets two words with the caret between them, then
+**Insert Image…** chooses a PNG the journey wrote beside the mock copy, through
+the system open panel's Go to Folder. The page shows the image between the words
+with its native thumbnail. **Attach Instead** and **Show Inline** from the row's
+context menu convert it, two **Undo** and two **Redo** step through both
+conversions, and after **Save**, a relaunch and reopening the image is still
+between the words with its thumbnail. The inserted image, the context menu, the
+Attachment and the reopened Draft are kept as attachments.
+
 ## Mac list indent journey
 
 The `testListIndent` journey and its `Dark` variant use the same
@@ -632,6 +653,15 @@ software keyboard ([#2943](https://github.com/unwired-dev/product/issues/2943)).
 moves, so what the server keeps is left to the mail-core IMAP organize tests. The captures
 "Folders popover" or "Move sheet", the same in Landscape, on iPhone "Move sheet search", and "Moved
 to Spam" are named with the appearance.
+
+On iPhone it then opens Morgan Lee's **Conference recording**, which is larger than a
+message read allows ([#2942](https://github.com/unwired-dev/product/issues/2942)). The
+reader says **This message is too large to open on this device.**, so it offers no Reply
+sheet and keeps **More**, which opens the system menu
+([#2158](https://github.com/unwired-dev/product/issues/2158)): Pin, Mark as Unread, Move to
+Spam and Move to…, then Delete. A tap beside the menu closes it without a change; **Mark as
+Unread** then makes the menu offer **Mark as Read**. The captures "More menu" and "More menu
+after Mark as Unread" are named with the appearance.
 
 Settings › Signatures then lists the IMAP Sending Identity with None
 ([#2059](https://github.com/unwired-dev/product/issues/2059)). Its signature is typed,
@@ -871,6 +901,22 @@ and a third relaunch asks nothing. The alert and the restored composer are kept 
 attachments. The journey then continues with the Thread steps under
 [Mock Mail Sessions](mock-mail-sessions.md). CI does not run this scenario; it is
 local native evidence.
+
+The `testDraftEditorRecovery` journey checks the same for the Draft editor page
+([#2944](https://github.com/unwired-dev/product/issues/2944)) in a
+`registration-draft-editor` Release build, which the
+[Draft editor evaluation](draft-editor-evaluation.md#run-the-evaluation) builds:
+
+```sh
+UNWIRED_JOURNEY=testDraftEditorRecovery mise exec -- pnpm --filter @private-email/mobile test:native \
+  "$PWD/artifacts/mock-mail/DerivedData/Build/Products/Release-iphonesimulator/UnwiredMail.app"
+```
+
+After signing in, a New Message gets body text typed into the page and a subject.
+Five seconds later the journey terminates and relaunches the app, and **Restore**
+reopens the page with the same body and subject. A second termination offers the
+record again, Discard removes it, and a third launch offers nothing. The offer and
+the restored page are kept as attachments. CI does not run it.
 
 ## iPhone and iPad keyboard and accessibility journey
 

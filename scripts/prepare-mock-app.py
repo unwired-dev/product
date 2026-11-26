@@ -45,6 +45,8 @@ if host == 'macos':
                       'com.apple.developer.team-identifier': team,
                       'com.apple.security.app-sandbox': True,
                       'com.apple.security.network.client': True,
+                      # As the app's own: the sandbox shows the system open panel only with it.
+                      'com.apple.security.files.user-selected.read-write': True,
                       # Test-only signing: the sandboxed session records evidence beside its copy.
                       'com.apple.security.temporary-exception.files.absolute-path.read-write':
                           [str(destination.parent) + '/'],
