@@ -262,7 +262,7 @@ extension PrivateInboxTests {
       message: "AAMk-id=", read: nil, folder: "archive", connection: id,
       address: "casey@example.invalid", generation: generation)
     _ = try await store.graphModify(
-      message: "AAMk-id=", read: nil, folder: nil, categories: ["Travel", "Růžová"],
+      message: "AAMk-id=", read: nil, folder: nil, categories: ["Travel", "Růžová", "👩‍💻 Work"],
       connection: id, address: "casey@example.invalid", generation: generation)
     #expect(microsoft.graphWrites.map { "\($0.method) \($0.url)" } == [
       "PATCH https://graph.microsoft.com/v1.0/me/messages/AAMk-id=",
@@ -270,11 +270,11 @@ extension PrivateInboxTests {
       "PATCH https://graph.microsoft.com/v1.0/me/messages/AAMk-id=",
     ])
     #expect(microsoft.graphWrites.map { $0.body as NSDictionary } == [
-      ["isRead": true], ["destinationId": "archive"], ["categories": ["Travel", "Růžová"]],
+      ["isRead": true], ["destinationId": "archive"], ["categories": ["Travel", "Růžová", "👩‍💻 Work"]],
     ])
     // A category change is the only change, and each name is one line of at most 255 characters.
     for (read, categories) in [
-      (true, ["Travel"]), (nil, [""]), (nil, ["Travel\nBcc"]),
+      (true, ["Travel"]), (nil, [""]), (nil, ["Travel\nBcc"]), (nil, ["Travel\u{2028}Bcc"]),
       (nil, [String(repeating: "a", count: 256)]),
     ] as [(Bool?, [String])] {
       await #expect(throws: RegistrationError.unavailable) {

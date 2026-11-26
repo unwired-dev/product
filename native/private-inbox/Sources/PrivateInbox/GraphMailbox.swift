@@ -34,10 +34,13 @@ extension RegistrationStore {
     func valid(_ value: String) -> Bool {
       value.range(of: #"^[\w=-]{1,512}$"#, options: .regularExpression) != nil
     }
-    // An Outlook category name: one line of at most 255 characters.
+    // An Outlook category name: one line of at most 255 characters. Format characters such as
+    // the emoji joiner stay allowed.
     func name(_ value: String) -> Bool {
       !value.isEmpty && value.count <= 255
-        && !value.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains)
+        && !value.unicodeScalars.contains {
+          [.control, .lineSeparator, .paragraphSeparator].contains($0.properties.generalCategory)
+        }
     }
     guard valid(message), [read != nil, folder != nil, categories != nil].filter({ $0 }).count == 1,
       folder.map(valid) ?? true, categories?.allSatisfy(name) ?? true,

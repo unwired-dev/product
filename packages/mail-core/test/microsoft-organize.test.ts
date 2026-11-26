@@ -528,18 +528,24 @@ describe('organizing Microsoft mail through Graph', () => {
 
   it("keeps a category named at Outlook's length limit through a relaunch and its removal", async () => {
     expect.hasAssertions();
-    // 255 characters of three UTF-8 bytes each, and one name longer than Outlook allows.
+    // 255 characters of three UTF-8 bytes each.
     const longest = '分'.repeat(255);
-    const tooLong = 'x'.repeat(256);
     const graph = createSyntheticGraph({ messages: 0 });
-    const target = graph.deliver({ categories: [longest, tooLong] });
+    const target = graph.deliver({ categories: [longest, 'Travel'] });
+    // A name longer than Outlook allows gets no label.
+    const overlong = graph.deliver({ categories: ['x'.repeat(256)] });
     await opened(graph);
     const relaunched = await opened(graph);
-    const [label = ''] = categoryLabels([longest]);
+    const [label = '', travel = ''] = categoryLabels([longest, 'Travel']);
     expect(message(relaunched, target).labels).toStrictEqual([
       'INBOX',
       'UNREAD',
       label,
+      travel,
+    ]);
+    expect(message(relaunched, overlong).labels).toStrictEqual([
+      'INBOX',
+      'UNREAD',
     ]);
 
     await relaunched.organize(
@@ -547,10 +553,11 @@ describe('organizing Microsoft mail through Graph', () => {
       gmailAction.unlabel(label),
     );
     expect(ready(relaunched.getSnapshot()).pending).toBe(0);
-    expect(graph.categoriesOf(target)).toStrictEqual([tooLong]);
+    expect(graph.categoriesOf(target)).toStrictEqual(['Travel']);
     expect(message(relaunched, target).labels).toStrictEqual([
       'INBOX',
       'UNREAD',
+      travel,
     ]);
   });
 
