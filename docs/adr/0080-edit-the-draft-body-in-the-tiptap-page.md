@@ -65,9 +65,10 @@ recommendation and the decision it supports. Facts link to their evidence;
 - **Measurements.** The packaged page is about 351 KB. No memory or battery
   comparison with the current composer was measured:
   [#822](https://github.com/unwired-dev/product/issues/822) closed without a native
-  result. The only latency comparison is typing and formatting feedback in Mac
-  `Testing` builds ([#2962](https://github.com/unwired-dev/product/issues/2962),
-  gate 5). The table probes compare behaviour, not speed.
+  result. The latency comparisons, in Mac `Testing` builds for gate 5, are typing
+  and formatting feedback
+  ([#2962](https://github.com/unwired-dev/product/issues/2962)) and composer
+  opening ([#2955](https://github.com/unwired-dev/product/issues/2955)). The table probes compare behaviour, not speed.
 
 ## Assessment
 
@@ -159,6 +160,10 @@ release limit:
    next-rendered-frame criterion in every group
    ([evidence](../draft-editor-evaluation.md#typing-response-2962)).
    A Release comparison, physical devices and the rest of the comparison remain.
+   On Mac, [#2955](https://github.com/unwired-dev/product/issues/2955)
+   timed opening a new message and a saved Draft in both composers on a loaded
+   host; repeat it on an idle one
+   ([results](../draft-editor-evaluation.md#composer-opening-2955)).
 6. The Tiptap and ProseMirror notices in the distributed app; the licence
    inventory must list the page's packages. Met by
    [#2916](https://github.com/unwired-dev/product/issues/2916): every bundle that
