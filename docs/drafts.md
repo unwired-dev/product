@@ -1045,7 +1045,14 @@ a long press on Send opens its menu, whose **Remind Me to Send…** ("Keep it as
 draft and remind me") offers, in the device's time zone (`mobileReminderTimes`),
 **This Evening** at 18:00 while that is still ahead, **Tomorrow Morning** at
 8:00, and **Next Week** on the first Monday after tomorrow at 8:00. iPhone also
-offers **This Weekend**, Saturday at 9:00, from Sunday to Thursday. They appear
+offers **This Weekend**, Saturday at 9:00, from Sunday to Thursday, and both end
+with **Choose Date and Time…**
+([#2979](https://github.com/unwired-dev/product/issues/2979)). It shows the
+system's calendar and time in the same sheet or popover, with Back to the times,
+starting at the Draft's reminder or else at Tomorrow Morning. Days before today
+can't be chosen; a time that has passed reads "That time has passed. Choose a
+later time." and leaves **Set Reminder** dimmed, which checks the time again when
+pressed and stores the instant with the device's time zone. They appear
 as a sheet on iPhone, where a row sets the reminder, and as a popover from Send
 on iPad, where Tomorrow Morning starts selected and **Set Reminder** sets the
 selected choice. Their last line names the zone in full and its city, such as

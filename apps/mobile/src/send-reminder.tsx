@@ -3,15 +3,24 @@ import type { ReactElement } from 'react';
 
 import {
   BottomSheet,
+  DatePicker,
   Group,
   Host,
   Popover,
   RNHostView,
   Button as SwiftUIButton,
+  Text as SwiftUIText,
 } from '@expo/ui/swift-ui';
 import {
   buttonBorderShape,
   buttonStyle,
+  controlSize,
+  datePickerStyle,
+  font,
+  frame,
+  disabled as inactive,
+  labelStyle,
+  labelsHidden,
   presentationDetents,
   tint,
 } from '@expo/ui/swift-ui/modifiers';
@@ -21,8 +30,15 @@ import {
   reminderDay,
 } from '@private-email/mail-core/send-reminders';
 import { radius, spacing } from '@private-email/mail-core/theme';
-import { useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import {
+  AccessibilityInfo,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 
 import { Button, ContextMenu, SFSymbol } from './design.tsx';
 import { useLocalization } from './localization.ts';
@@ -59,6 +75,13 @@ const styles = StyleSheet.create({
   rowText: { flex: 1 },
   zone: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
   buttons: { flexDirection: 'row', justifyContent: 'flex-end', gap: spacing.s },
+  pickerHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.s,
+    minHeight: 44,
+  },
+  passed: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
 });
 
 // `at` as `options`, with their time zone, name it in the person's language.
@@ -68,30 +91,190 @@ const formatAt = (
   options: Intl.DateTimeFormatOptions,
 ) => new Intl.DateTimeFormat(locale, options).format(at);
 
+// Choose Date and Time…: the system's calendar and time from `start`, in the device's time zone,
+// then the zone line and Set Reminder. Days before today can't be chosen, and Set Reminder waits
+// for a time that has not passed, checking again when pressed. Back returns to the times.
+function ReminderDateTime({
+  popover,
+  start,
+  zone,
+  onBack,
+  onSet,
+  onClose,
+}: {
+  readonly popover: boolean;
+  readonly start: number;
+  readonly zone: (at: number) => ReactElement;
+  readonly onBack: () => void;
+  readonly onSet: (dueAt: number) => void;
+  readonly onClose: () => void;
+}) {
+  const { t } = useLocalization();
+  const colors = usePalette();
+  const [at, setAt] = useState(start);
+  // The latest instant Set Reminder found passed, so a time that passed while open shows it.
+  const [checked, setChecked] = useState(0);
+  const passed = at <= Math.max(useNow(), checked);
+  // oxlint-disable-next-line react/hook-use-state -- One picker keeps the day it opened on.
+  const [today] = useState(() => new Date(new Date().setHours(0, 0, 0, 0)));
+  useEffect(() => {
+    if (passed) {
+      AccessibilityInfo.announceForAccessibility(t('drafts.reminder.passed'));
+    }
+  }, [passed, t]);
+  const set = () => {
+    const now = Date.now();
+    if (at <= now) {
+      setChecked(now);
+    } else {
+      onSet(at);
+    }
+  };
+  const setLabel = (
+    <SwiftUIText
+      modifiers={[
+        font({ textStyle: 'headline' }),
+        ...(popover ? [] : [frame({ maxWidth: Infinity })]),
+      ]}>
+      {t('drafts.reminder.set')}
+    </SwiftUIText>
+  );
+  return (
+    <>
+      <View style={styles.pickerHeader}>
+        <Host matchContents>
+          <SwiftUIButton
+            label={t('message.back')}
+            systemImage="chevron.left"
+            onPress={onBack}
+            modifiers={[
+              labelStyle('iconOnly'),
+              buttonStyle('glass'),
+              buttonBorderShape('circle'),
+              controlSize(popover ? 'small' : 'large'),
+              tint(colors.textPrimary),
+            ]}
+          />
+        </Host>
+        <Text
+          accessibilityRole="header"
+          style={[
+            popover ? styles.title : styles.sheetTitle,
+            styles.rowText,
+            { color: colors.textPrimary },
+          ]}>
+          {t('drafts.reminder.title')}
+        </Text>
+        {/* Balances Back, so the iPhone title stays centred. */}
+        {popover ? null : <View style={{ width: 44 }} />}
+      </View>
+      <Host matchContents={{ vertical: true }}>
+        <DatePicker
+          title={t('drafts.reminder.title')}
+          selection={new Date(at)}
+          range={{ start: today }}
+          displayedComponents={['date', 'hourAndMinute']}
+          onDateChange={(date) => {
+            setAt(date.getTime());
+          }}
+          modifiers={[
+            datePickerStyle('graphical'),
+            labelsHidden(),
+            tint(colors.accentFill),
+          ]}
+        />
+      </Host>
+      {passed ? (
+        <View style={styles.passed}>
+          <SFSymbol
+            name="exclamationmark.triangle.fill"
+            size={12}
+            color={colors.statusDestructive}
+          />
+          <Text
+            style={[textStyles.footnote, { color: colors.statusDestructive }]}>
+            {t('drafts.reminder.passed')}
+          </Text>
+        </View>
+      ) : null}
+      {zone(at)}
+      {popover ? (
+        <View style={styles.buttons}>
+          <Host matchContents>
+            <SwiftUIButton
+              label={t('common.cancel')}
+              onPress={onClose}
+              modifiers={[
+                buttonStyle('bordered'),
+                buttonBorderShape('capsule'),
+              ]}
+            />
+          </Host>
+          <Host matchContents>
+            <SwiftUIButton
+              onPress={set}
+              modifiers={[
+                buttonStyle('borderedProminent'),
+                buttonBorderShape('capsule'),
+                tint(colors.accentFill),
+                inactive(passed),
+              ]}>
+              {setLabel}
+            </SwiftUIButton>
+          </Host>
+        </View>
+      ) : (
+        <Host matchContents={{ vertical: true }}>
+          <SwiftUIButton
+            onPress={set}
+            modifiers={[
+              buttonStyle('borderedProminent'),
+              buttonBorderShape('capsule'),
+              controlSize('large'),
+              tint(colors.accentFill),
+              inactive(passed),
+            ]}>
+            {setLabel}
+          </SwiftUIButton>
+        </Host>
+      )}
+    </>
+  );
+}
+
 // The reminder choices from now in the device's time zone, under the note that a reminder never
 // sends. In the iPad popover a choice is selected and Set Reminder sets it; on iPhone a row sets it.
+// Choose Date and Time… shows the picker in their place, starting at the `stored` reminder or
+// Tomorrow Morning.
 function ReminderChoices({
   popover,
+  stored,
+  picking,
+  onPicking,
   onRemind,
   onClose,
 }: {
   readonly popover: boolean;
+  readonly stored: number | undefined;
+  readonly picking: boolean;
+  readonly onPicking: (picking: boolean) => void;
   readonly onRemind: (dueAt: number, timeZone: string) => void;
   readonly onClose: () => void;
 }) {
   const { t, settings } = useLocalization();
   const colors = usePalette();
   // oxlint-disable-next-line react/hook-use-state -- One presentation keeps the times it opened with.
-  const [{ timeZone, times }] = useState(() => {
+  const [{ opened, timeZone, times }] = useState(() => {
     const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const at = Date.now();
     return {
+      opened: at,
       timeZone: zone,
-      times: mobileReminderTimes(Date.now(), zone, !popover),
+      times: mobileReminderTimes(at, zone, !popover),
     };
   });
-  const [selected, setSelected] = useState(
-    times.find(({ time }) => time === 'tomorrowMorning')?.dueAt,
-  );
+  const tomorrow = times.find(({ time }) => time === 'tomorrowMorning')?.dueAt;
+  const [selected, setSelected] = useState(tomorrow);
   const time = (at: number) =>
     formatAt(settings.locale, at, {
       timeZone,
@@ -100,14 +283,45 @@ function ReminderChoices({
     });
   // The zone's long name is what naming it adds to the date: Hermes on Apple splits formatToParts at
   // every space, so its timeZoneName part is only the name's first word (#2147).
-  const zoneName =
-    formatAt(settings.locale, selected, { timeZone, timeZoneName: 'long' })
-      .replace(formatAt(settings.locale, selected, { timeZone }), '')
+  const zoneName = (at: number | undefined) =>
+    formatAt(settings.locale, at, { timeZone, timeZoneName: 'long' })
+      .replace(formatAt(settings.locale, at, { timeZone }), '')
       .replaceAll(/^[\s,،]+|[\s,،]+$/gu, '') || timeZone;
+  const zone = (at: number | undefined) => (
+    <View style={styles.zone}>
+      <SFSymbol
+        name="clock"
+        size={12}
+        color={colors.textSecondary}
+      />
+      <Text style={[textStyles.footnote, { color: colors.textSecondary }]}>
+        {t('drafts.reminder.zone', {
+          zone: zoneName(at),
+          city: reminderCity(timeZone),
+        })}
+      </Text>
+    </View>
+  );
   const choose = (dueAt: number) => {
     onClose();
     onRemind(dueAt, timeZone);
   };
+  if (picking) {
+    return (
+      <View style={[styles.choices, popover && styles.popover]}>
+        <ReminderDateTime
+          popover={popover}
+          start={stored ?? tomorrow ?? opened}
+          zone={zone}
+          onBack={() => {
+            onPicking(false);
+          }}
+          onSet={choose}
+          onClose={onClose}
+        />
+      </View>
+    );
+  }
   const rows = times.map(({ time: choice, dueAt }) => {
     const title = t(`drafts.reminder.${choice}`);
     const today = choice === 'thisEvening';
@@ -213,20 +427,34 @@ function ReminderChoices({
           popover ? null : { backgroundColor: colors.surfaceContent },
         ]}>
         {rows}
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => {
+            onPicking(true);
+          }}
+          style={({ pressed }) => [
+            styles.row,
+            {
+              backgroundColor: pressed
+                ? colors.accentSelectionSubtle
+                : 'transparent',
+            },
+          ]}>
+          <SFSymbol
+            name="calendar.badge.clock"
+            color={colors.textPrimary}
+          />
+          <Text
+            style={[
+              textStyles.body,
+              styles.rowText,
+              { color: colors.textPrimary },
+            ]}>
+            {t('drafts.reminder.chooseDateAndTime')}
+          </Text>
+        </Pressable>
       </View>
-      <View style={styles.zone}>
-        <SFSymbol
-          name="clock"
-          size={12}
-          color={colors.textSecondary}
-        />
-        <Text style={[textStyles.footnote, { color: colors.textSecondary }]}>
-          {t('drafts.reminder.zone', {
-            zone: zoneName,
-            city: reminderCity(timeZone),
-          })}
-        </Text>
-      </View>
+      {zone(selected)}
       {popover ? (
         <View style={styles.buttons}>
           <Host matchContents>
@@ -261,32 +489,56 @@ function ReminderChoices({
 }
 
 // Presents the reminder choices while `open`: a popover from `trigger` on iPad, a sheet on iPhone.
+// Choose Date and Time… shows the picker in the same presentation; the iPhone sheet grows to fit it,
+// scrolling at larger text sizes.
 function ReminderPicker({
   open,
   popover,
+  stored,
   trigger,
   onRemind,
   onClose,
 }: {
   readonly open: boolean;
   readonly popover: boolean;
+  readonly stored: number | undefined;
   readonly trigger: ReactElement;
   readonly onRemind: (dueAt: number, timeZone: string) => void;
   readonly onClose: () => void;
 }) {
+  const [picking, setPicking] = useState(false);
+  // The picker's height, which the iPhone sheet grows to.
+  const [height, setHeight] = useState<{ height: number }>();
+  const close = () => {
+    setPicking(false);
+    onClose();
+  };
   const dismiss = (presented: boolean) => {
     if (!presented) {
-      onClose();
+      close();
     }
   };
   // Each presentation offers the times from when it opened.
-  const choices = open ? (
+  let choices = open ? (
     <ReminderChoices
       popover={popover}
+      stored={stored}
+      picking={picking}
+      onPicking={setPicking}
       onRemind={onRemind}
-      onClose={onClose}
+      onClose={close}
     />
   ) : null;
+  if (picking && !popover) {
+    choices = (
+      <ScrollView
+        onContentSizeChange={(_, contentHeight) => {
+          setHeight({ height: contentHeight });
+        }}>
+        {choices}
+      </ScrollView>
+    );
+  }
   return popover ? (
     <Host matchContents>
       <Popover
@@ -310,7 +562,10 @@ function ReminderPicker({
         <BottomSheet
           isPresented={open}
           onIsPresentedChange={dismiss}>
-          <Group modifiers={[presentationDetents(['medium'])]}>
+          <Group
+            modifiers={[
+              presentationDetents([picking ? (height ?? 'large') : 'medium']),
+            ]}>
             <RNHostView>{choices ?? <View />}</RNHostView>
           </Group>
         </BottomSheet>
@@ -323,6 +578,7 @@ function ReminderPicker({
 // to Send… opens the reminder choices from Send. A tap still sends.
 export function SendMenu({
   popover,
+  stored,
   disabled,
   sendNow,
   onSendNow,
@@ -330,6 +586,8 @@ export function SendMenu({
   children,
 }: {
   readonly popover: boolean;
+  // When the Draft's reminder is due, where Choose Date and Time… starts.
+  readonly stored: number | undefined;
   readonly disabled: boolean;
   // Whether Send Now is unavailable, and the file it waits for while one is still being added.
   readonly sendNow: Readonly<{
@@ -347,6 +605,7 @@ export function SendMenu({
     <ReminderPicker
       open={open}
       popover={popover}
+      stored={stored}
       onRemind={onRemind}
       onClose={() => {
         setOpen(false);
@@ -447,6 +706,7 @@ export function ReminderBanner({
         <ReminderPicker
           open={open}
           popover={popover}
+          stored={dueAt}
           onRemind={onRemind}
           onClose={() => {
             setOpen(false);

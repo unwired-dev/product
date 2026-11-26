@@ -5466,6 +5466,7 @@ function Editor({
   const sendControl = (titled: boolean) => (
     <SendMenu
       popover={regular}
+      stored={reminder?.dueAt}
       disabled={closing === 'saving'}
       sendNow={sendNowOf(
         blocked.blocked,

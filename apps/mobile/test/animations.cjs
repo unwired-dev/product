@@ -226,6 +226,16 @@ jest.mock('@expo/ui/swift-ui', () => {
       }),
     );
   }
+  // A date picker shows its selection as an adjustable value; `dateChange` picks another.
+  function DatePicker({ title, selection, onDateChange }) {
+    return React.createElement(View, {
+      accessible: true,
+      accessibilityRole: 'adjustable',
+      accessibilityLabel: title,
+      accessibilityValue: { text: selection?.toISOString() },
+      onDateChange,
+    });
+  }
   // A popover keeps its trigger in place and presents its content beside it.
   function Popover({ isPresented, onIsPresentedChange, children }) {
     return React.Children.map(children, (child) => {
@@ -287,6 +297,7 @@ jest.mock('@expo/ui/swift-ui', () => {
     Alert,
     BottomSheet,
     Button,
+    DatePicker,
     Form: Passthrough,
     Popover,
     Group,
@@ -320,7 +331,9 @@ jest.mock('@expo/ui/swift-ui/modifiers', () => ({
   buttonStyle: (style) => ({ $type: 'buttonStyle', style }),
   contentShape: (shape) => ({ $type: 'contentShape', shape }),
   controlSize: (size) => ({ $type: 'controlSize', size }),
+  datePickerStyle: (style) => ({ $type: 'datePickerStyle', style }),
   labelStyle: (style) => ({ $type: 'labelStyle', style }),
+  labelsHidden: () => ({ $type: 'labelsHidden' }),
   disabled: (disabled) => ({ $type: 'disabled', disabled }),
   environment: (key, value) => ({ $type: 'environment', key, value }),
   fixedSize: (params) => ({ $type: 'fixedSize', ...params }),

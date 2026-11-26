@@ -4583,6 +4583,103 @@ describe('composing Drafts', () => {
     },
   );
 
+  // Choose Date and Time… shows the picker in the same sheet or popover, starting at Tomorrow
+  // Morning or the stored reminder; a time that has passed can't be set.
+  it.each(['compact', 'regular'] as const)(
+    'sets a Send Reminder at a picked date and time on %s',
+    async (size) => {
+      expect.hasAssertions();
+      // Noon on a Monday.
+      const noon = new Date(2026, 9, 12, 12);
+      const clock = jest.spyOn(Date, 'now').mockReturnValue(noon.getTime());
+      try {
+        const { timeZone } = Intl.DateTimeFormat().resolvedOptions();
+        const tomorrow = mobileReminderTimes(Date.now(), timeZone, false).find(
+          ({ time }) => time === 'tomorrowMorning',
+        );
+        ok(tomorrow);
+        const { reminders, id } = await composeWithTemplates(size, (draft) => ({
+          ...draft,
+          subject: 'Keys for the flat',
+        }));
+        const stored = () => reminders.store.reminders(defaultProfile);
+        const picker = () =>
+          screen.getByRole('adjustable', { name: 'Remind Me to Send' });
+        const pick = async (at: Date) => {
+          await act(async () => {
+            await fireEvent(picker(), 'dateChange', at);
+          });
+        };
+        const passed = 'That time has passed. Choose a later time.';
+
+        // The picker starts at Tomorrow Morning, and Back returns to the times.
+        await remindFromSendMenu();
+        await press('Choose Date and Time…');
+        expect(picker()).toHaveAccessibilityValue({
+          text: new Date(tomorrow.dueAt).toISOString(),
+        });
+        await press('Back');
+        await press('Choose Date and Time…');
+
+        // A time that has passed can't be set.
+        await pick(new Date(2026, 9, 12, 9));
+        expect(screen.getByText(passed)).toBeOnTheScreen();
+        expect(
+          screen.getByRole('button', { name: 'Set Reminder' }),
+        ).toBeDisabled();
+
+        // A later time sets the reminder.
+        const later = new Date(2026, 9, 14, 16, 30);
+        await pick(later);
+        expect(screen.queryByText(passed)).toBeNull();
+        await press('Set Reminder');
+        await screen.findByText(/^Reminder for /u);
+        await expect(stored()).resolves.toStrictEqual([
+          {
+            draft: id,
+            profile: defaultProfile,
+            dueAt: later.getTime(),
+            timeZone,
+          },
+        ]);
+
+        // Change starts at the stored reminder; closing keeps it.
+        await press('Change');
+        await press('Choose Date and Time…');
+        expect(picker()).toHaveAccessibilityValue({
+          text: later.toISOString(),
+        });
+        await pick(new Date(2026, 9, 20, 8));
+        if (size === 'regular') {
+          await press('Cancel');
+        } else {
+          const sheet = screen
+            .getAllByTestId('bottom-sheet')
+            .find((each) => each.props.style === undefined);
+          ok(sheet);
+          await act(async () => {
+            await fireEvent(sheet, 'accessibilityEscape');
+          });
+        }
+        await expect(stored()).resolves.toStrictEqual([
+          {
+            draft: id,
+            profile: defaultProfile,
+            dueAt: later.getTime(),
+            timeZone,
+          },
+        ]);
+        // Opening again offers the times first.
+        await press('Change');
+        expect(
+          screen.getByRole('button', { name: 'Choose Date and Time…' }),
+        ).toBeOnTheScreen();
+      } finally {
+        clock.mockRestore();
+      }
+    },
+  );
+
   it('removes the reminder of a Draft it discards', async () => {
     expect.hasAssertions();
     const { reminders, drafts } = await composeWithTemplates(
