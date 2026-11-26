@@ -815,7 +815,7 @@ from the other.
   never reached the monitor. In each of those 5 s calls, the text had appeared
   within 210 ms of the call starting, so the time went to XCUITest's synthesis,
   not to the page.
-- In one of those passes, calls from "k" on also started late: "k" appeared
+- In one of those passes, text also appeared late from "k" on: "k" appeared
   2.97 s after its call started, without a monitor record, and the next five
   keys reached the monitor 0.8 to 3.5 s after their calls started, each shown
   in the page within 35 ms of that record.
