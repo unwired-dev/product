@@ -489,6 +489,72 @@ extension UnwiredRegistration {
     }
   }
 
+  // Makes this device's Send Reminder notifications, pending or delivered, exactly
+  // `notifications` while `owner` is signed in: each one still ahead is scheduled for its due
+  // instant, replacing one under its identifier, and every other is withdrawn. A reminder offers
+  // no action and nothing that sends its Draft. Runs in the registration operation gate, so a
+  // sign-out's withdrawal is never followed by a stale schedule.
+  @objc(scheduleReminderNotifications:notifications:resolver:rejecter:)
+  func scheduleReminderNotifications(
+    _ owner: String, notifications: [[String: Any]],
+    resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
+  ) {
+    performStep("scheduleReminderNotifications", resolve, reject: reject) { store in
+      guard (try? store.saved().product?.productAccountId) == owner else {
+        UnwiredNotifications.logger.info("Send Reminder notifications skipped: account changed")
+        return
+      }
+      let center = UNUserNotificationCenter.current()
+      let previews = UserDefaults.standard.bool(forKey: Self.notificationPreviewsKey)
+      var utc = Calendar(identifier: .gregorian)
+      utc.timeZone = TimeZone(identifier: "UTC")!
+      let now = Date()
+      var kept = Set<String>()
+      var added = 0
+      for notification in notifications {
+        guard let id = notification["id"] as? String, id.hasPrefix("send-reminder."),
+          let title = notification["title"] as? String,
+          let body = notification["body"] as? String,
+          let profile = notification["profile"] as? String, !profile.isEmpty,
+          let dueAt = notification["dueAt"] as? Double,
+          let shown = notification["previews"] as? Bool, !shown || previews
+        else { continue }
+        kept.insert(id)
+        let due = Date(timeIntervalSince1970: dueAt / 1000)
+        guard due > now else { continue }
+        let content = UNMutableNotificationContent()
+        content.title = title
+        content.body = body
+        content.sound = .default
+        content.threadIdentifier = profile
+        var components = utc.dateComponents(
+          [.year, .month, .day, .hour, .minute, .second], from: due)
+        components.timeZone = utc.timeZone
+        do {
+          try await center.add(
+            UNNotificationRequest(
+              identifier: id, content: content,
+              trigger: UNCalendarNotificationTrigger(dateMatching: components, repeats: false)))
+          added += 1
+        } catch {
+          let error = error as NSError
+          UnwiredNotifications.logger.error(
+            "Send Reminder notification not scheduled: \(error.domain, privacy: .public) \(error.code, privacy: .public)"
+          )
+        }
+      }
+      let stale = { (id: String) in id.hasPrefix("send-reminder.") && !kept.contains(id) }
+      center.removePendingNotificationRequests(
+        withIdentifiers: await center.pendingNotificationRequests().map(\.identifier).filter(stale))
+      center.removeDeliveredNotifications(
+        withIdentifiers: await center.deliveredNotifications().map(\.request.identifier).filter(
+          stale))
+      UnwiredNotifications.logger.info(
+        "Send Reminder notifications scheduled: \(added, privacy: .public) of \(notifications.count, privacy: .public)"
+      )
+    }
+  }
+
   @objc(nextOpenedNotification:reader:resolver:rejecter:)
   func nextOpenedNotification(
     _ window: String, reader: String, resolve: @escaping RCTPromiseResolveBlock,

@@ -1,12 +1,17 @@
+import type { Translate } from '@private-email/localization';
+
 import * as DateTime from 'effect/DateTime';
 import * as Effect from 'effect/Effect';
 import * as Option from 'effect/Option';
 import * as Schema from 'effect/Schema';
 import * as Semaphore from 'effect/Semaphore';
 
+import type { Draft } from './draft-model.ts';
+import type { DraftsState } from './drafts.ts';
+import type { NotificationSettings } from './notifications.ts';
 import type { Registration } from './registration.ts';
 
-import { runLogged } from './diagnostics.ts';
+import { rejectionDiagnostic, runLogged } from './diagnostics.ts';
 import { malformed, native, ownerMismatch } from './draft-native.ts';
 import {
   preferencePasses,
@@ -66,6 +71,9 @@ const StoredDocumentSchema = Schema.Struct({
       }),
     ),
   ),
+  // Each record whose current reminder this device set, so its notification is this device's to
+  // post; one another device's record set is none. Reminders stored before notify nowhere.
+  notifies: Schema.optionalKey(Schema.Array(Schema.NonEmptyString)),
 });
 type Reminders = typeof StoredDocumentSchema.Type;
 const DocumentSchema = Schema.fromJsonString(StoredDocumentSchema);
@@ -194,11 +202,13 @@ const adoptRecord = (
     bases,
     sent,
     cancelled,
+    notifies,
   }: Readonly<{
     live: Map<string, SendReminder>;
     bases: Map<string, Synced>;
     sent: Set<Sent>;
     cancelled: ReadonlyMap<string, unknown>;
+    notifies: Set<string>;
   }>,
   record: Synced,
 ) => {
@@ -216,6 +226,7 @@ const adoptRecord = (
   if (own || (pending && local === null) || cancelled.has(record.id)) {
     return;
   }
+  notifies.delete(record.id);
   if (record.reminder === null) {
     live.delete(record.id);
   } else {
@@ -230,16 +241,18 @@ const adopt = (document: Reminders, records: readonly Synced[]) => {
   const bases = byId(document.synced);
   const sent = new Set(document.sent);
   const cancelled = byId(document.cancelled);
+  const notifies = new Set(document.notifies);
   for (const record of records.filter(
     ({ id, version }) => version > (bases.get(id)?.version ?? 0),
   )) {
-    adoptRecord({ live, bases, sent, cancelled }, record);
+    adoptRecord({ live, bases, sent, cancelled, notifies }, record);
   }
   const next = {
     ...document,
     reminders: [...live.values()],
     synced: [...bases.values()],
     sent: [...sent],
+    ...(document.notifies === undefined ? {} : { notifies: [...notifies] }),
   };
   return sameDocument(document, next) ? document : next;
 };
@@ -289,8 +302,8 @@ const settled = (
 };
 
 // Each Draft's Send Reminder, stored on this device without network access. With `sync`, reminders
-// also synchronize through Private Sync: after each change and on `synchronize`. They notify nobody
-// yet.
+// also synchronize through Private Sync: after each change and on `synchronize`. The device that set
+// a reminder's current value posts its notification (`notifying`).
 export function createSendReminders(
   storage: NativeSendReminders,
   registration: Pick<Registration, 'getSnapshot'>,
@@ -469,6 +482,9 @@ export function createSendReminders(
           (each) => recordId(each) === id,
         );
         const others = document.reminders.filter((each) => each !== current);
+        const notifies = (document.notifies ?? []).filter(
+          (each) => each !== id,
+        );
         if (reminder !== null) {
           return current === undefined &&
             others.some((each) => each.draft === draft)
@@ -479,6 +495,7 @@ export function createSendReminders(
                 cancelled: (document.cancelled ?? []).filter(
                   (each) => each.id !== id,
                 ),
+                notifies: [...notifies, id],
               };
         }
         if (sync !== undefined) {
@@ -489,11 +506,12 @@ export function createSendReminders(
               ...(document.cancelled ?? []).filter((each) => each.id !== id),
               { id, token: writeId() },
             ],
+            notifies,
           };
         }
         return current === undefined
           ? document
-          : { ...document, reminders: others };
+          : { ...document, reminders: others, notifies };
       }).pipe(
         Effect.map((next) => next !== undefined),
         Effect.catchTag('DraftStorageFailure', (error) =>
@@ -517,6 +535,26 @@ export function createSendReminders(
               (reminder) => reminder.profile === profile,
             ),
           ),
+          // oxlint-disable-next-line promise/prefer-await-to-callbacks -- Effect's typed error channel.
+          Effect.catchTag('DraftStorageFailure', (error) =>
+            report(error).pipe(Effect.as(undefined)),
+          ),
+        ),
+      ),
+    // Every Profile's reminders whose notification this device posts, those it set itself, with the
+    // account that owns them; undefined while storage cannot read them.
+    notifying: () =>
+      runLogged(
+        opened(signedIn()).pipe(
+          Effect.map(({ owner, document }) => {
+            const notifies = new Set(document.notifies);
+            return {
+              owner,
+              reminders: document.reminders.filter((reminder) =>
+                notifies.has(recordId(reminder)),
+              ),
+            };
+          }),
           // oxlint-disable-next-line promise/prefer-await-to-callbacks -- Effect's typed error channel.
           Effect.catchTag('DraftStorageFailure', (error) =>
             report(error).pipe(Effect.as(undefined)),
@@ -547,6 +585,167 @@ export function createSendReminders(
   };
 }
 export type SendReminders = ReturnType<typeof createSendReminders>;
+
+// A due reminder's notification, as native code schedules it for its due instant. Its identifier
+// names the reminder's record and instant, so a changed instant withdraws the old notification.
+const ScheduledReminderSchema = Schema.Struct({
+  id: Schema.String,
+  title: Schema.String,
+  body: Schema.String,
+  // Groups it with its Mail Profile's other notifications.
+  profile: Schema.String,
+  dueAt: Schema.Int,
+  previews: Schema.Boolean,
+});
+type ScheduledReminder = typeof ScheduledReminderSchema.Type;
+// What one scheduling handed native code: for whom, under which permission, and the notifications.
+const sameScheduling = Schema.toEquivalence(
+  Schema.Struct({
+    owner: Schema.String,
+    authorization: Schema.String,
+    notifications: Schema.Array(ScheduledReminderSchema),
+  }),
+);
+
+// The native host's Send Reminder notifications.
+export interface NativeReminderNotifications {
+  // Makes `owner`'s Send Reminder notifications, pending or delivered, exactly `notifications`
+  // while `owner` is signed in: each one still ahead is scheduled for its instant, replacing one
+  // under its identifier, and every other is withdrawn.
+  readonly scheduleReminderNotifications: (
+    owner: string,
+    notifications: readonly ScheduledReminder[],
+  ) => Promise<unknown>;
+}
+
+// What a due reminder's notification shows: with `previews`, the Draft's subject and recipients,
+// otherwise nothing of the Draft. It offers nothing that sends the Draft.
+export const reminderNotificationContent = (
+  t: Translate,
+  previews: boolean,
+  draft: Pick<Draft, 'subject' | 'to' | 'cc' | 'bcc'>,
+) => {
+  if (!previews) {
+    return { title: '', body: t('notifications.reminder') };
+  }
+  const names = [...draft.to, ...draft.cc, ...draft.bcc].map(
+    ({ name, address }) => name ?? address,
+  );
+  const last = names.pop();
+  return {
+    title: draft.subject === '' ? t('notifications.noSubject') : draft.subject,
+    body:
+      last === undefined
+        ? t('notifications.reminderOwn')
+        : t('notifications.reminderTo', {
+            recipients:
+              names.length === 0
+                ? last
+                : t('notifications.reminderRecipients', {
+                    names: names.join(', '),
+                    last,
+                  }),
+          }),
+  };
+};
+
+// Keeps this device's Send Reminder notifications on the reminders it set, for Drafts it lists, at
+// its Show Sender and Subject level, after every change to those reminders, the Drafts or the
+// notification settings. Nothing changes while the Drafts or reminders cannot be read, so a locked
+// device or a launch still opening storage withdraws nothing.
+export function followReminderNotifications(
+  host: NativeReminderNotifications,
+  {
+    reminders,
+    drafts,
+    settings,
+    translate,
+  }: Readonly<{
+    reminders: Pick<SendReminders, 'notifying' | 'subscribe'>;
+    drafts: Readonly<{
+      getSnapshot: () => DraftsState;
+      subscribe: (listener: () => void) => () => void;
+    }>;
+    settings: Readonly<{
+      getSnapshot: () => NotificationSettings | undefined;
+      subscribe: (listener: () => void) => () => void;
+    }>;
+    translate: () => Translate;
+  }>,
+) {
+  // What native code last accepted, so an unchanged set is not scheduled again.
+  let scheduled: Parameters<typeof sameScheduling>[0] | undefined = undefined;
+  const pass = Effect.gen(function* () {
+    const listed = drafts.getSnapshot();
+    const current = settings.getSnapshot();
+    if (listed.kind !== 'ready' || current === undefined) {
+      return;
+    }
+    const notifying = yield* Effect.promise(reminders.notifying);
+    if (notifying === undefined) {
+      return;
+    }
+    const t = translate();
+    const notifications = notifying.reminders.flatMap(
+      ({ profile, draft: id, dueAt }) => {
+        const draft = listed.drafts.find((each) => each.id === id);
+        return draft === undefined
+          ? []
+          : [
+              {
+                id: `send-reminder.${dueAt}.${recordId({ profile, draft: id })}`,
+                ...reminderNotificationContent(t, current.previews, draft),
+                profile,
+                dueAt,
+                previews: current.previews,
+              },
+            ];
+      },
+    );
+    const next = {
+      owner: notifying.owner,
+      authorization: current.authorization,
+      notifications,
+    };
+    if (scheduled !== undefined && sameScheduling(next, scheduled)) {
+      return;
+    }
+    yield* Effect.tryPromise(() =>
+      host.scheduleReminderNotifications(notifying.owner, notifications),
+    );
+    scheduled = next;
+  }).pipe(
+    Effect.catchTag('UnknownError', ({ cause }) =>
+      Effect.logError(
+        'Send Reminder notifications could not be scheduled:',
+        rejectionDiagnostic(cause),
+      ),
+    ),
+  );
+  // One pass runs at a time; a change meanwhile runs one more after it.
+  let running = false;
+  let again = false;
+  const follow = () => {
+    if (running) {
+      again = true;
+      return;
+    }
+    running = true;
+    const run = async (): Promise<void> => {
+      again = false;
+      await runLogged(pass);
+      if (again) {
+        return run();
+      }
+      running = false;
+    };
+    void run();
+  };
+  reminders.subscribe(follow);
+  drafts.subscribe(follow);
+  settings.subscribe(follow);
+  follow();
+}
 
 const dayLength = 86_400_000;
 

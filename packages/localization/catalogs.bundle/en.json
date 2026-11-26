@@ -1807,6 +1807,10 @@
   "notifications": {
     "newMail": "New mail",
     "noSubject": "No subject",
+    "reminder": "Reminder to finish a Draft",
+    "reminderOwn": "Reminder to finish your Draft",
+    "reminderTo": "Reminder to finish your Draft to {{recipients}}",
+    "reminderRecipients": "{{names}} and {{last}}",
     "onThisDevice": "On This Device",
     "authorization": "Authorization",
     "allowed": "Allowed",
