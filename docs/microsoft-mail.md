@@ -629,8 +629,8 @@ mail content.
   connected the personal mailbox with every address, password and the Recovery Key
   entered through the [Simulator
   pasteboard](imap-mailboxes.md#certification-runs-through-the-app); Microsoft reused the
-  account's earlier grant without asking for consent. The Inbox opened in the split
-  layout with real messages, and one opened in the reader beside the list. With the
+  account's earlier grant without asking for consent. The split layout showed the
+  mailbox as **Syncing**, then the Inbox listed real messages, and one opened in the reader beside the list. With the
   sidebar shown, a new message to the mailbox's own address put an **Outbox** row after
   **Sent**; selecting it listed **1 waiting** and the message with **Sending soon** and
   **Undo**. **Undo**, pressed about 5 seconds after **Send**, returned the message to the
@@ -639,16 +639,17 @@ mail content.
   once in **Sent Items** and arrived in the Inbox. A reply to it from the reader still read
   **Sending soon** in the Outbox 11 seconds after **Send**, had left it at 14 seconds,
   appeared once in Sent Items and arrived in the Inbox with the original's subject.
-  **Sign Out of This Device** returned the app to Welcome. No screenshot was taken while
-  the software keyboard was shown after a pasted credential. With the Simulator deleted,
+  **Sign Out of This Device** returned the app to Welcome. Nothing read the screen while
+  the Recovery Key field held the key, and no screenshot was taken while the software
+  keyboard was shown after a pasted credential. With the Simulator deleted,
   `simulator-credentials.zsh scan`, run on each path, found no password or Recovery Key in
   `~/.agent-device`, `~/Library/Logs`, T3 Code's device directory, the shell history, the
-  temporary directory, the repository's `artifacts` directory with this run's
+  temporary directory, the repository's `artifacts/expo-bootstrap` directory with this run's
   DerivedData, the scratch files or this run's session transcripts. Limitations:
   Microsoft's one-time sign-in code was typed, as it expires within minutes; the first
   attempt typed no digit and the same code entered more slowly was accepted. An earlier
   new message, sent while the sidebar was hidden, left the Outbox unobserved; it appeared
-  once in Sent Items and arrived in the Inbox. Typing the recipient opened the system's
+  once in Sent Items and arrived in the Inbox. Pasting the recipient opened the system's
   contacts access sheet, answered **Don’t Allow**. Mac, iPad organizing, search,
   attachments, renewal and revocation, and uncertain outcomes were not run and stay on
   #637.
