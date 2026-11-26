@@ -2587,9 +2587,6 @@ final class InboxTests: XCTestCase {
     add(shot)
   }
 
-  // The Tiptap evaluation editor (#818, #819, #820): a new Draft is typed into the packaged page,
-  // formatted and edited with assistance, saved with Save Draft through the encrypted Draft store,
-  // and reopened after relaunch. Focus, resize and teardown are recorded.
   // A `registration-draft-editor` build's new Product Account connects the synthetic Gmail mailbox.
   private func signInToDraftEditor(_ app: XCUIApplication) {
     app.buttons["Continue"].tap()
@@ -2606,6 +2603,9 @@ final class InboxTests: XCTestCase {
       app.buttons["Unread. Rowan Hale. Garden plans for spring"].waitForExistence(timeout: 20))
   }
 
+  // The Tiptap evaluation editor (#818, #819, #820): a new Draft is typed into the packaged page,
+  // formatted and edited with assistance, saved with Save Draft through the encrypted Draft store,
+  // and reopened after relaunch. Focus, resize and teardown are recorded.
   private func draftEditorJourney(_ app: XCUIApplication) {
     signInToDraftEditor(app)
     enableAssistance(app)
@@ -4842,9 +4842,6 @@ final class InboxTests: XCTestCase {
     }
   }
 
-  // #2610: on iPhone the composer is the system sheet over the Inbox, which stays out of reach.
-  // Its downward swipe is Close: an untouched Draft closes, and changed content asks first while
-  // the sheet stays. Save Draft then closes it, and Send sends from it.
   // #2944: the Draft editor page journals a New Message's unsaved edits, so Restore reopens them in
   // the page after the app was terminated; Discard removes them, so the next launch offers nothing.
   func testDraftEditorRecovery() throws {
@@ -4907,6 +4904,9 @@ final class InboxTests: XCTestCase {
     XCTAssertFalse(offer.waitForExistence(timeout: 10))
   }
 
+  // #2610: on iPhone the composer is the system sheet over the Inbox, which stays out of reach.
+  // Its downward swipe is Close: an untouched Draft closes, and changed content asks first while
+  // the sheet stays. Save Draft then closes it, and Send sends from it.
   func testComposerSheet() throws {
     try XCTSkipIf(UIDevice.current.userInterfaceIdiom != .phone, "The sheet is iPhone's")
     continueAfterFailure = false
