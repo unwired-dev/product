@@ -570,10 +570,14 @@ Once the connection joins All Mail, its message's **Folders** lists the connecti
 ([#2902](https://github.com/unwired-dev/product/issues/2902)), with its own Inbox selected and
 unavailable: in the system popover on iPad, which one tap outside and Command-period, UIKit's
 Escape, each close, and in the system Move sheet on iPhone, which **Close** and a downward swipe
-each close. **Move to Bulk Mail** then requests the move: the reader closes and the list reports
-**Moved: “Welcome to IMAP”.** at once, before the server answers. The synthetic server discards
+each close. Before the first close the picker turns to Landscape and back to Portrait, and after
+each turn it is still shown with its folders, and on iPhone **Close**, in reach
+([#2931](https://github.com/unwired-dev/product/issues/2931)). **Move to Bulk Mail** then
+requests the move: the reader closes and the list reports **Moved: “Welcome to IMAP”.** at once,
+before the server answers. The synthetic server discards
 moves, so what the server keeps is left to the mail-core IMAP organize tests. The captures
-"Folders popover" or "Move sheet" and "Moved to Spam" are named with the appearance.
+"Folders popover" or "Move sheet", the same in Landscape, and "Moved to Spam" are named with the
+appearance.
 
 Settings › Signatures then lists the IMAP Sending Identity with None
 ([#2059](https://github.com/unwired-dev/product/issues/2059)). Its signature is typed,
@@ -645,7 +649,8 @@ the docked reply. iPad's **More** system menu closes at each turn, as the system
 opens again from **More** in Landscape. The link confirmation stays shown through both turns too
 ([#2909](https://github.com/unwired-dev/product/issues/2909)). The
 iPad Filters popover (the `open-read-relaunch` journey) and the iPhone composer
-(`testComposerSheet`) are covered elsewhere; the Move picker needs IMAP mail. A capture of each
+(`testComposerSheet`) are covered elsewhere, and the Move picker by the
+[IMAP folders journey](#iphone-and-ipad-imap-spam-and-trash-folder-journey). A capture of each
 presenter in Portrait and in Landscape, named with the appearance, is kept.
 
 ## iPhone and iPad Send Now journey
