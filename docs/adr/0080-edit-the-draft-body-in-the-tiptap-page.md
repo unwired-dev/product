@@ -129,8 +129,9 @@ release limit:
    Mac, keys posted at the HID event tap with the system's inline predictions on
    reached the page without delay
    ([#2966](https://github.com/unwired-dev/product/issues/2966),
-   [evidence](../draft-editor-evaluation.md#inline-predictions-2966)), but two
-   text defects need fixing: automatic capitalization moves the caret
+   [evidence](../draft-editor-evaluation.md#inline-predictions-2966)); a
+   physical keyboard is still to be tried. Two text defects need fixing:
+   automatic capitalization moves the caret
    ([#2971](https://github.com/unwired-dev/product/issues/2971)), and typing
    through an inline prediction repeats its last letters
    ([#2972](https://github.com/unwired-dev/product/issues/2972)).

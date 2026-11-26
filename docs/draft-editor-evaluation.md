@@ -773,10 +773,12 @@ outstanding.
 ### Inline predictions (#2966)
 
 [#2966](https://github.com/unwired-dev/product/issues/2966) asked whether the
-system's inline predictions delay typing in the page. A Mac typing journey
-([#2962](https://github.com/unwired-dev/product/issues/2962)) had seen XCUITest
-take about 5 s for each of the key presses after "feedb", which never reached
-the app's key monitor. **They do not delay the page.**
+system's inline predictions delay typing in the page. In a Mac typing journey
+([#2962](https://github.com/unwired-dev/product/issues/2962)), XCUITest's
+`typeKey` took about 5 s for "a" and "c" after "feedb", and the app's key
+monitor recorded none of "a", "c" and "k". **For keys posted at the HID event
+tap, the page showed no delay; the slow calls were XCUITest's.** No person typed
+on a physical keyboard, so that remains unverified.
 
 Method, on 2026-11-26 on the Mac reference host: a Mac mini M4 (`Mac16,10`) on
 macOS 27.2.1 (`26B131`), Xcode 27.2 (`27B52`), with `Testing` builds of
@@ -787,12 +789,13 @@ off with its launch argument. A temporary journey opened an empty New Message
 and typed "typing feedback test" with XCUITest's `typeKey`. Then a host tool
 posted the same keys at the HID event tap, which a hardware keyboard's events
 also pass, 200 ms and 1 s apart, and read the body's accessibility value every
-2 ms. The app's key monitor recorded which presses reached it. No person typed
-on a physical keyboard.
+2 ms. Each pass paused after "feedb" for a window capture, so "a" followed "b"
+after about 750 ms in the 200 ms passes and 1.55 s in the 1 s passes. The app's
+key monitor recorded which presses reached it.
 
-"Slow" counts the 20 XCUITest presses of a run that took over 1 s; "shown" is
-the time from a key posted at the HID tap to its text in the body, the first key
-of each pass including the app's activation.
+"Slow" counts the 20 XCUITest calls of a run that took over 1 s; "shown" is the
+time from a key posted at the HID tap to its text in the body, the first key of
+each pass including the app's activation.
 
 | Composer                | Runs | Slow           | Shown   |
 | ----------------------- | ---- | -------------- | ------- |
@@ -803,14 +806,19 @@ of each pass including the app's activation.
 One current composer run stopped after its XCUITest pass, so its shown times come
 from the other.
 
-- In the page, 7 presses at the HID tap and 11 from XCUITest went to the
-  system's prediction and never reached the app's key monitor. Their text still
-  appeared as fast as the rest: within 35 ms at the HID tap, and, but for one
-  press in the late pass below, within 210 ms of XCUITest starting it, while
-  XCUITest waited about 5 s for its own synthesized event. The delay #2962 saw is XCUITest's, not the page's.
-- In one XCUITest pass, presses from "k" on reached the app's key monitor, or
-  the page, 0.8 to 3.5 s after XCUITest started them; the page then showed each
-  within 35 ms of the app receiving it.
+- In the page with predictions on, 6 of the 8 captures after "feedb" showed the
+  system's prediction, inline or as a bubble; the other two followed the
+  capitalization defect below. Seven presses at the HID tap never reached the
+  app's key monitor; their text appeared within 35 ms all the same.
+- In three of the page's XCUITest passes, calls for letters of "feedbac" took
+  5.1 to 5.5 s, some for keys the monitor recorded within 90 ms. Eleven presses
+  never reached the monitor. In each of those 5 s calls, the text had appeared
+  within 210 ms of the call starting, so the time went to XCUITest's synthesis,
+  not to the page.
+- In one of those passes, calls from "k" on also started late: "k" appeared
+  2.97 s after its call started, without a monitor record, and the next five
+  keys reached the monitor 0.8 to 3.5 s after their calls started, each shown
+  in the page within 35 ms of that record.
 - The current composer offered no inline prediction in either run, and every
   press reached its key monitor.
 
@@ -823,7 +831,8 @@ Two other page defects appeared, both at one key a second; neither is a delay:
 - Typing "c" and "k" through the prediction left `feedbackck` (2 of 2 runs with
   capitalization off): [#2972](https://github.com/unwired-dev/product/issues/2972).
 
-The current composer had neither. Evidence is in `artifacts/macos-inbox/`:
+The current composer had neither. Evidence is in `artifacts/macos-inbox/` on
+the host, with the tool, its logs and captures in each run's `inline-probe/`:
 `journey.prFl1z/`, `journey.6bbqN3/`, `journey.7OhwUE/` and `journey.XZGpRp/`
 (page, predictions on), `journey.X3sUtb/` (page, predictions off), and
 `journey.FcdgP3/` and `journey.BomZT3/` (current composer). These runs do not
