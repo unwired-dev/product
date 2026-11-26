@@ -598,10 +598,12 @@ describe('the Tiptap evaluation page', () => {
     expect(keys.map((key) => press(page, key))).toStrictEqual(
       keys.map(() => true),
     );
-    expect(page.keys).toStrictEqual(keys);
+    // Leaving the body closes the menu as Escape does.
+    editor.view.dom.dispatchEvent(new FocusEvent('blur'));
+    expect(page.keys).toStrictEqual([...keys, 'Escape']);
     page.command({ type: 'menu', open: false });
     press(page, 'Enter');
-    expect(page.keys).toStrictEqual(keys);
+    expect(page.keys).toStrictEqual([...keys, 'Escape']);
     expect(textBodyOf(page)).toStrictEqual(paragraphs('/he', ''));
   });
 

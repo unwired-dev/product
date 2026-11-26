@@ -1003,6 +1003,16 @@ function EvaluationEditor({
                     } = message;
                     const flushed =
                       frozen && next.revision === bodyRevision.current;
+                    const before = pageNow.current?.selection;
+                    // Moving the caret closes the Slash Command Menu, as in the current composer;
+                    // a scroll reports the same selection.
+                    if (
+                      reported === undefined &&
+                      (before?.start !== next.selection.start ||
+                        before.end !== next.selection.end)
+                    ) {
+                      slashMenu.close();
+                    }
                     pageNow.current = next;
                     setPageState(next);
                     if (reported === undefined || flushed) {

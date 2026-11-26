@@ -920,11 +920,15 @@ describe('the Tiptap evaluation composer', () => {
     ]);
     expect(menu()).toBeNull();
 
-    // Escape closes it, keeping the text, and typing on does not reopen it.
+    // Escape closes it, keeping the text, and typing on does not reopen it; so does moving the caret.
     await typeEach('', 'Hi\n/');
     await key('Escape');
     expect(menu()).toBeNull();
     await typeEach('Hi\n/', 'he');
+    expect(menu()).toBeNull();
+    await typeEach('', 'Hi\n/he');
+    expect(menu()).not.toBeNull();
+    await report({ selection: { start: 5, end: 5 }, caret });
     expect(menu()).toBeNull();
 
     // Attach File… removes the query and opens the Files picker.

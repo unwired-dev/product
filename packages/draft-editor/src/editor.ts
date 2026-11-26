@@ -1205,24 +1205,26 @@ const DraftBehavior = Extension.create<unknown, { typing: boolean }>({
 
 // While the host's Slash Command Menu shows, Return, Tab, Up Arrow, Down Arrow and Escape reach the
 // host, which chooses, moves or closes, instead of editing, ahead of every other key handler.
+// Leaving the body closes the menu as Escape does.
 let menuOpen = false;
+const menuKey = (key: string) => {
+  if (menuOpen) {
+    globalThis.ReactNativeWebView?.postMessage(
+      JSON.stringify({ type: 'key', key }),
+    );
+  }
+  return menuOpen;
+};
 const SlashMenuKeys = Extension.create({
   name: 'slashMenuKeys',
   priority: 1100,
+  onBlur: () => {
+    menuKey('Escape');
+  },
   addKeyboardShortcuts: () =>
     Object.fromEntries(
       (['Enter', 'Tab', 'ArrowUp', 'ArrowDown', 'Escape'] as const).map(
-        (key) => [
-          key,
-          () => {
-            if (menuOpen) {
-              globalThis.ReactNativeWebView?.postMessage(
-                JSON.stringify({ type: 'key', key }),
-              );
-            }
-            return menuOpen;
-          },
-        ],
+        (key) => [key, () => menuKey(key)],
       ),
     ),
 });
