@@ -1052,7 +1052,7 @@ system's calendar and time in the same sheet or popover, with Back to the times,
 starting at the Draft's reminder or else at Tomorrow Morning. Days before today
 can't be chosen; a time that has passed reads "That time has passed. Choose a
 later time." and leaves **Set Reminder** dimmed, which checks the time again when
-pressed and stores the instant with the device's time zone. They appear
+pressed, or on Return, and stores the instant with the device's time zone. They appear
 as a sheet on iPhone, where a row sets the reminder, and as a popover from Send
 on iPad, where Tomorrow Morning starts selected and **Set Reminder** sets the
 selected choice. Their last line names the zone in full and its city, such as

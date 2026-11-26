@@ -15,6 +15,7 @@ import {
   buttonBorderShape,
   buttonStyle,
   controlSize,
+  createModifier,
   datePickerStyle,
   font,
   frame,
@@ -90,6 +91,9 @@ const formatAt = (
   at: number | undefined,
   options: Intl.DateTimeFormatOptions,
 ) => new Intl.DateTimeFormat(locale, options).format(at);
+
+// Return presses the button it modifies, from the `@expo/ui` patch.
+const defaultAction = createModifier('defaultAction');
 
 // Choose Date and Time…: the system's calendar and time from `start`, in the device's time zone,
 // then the zone line and Set Reminder. Days before today can't be chosen, and Set Reminder waits
@@ -218,6 +222,7 @@ function ReminderDateTime({
                 buttonBorderShape('capsule'),
                 tint(colors.accentFill),
                 inactive(passed),
+                defaultAction,
               ]}>
               {setLabel}
             </SwiftUIButton>
@@ -233,6 +238,7 @@ function ReminderDateTime({
               controlSize('large'),
               tint(colors.accentFill),
               inactive(passed),
+              defaultAction,
             ]}>
             {setLabel}
           </SwiftUIButton>
@@ -489,8 +495,8 @@ function ReminderChoices({
 }
 
 // Presents the reminder choices while `open`: a popover from `trigger` on iPad, a sheet on iPhone.
-// Choose Date and Time… shows the picker in the same presentation; the iPhone sheet grows to fit it,
-// scrolling at larger text sizes.
+// Choose Date and Time… shows the picker in the same presentation; the iPhone sheet grows to fit it.
+// The iPhone sheet scrolls at larger text sizes.
 function ReminderPicker({
   open,
   popover,
@@ -518,6 +524,8 @@ function ReminderPicker({
       close();
     }
   };
+  // The sheet's one detent, also selected: SwiftUI keeps the selection a removed detent left.
+  const detent = picking ? (height ?? 'large') : 'medium';
   // Each presentation offers the times from when it opened.
   let choices = open ? (
     <ReminderChoices
@@ -529,11 +537,13 @@ function ReminderPicker({
       onClose={close}
     />
   ) : null;
-  if (picking && !popover) {
+  if (!popover) {
     choices = (
       <ScrollView
         onContentSizeChange={(_, contentHeight) => {
-          setHeight({ height: contentHeight });
+          if (picking) {
+            setHeight({ height: contentHeight });
+          }
         }}>
         {choices}
       </ScrollView>
@@ -563,9 +573,7 @@ function ReminderPicker({
           isPresented={open}
           onIsPresentedChange={dismiss}>
           <Group
-            modifiers={[
-              presentationDetents([picking ? (height ?? 'large') : 'medium']),
-            ]}>
+            modifiers={[presentationDetents([detent], { selection: detent })]}>
             <RNHostView>{choices ?? <View />}</RNHostView>
           </Group>
         </BottomSheet>

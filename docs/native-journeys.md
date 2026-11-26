@@ -789,8 +789,8 @@ named "Send menu", "Remind Me to Send sheet" or "popover" and "Draft with a Send
 Reminder". **Change** then opens **Choose Date and Time…**, whose system calendar
 starts at the stored reminder ("Choose Date and Time"); from 8:00, today's date
 shows the passed-time message with **Set Reminder** dimmed ("Choose Date and
-Time, time has passed"), and tomorrow's date sets the reminder again
-([#2979](https://github.com/unwired-dev/product/issues/2979)). The journey fails later on iPhone
+Time, time has passed"), and Return sets the day after tomorrow, which the
+banner names ([#2979](https://github.com/unwired-dev/product/issues/2979)). The journey fails later on iPhone
 ([#2587](https://github.com/unwired-dev/product/issues/2587)).
 
 ## iPhone and iPad Gmail pause journey

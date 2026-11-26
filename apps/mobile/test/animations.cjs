@@ -331,6 +331,7 @@ jest.mock('@expo/ui/swift-ui/modifiers', () => ({
   buttonStyle: (style) => ({ $type: 'buttonStyle', style }),
   contentShape: (shape) => ({ $type: 'contentShape', shape }),
   controlSize: (size) => ({ $type: 'controlSize', size }),
+  createModifier: (type, params) => ({ $type: type, ...params }),
   datePickerStyle: (style) => ({ $type: 'datePickerStyle', style }),
   labelStyle: (style) => ({ $type: 'labelStyle', style }),
   labelsHidden: () => ({ $type: 'labelsHidden' }),

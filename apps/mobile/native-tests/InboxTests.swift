@@ -1734,11 +1734,16 @@ final class InboxTests: XCTestCase {
       XCTAssertFalse(set.isEnabled)
       capture("Choose Date and Time, time has passed")
     }
-    day(morning).tap()
+    // The day after the stored reminder, so setting it changes the banner; Return sets it.
+    let later = calendar.date(byAdding: .day, value: 1, to: morning) ?? morning
+    if !calendar.isDate(later, equalTo: morning, toGranularity: .month) {
+      picker.buttons["Next Month"].tap()
+    }
+    day(later).tap()
     XCTAssertTrue(set.waitForExistence(timeout: 10))
     waitUntil { set.isEnabled }
-    set.tap()
-    XCTAssertTrue(labelled("Reminder for tomorrow, ").waitForExistence(timeout: 15))
+    app.typeKey(XCUIKeyboardKey.return, modifierFlags: [])
+    XCTAssertTrue(labelled("Reminder for \(later.formatted(.dateTime.weekday(.abbreviated).locale(Locale(identifier: "en"))))").waitForExistence(timeout: 15))
     XCTAssertFalse(picker.exists)
   }
 
