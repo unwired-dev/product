@@ -93,7 +93,7 @@ Graphite neutrals with a single warm seal.
 | Bubble surface    | `surface/bubble`           | Received Catch Up bubbles                                            |
 | Quiet fill        | `fill/quiet`               | Secondary buttons, search field, banners, chips                      |
 | Control fill      | `fill/control`             | Pop-up button disc within a grouped row                              |
-| Banner fill       | `fill/banner`              | Mac reader's Unsubscribe banner (`#F2F2F5` Light, `#2B2B2E` Dark)    |
+| Banner fill       | `fillBanner` (no variable) | Mac reader's Unsubscribe banner (`#F2F2F5` Light, `#2B2B2E` Dark)    |
 | Track             | `fill/track`               | Off switch track                                                     |
 | Separator         | `separator`                | Hairlines between rows and panes                                     |
 | Scrim             | `scrim/touch`              | iPad composer and setup sheet; link alert backdrops on touch         |
