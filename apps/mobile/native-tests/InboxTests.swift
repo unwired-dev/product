@@ -1718,10 +1718,13 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(picker.waitForExistence(timeout: 15))
     XCTAssertTrue(app.buttons["Back"].exists)
     capture("Choose Date and Time")
+    // Day labels follow the device's date order: "Thursday 26 November" or "Thursday, November 26".
     let day = { (date: Date) in
-      picker.buttons.matching(NSPredicate(
-        format: "label CONTAINS %@",
-        date.formatted(.dateTime.month(.wide).day().locale(Locale(identifier: "en")))
+      let format = Date.FormatStyle().month(.wide).day()
+      return picker.descendants(matching: .any).matching(NSPredicate(
+        format: "label ENDSWITH %@ OR label ENDSWITH %@",
+        date.formatted(format.locale(Locale(identifier: "en_US"))),
+        date.formatted(format.locale(Locale(identifier: "en_GB")))
       )).firstMatch
     }
     let set = app.buttons["Set Reminder"]
