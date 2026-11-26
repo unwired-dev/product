@@ -1092,7 +1092,88 @@ final class WindowTests: XCTestCase {
     // The accepted reply body reopens as it was saved.
     XCTAssertTrue(
       webText("Synthetic reply to local mail.", in: relaunched).waitForExistence(timeout: 15))
+    pastedImageJourney(app, window: relaunched)
     nativeCloseJourney(app, window: relaunched)
+  }
+
+  // #2929: an image pasted into the page is read from the pasteboard by native code, goes inline
+  // with its verified thumbnail, and keeps its place through Save, relaunch and reopening.
+  private func pastedImageJourney(_ app: XCUIApplication, window: XCUIElement) {
+    let image = NSImage(size: NSSize(width: 120, height: 80), flipped: false) { rect in
+      NSColor.systemTeal.setFill()
+      rect.fill()
+      return true
+    }
+    let png = image.tiffRepresentation.flatMap { NSBitmapImageRep(data: $0) }?
+      .representation(using: .png, properties: [:])
+    XCTAssertNotNil(png)
+    // Give the person their pasteboard back afterwards.
+    let pasteboard = NSPasteboard.general
+    let before = pasteboard.changeCount
+    let saved = (pasteboard.pasteboardItems ?? []).map { item in
+      let copy = NSPasteboardItem()
+      for type in item.types {
+        if let data = item.data(forType: type) { copy.setData(data, forType: type) }
+      }
+      return copy
+    }
+    // A pasted file that is not an image becomes an Attachment. The sandboxed copy may read only
+    // its run directory, beside Mock.app.
+    let appURL = URL(fileURLWithPath: ProcessInfo.processInfo.environment["UNWIRED_APP_PATH"] ?? "")
+    let file = appURL.deletingLastPathComponent().appendingPathComponent("paste-note.txt")
+    XCTAssertNoThrow(try Data("Pasted into the page".utf8).write(to: file))
+    addTeardownBlock { try? FileManager.default.removeItem(at: file) }
+    guard pasteboard.changeCount == before else {
+      XCTFail("Another app wrote to the pasteboard during the journey")
+      return
+    }
+    // The count clearContents returns is ours: a later copy by another app changes it.
+    var written = pasteboard.clearContents()
+    pasteboard.writeObjects([file as NSURL])
+    addTeardownBlock {
+      guard pasteboard.changeCount == written else { return }
+      pasteboard.clearContents()
+      pasteboard.writeObjects(saved)
+    }
+    let body = window.webViews.textViews["Message body"]
+    webText("Synthetic reply to local mail.", in: window).click()
+    window.typeKey(.downArrow, modifierFlags: .command)
+    window.typeKey("v", modifierFlags: .command)
+    let note = window.descendants(matching: .any)
+      .matching(NSPredicate(format: "label BEGINSWITH %@", "paste-note.txt, ")).firstMatch
+    XCTAssertTrue(note.waitForExistence(timeout: 30))
+    XCTAssertEqual(body.images.count, 0)
+    // Another app's newer copy is never overwritten.
+    guard pasteboard.changeCount == written else {
+      XCTFail("Another app wrote to the pasteboard during the journey")
+      return
+    }
+    written = pasteboard.clearContents()
+    pasteboard.setData(png, forType: .png)
+    window.typeKey("v", modifierFlags: .command)
+    let row = window.descendants(matching: .any)
+      .matching(NSPredicate(format: "label BEGINSWITH %@", "Pasted image, ")).firstMatch
+    XCTAssertTrue(row.waitForExistence(timeout: 30))
+    let inline = body.images.firstMatch
+    XCTAssertTrue(inline.waitForExistence(timeout: 30))
+    // The placeholder gives way to the native thumbnail once the bytes verify.
+    waitUntil { inline.frame.width > 60 }
+    let pasted = XCTAttachment(screenshot: window.screenshot())
+    pasted.name = "Evaluation editor pasted image"
+    pasted.lifetime = .keepAlways
+    add(pasted)
+    reopenDraft(app)
+    XCTAssertTrue(
+      webText("Synthetic reply to local mail.", in: window).waitForExistence(timeout: 15))
+    let reopened = window.webViews.textViews["Message body"].images.firstMatch
+    XCTAssertTrue(reopened.waitForExistence(timeout: 30))
+    waitUntil { reopened.frame.width > 60 }
+    XCTAssertTrue(row.waitForExistence(timeout: 15))
+    XCTAssertTrue(note.exists)
+    let shot = XCTAttachment(screenshot: window.screenshot())
+    shot.name = "Evaluation Draft with pasted image after relaunch"
+    shot.lifetime = .keepAlways
+    add(shot)
   }
 
   private func nativeCloseJourney(_ app: XCUIApplication, window: XCUIElement) {
@@ -1156,6 +1237,74 @@ final class WindowTests: XCTestCase {
     XCTAssertTrue(remaining.buttons["Don’t Save"].waitForExistence(timeout: 10))
     remaining.buttons["Don’t Save"].click()
     waitUntil { app.state == .notRunning }
+    twoWindowJourney(app)
+  }
+
+  // #2938: two windows edit one saved Draft in the page. The window that saves second keeps its
+  // version as a conflicting copy, and its close button asks as Command-W does.
+  private func twoWindowJourney(_ app: XCUIApplication) {
+    app.launch()
+    let first = app.windows["Inbox 1"]
+    let original = NSPredicate(
+      format: "label BEGINSWITH %@ AND label CONTAINS %@", "Draft.", "Native close")
+    let copy = NSPredicate(
+      format: "label BEGINSWITH %@ AND label CONTAINS %@", "Conflicting Draft.", "Native close")
+    openDraft(first, original)
+    app.typeKey("n", modifierFlags: [.command, .option])
+    let second = app.windows["Inbox 2"]
+    XCTAssertTrue(second.waitForExistence(timeout: 15))
+    openDraft(second, original)
+    // The saved body, which each version must keep beside its own text.
+    func keepsBody(_ window: XCUIElement) {
+      for saved in ["Synthetic reply to local mail.", "Resumed", "After refusal"] {
+        XCTAssertTrue(webText(saved, in: window).waitForExistence(timeout: 15))
+      }
+    }
+    // Typing reaches the page of the window in front, at the end of its body.
+    func append(_ value: String, in window: XCUIElement) {
+      window.webViews.textViews["Message body"].click()
+      window.typeKey(.downArrow, modifierFlags: .command)
+      app.typeText(value)
+      XCTAssertTrue(webText(value, in: window).waitForExistence(timeout: 10))
+      keepsBody(window)
+    }
+    append(" Window B", in: second)
+    app.menuBars.menuBarItems["Window"].click()
+    app.menuItems["Inbox 1"].click()
+    append(" Window A", in: first)
+    saveOnClose(first)
+    XCTAssertFalse(webText("Window A", in: second).exists)
+    // Inbox 1 overlaps the close button of the window behind it.
+    app.menuBars.menuBarItems["Window"].click()
+    app.menuItems["Inbox 2"].click()
+    let close = second.buttons[XCUIIdentifierCloseWindow]
+    close.click()
+    let sheet = second.sheets.firstMatch
+    XCTAssertTrue(sheet.buttons["Save"].waitForExistence(timeout: 10))
+    XCTAssertTrue(sheet.buttons["Don’t Save"].exists)
+    sheet.buttons["Cancel"].click()
+    XCTAssertTrue(sheet.waitForNonExistence(timeout: 10))
+    XCTAssertTrue(webText("Window B", in: second).exists)
+    keepsBody(second)
+    close.click()
+    XCTAssertTrue(sheet.buttons["Save"].waitForExistence(timeout: 10))
+    sheet.buttons["Save"].click()
+    XCTAssertTrue(second.waitForNonExistence(timeout: 20))
+    XCTAssertTrue(first.buttons.matching(copy).firstMatch.waitForExistence(timeout: 20))
+    // Both versions survive a relaunch, each in its own Draft.
+    app.terminate()
+    app.launch()
+    openDraft(first, copy)
+    XCTAssertTrue(webText("Window B", in: first).waitForExistence(timeout: 15))
+    XCTAssertFalse(webText("Window A", in: first).exists)
+    keepsBody(first)
+    // Unchanged since it opened, so Close needs no save choice.
+    first.buttons["Close"].click()
+    waitUntil { first.webViews.count == 0 }
+    openDraft(first, original)
+    XCTAssertTrue(webText("Window A", in: first).waitForExistence(timeout: 15))
+    XCTAssertFalse(webText("Window B", in: first).exists)
+    keepsBody(first)
   }
 
   private func webText(_ value: String, in window: XCUIElement) -> XCUIElement {
@@ -1340,11 +1489,15 @@ final class WindowTests: XCTestCase {
     app.launch()
     // A Draft row names its subject; without a title, the only Draft so far.
     // CONTAINS never matches an empty string, so an untitled reopen matches the prefix alone.
-    let draft = window.buttons.matching(
+    openDraft(
+      window,
       title.isEmpty
         ? NSPredicate(format: "label BEGINSWITH %@", "Draft.")
-        : NSPredicate(format: "label BEGINSWITH %@ AND label CONTAINS %@", "Draft.", title)
-    ).firstMatch
+        : NSPredicate(format: "label BEGINSWITH %@ AND label CONTAINS %@", "Draft.", title))
+  }
+
+  private func openDraft(_ window: XCUIElement, _ label: NSPredicate) {
+    let draft = window.buttons.matching(label).firstMatch
     // Restoring the session after a launch can take a while on a loaded host.
     XCTAssertTrue(draft.waitForExistence(timeout: 45))
     // Rows can still move while the restored list settles; tap the row once it stays in place.

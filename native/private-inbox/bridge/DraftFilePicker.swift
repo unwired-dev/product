@@ -272,8 +272,10 @@ private func pickedFile(_ url: URL, name: String? = nil, type declared: UTType? 
   import AppKit
 
   @MainActor enum DraftFilePicker {
-    // Pasting and dropping go through the composer's own text view on Mac.
+    // Pasting and dropping go through the composer's own text view on Mac; a paste into the Draft
+    // editor page, which never reads file data, asks for the pasteboard here.
     static func pick(_ source: String) async throws -> [[String: String]] {
+      if source == "paste" { return try pasted() }
       guard source == "photos" || source == "files" else { throw RegistrationError.unavailable }
       let panel = NSOpenPanel()
       panel.canChooseFiles = true
@@ -288,6 +290,52 @@ private func pickedFile(_ url: URL, name: String? = nil, type declared: UTType? 
       }
       guard response == .OK else { return [] }
       return panel.urls.prefix(pickLimit).map { pickedFile($0) }
+    }
+
+    // As the composer's text view pastes: the pasteboard's files, read in place as chosen ones
+    // are, or else its PNG or TIFF images, copied as files without a name, which JavaScript gives.
+    private static func pasted() throws -> [[String: String]] {
+      let pasteboard = NSPasteboard.general
+      let urls =
+        pasteboard.readObjects(
+          forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
+      if !urls.isEmpty { return urls.prefix(pickLimit).map { pickedFile($0) } }
+      let images = (pasteboard.pasteboardItems ?? []).lazy.compactMap { item in
+        item.availableType(from: [.png, .tiff]).flatMap { type in
+          item.data(forType: type).map { (type == .png ? UTType.png : UTType.tiff, $0) }
+        }
+      }.prefix(pickLimit)
+      var files: [[String: String]] = []
+      do {
+        for (type, data) in images {
+          let name = "image.\(type.preferredFilenameExtension ?? "")"
+          let folder = RegistrationStore.pickedDraftFiles.appendingPathComponent(
+            UUID().uuidString)
+          let target = folder.appendingPathComponent(name)
+          guard data.count <= PrivateInboxStore.draftAssetLimit else {
+            files.append(oversizedFile(target, name: "", type: type))
+            continue
+          }
+          try FileManager.default.createDirectory(
+            at: folder, withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700])
+          do {
+            try data.write(to: target)
+          } catch {
+            RegistrationStore.discardPickedDraftFile(target)
+            throw error
+          }
+          files.append(pickedFile(target, name: "", type: type))
+        }
+        return files
+      } catch {
+        for file in files {
+          if let uri = file["uri"], let url = URL(string: uri) {
+            RegistrationStore.discardPickedDraftFile(url)
+          }
+        }
+        throw error
+      }
     }
   }
 #endif
