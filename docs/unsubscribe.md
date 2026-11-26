@@ -180,6 +180,9 @@ failure, Try Again and the dated Sent state, which replaces a failure:
 mise exec -- pnpm --dir apps/mobile exec jest test/inbox.test.tsx -t 'Unsubscribe|asked to leave'
 ```
 
+The [iPhone and iPad Unsubscribe journey](native-journeys.md#iphone-and-ipad-unsubscribe-journey)
+runs the banner, the confirmation and each outcome in the real app.
+
 The native tests cover the request bytes, redirects and every outcome,
 including a loopback HTTPS server that takes the request and never answers:
 
