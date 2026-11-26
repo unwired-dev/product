@@ -10,6 +10,8 @@ import {
 import { syntheticMailboxes } from '@private-email/mail-core/testing/registration-vault';
 import { useMemo, useState } from 'react';
 
+import type { Recovered } from '../src/composer.tsx';
+
 import { DraftComposer } from '../src/evaluation-composer.tsx';
 import { Inbox } from '../src/inbox.tsx';
 import { InboxProvider, useComposerNavigation } from '../src/mailbox.tsx';
@@ -48,6 +50,7 @@ export function App({
   drafts,
   onNavigation,
   onExpand,
+  restore,
 }: {
   readonly drafts: ReturnType<typeof createDrafts>;
   readonly onNavigation?: (
@@ -55,6 +58,8 @@ export function App({
   ) => void;
   // The window-level Expand, as a regular-width iPad window offers it.
   readonly onExpand?: () => void;
+  // A composer recovery record the launch's offer restored, open from the start.
+  readonly restore?: Recovered;
 }) {
   const mailboxes = useMemo(
     () =>
@@ -64,7 +69,7 @@ export function App({
       ),
     [],
   );
-  const [composing, setComposing] = useState<string>();
+  const [composing, setComposing] = useState(restore?.version.id);
   return (
     <AccountContext
       value={{
@@ -90,6 +95,7 @@ export function App({
         {composing === undefined ? null : (
           <DraftComposer
             id={composing}
+            recovered={restore}
             onExpand={onExpand}
             onClose={() => {
               setComposing(undefined);

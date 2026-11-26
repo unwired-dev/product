@@ -179,7 +179,13 @@ function LinkConfirmation({
             ? t('messageBody.confirmLink')
             : t('messageBody.cautionTitle')
         }
-        isPresented>
+        isPresented
+        // The system can close the alert without a choice; that discards the link as Cancel does.
+        onIsPresentedChange={(presented) => {
+          if (!presented) {
+            onDone();
+          }
+        }}>
         {/* SwiftUI drops an alert attached to an empty view, so it anchors on a zero-size spacer. */}
         <Alert.Trigger>
           <Spacer modifiers={[frame({ width: 0, height: 0 })]} />

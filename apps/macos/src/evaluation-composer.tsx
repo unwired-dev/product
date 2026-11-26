@@ -296,7 +296,14 @@ function EvaluationEditor({
       from,
       () => mounted.current && !pageStopped.current && !busy.current,
     );
-    const imports = files.map((file) => ({ file, asset: store.prepare(file) }));
+    // A pasted image has no name of its own, as in the current composer.
+    const imports = files.map((picked) => {
+      const file =
+        picked.name === ''
+          ? { ...picked, name: t('drafts.assets.pastedImage') }
+          : picked;
+      return { file, asset: store.prepare(file) };
+    });
     for (const { asset } of imports) {
       known.current.set(asset.id, asset);
     }
@@ -829,9 +836,22 @@ function EvaluationEditor({
                 return;
               }
               const message = decodeMessage(nativeEvent.data);
-              // The page refused a paste carrying files; the Mac has no native pasteboard import
-              // for the page, so pasted images are not added here.
-              if (message === undefined || message.type === 'paste') {
+              if (message === undefined) {
+                return;
+              }
+              // A paste carrying files, which native code reads from the pasteboard.
+              if (message.type === 'paste') {
+                void add('paste', true);
+                return;
+              }
+              // Without a Slash Command Menu here, the page's keys need nothing.
+              if (message.type === 'key') {
+                return;
+              }
+              // Files dropped on the page, which native code reads from the drag pasteboard, are
+              // attached, as files dropped on the current composer are.
+              if (message.type === 'drop') {
+                void add('drop', false);
                 return;
               }
               // A delayed report of an earlier body revision never replaces a newer one.

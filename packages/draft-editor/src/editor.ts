@@ -31,7 +31,7 @@ import Strike from '@tiptap/extension-strike';
 import Text from '@tiptap/extension-text';
 import Underline from '@tiptap/extension-underline';
 import { UndoRedo } from '@tiptap/extensions';
-import { closeHistory } from '@tiptap/pm/history';
+import { closeHistory, isHistoryTransaction } from '@tiptap/pm/history';
 import { Fragment, Node as ProseMirrorNode, Slice } from '@tiptap/pm/model';
 import {
   NodeSelection,
@@ -46,7 +46,7 @@ import {
   isInTable,
   tableEditing,
 } from '@tiptap/pm/tables';
-import { ReplaceStep } from '@tiptap/pm/transform';
+import { ReplaceStep, StepMap } from '@tiptap/pm/transform';
 import { Decoration, DecorationSet } from '@tiptap/pm/view';
 
 import type { Command, Update } from './messages.ts';
@@ -1051,32 +1051,23 @@ const DraftBehavior = Extension.create<unknown, { typing: boolean }>({
               ? new Slice(content, 1, 1)
               : new Slice(content, slice.openStart, slice.openEnd);
           },
-          // A pasted image is read from the pasteboard by native code, where it can; the page
-          // never reads the data, and a dropped file is refused.
           // Pasting over a selection pastes over it as the current composer does.
-          handlePaste: (view, event, slice) => {
-            if (!carriesFiles(event.clipboardData)) {
-              const { selection } = view.state;
-              if (
-                selection.empty ||
-                !editsAsText(selection) ||
-                slice.size === 0
-              ) {
-                return false;
-              }
-              const { tr } = view.state;
-              pasteOver(tr, slice);
-              view.dispatch(
-                tr
-                  .scrollIntoView()
-                  .setMeta('paste', true)
-                  .setMeta('uiEvent', 'paste'),
-              );
-              return true;
+          handlePaste: (view, _event, slice) => {
+            const { selection } = view.state;
+            if (
+              selection.empty ||
+              !editsAsText(selection) ||
+              slice.size === 0
+            ) {
+              return false;
             }
-            event.preventDefault();
-            globalThis.ReactNativeWebView?.postMessage(
-              JSON.stringify({ type: 'paste' }),
+            const { tr } = view.state;
+            pasteOver(tr, slice);
+            view.dispatch(
+              tr
+                .scrollIntoView()
+                .setMeta('paste', true)
+                .setMeta('uiEvent', 'paste'),
             );
             return true;
           },
@@ -1085,11 +1076,7 @@ const DraftBehavior = Extension.create<unknown, { typing: boolean }>({
           // oxlint-disable-next-line max-params -- ProseMirror's handleDrop signature.
           handleDrop: (view, event, slice, moved) => {
             if (!moved) {
-              if (!carriesFiles(event.dataTransfer)) {
-                return false;
-              }
-              event.preventDefault();
-              return true;
+              return false;
             }
             const target = emptyLineAt(view, event, slice);
             if (target === null) {
@@ -1113,6 +1100,29 @@ const DraftBehavior = Extension.create<unknown, { typing: boolean }>({
           // Text inserted over a selection across lines without a key press, as by dictation or a
           // suggestion, goes through handleTextInput too; ProseMirror would read it from the DOM.
           handleDOMEvents: {
+            // Pasted images and dropped files are read by native code, where it can; the page
+            // never reads the data, so it refuses them before ProseMirror reads their text or HTML.
+            // A drag within the page stays ProseMirror's own.
+            paste: (_view, event) => {
+              if (!carriesFiles(event.clipboardData)) {
+                return false;
+              }
+              event.preventDefault();
+              globalThis.ReactNativeWebView?.postMessage(
+                JSON.stringify({ type: 'paste' }),
+              );
+              return true;
+            },
+            drop: (view, event) => {
+              if (view.dragging !== null || !carriesFiles(event.dataTransfer)) {
+                return false;
+              }
+              event.preventDefault();
+              globalThis.ReactNativeWebView?.postMessage(
+                JSON.stringify({ type: 'drop' }),
+              );
+              return true;
+            },
             beforeinput: (view, event) => {
               const { from, to, $from, $to } = view.state.selection;
               const text = event.data;
@@ -1151,6 +1161,7 @@ const DraftBehavior = Extension.create<unknown, { typing: boolean }>({
               return false;
             }
             // Typing over a selection deletes it as Backspace does first.
+            const { selection } = view.state;
             const tr = from === to ? deflt() : view.state.tr;
             // oxlint-disable-next-line unicorn/no-array-method-this-argument -- ProseMirror Mapping.map takes an association, not an array thisArg.
             let start = tr.mapping.map(from, -1);
@@ -1158,6 +1169,18 @@ const DraftBehavior = Extension.create<unknown, { typing: boolean }>({
               flatDelete(tr, from, to);
               start = tr.selection.from;
               tr.insertText(text);
+              // Text the system replaces in a line before the caret, as automatic capitalization
+              // and correction do, leaves the caret where it was.
+              if (
+                selection.empty &&
+                from < selection.head &&
+                $from.sameParent(view.state.doc.resolve(to))
+              ) {
+                const replaced = new StepMap([from, to - from, text.length]);
+                tr.setSelection(
+                  TextSelection.create(tr.doc, replaced.map(selection.head)),
+                );
+              }
             }
             keepReplaced(tr, [from, to], [start, start + text.length]);
             view.dispatch(word ? tr.setMeta(typing, true) : tr);
@@ -1203,6 +1226,42 @@ const DraftBehavior = Extension.create<unknown, { typing: boolean }>({
   addStorage: () => ({ typing: false }),
 });
 
+// While the host's Slash Command Menu shows, Return, Tab, Up Arrow, Down Arrow and Escape reach the
+// host, which chooses, moves or closes, instead of editing, ahead of every other key handler.
+// Leaving the body closes the menu as Escape does, even one the host opened as the body left.
+let menuOpen = false;
+const postKey = (key: string) => {
+  globalThis.ReactNativeWebView?.postMessage(
+    JSON.stringify({ type: 'key', key }),
+  );
+};
+const menuKey = (key: string) => {
+  if (menuOpen) {
+    postKey(key);
+  }
+  return menuOpen;
+};
+const SlashMenuKeys = Extension.create({
+  name: 'slashMenuKeys',
+  priority: 1100,
+  onBlur: () => {
+    postKey('Escape');
+  },
+  addKeyboardShortcuts: () =>
+    Object.fromEntries(
+      (['Enter', 'Tab', 'ArrowUp', 'ArrowDown', 'Escape'] as const).map(
+        (key) => [key, () => menuKey(key)],
+      ),
+    ),
+});
+
+// Where the line at editor position `at` is in the page's viewport.
+// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Tiptap's editor is a class; this only reads it.
+const caretLine = (editor: TiptapEditor, at: number) => {
+  const { top, bottom } = editor.view.coordsAtPos(at);
+  return { top, bottom };
+};
+
 // The identifiers of the document's Attachments.
 // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ProseMirror's state and transaction are classes; this only reads them.
 const attachmentsOf = ({ doc }: EditorState | Transaction): string[] => {
@@ -1234,11 +1293,20 @@ if (draftEditor !== undefined && element !== null) {
       revision += 1;
     }
     const lines = linesOfDocument(editor.state.doc);
-    const { from, to } = editor.state.selection;
+    const { from, to, $from } = editor.state.selection;
+    // The caret's line, while its text before the caret starts with `/`, as a slash query does.
+    const slashLine =
+      from === to &&
+      /^\s*\//u.test(
+        $from.parent.textBetween(0, $from.parentOffset, undefined, '\uFFFC'),
+      );
+    const replaced: unknown = transaction.getMeta('replaced');
     const update: Update = {
       type: 'update',
       revision,
       ...(frozen ? { frozen: true as const } : {}),
+      ...(isHistoryTransaction(transaction) ? { restored: true as const } : {}),
+      ...(typeof replaced === 'number' ? { replaced } : {}),
       ...(transaction.docChanged || frozen
         ? {
             document: fromEditor(editor.getJSON(), assets),
@@ -1257,6 +1325,7 @@ if (draftEditor !== undefined && element !== null) {
       kind: [...kindsIn(editor)][0] ?? 'paragraph',
       undo: editor.can().undo(),
       redo: editor.can().redo(),
+      ...(slashLine ? { caret: caretLine(editor, from) } : {}),
     };
     // oxlint-disable-next-line unicorn/require-post-message-target-origin -- The native bridge, not a window.
     ReactNativeWebView?.postMessage(JSON.stringify(update));
@@ -1319,6 +1388,7 @@ if (draftEditor !== undefined && element !== null) {
       Tables,
       UndoRedo.configure({ newGroupDelay: Number.MAX_SAFE_INTEGER }),
       DraftBehavior,
+      SlashMenuKeys,
     ],
     enableInputRules: false,
     enablePasteRules: false,
@@ -1344,11 +1414,13 @@ if (draftEditor !== undefined && element !== null) {
       return;
     }
     const { state, view } = editor;
-    const tr = state.tr.replaceWith(
-      0,
-      state.doc.content.size,
-      ProseMirrorNode.fromJSON(state.schema, toEditor(body)).content,
-    );
+    const tr = state.tr
+      .replaceWith(
+        0,
+        state.doc.content.size,
+        ProseMirrorNode.fromJSON(state.schema, toEditor(body)).content,
+      )
+      .setMeta('replaced', base);
     const lines = linesOfDocument(tr.doc);
     view.dispatch(
       tr.setSelection(
@@ -1458,6 +1530,10 @@ if (draftEditor !== undefined && element !== null) {
   };
   // fallow-ignore-next-line complexity -- One dispatcher maps each host command to its page edit.
   globalThis.draftCommand = (command) => {
+    if (command.type === 'menu') {
+      menuOpen = command.open;
+      return;
+    }
     if (
       !editor.isEditable &&
       command.type !== 'editable' &&
@@ -1499,6 +1575,14 @@ if (draftEditor !== undefined && element !== null) {
       replace(command);
     }
   };
+  // The Slash Command Menu follows its line as the page scrolls or resizes, which can rewrap it.
+  const follow = () => {
+    if (menuOpen) {
+      post(editor, editor.state.tr);
+    }
+  };
+  globalThis.addEventListener('scroll', follow, { passive: true });
+  globalThis.addEventListener('resize', follow);
   // The host offers its controls once the page reports, so no command arrives before this.
   post(editor, editor.state.tr);
 }

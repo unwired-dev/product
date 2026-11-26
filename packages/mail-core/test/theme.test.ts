@@ -86,6 +86,7 @@ const codeOnly = new Set([
   'profileGraphite',
   // Single values with no variable yet.
   'statusSuccess',
+  'fillBanner',
   'radiusMenu',
   'radiusAlertMac',
   'radiusAlertTouch',

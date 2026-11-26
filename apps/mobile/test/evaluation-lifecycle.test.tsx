@@ -1,7 +1,14 @@
 import { ok } from 'node:assert/strict';
 
-import { createDrafts, draftsOf } from '@private-email/mail-core/drafts';
-import { createSyntheticDrafts } from '@private-email/mail-core/testing/drafts';
+import {
+  createDrafts,
+  draftOf,
+  draftsOf,
+} from '@private-email/mail-core/drafts';
+import {
+  createSyntheticDrafts,
+  createSyntheticProductSync,
+} from '@private-email/mail-core/testing/drafts';
 import { createMockMailSession } from '@private-email/mail-core/testing/mock-session';
 import {
   act,
@@ -16,7 +23,7 @@ import type { useComposerNavigation } from '../src/mailbox.tsx';
 
 import { ComposerLayoutContext } from '../src/composer.tsx';
 import { AssistanceContext } from '../src/message-summary.tsx';
-import { App, registration } from './evaluation-app.tsx';
+import { alex, App, registration } from './evaluation-app.tsx';
 import { press, simulatedPage } from './evaluation-page.ts';
 
 // oxlint-disable-next-line vitest/prefer-import-in-mock -- Jest requires a module name, not a dynamic import.
@@ -130,6 +137,148 @@ describe('evaluation composer lifetime', () => {
     });
     expect(allowed).toBeUndefined();
   });
+
+  it('journals unsaved edits and restores them in the page (#2944)', async () => {
+    expect.hasAssertions();
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    const first = await render(<App drafts={drafts} />);
+    await press('New Message');
+    await fireEvent.changeText(
+      screen.getByLabelText('Subject'),
+      'Unsaved plan',
+    );
+    await simulatedPage().typed('Typed before the app ended');
+    // A few seconds after the edits, the editor journals them without storing the Draft.
+    await waitFor(
+      () => {
+        expect(storage.recoveryRecords().size).toBe(1);
+      },
+      { timeout: 4000 },
+    );
+    // The app ends without Close.
+    await first.unmount();
+    const reopened = createDrafts(storage.native, registration);
+    await reopened.load();
+    const records = await reopened.recovered();
+    ok(records, 'Expected storage to read the recovery records');
+    const [record] = records;
+    ok(record?.base, 'Expected a recovery record with its stored version');
+    expect(record.base.subject).toBe('');
+    // Restore, as the launch's offer answers it, opens the page on the recovered edits.
+    reopened.take(record.version.id);
+    await render(
+      <App
+        drafts={reopened}
+        restore={{ version: record.version, base: record.base }}
+      />,
+    );
+    expect(
+      screen.getByTestId('message-webview').props
+        .injectedJavaScriptBeforeContentLoaded,
+    ).toContain('"spans":[{"text":"Typed before the app ended"}]');
+    expect(screen.getByLabelText('Subject')).toHaveProp(
+      'value',
+      'Unsaved plan',
+    );
+    // Close asks to save them, and Save Draft stores them and removes the record.
+    await simulatedPage().report({});
+    await press('Close');
+    await press('Save Draft');
+    await waitFor(() => {
+      expect(storage.recoveryRecords().size).toBe(0);
+    });
+    expect(draftsOf(reopened.getSnapshot())).toMatchObject([
+      {
+        subject: 'Unsaved plan',
+        body: [
+          {
+            kind: 'paragraph',
+            spans: [{ text: 'Typed before the app ended' }],
+          },
+        ],
+      },
+    ]);
+  }, 15_000);
+
+  it('saves a restored page into its copy when Product Sync moves the Draft (#2944)', async () => {
+    expect.hasAssertions();
+    const account = () => 'synthetic-product-account';
+    const server = createSyntheticProductSync();
+    const here = createSyntheticDrafts(account, { server, device: 'here' });
+    const there = createSyntheticDrafts(account, { server, device: 'there' });
+    ok(here.sync);
+    ok(there.sync);
+    const options = { native: here.sync, delay: 60_000 };
+    const phone = createDrafts(here.native, registration, options);
+    const remote = createDrafts(there.native, registration, {
+      native: there.sync,
+      delay: 60_000,
+    });
+    await phone.load();
+    const id = await phone.create({
+      id: alex,
+      address: 'alex@example.invalid',
+    });
+    ok(id);
+    await phone.sync();
+    await remote.load();
+    await remote.sync();
+    const before = draftOf(phone.getSnapshot(), id);
+    const remoteBefore = draftOf(remote.getSnapshot(), id);
+    ok(before);
+    ok(remoteBefore);
+    // Another device changes the Draft while this one, offline, stores and journals its own edits.
+    await remote.update({ ...remoteBefore, subject: 'Remote' }, remoteBefore);
+    await remote.sync();
+    server.setReachable(false);
+    await phone.update({ ...before, subject: 'Stored locally' }, before);
+    const base = draftOf(phone.getSnapshot(), id);
+    ok(base);
+    await expect(
+      phone.journal({ ...base, subject: 'Recovered edit' }, base),
+    ).resolves.toBe(true);
+    const reopened = createDrafts(here.native, registration, options);
+    await reopened.load();
+    await reopened.sync();
+    const records = await reopened.recovered();
+    ok(records, 'Expected storage to read the recovery records');
+    const [recovered] = records;
+    ok(recovered?.base);
+    reopened.take(id);
+    await render(
+      <App
+        drafts={reopened}
+        restore={{ version: recovered.version, base: recovered.base }}
+      />,
+    );
+    // Product Sync moves the stored version to a conflicting copy, and the restored page follows it.
+    server.setReachable(true);
+    await act(async () => {
+      await reopened.sync();
+    });
+    const copy = draftsOf(reopened.getSnapshot()).find(
+      (draft) => draft.subject === 'Stored locally',
+    );
+    ok(copy?.conflict);
+    await press('Close');
+    await press('Save Draft');
+    await waitFor(() => {
+      expect(screen.queryByTestId('message-webview')).toBeNull();
+    });
+    expect(
+      draftsOf(reopened.getSnapshot()).map((draft) => ({
+        id: draft.id,
+        subject: draft.subject,
+      })),
+    ).toStrictEqual(
+      expect.arrayContaining([
+        { id: copy.id, subject: 'Recovered edit' },
+        { id, subject: 'Remote' },
+      ]),
+    );
+    expect(draftsOf(reopened.getSnapshot())).toHaveLength(2);
+  }, 15_000);
 
   it('continues pending navigation after the current Draft is saved', async () => {
     expect.hasAssertions();
