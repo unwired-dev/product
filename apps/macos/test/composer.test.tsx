@@ -7050,16 +7050,9 @@ describe('adding files and images to a Draft', () => {
     expect(
       screen.getByLabelText('large.mov, Not added: cancelled'),
     ).toBeOnTheScreen();
-    expect(
-      screen.getByText(
-        'Files that were not added are not sent with this Draft. Remove them and add them again.',
-      ),
-    ).toBeOnTheScreen();
     expect(storage.assets()).toHaveLength(2);
     await press('Remove large.mov');
-    expect(
-      screen.queryByText('Files that were not added', { exact: false }),
-    ).toBeNull();
+    expect(screen.queryByLabelText('large.mov', { exact: false })).toBeNull();
 
     // Editing while an import completes neither loses the edit nor creates a conflicting copy.
     storage.holdImports();
@@ -7122,6 +7115,50 @@ describe('adding files and images to a Draft', () => {
       title: 'Send Now',
       disabled: true,
     });
+  });
+
+  it('says why a file was not added, and Try Again adds it without a picker', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    await render(
+      <App
+        drafts={drafts}
+        registration={registration}
+      />,
+    );
+    await press('New Message');
+    storage.addFile('file:///notes.txt', 'notes');
+    storage.pickNext('files', [
+      { uri: 'file:///notes.txt', name: 'notes.txt', type: 'text/plain' },
+    ]);
+    storage.failNextImport('locked');
+    await press('Attach Files…');
+    // An unknown reason reads "Wasn't added"; Try Again reads the same file again.
+    await expect(
+      screen.findByLabelText('notes.txt, Wasn’t added'),
+    ).resolves.toBeOnTheScreen();
+    storage.holdImports();
+    await press('Try Again to add notes.txt');
+    await expect(
+      screen.findByLabelText('notes.txt, Adding…'),
+    ).resolves.toBeOnTheScreen();
+    expect(screen.getByLabelText('Cancel adding notes.txt')).toBeOnTheScreen();
+    expect(screen.queryByLabelText('Try Again to add notes.txt')).toBeNull();
+    // Named above the body even while To says why Send is unavailable.
+    expect(
+      screen.getByLabelText(
+        '“notes.txt” is still importing. Wait for it, or remove it, to send.',
+      ),
+    ).toBeOnTheScreen();
+    await act(async () => {
+      storage.releaseImports();
+    });
+    await expect(
+      screen.findByLabelText('notes.txt, 5 bytes'),
+    ).resolves.toBeOnTheScreen();
+    expect(storage.discardedPicks()).toStrictEqual([]);
   });
 
   it('pastes an inline image, attaches a dropped file, and shows damaged bytes as unavailable', async () => {

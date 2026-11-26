@@ -572,7 +572,7 @@ function EvaluationEditor({
     if (busy.current) {
       return;
     }
-    void store.cancelImport(id);
+    void store.cancelImport(id, { removed: true });
     run({ type: 'remove', id });
   };
   // Verified thumbnails of the body's images, which the image rows read and read again on

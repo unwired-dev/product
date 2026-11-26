@@ -203,6 +203,7 @@ static NSImage *UnwiredSymbolImage(NSString *name, CGFloat size, NSFontWeight we
 @property (nonatomic) BOOL enabled;
 @property (nonatomic) BOOL returnKey;
 @property (nonatomic) BOOL escapeKey;
+@property (nonatomic, copy) NSString *help;
 @property (nonatomic, copy) RCTDirectEventBlock onPress;
 @end
 
@@ -231,6 +232,13 @@ static NSImage *UnwiredSymbolImage(NSString *name, CGFloat size, NSFontWeight we
 - (BOOL)isAccessibilityElement { return NO; }
 - (void)setText:(NSString *)text { _text = [text copy]; [self render]; }
 - (void)setLabel:(NSString *)label { _label = [label copy]; _button.accessibilityLabel = label; }
+// The tooltip, which VoiceOver reads as the button's help.
+- (void)setHelp:(NSString *)help
+{
+  _help = [help copy];
+  _button.toolTip = help;
+  _button.accessibilityHelp = help;
+}
 - (void)setTint:(NSColor *)tint { _tint = [tint copy]; [self render]; }
 - (void)setTextColor:(NSColor *)textColor { _textColor = [textColor copy]; [self render]; }
 - (void)setFocusColor:(NSColor *)focusColor { _focusColor = [focusColor copy]; _button.focusColor = focusColor; }
@@ -1825,6 +1833,7 @@ RCT_EXPORT_VIEW_PROPERTY(destructive, BOOL)
 RCT_EXPORT_VIEW_PROPERTY(enabled, BOOL)
 RCT_EXPORT_VIEW_PROPERTY(returnKey, BOOL)
 RCT_EXPORT_VIEW_PROPERTY(escapeKey, BOOL)
+RCT_EXPORT_VIEW_PROPERTY(help, NSString)
 RCT_EXPORT_VIEW_PROPERTY(onPress, RCTDirectEventBlock)
 - (UnwiredPlatformView *)view { return [UnwiredPushButtonView new]; }
 @end

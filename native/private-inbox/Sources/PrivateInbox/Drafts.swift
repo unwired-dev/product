@@ -240,12 +240,13 @@ extension RegistrationStore {
       throw RegistrationError.unavailable
     }
     guard file != nil || data != nil else { throw RegistrationError.unavailable }
-    defer { if let file { Self.discardPickedDraftFile(file) } }
     let (_, imported) = try await draftWork { [file, data] store, current in
       guard owner == current else { throw PrivateInboxError.mailboxInvalidated }
       let bytes = try file.map(Self.draftFileBytes) ?? Self.draftDataBytes(data ?? "")
       return try store.importDraftAsset(owner: owner, id: id, bytes: bytes)
     }
+    // A failed import keeps a picked copy for Try Again; JavaScript discards it, or launch does.
+    if let file { Self.discardPickedDraftFile(file) }
     return ["owner": owner, "size": imported.size, "digest": imported.digest]
   }
 
