@@ -659,8 +659,9 @@ describe('the device that notifies for a reminder', () => {
     await phone.remind('work', evening);
     await phone.synchronize();
     await mac.synchronize();
-    await expect(notified(phone)).resolves.toStrictEqual([evening.dueAt]);
-    await expect(notified(mac)).resolves.toStrictEqual([]);
+    await expect(
+      Promise.all([notified(mac), notified(phone)]),
+    ).resolves.toStrictEqual([[], [evening.dueAt]]);
 
     // Choosing the time it already has makes no new revision, so the Mac takes nothing over.
     await mac.remind('work', evening);
