@@ -1254,6 +1254,7 @@
       "title": "Slash commands",
       "basicBlocks": "Basic Blocks",
       "text": "Text",
+      "marked": "{{title}}, {{marker}}",
       "insert": "Insert",
       "attachFile": "Attach File…",
       "insertImage": "Insert Image…"

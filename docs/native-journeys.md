@@ -515,6 +515,25 @@ reopens the page with the same subject and body. A second force quit offers the
 record again, Discard removes it, and a third launch offers nothing. The restored
 page is kept as an attachment.
 
+## Mac Slash Command Menu journey
+
+The `testSlashCommandMenu` journey and its `Dark` variant use the same
+`registration-performance` `Testing` build and sign-in as the
+[performance journey](#mac-performance-journey)
+([#2789](https://github.com/unwired-dev/product/issues/2789)):
+
+```sh
+mise exec -- pnpm --filter @private-email/macos test:native \
+  "$PWD/artifacts/macos-inbox/DerivedData/Build/Products/Testing/UnwiredMail.app" \
+  testSlashCommandMenu
+```
+
+A New Message body gets `Hi`, a new line and `/`, which opens the Basic Blocks
+under it. Typing `he` leaves the three headings; Down Arrow and Return set
+Heading 2, which the **Text style** pop-up shows, and remove the query. After
+typing, two Command-Z take back the typing and then restore `/he` as a
+paragraph. The open and filtered menus are kept as attachments.
+
 ## Mac list indent journey
 
 The `testListIndent` journey and its `Dark` variant use the same

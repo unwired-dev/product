@@ -98,6 +98,72 @@ final class WindowTests: XCTestCase {
     XCTAssertEqual(token.count, 0)
   }
 
+  // #2789: / first in a body block opens the Slash Command Menu's Basic Blocks under it; typing
+  // filters them, Down and Return set the block, and one Undo restores the typed query.
+  func testSlashCommandMenu() throws {
+    try slashCommandMenu(appearance: "Light")
+  }
+
+  func testSlashCommandMenuDark() throws {
+    try slashCommandMenu(appearance: "Dark")
+  }
+
+  private func slashCommandMenu(appearance: String) throws {
+    continueAfterFailure = false
+    let environment = ProcessInfo.processInfo.environment
+    XCTAssertEqual(environment["UNWIRED_TEST_SCENARIO"], "registration-performance")
+    let app = XCUIApplication(url: URL(fileURLWithPath: try XCTUnwrap(environment["UNWIRED_APP_PATH"])))
+    app.launchArguments += [
+      "-ApplePersistenceIgnoreState", "YES", "-interfaceLanguage", "en",
+      "-UnwiredAppearance", appearance.lowercased(),
+    ]
+    app.launch()
+    addTeardownBlock { if app.state != .notRunning { app.terminate() } }
+    let window = app.windows["Inbox 1"]
+    performanceSetup(app, window: window)
+    func attach(_ name: String) {
+      let attachment = XCTAttachment(screenshot: window.screenshot())
+      attachment.name = "\(name) (\(appearance))"
+      attachment.lifetime = .keepAlways
+      add(attachment)
+    }
+    window.buttons["New Message"].click()
+    let body = window.textViews.firstMatch
+    XCTAssertTrue(body.waitForExistence(timeout: 15))
+    XCTAssertTrue(window.buttons["Undo"].waitForExistence(timeout: 30))
+    let style = window.popUpButtons["Text style"]
+    body.click()
+    body.typeText("Hi")
+    app.typeKey(.return, modifierFlags: [])
+    app.typeText("/")
+    // The menu's rows are its accessible elements, each read with its Markdown marker.
+    let text = window.buttons["Text"]
+    XCTAssertTrue(text.waitForExistence(timeout: 10))
+    XCTAssertTrue(window.buttons["Code Block, ```"].exists)
+    XCTAssertGreaterThan(text.frame.minY, body.frame.minY)
+    attach("Slash Command Menu")
+    app.typeText("he")
+    let second = window.buttons["Heading 2, ##"]
+    XCTAssertTrue(text.waitForNonExistence(timeout: 10))
+    XCTAssertTrue(second.exists)
+    attach("Slash Command Menu filtered")
+    // Down then Return sets Heading 2 and removes the query, keeping focus in the body.
+    app.typeKey(.downArrow, modifierFlags: [])
+    app.typeKey(.return, modifierFlags: [])
+    XCTAssertTrue(second.waitForNonExistence(timeout: 10))
+    waitUntil { body.value as? String == "Hi\n" }
+    waitUntil { (style.value as? String) == "Heading 2" }
+    app.typeText("Plan")
+    waitUntil { body.value as? String == "Hi\nPlan" }
+    // Undo takes back the typing, then restores the query as typed, as a paragraph.
+    app.typeKey("z", modifierFlags: .command)
+    waitUntil { body.value as? String == "Hi\n" }
+    app.typeKey("z", modifierFlags: .command)
+    waitUntil { body.value as? String == "Hi\n/he" }
+    waitUntil { (style.value as? String) == "Body" }
+    XCTAssertFalse(window.buttons["Heading 1, #"].exists)
+  }
+
   // #2597: Outdent and Indent follow the list buttons; Format › Increase Indent (Command-]) and
   // Decrease Indent (Command-[) and Tab and Shift-Tab nest the item three levels deep, Indent
   // switches off at the third, and each change is one Undo step.

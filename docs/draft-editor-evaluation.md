@@ -178,7 +178,8 @@ the current composer's:
   tool removes it and runs as from the format bar, once the page reports that its
   replacement made the edit, so a removal the page refused as stale runs neither.
   Moving the caret or leaving the body closes the menu, and an Undo or Redo that
-  restores a `/` does not open it. The Mac page has none, as the Mac composer has none yet.
+  restores a `/` does not open it. The Mac page has none yet; the Mac composer's menu
+  ([#2789](https://github.com/unwired-dev/product/issues/2789)) is its reference.
 - **Paste.** Pasted HTML keeps only supported meaning: headings one to three,
   paragraphs, lists, quotes, code and the five marks. Smaller headings, tables and
   styled text become paragraphs; a heading or code inside a quote or list item
