@@ -154,8 +154,8 @@ release limit:
    and the current composer's interactions the page lacks, such as the Slash
    Command Menu. Typing and formatting feedback in Mac `Testing` builds is
    measured by [#2962](https://github.com/unwired-dev/product/issues/2962): the
-   page's p95 from key press to edit was 17.7 ms for typing and 22.5 ms from the
-   format bar, against the current composer's 17.6 and 33.0 ms; neither met the
+   page's p95 from key press to edit was 17.1 ms for typing and 21.9 ms from the
+   format bar, against the current composer's 17.2 and 41.7 ms; neither met the
    next-rendered-frame criterion in every group
    ([evidence](../draft-editor-evaluation.md#typing-response-2962)).
    A Release comparison, physical devices and the rest of the comparison remain.

@@ -741,7 +741,7 @@ and formatting feedback in both Mac composers, against the
 The [typing response journey](native-journeys.md#mac-typing-response-journey) ran
 on 2026-11-26 on the Mac reference host: a Mac mini M4 (`Mac16,10`) with 16 GB
 memory on macOS 27.2.1 (`26B131`), Xcode 27.2 (`27B52`), with a 60 Hz display
-and a 1-minute load of 5.3 to 6.4 around the page's run and 3.3 to 9.0 around
+and a 1-minute load of 3.5 to 4.1 around the page's run and 3.2 to 4.5 around
 the current composer's, recorded before and after each. The builds were
 `Testing` builds of main at `01c50416b` plus this journey:
 `registration-performance` for the current composer and
@@ -756,25 +756,28 @@ the expected text and marks; "drawn" to the end of the first draw after it.
 
 | Composer | Steps            | Edit p50 | Edit p95 | Drawn p95 | Late  |
 | -------- | ---------------- | -------- | -------- | --------- | ----- |
-| Current  | Typing           | 7.5 ms   | 17.6 ms  | 19.1 ms   | 0/20  |
-| Current  | After Command-B  | 14.4 ms  | 23.6 ms  | 24.8 ms   | 1/11  |
-| Current  | Shortcuts        | 14.7 ms  | 20.1 ms  | 21.9 ms   | 0/12  |
-| Current  | Format bar       | 25.1 ms  | 33.0 ms  | 49.7 ms   | 12/12 |
-| Current  | After collapsing | 4.7 ms   | 11.7 ms  | 13.3 ms   | 0/4   |
-| Page     | Typing           | 4.6 ms   | 17.7 ms  | 18.7 ms   | 4/20  |
-| Page     | After Command-B  | 4.9 ms   | 17.7 ms  | 19.7 ms   | 1/11  |
-| Page     | Shortcuts        | 13.6 ms  | 20.1 ms  | 21.1 ms   | 6/12  |
-| Page     | Format bar       | 14.0 ms  | 22.5 ms  | 23.5 ms   | 4/12  |
-| Page     | After collapsing | 11.5 ms  | 14.3 ms  | 15.3 ms   | 0/4   |
+| Current  | Typing           | 6.4 ms   | 17.2 ms  | 18.7 ms   | 0/20  |
+| Current  | After Command-B  | 5.4 ms   | 13.5 ms  | 14.4 ms   | 0/11  |
+| Current  | Shortcuts        | 15.0 ms  | 17.3 ms  | 19.0 ms   | 0/12  |
+| Current  | Format bar       | 29.1 ms  | 41.7 ms  | 54.0 ms   | 12/12 |
+| Current  | After collapsing | 5.9 ms   | 11.7 ms  | 13.1 ms   | 0/4   |
+| Page     | Typing           | 10.3 ms  | 17.1 ms  | 19.1 ms   | 5/20  |
+| Page     | After Command-B  | 5.5 ms   | 16.9 ms  | 19.9 ms   | 3/11  |
+| Page     | Shortcuts        | 11.7 ms  | 23.2 ms  | 24.2 ms   | 3/12  |
+| Page     | Format bar       | 17.3 ms  | 21.9 ms  | 23.0 ms   | 7/12  |
+| Page     | After collapsing | 2.4 ms   | 3.6 ms   | 4.6 ms    | 0/4   |
 
-No main-queue stall of 100 ms or longer fell within a sample. The page's run
-recorded two stalls outside them, 113 and 138 ms, while it signed in. Only the
-current composer's typing, shortcuts and collapsed typing and the page's
-collapsed typing met the next-rendered-frame criterion at p95. The page's format
-bar was about 10 ms faster than the current composer's, whose every format bar
-sample drew a frame or two late; plain typing and the shortcuts were within a
-millisecond of each other at p95. Evidence is in
-`artifacts/macos-inbox/journey.WB9v3N/` (current) and `journey.FcXTbH/` (page).
+No main-queue stall of 100 ms or longer fell within a sample; each run recorded
+one outside them, 115 ms in the current composer's and 151 ms in the page's.
+Only the current composer's typing after Command-B and after collapsing and the
+page's typing after collapsing met the next-rendered-frame criterion. The
+page's format bar was about 20 ms faster than the current composer's at p95,
+and the current composer drew every format bar sample a frame or more late.
+Plain typing was within a millisecond at p95; the page's shortcuts were about
+6 ms slower, and the page drew more samples late in typing, after Command-B
+and in the shortcuts. Evidence
+is in `artifacts/macos-inbox/journey.PhgOWb/` (current) and `journey.Yqr1DL/`
+(page).
 
 The two ends differ in what they observe. The current composer's draw is its
 text view's `drawRect:` in the app. The page's is the end of WebKit's rendering
@@ -785,7 +788,7 @@ The page's times have a resolution of 1 ms.
 
 Typing after Command-B and after collapsing the selection each made the page edit
 twice: WebKit inserted the character with the previous marks, and ProseMirror
-corrected them 1 to 4 ms later. No draw fell between the two edits. With the
+corrected them within 4 ms. No draw fell between the two edits. With the
 system's inline predictions on, three key presses after "feedb" arrived about 5 s
 late in the page ([#2966](https://github.com/unwired-dev/product/issues/2966)), so
 both runs turn them off. These are `Testing` builds on one host, one run each,
