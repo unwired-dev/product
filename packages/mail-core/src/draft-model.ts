@@ -173,8 +173,9 @@ export const OutboxEntrySchema = Schema.Struct({
   // returns to them, and the response is recorded in its mailbox once the server accepts it.
   invitation: Schema.optionalKey(InvitationAnswerSchema),
   // A confirmed `mailto:` unsubscribe request: the Product Account and Mail Profile it is recorded
-  // for once it is sent, the list it leaves and the message that offered it. Its Draft never
-  // existed in the Drafts either, so it never returns to them.
+  // for once it is sent, the list it leaves, the message that offered it and the unknown requests
+  // it tries again, which it is never sent after. Its Draft never existed in the Drafts either, so
+  // it never returns to them.
   unsubscribe: Schema.optionalKey(
     Schema.Struct({
       account: Schema.NonEmptyString,
@@ -182,6 +183,7 @@ export const OutboxEntrySchema = Schema.Struct({
       list: Schema.String,
       identity: Schema.optionalKey(Schema.NonEmptyString),
       message: Schema.String,
+      retries: Schema.optionalKey(Schema.Array(Schema.NonEmptyString)),
     }),
   ),
 });

@@ -86,13 +86,23 @@ async function receiver(provider: Provider, state = 'connected', smtp = true) {
     phone.registration,
   );
   await mailboxes.load();
-  // The device's sent unsubscribe requests, kept in memory as native storage would.
-  const kept = { revision: 0, document: null as string | null };
+  // The device's sent unsubscribe requests, kept in memory as native storage would; a commit
+  // finishes once `hold` resolves.
+  const kept = {
+    revision: 0,
+    document: null as string | null,
+    hold: Promise.resolve(),
+  };
   const unsubscribe = createUnsubscribe(
     {
       requestUnsubscribe: async () => ({ outcome: 'failed' }),
-      openUnsubscribeRequests: async () => ({ owner: account, ...kept }),
+      openUnsubscribeRequests: async () => ({
+        owner: account,
+        revision: kept.revision,
+        document: kept.document,
+      }),
       commitUnsubscribeRequests: async (owner, expectedRevision, document) => {
+        await kept.hold;
         Object.assign(kept, { revision: expectedRevision + 1, document });
         return { owner, revision: kept.revision };
       },
@@ -439,6 +449,7 @@ describe('recording a mailto unsubscribe request', () => {
           identity: listed.identity,
           list: listed.list,
           sentAt: clock.now,
+          to: listed.address,
         });
       } finally {
         phone.outbox.dispose();
@@ -584,6 +595,85 @@ describe('recording a mailto unsubscribe request', () => {
       await expect(
         phone.unsubscribe.sentRequest(profile, listed, clock.now),
       ).resolves.toMatchObject({ sentAt: clock.now });
+    } finally {
+      phone.outbox.dispose();
+    }
+  });
+
+  // Leaves the request from Gmail unknown: Gmail took it, but its answer was lost.
+  const lose = async (phone: Awaited<ReturnType<typeof receiver>>) => {
+    const id = await start(phone);
+    phone.gmail.failSend({ lost: true });
+    later(undoSendWindow);
+    await phone.outbox.process();
+    expect(pending(phone)?.state).toBe('unknown');
+    return id;
+  };
+
+  it('never sends a retry once the unknown request it tries again is found sent', async () => {
+    expect.hasAssertions();
+    const phone = await receiver('gmail');
+    try {
+      const id = await lose(phone);
+      const retry = await start(phone);
+      await phone.outbox.check(id);
+      later(undoSendWindow);
+      await phone.outbox.process();
+
+      await vi.waitFor(() => {
+        expect(phone.outbox.getSnapshot()).toStrictEqual([]);
+      });
+      expect(phone.gmail.sends).toHaveLength(1);
+      expect(phone.outbox.delivered(retry)).toStrictEqual(
+        phone.outbox.delivered(id),
+      );
+    } finally {
+      phone.outbox.dispose();
+    }
+  });
+
+  it('answers with an unknown request found sent while it is recorded, in place of trying it again', async () => {
+    expect.hasAssertions();
+    const phone = await receiver('gmail');
+    try {
+      const id = await lose(phone);
+      const recorded = Promise.withResolvers<undefined>();
+      phone.kept.hold = recorded.promise;
+      const checked = phone.outbox.check(id);
+      await vi.waitFor(() => {
+        expect(phone.outbox.delivered(id)).toBeDefined();
+      });
+
+      await expect(start(phone)).resolves.toBe(id);
+      recorded.resolve(undefined);
+      await checked;
+      await vi.waitFor(() => {
+        expect(phone.outbox.getSnapshot()).toStrictEqual([]);
+      });
+      expect(phone.gmail.sends).toHaveLength(1);
+    } finally {
+      phone.outbox.dispose();
+    }
+  });
+
+  it('answers for the message that offered a request without a list identity once it is sent', async () => {
+    expect.hasAssertions();
+    const phone = await receiver('gmail');
+    try {
+      waitingId(
+        await phone.outbox.unsubscribe(receiving.gmail.id, offer, source),
+      );
+      later(undoSendWindow);
+      await phone.outbox.process();
+
+      await vi.waitFor(() => {
+        expect(
+          phone.outbox.emailedUnsubscribe(receiving.gmail.id, source),
+        ).toStrictEqual({ at: clock.now, to: offer.address });
+      });
+      expect(
+        phone.outbox.emailedUnsubscribe(receiving.gmail.id, '8.INBOX'),
+      ).toBeUndefined();
     } finally {
       phone.outbox.dispose();
     }

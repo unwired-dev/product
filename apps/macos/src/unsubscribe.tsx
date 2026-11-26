@@ -83,8 +83,7 @@ type Entry = Readonly<{
   outcome?: Outcome;
   requests?: readonly string[];
 }>;
-// A sent outcome names `to` only when this message's `mailto:` request was emailed there; a stored
-// record does not say how a request was sent.
+// A sent outcome names `to` only when a `mailto:` request was emailed there.
 type Outcome =
   | Readonly<{ kind: 'sent'; at: number; to?: string }>
   | Readonly<{ kind: Exclude<UnsubscribeOutcome, 'sent'> }>
@@ -243,16 +242,18 @@ const emailed = (at: number, to: string | undefined): Outcome => ({
   ...(to === undefined ? {} : { to }),
 });
 
-// The first of the message `key` names' `requests` the Outbox confirmed, and to whom when it knows;
-// kept for the session once found.
+// The first of the message `key` names' `requests` the Outbox confirmed, else a request the Outbox
+// confirmed this session for the message from `connection`, and to whom when it knows; kept for the
+// session once found.
 function useConfirmed(
   key: string,
   requests: readonly string[] | undefined,
+  { connection, message }: Readonly<{ connection: string; message: string }>,
 ): Outcome {
   const outbox = useOutbox();
-  const found = requests
-    ?.map(outbox.delivered)
-    .find((each) => each !== undefined);
+  const found =
+    requests?.map(outbox.delivered).find((each) => each !== undefined) ??
+    outbox.emailedUnsubscribe(connection, message);
   const at = found?.at;
   const to = found?.to;
   useEffect(() => {
@@ -307,7 +308,10 @@ function useOffer(inbox: Source, id: string) {
       );
     }
   }, [key, pendingId]);
-  const confirmed = useConfirmed(key, entry.requests);
+  const confirmed = useConfirmed(key, entry.requests, {
+    connection,
+    message: id,
+  });
   const outcome = outcomeOf(entry, pending, confirmed);
   const retry = outcome?.kind === 'failed' || outcome?.kind === 'uncertain';
   // Sends the request once; a press before the stored request is known, while one is under way or
@@ -715,7 +719,7 @@ export function UnsubscribeBanner({
               // A stored request supersedes a failure cached before it was sent from elsewhere.
               ...(request === undefined || each.outcome?.kind === 'sent'
                 ? {}
-                : { outcome: { kind: 'sent', at: request.sentAt } }),
+                : { outcome: emailed(request.sentAt, request.to) }),
             }
           : each,
       );

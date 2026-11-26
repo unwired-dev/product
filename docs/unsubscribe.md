@@ -92,7 +92,10 @@ time: while the Outbox holds a request for the same connection and list, a
 second confirmation, as from another window, answers with that request, and
 only a refused or unknown one is tried again. Trying one again sends the same
 recipient, subject and body, never another message's offer for the list, and a
-refused one leaves the Outbox once its retry is admitted.
+refused one leaves the Outbox once its retry is admitted. A retry keeps the
+identifiers of the unknown requests it tries again: once one of them is
+confirmed, a further confirmation answers with that one, and a retry not yet
+handed off leaves the Outbox unsent, answering as that one did.
 
 It waits in the Outbox under the Undo Send Window and is then claimed and sent
 like any message, so it appears in the connection's Sent mailbox and an
@@ -112,14 +115,17 @@ the newest request the Outbox holds for the list with that Mailing List
 Identity, or, for a list without one, for that message, so two lists sharing an
 address never take each other's state. `outbox.delivered(id)` says when one
 that left was confirmed and, for a request confirmed this session, to whom, even
-after the capped Sent history forgets it.
+after the capped Sent history forgets it. `outbox.emailedUnsubscribe(connection,
+message)` says the same of a request confirmed this session for the message
+that offered it, so a reader that never saw the request's identifier, as after
+a relaunch, still shows it sent.
 
-| Result                      | When                                                                                                                 |
-| --------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| `{ kind: 'waiting', id }`   | The request waits in the Outbox as `id`, which Undo takes.                                                           |
-| `{ kind: 'receive-only' }`  | The connection is an IMAP connection without SMTP, which receives only. Nothing is sent.                             |
-| `{ kind: 'authorization' }` | The connection must be signed in again before it can send. Nothing is sent.                                          |
-| `{ kind: 'failed' }`        | The connection is gone or its IMAP server lists no Sent folder yet, or storage refused the request. Nothing is sent. |
+| Result                      | When                                                                                                                  |
+| --------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `{ kind: 'waiting', id }`   | The request waits in the Outbox as `id`, which Undo takes, or an unknown request it would try again was sent as `id`. |
+| `{ kind: 'receive-only' }`  | The connection is an IMAP connection without SMTP, which receives only. Nothing is sent.                              |
+| `{ kind: 'authorization' }` | The connection must be signed in again before it can send. Nothing is sent.                                           |
+| `{ kind: 'failed' }`        | The connection is gone or its IMAP server lists no Sent folder yet, or storage refused the request. Nothing is sent.  |
 
 `receive-only` and `authorization` are not failures, so the reader can say why
 the connection cannot send.
@@ -130,8 +136,10 @@ the connection cannot send.
 Its `request(profile, offer)` sends the request as above and, when it ends
 `sent`, records it for `profile`, the Mail Profile that owns the receiving
 connection, and for the Product Account signed in when the request started: the
-Mailing List Identity, the list's name and the time it was sent. The record
-holds no unsubscribe URI, other header value or request body. A later request
+Mailing List Identity, the list's name and the time it was sent, and for a
+`mailto:` request the address it was emailed to, so a reopened message says
+where it went and that it is in Sent. The record holds no unsubscribe URI,
+other header value or request body. A later request
 to the same list from that Profile replaces the earlier one. `failed` and
 `uncertain` record nothing, nor does an offer without a Mailing List Identity or
 an answer that arrives after another account signed in.

@@ -223,13 +223,15 @@ export const requestUnsubscribe = (
   );
 
 // A request to leave a mailing list that ended `sent`: the Mail Profile that owns the receiving
-// connection, the list's Mailing List Identity and name, and when it was sent in milliseconds since
-// the epoch. It holds no unsubscribe URI, raw header or request body.
+// connection, the list's Mailing List Identity and name, when it was sent in milliseconds since
+// the epoch, and the address a `mailto:` request was emailed to. It holds no unsubscribe URI, raw
+// header or request body.
 const SentRequestSchema = Schema.Struct({
   profile: Schema.NonEmptyString,
   identity: Schema.NonEmptyString,
   list: Schema.NonEmptyString,
   sentAt: Schema.Int,
+  to: Schema.optionalKey(Schema.NonEmptyString),
 });
 export type SentUnsubscribeRequest = typeof SentRequestSchema.Type;
 
