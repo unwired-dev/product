@@ -491,6 +491,8 @@ function WaitingToast({ id }: { readonly id: string | undefined }) {
         open={open}
         symbol="paperplane"
         message={t('unsubscribe.waitingToast')}
+        // As the approved U3 frame draws it.
+        messageWidth={210}
         action={t('outbox.undo')}
         onAction={() => {
           void outbox.undo(shown, 'waiting');
@@ -594,7 +596,7 @@ const wordsOf = (
     return {
       marker: list,
       summary: t('unsubscribe.signInDetail', {
-        list,
+        sender,
         address,
         provider: providerOf(t, receiving),
       }),
@@ -604,7 +606,7 @@ const wordsOf = (
     marker: list,
     summary:
       blocked === 'receive-only'
-        ? t('unsubscribe.receiveOnlyDetail', { list, address })
+        ? t('unsubscribe.receiveOnlyDetail', { sender, address })
         : undefined,
   };
 };

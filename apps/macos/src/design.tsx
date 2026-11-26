@@ -713,6 +713,7 @@ export function Toast({
   symbol,
   message,
   messageLabel = message,
+  messageWidth,
   action,
   actionLabel = action,
   onAction,
@@ -722,6 +723,8 @@ export function Toast({
   readonly message: string;
   // What VoiceOver reads for the message, when the toast shows a shorter one.
   readonly messageLabel?: string;
+  // The least width its frame gives the message, when the frame holds it wider than its text.
+  readonly messageWidth?: number;
   readonly action: string;
   // What VoiceOver says for the action, when its title alone is not enough.
   readonly actionLabel?: string;
@@ -754,7 +757,7 @@ export function Toast({
       <View
         accessible
         accessibilityLabel={messageLabel}
-        style={styles.toastMessage}>
+        style={[styles.toastMessage, { minWidth: messageWidth }]}>
         <Text
           numberOfLines={1}
           style={[styles.toastMessageText, ink]}>

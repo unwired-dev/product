@@ -1968,9 +1968,9 @@
     "sendingDetail": "Sending to {{to}} from {{address}}. The email will be in Sent.",
     "waitingToast": "Sending unsubscribe request",
     "emailSentDetail": "Emailed to {{to}} on {{date}}. It’s in Sent. If their mail keeps coming after 14 days, you can try again.",
-    "signInDetail": "{{list}} unsubscribes by email from {{address}}. {{provider}} needs you to sign in again before this address can send.",
+    "signInDetail": "{{sender}} unsubscribes by email from {{address}}. {{provider}} needs you to sign in again before this address can send.",
     "signIn": "Sign In…",
-    "receiveOnlyDetail": "{{list}} unsubscribes by email, but {{address}} has no outgoing server, so Unwired can’t send it. It won’t use another address.",
+    "receiveOnlyDetail": "{{sender}} unsubscribes by email, but {{address}} has no outgoing server, so Unwired can’t send it. It won’t use another address.",
     "mailboxSettings": "Mailbox Settings…"
   },
   "pins": {

@@ -394,7 +394,7 @@ describe('the reader’s mailto: Unsubscribe on the Mac', () => {
     await mail.deliver();
     await expect(
       screen.findByText(
-        `Alza.cz newsletter unsubscribes by email from ${address}. iCloud Mail needs you to sign in again before this address can send.`,
+        `Alza.cz unsubscribes by email from ${address}. iCloud Mail needs you to sign in again before this address can send.`,
       ),
     ).resolves.toBeOnTheScreen();
     expect(screen.queryByRole('button', { name: 'Unsubscribe…' })).toBeNull();
@@ -415,7 +415,7 @@ describe('the reader’s mailto: Unsubscribe on the Mac', () => {
     const mail = await device({ smtp: false });
     await expect(
       screen.findByText(
-        `Alza.cz newsletter unsubscribes by email, but ${address} has no outgoing server, so Unwired can’t send it. It won’t use another address.`,
+        `Alza.cz unsubscribes by email, but ${address} has no outgoing server, so Unwired can’t send it. It won’t use another address.`,
       ),
     ).resolves.toBeOnTheScreen();
     expect(screen.queryByRole('button', { name: 'Unsubscribe…' })).toBeNull();
