@@ -84,6 +84,45 @@ query overhead, the synthetic press duration and every session stall. It
 measures neither Mail View switching, keyboard or accessibility journeys, nor the
 iPhone and iPad references.
 
+## Mac typing response journey
+
+The `testTypingResponse` journey compares typing and formatting feedback in both
+Mac composers ([#2962](https://github.com/unwired-dev/product/issues/2962)). It runs
+the current composer in a `registration-performance` `Testing` build, signed in as
+the [performance journey](#mac-performance-journey) is, and the Draft editor page
+in a `registration-draft-editor` `Testing` build:
+
+```sh
+for scenario in registration-performance registration-draft-editor; do
+  UNWIRED_MOCK_SCENARIO=$scenario \
+  mise exec -- pnpm --filter @private-email/macos native:build Testing
+  mise exec -- pnpm --filter @private-email/macos test:native \
+    "$PWD/artifacts/macos-inbox/DerivedData/Build/Products/Testing/UnwiredMail.app" \
+    testTypingResponse
+done
+```
+
+In a new message it takes the performance journey's typing and formatting steps
+and measures them the same way, with the same `PERFORMANCE` lines: each key press
+or format bar release the app records, to the first body edit that shows the
+expected text and marks, and to the first draw after it, placed in its display
+frame. For the page, `apps/macos/src/page-typing-probe.ts` supplies the edit and
+the draw. A `MutationObserver` notes each change of the editor's text and marks
+when ProseMirror has changed the DOM. The next animation frame then notes its start,
+and a task queued from that frame notes the end of its rendering update, which
+stands for the draw. The page times them with `performance.timeOrigin` and
+`performance.now()`, milliseconds since 1970 in WebKit's process, and sends them
+once that frame has rendered. The app converts them to its uptime clock when it
+writes them. A page sample therefore includes WebKit's event delivery from the
+app, ProseMirror's edit and WebKit's style, layout and paint. It leaves out
+WebKit's layer commit to the app and the window server's composite, as the current
+composer's text view draw leaves out compositing. The two clocks agree only to the
+resolution of WebKit's timer, 1 ms, and the app converts every note with one
+offset, so notes the page timed alike keep their order. Both builds launch with
+the system's inline predictions off, which otherwise delayed three of the page's
+key presses by about 5 s ([#2966](https://github.com/unwired-dev/product/issues/2966)).
+The lines are an XCTest attachment named for the composer.
+
 ## Mac keyboard and accessibility journey
 
 The `testKeyboardAndAccessibility` journey uses the same `registration-performance`

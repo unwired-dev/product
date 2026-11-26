@@ -62,10 +62,12 @@ recommendation and the decision it supports. Facts link to their evidence;
   [#2916](https://github.com/unwired-dev/product/issues/2916) the page build lists
   the files it bundles beside that module, so `scripts/licence-inventory.mjs` and
   the archive's `ThirdPartyNotices.txt` include the page's packages.
-- **Measurements.** The packaged page is about 351 KB. No latency, memory or
-  battery comparison with the current composer was measured:
+- **Measurements.** The packaged page is about 351 KB. No memory or battery
+  comparison with the current composer was measured:
   [#822](https://github.com/unwired-dev/product/issues/822) closed without a native
-  result. The table probes compare behaviour, not speed.
+  result. The only latency comparison is typing and formatting feedback in Mac
+  `Testing` builds ([#2962](https://github.com/unwired-dev/product/issues/2962),
+  gate 5). The table probes compare behaviour, not speed.
 
 ## Assessment
 
@@ -150,7 +152,13 @@ release limit:
    selection-change latency on large, many-block Drafts
    ([review note](https://github.com/unwired-dev/product/issues/822#issuecomment-6114571758)),
    and the current composer's interactions the page lacks, such as the Slash
-   Command Menu.
+   Command Menu. Typing and formatting feedback in Mac `Testing` builds is
+   measured by [#2962](https://github.com/unwired-dev/product/issues/2962): the
+   page's p95 from key press to edit was 17.7 ms for typing and 22.5 ms from the
+   format bar, against the current composer's 17.6 and 33.0 ms; neither met the
+   next-rendered-frame criterion in every group
+   ([evidence](../draft-editor-evaluation.md#typing-response-2962)).
+   A Release comparison, physical devices and the rest of the comparison remain.
 6. The Tiptap and ProseMirror notices in the distributed app; the licence
    inventory must list the page's packages. Met by
    [#2916](https://github.com/unwired-dev/product/issues/2916): every bundle that

@@ -732,6 +732,67 @@ app would not be seen. The capture shows only packets the host sends or receives
 it would not see data the page passes to another process without a network
 connection.
 
+### Typing response (#2962)
+
+[#2962](https://github.com/unwired-dev/product/issues/2962) measures part of
+[ADR 0080](adr/0080-edit-the-draft-body-in-the-tiptap-page.md)'s gate 5: typing
+and formatting feedback in both Mac composers, against the
+[next-rendered-frame budget](agents/native-validation.md#performance-qualification).
+The [typing response journey](native-journeys.md#mac-typing-response-journey) ran
+on 2026-11-26 on the Mac reference host: a Mac mini M4 (`Mac16,10`) with 16 GB
+memory on macOS 27.2.1 (`26B131`), Xcode 27.2 (`27B52`), with a 60 Hz display
+and a 1-minute load of 5.3 to 6.4 around the page's run and 3.3 to 9.0 around
+the current composer's, recorded before and after each. The builds were
+`Testing` builds of main at `01c50416b` plus this journey:
+`registration-performance` for the current composer and
+`registration-draft-editor` for the page. Each composer typed, in an empty new
+message, 20 plain characters, 11 characters after Command-B, 12 Command-B, -I
+and -U toggles on a selected word, the same 12 toggles from the format bar, and
+4 characters after the selection collapsed, one run each.
+
+"Edit" runs from the key press or button release to the first body edit showing
+the expected text and marks; "drawn" to the end of the first draw after it.
+"Late" counts samples whose draw fell after the next display frame.
+
+| Composer | Steps            | Edit p50 | Edit p95 | Drawn p95 | Late  |
+| -------- | ---------------- | -------- | -------- | --------- | ----- |
+| Current  | Typing           | 7.5 ms   | 17.6 ms  | 19.1 ms   | 0/20  |
+| Current  | After Command-B  | 14.4 ms  | 23.6 ms  | 24.8 ms   | 1/11  |
+| Current  | Shortcuts        | 14.7 ms  | 20.1 ms  | 21.9 ms   | 0/12  |
+| Current  | Format bar       | 25.1 ms  | 33.0 ms  | 49.7 ms   | 12/12 |
+| Current  | After collapsing | 4.7 ms   | 11.7 ms  | 13.3 ms   | 0/4   |
+| Page     | Typing           | 4.6 ms   | 17.7 ms  | 18.7 ms   | 4/20  |
+| Page     | After Command-B  | 4.9 ms   | 17.7 ms  | 19.7 ms   | 1/11  |
+| Page     | Shortcuts        | 13.6 ms  | 20.1 ms  | 21.1 ms   | 6/12  |
+| Page     | Format bar       | 14.0 ms  | 22.5 ms  | 23.5 ms   | 4/12  |
+| Page     | After collapsing | 11.5 ms  | 14.3 ms  | 15.3 ms   | 0/4   |
+
+No main-queue stall of 100 ms or longer fell within a sample. The page's run
+recorded two stalls outside them, 113 and 138 ms, while it signed in. Only the
+current composer's typing, shortcuts and collapsed typing and the page's
+collapsed typing met the next-rendered-frame criterion at p95. The page's format
+bar was about 10 ms faster than the current composer's, whose every format bar
+sample drew a frame or two late; plain typing and the shortcuts were within a
+millisecond of each other at p95. Evidence is in
+`artifacts/macos-inbox/journey.WB9v3N/` (current) and `journey.FcXTbH/` (page).
+
+The two ends differ in what they observe. The current composer's draw is its
+text view's `drawRect:` in the app. The page's is the end of WebKit's rendering
+update in its own process, and its display frame is placed from the animation
+frame's start, which WebKit reports at that update. Neither includes the window
+server's composite; the page's also leaves out WebKit's layer commit to the app.
+The page's times have a resolution of 1 ms.
+
+Typing after Command-B and after collapsing the selection each made the page edit
+twice: WebKit inserted the character with the previous marks, and ProseMirror
+corrected them 1 to 4 ms later. No draw fell between the two edits. With the
+system's inline predictions on, three key presses after "feedb" arrived about 5 s
+late in the page ([#2966](https://github.com/unwired-dev/product/issues/2966)), so
+both runs turn them off. These are `Testing` builds on one host, one run each,
+with XCUITest's synthesized keys and clicks. A Release comparison, physical
+iPhone and iPad, hardware keyboards, startup and the interactions the page
+lacks, such as the Slash Command Menu, remain outstanding.
+
 ## Finding
 
 **Proceed** to the dependent evaluations (#819–#822) on iPhone and iPad. A

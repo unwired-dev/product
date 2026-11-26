@@ -86,6 +86,7 @@ import {
   useOutbox,
 } from './mailbox.tsx';
 import { AssistanceContext } from './message-summary.tsx';
+import { pageTypingProbe, recordedPageProbe } from './page-typing-probe.ts';
 import { AccountContext } from './registration-gate.tsx';
 import { usePalette } from './theme.ts';
 import { TranslationContext } from './translation.tsx';
@@ -440,7 +441,7 @@ function EvaluationEditor({
   // oxlint-disable-next-line react/hook-use-state -- Injected once, before the page's script.
   const [injected] = useState(
     () =>
-      `window.draftEditor = ${JSON.stringify({ document: textOf(opening.body), attachments: opening.attachments ?? [], label: t('drafts.body') })}; true;`,
+      `${pageTypingProbe()}window.draftEditor = ${JSON.stringify({ document: textOf(opening.body), attachments: opening.attachments ?? [], label: t('drafts.body') })}; true;`,
   );
   // Entries still being typed become recipients; an invalid one keeps the Draft here.
   const finishEntries = () => {
@@ -825,7 +826,11 @@ function EvaluationEditor({
             onContentProcessDidTerminate={stop}
             onError={stop}
             onMessage={({ nativeEvent }) => {
-              if (!mounted.current || pageStopped.current) {
+              if (
+                !mounted.current ||
+                pageStopped.current ||
+                recordedPageProbe(nativeEvent.data)
+              ) {
                 return;
               }
               const message = decodeMessage(nativeEvent.data);

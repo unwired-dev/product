@@ -82,6 +82,13 @@ NSString *UnwiredGuardedWindow(void)
 - (void)closeSheet:(NSString *)identifier;
 @end
 
+#if UNWIRED_NATIVE_TESTING
+// AppDelegate.mm writes the timing journeys' evidence.
+@protocol UnwiredLifecycle
+- (void)recordLifecycle:(NSString *)event extra:(NSDictionary *)extra;
+@end
+#endif
+
 @interface UnwiredCommands : RCTEventEmitter <RCTBridgeModule>
 @end
 
@@ -341,4 +348,28 @@ RCT_EXPORT_METHOD(restoreFocus:(NSString *)identifier)
     [window makeFirstResponder:view];
   }
 }
+
+#if UNWIRED_NATIVE_TESTING
+// The typing journey's notes from the Draft editor page (#2962), timed on the page's clock in
+// milliseconds since 1970. They become text-edit and text-drawn records on CLOCK_UPTIME_RAW, as the
+// app's text view probe writes them, with the key window display's frame interval. One offset
+// converts every note, so notes the page timed alike stay in order.
+RCT_EXPORT_METHOD(recordPageProbe:(NSDictionary *)note)
+{
+  static double offset;
+  static dispatch_once_t measured;
+  dispatch_once(&measured, ^{
+    offset = NSDate.date.timeIntervalSince1970 * 1000 - clock_gettime_nsec_np(CLOCK_UPTIME_RAW) / 1e6;
+  });
+  NSMutableDictionary *extra = [@{@"uptime": @([note[@"epoch"] doubleValue] - offset), @"source": @"page"} mutableCopy];
+  if (note[@"frameEpoch"] != nil) {
+    NSScreen *screen = NSApp.keyWindow.screen ?: NSScreen.mainScreen;
+    extra[@"frameStart"] = @([note[@"frameEpoch"] doubleValue] - offset);
+    extra[@"milliseconds"] = @(1000.0 / MAX(screen.maximumFramesPerSecond, 1));
+  }
+  if (note[@"text"] != nil) extra[@"text"] = note[@"text"];
+  if (note[@"marks"] != nil) extra[@"marks"] = note[@"marks"];
+  [(id<UnwiredLifecycle>)NSApp.delegate recordLifecycle:note[@"event"] extra:extra];
+}
+#endif
 @end
