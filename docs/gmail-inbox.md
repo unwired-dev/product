@@ -1073,7 +1073,9 @@ Other windows retain their independent selections and confirmations.
 On iPhone and iPad, confirmation is the system alert (`Alert` from `@expo/ui`),
 whose message ends with the full destination. Cancel has the cancel role, so the
 alert's dismissal answers it, and a flagged link's Proceed reads as destructive.
-The alert closes without acting when its body or reader changes.
+The alert closes without acting when its body or reader changes. When the system
+closes it without a choice, the link is discarded as Cancel discards it, so
+choosing a link again asks again.
 
 The accepted link inspection additionally compares URL-like visible anchor text
 with the destination and checks scheme mismatch, internationalized or numeric

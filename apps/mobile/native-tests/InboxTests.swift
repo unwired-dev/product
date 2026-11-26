@@ -3421,7 +3421,24 @@ final class InboxTests: XCTestCase {
       ).firstMatch
       XCTAssertTrue(current.exists)
       XCTAssertFalse(current.isEnabled)
-      if close == "Close" || close == "tap" { capture(phone ? "Move sheet" : "Folders popover") }
+      if close == "Close" || close == "tap" {
+        let name = phone ? "Move sheet" : "Folders popover"
+        capture(name)
+        // #2931: the picker stays shown, its folders and Close in reach, through a turn to
+        // Landscape and back. An app screenshot draws the landscape window turned and clipped.
+        let window = app.windows.firstMatch
+        let reach =
+          [spam, app.buttons["Move to Deleted Messages"]] + (phone ? [app.buttons["Close"]] : [])
+        for orientation in [UIDeviceOrientation.landscapeLeft, .portrait] {
+          XCUIDevice.shared.orientation = orientation
+          waitUntil { (window.frame.width > window.frame.height) == orientation.isLandscape }
+          _ = settledFrame(of: spam)
+          for control in reach { waitUntil { control.exists && control.isHittable } }
+          if orientation.isLandscape {
+            attachScreen("\(name) in Landscape", of: XCUIScreen.main, to: self)
+          }
+        }
+      }
       switch close {
       case "Close": app.buttons["Close"].tap()
       case "swipe":
@@ -4572,9 +4589,8 @@ final class InboxTests: XCTestCase {
   }
 
   // #2907: each presenter stays shown, its controls in reach, while the device turns to Landscape
-  // and back; iPad's More menu closes as the system closes menus at a turn. The turn back to
-  // Portrait can close the link confirmation (#2909), so it turns only to Landscape. CI covers
-  // the iPad Filters popover and `testComposerSheet` the iPhone composer.
+  // and back, the link confirmation too (#2909); iPad's More menu closes as the system closes
+  // menus at a turn. CI covers the iPad Filters popover and `testComposerSheet` the iPhone composer.
   func testPresenterRotation() throws {
     continueAfterFailure = false
     let environment = ProcessInfo.processInfo.environment
@@ -4595,12 +4611,9 @@ final class InboxTests: XCTestCase {
       XCUIDevice.shared.orientation = orientation
       waitUntil { (window.frame.width > window.frame.height) == orientation.isLandscape }
     }
-    func turns(
-      _ name: String, _ controls: [XCUIElement],
-      through orientations: [UIDeviceOrientation] = [.landscapeLeft, .portrait]
-    ) {
+    func turns(_ name: String, _ controls: [XCUIElement]) {
       attachScreen(name, of: app, to: self)
-      for orientation in orientations {
+      for orientation in [UIDeviceOrientation.landscapeLeft, .portrait] {
         turn(to: orientation)
         _ = settledFrame(of: controls[0])
         for control in controls {
@@ -4644,12 +4657,9 @@ final class InboxTests: XCTestCase {
       .matching(NSPredicate(format: "label == %@", "garden plan")).firstMatch.tap()
     let alert = app.alerts["Open this link in your browser?"]
     XCTAssertTrue(alert.waitForExistence(timeout: 10))
-    turns(
-      "Link confirmation", [alert.buttons["Open Link"], alert.buttons["Cancel"]],
-      through: [.landscapeLeft])
+    turns("Link confirmation", [alert.buttons["Open Link"], alert.buttons["Cancel"]])
     alert.buttons["Cancel"].tap()
     XCTAssertTrue(alert.waitForNonExistence(timeout: 10))
-    turn(to: .portrait)
     let newLabel = app.buttons["New Label…"]
     if phone {
       app.buttons["Reply"].tap()

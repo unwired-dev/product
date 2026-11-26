@@ -732,6 +732,44 @@ app would not be seen. The capture shows only packets the host sends or receives
 it would not see data the page passes to another process without a network
 connection.
 
+### Composer opening (#2955)
+
+[#2955](https://github.com/unwired-dev/product/issues/2955) measures one of
+[#822](https://github.com/unwired-dev/product/issues/822)'s comparisons for
+[ADR 0080](adr/0080-edit-the-draft-body-in-the-tiptap-page.md)'s gate 5: how long
+each Mac composer takes to open a body, with the
+[composer opening journey](native-journeys.md#mac-composer-opening-journey). It ran
+on 2026-11-26 on the Mac mini M4 (`Mac16,10`, 16 GB) with macOS 27.2.1 (`26B131`)
+and Xcode 27.2 (`27B52`), from `01c50416b` with the journey added, in signed
+`Testing` builds: `registration-performance` for the current composer and
+`registration-draft-editor` for the page. Each composer has 10 samples per
+interaction.
+
+| Composer | New message p50 / p95 / max | Saved Draft p50 / p95 / max |
+| -------- | --------------------------- | --------------------------- |
+| Current  | 499 / 1,581 / 1,581 ms      | 334 / 670 / 670 ms          |
+| Page     | 294 / 687 / 687 ms          | 279 / 798 / 798 ms          |
+
+A sample runs from the mouse release the app records until an accessibility query
+finds the body ready: the body and the format bar's **Undo**, which the page shows
+once it is ready, and for the saved Draft its paragraph in the body. It includes
+XCUITest's event completion and queries (about 23–58 ms per query in these runs),
+so each sample is an upper bound, and it leaves out the display frame that draws
+the body. Both composers' p95 upper bounds exceeded the budgets of 300 ms for an
+empty composer and 200 ms for a warm one, so these runs do not prove either budget.
+
+The host was shared with other agents' builds and journeys: the one-minute load
+average read 114 before and 51 after the current composer's run, and 263 before
+and 44 after the page's. Both
+runs recorded main-queue stalls of 100 ms or longer during new-message samples
+(the current composer: 381, 111 and 127 ms; the page: 169 ms) and none during
+saved-Draft samples, so the saved-Draft tails may come from other processes under
+the same load. These runs therefore show neither that a composer misses the
+budgets on an idle host nor which opens faster. Repeat
+them on an idle host before reading them as a comparison. Physical iPhone and
+iPad, and #822's startup, typing response and memory measurements, are still
+outstanding.
+
 ## Finding
 
 **Proceed** to the dependent evaluations (#819–#822) on iPhone and iPad. A
