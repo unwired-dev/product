@@ -508,6 +508,52 @@ describe('evaluation composer lifetime', () => {
     ]);
   }, 15_000);
 
+  it('injects the typing probe and records its notes only for a Testing host (#2962)', async () => {
+    expect.hasAssertions();
+    const menu: TurboModule &
+      Readonly<{
+        addListener: () => void;
+        removeListeners: () => void;
+        guardClose: () => void;
+        recordPageProbe: ReturnType<typeof jest.fn>;
+      }> = {
+      addListener: () => undefined,
+      removeListeners: () => undefined,
+      guardClose: () => undefined,
+      recordPageProbe: jest.fn(),
+    };
+    const registry = commandModule(menu);
+    try {
+      const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+      const drafts = createDrafts(storage.native, registration);
+      await render(<App drafts={drafts} />);
+      await press('New Message');
+      const page = screen.getByTestId('message-webview');
+      const injected: unknown =
+        page.props.injectedJavaScriptBeforeContentLoaded;
+      ok(typeof injected === 'string', 'Expected an injected script');
+      expect(injected).toMatch(/^\(\(\) => \{.*new MutationObserver/su);
+      expect(injected).toMatch(/window\.draftEditor = .*; true;$/u);
+      const notes = [
+        { event: 'text-edit', epoch: 1000.5, text: 'Hi', marks: '10' },
+        { event: 'text-drawn', epoch: 1010.25, frameEpoch: 1004 },
+      ];
+      await act(async () => {
+        await fireEvent(page, 'message', {
+          nativeEvent: { data: JSON.stringify({ type: 'probe', notes }) },
+        });
+      });
+      expect(menu.recordPageProbe.mock.calls).toStrictEqual(
+        notes.map((note) => [note]),
+      );
+      // The notes are not page state: the Draft stays unedited.
+      await press('Close');
+      expect(sheetShown()).toBeUndefined();
+    } finally {
+      registry.mockRestore();
+    }
+  });
+
   it('asks before Command-W closes a window with unsaved edits', async () => {
     expect.hasAssertions();
     // Substitute only the native menu boundary that Command-W and Quit reach.

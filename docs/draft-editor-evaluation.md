@@ -178,6 +178,13 @@ the current composer's:
   replacement made the edit, so a removal the page refused as stale runs neither.
   Moving the caret or leaving the body closes the menu, and an Undo or Redo that
   restores a `/` does not open it. The Mac page has none, as the Mac composer has none yet.
+- **Inline predictions.** On the Mac, WebKit may offer the rest of a word by
+  replacing the word before the caret and ending the change at once with a
+  `compositionend`. The page cancels that replacement, so the prediction stays
+  shown outside the body: typing through it leaves the word once, Tab accepts it
+  and Escape dismisses it
+  ([#2972](https://github.com/unwired-dev/product/issues/2972)). A word picked
+  from the completion bubble ends without a `compositionend`, and the page adds it.
 - **Paste.** Pasted HTML keeps only supported meaning: headings one to three,
   paragraphs, lists, quotes, code and the five marks. Smaller headings, tables and
   styled text become paragraphs; a heading or code inside a quote or list item
@@ -250,8 +257,10 @@ again, and **Remove**.
   Mac as the current composer's body pastes, so pasted image data goes inline and a
   pasted file goes inline when it is an image and otherwise becomes an Attachment
   ([#2929](https://github.com/unwired-dev/product/issues/2929)). The page never reads
-  pasted or dropped file data, and files dropped on the page are refused on every
-  host. A paste that
+  pasted or dropped file data. Files dropped on the page are attached on Mac, where
+  native code reads them from the drag pasteboard as the current composer attaches
+  files dropped on it ([#2950](https://github.com/unwired-dev/product/issues/2950));
+  iPhone and iPad refuse them. A paste that
   carries an image beside text is treated as an image paste, so its text is not
   pasted; paste the text separately. Text and supported formatting without images
   paste as before. A copied or cut Inline Image pastes back
@@ -659,11 +668,33 @@ stepped back and forward through both conversions; after **Save**, a relaunch an
 reopening, the image was in place with its thumbnail. The journey's mock copy needed
 the app's own user-selected file entitlement for the open panel to appear.
 
-Outstanding for #820: pasting image data into the page on Mac, and dropping files on
-the page on every host, which need native interception in the web view (the page
-refuses both unread); **Paste Image** and in-page paste on a device; and physical
-iPhone and iPad runs. Website data after account removal and a network capture are
+Outstanding for #820: dropping files on the page on iPhone and iPad, which needs
+native interception in the web view (the page refuses them unread; Mac image paste is
+met by [#2929](https://github.com/unwired-dev/product/issues/2929) and Mac drops are
+recorded in [Mac file drops](#mac-file-drops-2950)); **Paste Image** and in-page paste
+on a device; and physical iPhone and iPad runs. Website data after account removal and a network capture are
 recorded in [Website data and network](#website-data-and-network-2922).
+
+### Mac file drops (#2950)
+
+[#2950](https://github.com/unwired-dev/product/issues/2950) attaches files dropped on
+the page on Mac, as the current composer attaches files dropped anywhere on it. The
+page still never reads the dropped data: it refuses the drop and asks the host, and
+native code reads the file URLs of the drag from the drag pasteboard and imports them
+as Attachments, images included, through the same import as **Attach Files…**.
+iPhone and iPad ignore the request, since native code there cannot read a drop on
+the page.
+
+The `testDraftEditorFileDrop` journey
+([Mac Draft editor file drop journey](native-journeys.md#mac-draft-editor-file-drop-journey))
+ran on 2026-11-26 with Xcode 27.2 and macOS 27.2.1 on the Mac mini M4, in a
+`registration-draft-editor` `Testing` build. It drags a text file from a Finder window
+onto the page: the file, kept in the test runner's own temporary folder outside the
+app's container, becomes an Attachment whose bytes the import reads and verifies, so
+the drop grants the sandboxed app access to it. The page's text and images are
+unchanged. After **Save**, a relaunch and reopening the Draft, the Attachment is
+still there. XCUITest's drag starts a drag session in Finder only from the file's
+row in the column, not from the preview's title.
 
 ### Save ordering (#821)
 
@@ -714,13 +745,21 @@ The page journals its unsaved edits to a composer recovery record as the current
 composer does, and **Restore** reopens them in the page. On Mac
 `testDraftEditorRecoveryAfterForceQuit` proves it after a force quit
 ([#2933](https://github.com/unwired-dev/product/issues/2933),
-[Mac composer recovery journey](native-journeys.md#mac-composer-recovery-journey)), and
+[Mac Draft editor file drop journey](native-journeys.md#mac-draft-editor-file-drop-journey)), and
 on iPhone and iPad `testDraftEditorRecovery` after XCUITest terminates the app
 ([#2944](https://github.com/unwired-dev/product/issues/2944),
 [iPhone and iPad composer recovery journey](native-journeys.md#iphone-and-ipad-composer-recovery-journey)). The regular iPhone, iPad and Mac composers now
 use the same save model. On iPhone both composers cover the
 Inbox and reader, so system **Back** cannot leave them
-([#778](https://github.com/unwired-dev/product/issues/778)).
+([#778](https://github.com/unwired-dev/product/issues/778)). On 2026-11-26 the
+[iPhone Draft editor sheet journey](native-journeys.md#iphone-draft-editor-sheet-journey)
+passed on the iPhone 18 Pro Simulator (iOS 27.0, Release build): with the page
+composer's sheet up the Inbox rows were out of reach, a downward swipe closed an
+untouched New Message, asked **Save Draft** or **Delete Draft** with text typed in the
+page, kept the sheet and text on **Keep Editing**, saved on **Save Draft**, and closed
+the reopened unchanged Draft without asking
+([#2961](https://github.com/unwired-dev/product/issues/2961)). A compact iPad window
+and physical devices have not run it.
 
 ### Website data and network (#2922)
 
@@ -787,6 +826,69 @@ app would not be seen. The capture shows only packets the host sends or receives
 it would not see data the page passes to another process without a network
 connection.
 
+### Typing response (#2962)
+
+[#2962](https://github.com/unwired-dev/product/issues/2962) measures part of
+[ADR 0080](adr/0080-edit-the-draft-body-in-the-tiptap-page.md)'s gate 5: typing
+and formatting feedback in both Mac composers, against the
+[next-rendered-frame budget](agents/native-validation.md#performance-qualification).
+The [typing response journey](native-journeys.md#mac-typing-response-journey) ran
+on 2026-11-26 on the Mac reference host: a Mac mini M4 (`Mac16,10`) with 16 GB
+memory on macOS 27.2.1 (`26B131`), Xcode 27.2 (`27B52`), with a 60 Hz display
+and a 1-minute load of 3.5 to 4.1 around the page's run and 3.2 to 4.5 around
+the current composer's, recorded before and after each. The builds were
+`Testing` builds of main at `01c50416b` plus this journey:
+`registration-performance` for the current composer and
+`registration-draft-editor` for the page. Each composer typed, in an empty new
+message, 20 plain characters, 11 characters after Command-B, 12 Command-B, -I
+and -U toggles on a selected word, the same 12 toggles from the format bar, and
+4 characters after the selection collapsed, one run each.
+
+"Edit" runs from the key press or button release to the first body edit showing
+the expected text and marks; "drawn" to the end of the first draw after it.
+"Late" counts samples whose draw fell after the next display frame.
+
+| Composer | Steps            | Edit p50 | Edit p95 | Drawn p95 | Late  |
+| -------- | ---------------- | -------- | -------- | --------- | ----- |
+| Current  | Typing           | 6.4 ms   | 17.2 ms  | 18.7 ms   | 0/20  |
+| Current  | After Command-B  | 5.4 ms   | 13.5 ms  | 14.4 ms   | 0/11  |
+| Current  | Shortcuts        | 15.0 ms  | 17.3 ms  | 19.0 ms   | 0/12  |
+| Current  | Format bar       | 29.1 ms  | 41.7 ms  | 54.0 ms   | 12/12 |
+| Current  | After collapsing | 5.9 ms   | 11.7 ms  | 13.1 ms   | 0/4   |
+| Page     | Typing           | 10.3 ms  | 17.1 ms  | 19.1 ms   | 5/20  |
+| Page     | After Command-B  | 5.5 ms   | 16.9 ms  | 19.9 ms   | 3/11  |
+| Page     | Shortcuts        | 11.7 ms  | 23.2 ms  | 24.2 ms   | 3/12  |
+| Page     | Format bar       | 17.3 ms  | 21.9 ms  | 23.0 ms   | 7/12  |
+| Page     | After collapsing | 2.4 ms   | 3.6 ms   | 4.6 ms    | 0/4   |
+
+No main-queue stall of 100 ms or longer fell within a sample; each run recorded
+one outside them, 115 ms in the current composer's and 151 ms in the page's.
+A group met the next-rendered-frame criterion when its p95 from input to edit was within one 16.7 ms frame and its p95 sample drew in the next frame. Only the current composer's typing after Command-B and after collapsing and the page's typing after collapsing met it. The current composer's plain typing and shortcuts drew every sample in the next frame, but their p95 edits took 17.2 and 17.3 ms. The
+page's format bar was about 20 ms faster than the current composer's at p95,
+and the current composer drew every format bar sample a frame or more late.
+Plain typing was within a millisecond at p95; the page's shortcuts were about
+6 ms slower, and the page drew more samples late in typing, after Command-B
+and in the shortcuts. Evidence
+is in `artifacts/macos-inbox/journey.PhgOWb/` (current) and `journey.Yqr1DL/`
+(page).
+
+The two ends differ in what they observe. The current composer's draw is its
+text view's `drawRect:` in the app. The page's is the end of WebKit's rendering
+update in its own process, and its display frame is placed from the animation
+frame's start, which WebKit reports at that update. Neither includes the window
+server's composite; the page's also leaves out WebKit's layer commit to the app.
+The page's times have a resolution of 1 ms.
+
+Typing after Command-B and after collapsing the selection each made the page edit
+twice: WebKit inserted the character with the previous marks, and ProseMirror
+corrected them within 4 ms. No draw fell between the two edits. With the
+system's inline predictions on, three key presses after "feedb" arrived about 5 s
+late in the page ([#2966](https://github.com/unwired-dev/product/issues/2966)), so
+both runs turn them off. These are `Testing` builds on one host, one run each,
+with XCUITest's synthesized keys and clicks. A Release comparison, physical
+iPhone and iPad, hardware keyboards, startup and the interactions the page
+lacks, such as the Slash Command Menu, remain outstanding.
+
 ### Composer opening (#2955)
 
 [#2955](https://github.com/unwired-dev/product/issues/2955) measures one of
@@ -822,8 +924,76 @@ saved-Draft samples, so the saved-Draft tails may come from other processes unde
 the same load. These runs therefore show neither that a composer misses the
 budgets on an idle host nor which opens faster. Repeat
 them on an idle host before reading them as a comparison. Physical iPhone and
-iPad, and #822's startup, typing response and memory measurements, are still
+iPad, and #822's startup and memory measurements, are still
 outstanding.
+
+### Inline predictions (#2966)
+
+[#2966](https://github.com/unwired-dev/product/issues/2966) asked whether the
+system's inline predictions delay typing in the page. In a Mac typing journey
+([#2962](https://github.com/unwired-dev/product/issues/2962)), XCUITest's
+`typeKey` took about 5 s for "a" and "c" after "feedb", and the app's key
+monitor recorded none of "a", "c" and "k". **For keys posted at the HID event
+tap, the page showed no delay; the slow calls were XCUITest's.** No person typed
+on a physical keyboard, so that remains unverified.
+
+Method, on 2026-11-26 on the Mac reference host: a Mac mini M4 (`Mac16,10`) on
+macOS 27.2.1 (`26B131`), Xcode 27.2 (`27B52`), with `Testing` builds of
+`01c50416b`: `registration-draft-editor` for the page and
+`registration-performance` for the current composer. Inline predictions and
+automatic capitalization were at their defaults (on) unless a run turned one
+off with its launch argument. A temporary journey opened an empty New Message
+and typed "typing feedback test" with XCUITest's `typeKey`. Then a host tool
+posted the same keys at the HID event tap, which a hardware keyboard's events
+also pass, 200 ms and 1 s apart, and read the body's accessibility value every
+2 ms. Each pass paused after "feedb" for a window capture, so "a" followed "b"
+after about 750 ms in the 200 ms passes and 1.55 s in the 1 s passes. The app's
+key monitor recorded which presses reached it.
+
+"Slow" counts the 20 XCUITest calls of a run that took over 1 s; "shown" is the
+time from a key posted at the HID tap to its text in the body, the first key of
+each pass including the app's activation.
+
+| Composer                | Runs | Slow           | Shown   |
+| ----------------------- | ---- | -------------- | ------- |
+| Page, predictions on    | 4    | 0, 2, 3 and 10 | 6–77 ms |
+| Page, predictions off   | 1    | 0              | 7–40 ms |
+| Current, predictions on | 2    | 0              | 8–51 ms |
+
+One current composer run stopped after its XCUITest pass, so its shown times come
+from the other.
+
+- In the page with predictions on, 6 of the 8 captures after "feedb" showed the
+  system's prediction, inline or as a bubble; the other two followed the
+  capitalization defect below. Seven presses at the HID tap never reached the
+  app's key monitor; their text appeared within 35 ms all the same.
+- In three of the page's XCUITest passes, calls for letters of "feedbac" took
+  5.1 to 5.5 s, some for keys the monitor recorded within 90 ms. Eleven presses
+  never reached the monitor. In each of those 5 s calls, the text had appeared
+  within 210 ms of the call starting, so the time went to XCUITest's synthesis,
+  not to the page.
+- In one of those passes, text also appeared late from "k" on: "k" appeared
+  2.97 s after its call started, without a monitor record, and the next five
+  keys reached the monitor 0.8 to 3.5 s after their calls started, each shown
+  in the page within 35 ms of that record.
+- The current composer offered no inline prediction in either run, and every
+  press reached its key monitor.
+
+Two other page defects appeared, both at one key a second; neither is a delay:
+
+- With automatic capitalization on, Space after a pause made the first word
+  `T yping`, with the caret after `T ` (3 of 3 runs, predictions on or off; 0
+  of 2 with capitalization off):
+  [#2971](https://github.com/unwired-dev/product/issues/2971).
+- Typing "c" and "k" through the prediction left `feedbackck` (2 of 2 runs with
+  capitalization off): [#2972](https://github.com/unwired-dev/product/issues/2972).
+
+The current composer had neither. Evidence is in `artifacts/macos-inbox/` on
+the host, with the tool, its logs and captures in each run's `inline-probe/`:
+`journey.prFl1z/`, `journey.6bbqN3/`, `journey.7OhwUE/` and `journey.XZGpRp/`
+(page, predictions on), `journey.X3sUtb/` (page, predictions off), and
+`journey.FcdgP3/` and `journey.BomZT3/` (current composer). These runs do not
+cover a physical keyboard, other input sources or iPhone and iPad.
 
 ### Packaged size (#2953)
 
@@ -860,8 +1030,106 @@ and the executables and asset catalogs, whose sizes match but whose contents
 differ between builds.
 
 This leaves out App Store thinning, encryption and download compression, and
-production builds, which do not package the page yet. Startup, typing response
-and memory remain unmeasured, as do physical iPhone and iPad.
+production builds, which do not package the page yet. Startup and memory remain
+unmeasured, as do physical iPhone and iPad.
+
+### Selection-change latency (#2951)
+
+[#2951](https://github.com/unwired-dev/product/issues/2951) measures part of
+[ADR 0080](adr/0080-edit-the-draft-body-in-the-tiptap-page.md)'s gate 5: the cost
+of a selection change on a large, many-block Draft in both Mac composers. Each
+format bar commit computes the Link control's and the Writing tools' state from
+the whole document with mail-core's `selectedText` and `canRewrite`
+([#822 review note](https://github.com/unwired-dev/product/issues/822#issuecomment-6114571758)).
+The [selection-change journey](native-journeys.md#mac-selection-change-journey)
+ran on 2026-11-26 on the Mac reference host: a Mac mini M4 (`Mac16,10`) with
+16 GB memory on macOS 27.2.1 (`26B131`), Xcode 27.2 (`27B52`), with a 60 Hz
+display and a 1-minute load below 4. The builds were `Testing` builds of main
+at `01c50416b` plus this journey: `registration-performance` for the current
+composer and `registration-draft-editor` for the page. Each body had 20 samples:
+10 Shift-Left presses that select the last character and 10 Right presses that
+collapse the selection at the end again. A sample runs from the key press to
+the end of Fabric's mount of the format bar's first commit that shows the new
+selection, both on the app's clock.
+
+| Composer | Body             | p50     | p95     | Maximum  |
+| -------- | ---------------- | ------- | ------- | -------- |
+| Current  | 1 paragraph      | 24.7 ms | 40.6 ms | 41.0 ms  |
+| Current  | 1,000 paragraphs | 66.4 ms | 72.7 ms | 141.9 ms |
+| Page     | 1 paragraph      | 24.7 ms | 30.1 ms | 30.7 ms  |
+| Page     | 1,000 paragraphs | 25.4 ms | 43.2 ms | 44.7 ms  |
+
+No main-queue stall of 100 ms or longer fell within a sample. Each run recorded
+one stall outside the samples: 153 ms for the current composer after it pasted
+the 1,000 paragraphs, and 143 ms for the page before the first paste, while it
+signed in and opened the message. On the 1,000-paragraph body the current
+composer's p50 was 42 ms above its one-paragraph p50 and its p95 32 ms above.
+The page's p50 stayed within 1 ms and its p95 was 13 ms higher. Evidence is in
+`artifacts/macos-inbox/journey.K3MuIx/` (current) and `journey.wbWaEx/` (page).
+
+The samples include the page bridge or the text view's selection event, React's
+commit and Fabric's mount, but not the display frame that draws the result. No
+selection budget exists; every sample stayed under the 200 ms interaction
+budgets. These are `Testing` builds on one host, one run each; a Release
+comparison is not measured. Physical iPhone and iPad, the rest of #822's
+comparison (startup, memory and packaged size) and the
+interactions the page lacks, such as the Mac Slash Command Menu, remain outstanding.
+
+### Memory (#2957)
+
+[#2957](https://github.com/unwired-dev/product/issues/2957) records the memory part
+of [ADR 0080](adr/0080-edit-the-draft-body-in-the-tiptap-page.md)'s gate 5 on the
+Mac, with a long single paragraph and several composers, as
+[#822](https://github.com/unwired-dev/product/issues/822) asked. It ran on
+2026-11-26 on the Mac mini M4 (`Mac16,10`, 16 GB) with macOS 27.2.1 (`26B131`)
+and Xcode 27.2 (`27B52`), from main at `01c50416b` with the journey added, in
+signed `Testing` builds: `registration-performance` for the current composer and
+`registration-draft-editor` for the page.
+
+Method: the [composer memory journey](native-journeys.md#mac-composer-memory-journey)
+reads the physical footprint of the app and of every process macOS holds it
+responsible for, three times a second apart, with no composer, with one New
+Message whose body holds a pasted paragraph of 50,007 characters, and with four
+Inbox windows each holding such a New Message. Each build ran three times; runs 1
+and 2 checked only the paragraph's end in each body, run 3 the whole paragraph.
+The first table gives each state's median total and its increase over the state
+without a composer, in MiB (1,048,576 bytes); the 1-minute load average before and
+after each run, from the run's `host-load.txt`, follows the run number. The
+second table splits run 3's median readings.
+
+| Composer | Run (load)       | No composer | One composer | Four composers |
+| -------- | ---------------- | ----------: | -----------: | -------------: |
+| Current  | 1 (4.1 → 6.6)    |   199.5 MiB |   +260.1 MiB |     +383.9 MiB |
+| Current  | 2 (31.2 → 169.3) |   193.8 MiB |   +204.3 MiB |     +330.8 MiB |
+| Current  | 3 (3.5 → 3.5)    |   192.9 MiB |   +258.4 MiB |     +380.6 MiB |
+| Page     | 1 (4.7 → 6.2)    |   131.0 MiB |   +147.1 MiB |     +264.5 MiB |
+| Page     | 2 (5.8 → 5.0)    |   125.4 MiB |   +141.4 MiB |     +260.8 MiB |
+| Page     | 3 (19.2 → 12.1)  |   131.0 MiB |   +145.2 MiB |     +277.9 MiB |
+
+| Run 3, MiB       | Current: none |   one |  four | Page: none |  one |  four |
+| ---------------- | ------------: | ----: | ----: | ---------: | ---: | ----: |
+| App process      |         138.7 | 397.1 | 519.3 |       74.1 | 90.9 | 129.4 |
+| WebKit processes |             0 |     0 |     0 |          0 | 97.2 | 187.0 |
+| Other processes  |          54.2 |  54.2 |  54.3 |       56.9 | 88.1 |  92.4 |
+
+- One composer added 141–147 MiB with the page and 204–260 MiB with the current
+  composer; the lowest current-composer result is the run under the highest load.
+- The four-composer increases (261–278 MiB with the page, 331–384 MiB with the
+  current composer) are the growth of the whole session: they also hold three
+  more Inbox windows, which list each build's own mailboxes.
+- The current composer's growth is in the app process, which holds its native
+  text view. The page's is mostly in WebKit: one content process per composer
+  (25–30 MiB each), a GPU process of about 67 MiB and a networking process of
+  about 6 MiB shared by all of them. The page's other processes also grow, by
+  about 30 MiB, from a second Metal compiler service and two audio sandbox
+  helpers that start with the first web view.
+- The builds' mailboxes differ: the performance build lists 254 Inbox Threads,
+  the draft editor build a few, so their totals without a composer differ and only
+  the one-composer increases compare directly.
+
+This does not show physical iPhone and iPad (gate 1), typing, opening or
+startup times, memory after editing, saving or closing composers, or behaviour
+under memory pressure. The readings come from one host shared with other work.
 
 ## Finding
 
@@ -884,14 +1152,15 @@ owns that decision.
 
 **#820 finding.** Inline Images and Attachments keep their Draft Asset identity
 through page editing, conversion, Undo, Redo, saving and reopening on iPhone and iPad
-simulators, and the page receives only native thumbnails. Image paste and drop into
-the page need native web-view work before they match the current composer on Mac,
-and drops on every host. The current composer does not offer conversion yet. This
+simulators, and the page receives only native thumbnails. Pasted images
+([#2929](https://github.com/unwired-dev/product/issues/2929)) and dropped files
+([Mac file drops](#mac-file-drops-2950)) are added on Mac. Drops on iPhone and iPad
+need native web-view work before they match the current composer. The current composer does not offer conversion yet. This
 does not approve adoption; #823 owns that decision.
 
 **#821 finding.** In component journeys on both hosts, **Save Draft** stores the
 newest body the page reported even when an earlier report arrives late, conflicting
 Mac windows keep separate copies, and racing imports, failed saves and account
 changes lose no surviving content; natively, two Mac windows on one Draft keep both
-versions (#2938). iPhone **Back** remains outstanding. This does not
+versions (#2938). On iPhone the sheet swipe passed natively (#2961). This does not
 approve adoption; #823 owns that decision.

@@ -151,8 +151,8 @@ const formatted: SemanticDocument = [
 type Page = Readonly<{
   editor: Editor;
   posted: Update[];
-  // Pastes the page asked the host to read from the pasteboard.
-  pastes: () => number;
+  // The page's requests that the host read a paste or drop natively, in order.
+  requests: () => ReadonlyArray<'paste' | 'drop'>;
   // Keys the page handed to the host's Slash Command Menu.
   keys: string[];
   command: (command: Command) => void;
@@ -167,14 +167,14 @@ async function open(
 ): Promise<Page> {
   vi.resetModules();
   const posted: Update[] = [];
+  const requests: Array<'paste' | 'drop'> = [];
   const keys: string[] = [];
-  let pastes = 0;
   globalThis.ReactNativeWebView = {
     postMessage: (message) => {
       const decoded = decodeMessage(message);
       ok(decoded, `Expected a valid page message: ${message}`);
-      if (decoded.type === 'paste') {
-        pastes += 1;
+      if (decoded.type === 'paste' || decoded.type === 'drop') {
+        requests.push(decoded.type);
       } else if (decoded.type === 'key') {
         keys.push(decoded.key);
       } else {
@@ -205,7 +205,7 @@ async function open(
   return {
     editor,
     posted,
-    pastes: () => pastes,
+    requests: () => requests,
     keys,
     command: draftCommand,
     type: (text) => {
@@ -1638,6 +1638,102 @@ describe('the Tiptap evaluation page', () => {
     }
   });
 
+  it('keeps the inline prediction out of the body and adds a word picked from the completion bubble', async () => {
+    expect.hasAssertions();
+    // WebKit offers "feedback" by replacing the word before the caret; its inline prediction
+    // ends in a compositionend at once, a word picked from the bubble does not.
+    const complete = (page: Page, after: () => void) => {
+      const { view } = page.editor;
+      page.editor.commands.setTextSelection(14);
+      const start = view.domAtPos(8);
+      const end = view.domAtPos(14);
+      const dataTransfer = new DataTransfer();
+      dataTransfer.setData('text/plain', 'feedback');
+      const input = Object.assign(
+        new InputEvent('beforeinput', {
+          inputType: 'insertReplacementText',
+          dataTransfer,
+          cancelable: true,
+        }),
+        {
+          getTargetRanges: () => [
+            {
+              collapsed: false,
+              startContainer: start.node,
+              startOffset: start.offset,
+              endContainer: end.node,
+              endOffset: end.offset,
+            },
+          ],
+        },
+      );
+      vi.useFakeTimers();
+      onTestFinished(() => {
+        vi.useRealTimers();
+      });
+      const uncancelled = view.dom.dispatchEvent(input);
+      after();
+      vi.runAllTimers();
+      return [uncancelled, bodyOf(page), page.editor.state.selection.from];
+    };
+    const predicted = await open(paragraphs('typing feedba'));
+    const shown = complete(predicted, () =>
+      predicted.editor.view.dom.dispatchEvent(
+        new CompositionEvent('compositionend'),
+      ),
+    );
+    predicted.type('ck');
+    expect([shown, bodyOf(predicted)]).toStrictEqual([
+      [false, undefined, 14],
+      paragraphs('typing feedback'),
+    ]);
+    // The picked word replaces the typed one, keeping its link.
+    const link = 'https://example.com/feedback';
+    const picked = await open([
+      {
+        kind: 'paragraph',
+        spans: [{ text: 'typing ' }, { text: 'feedba', link }],
+      },
+    ]);
+    expect(complete(picked, Fn.constVoid)).toStrictEqual([
+      false,
+      [
+        {
+          kind: 'paragraph',
+          spans: [{ text: 'typing ' }, { text: 'feedback', link }],
+        },
+      ],
+      16,
+    ]);
+    // A pick the caret moved away from, one over a body the host replaced, or one still pending
+    // when Save or Send freezes the page, stays out of the body.
+    const moved = await open(paragraphs('typing feedba'));
+    expect(
+      complete(moved, () => {
+        moved.editor.commands.setTextSelection(1);
+      }),
+    ).toStrictEqual([false, undefined, 1]);
+    const replaced = await open(paragraphs('typing feedba'));
+    expect(
+      complete(replaced, () => {
+        const revision = replaced.posted.at(-1)?.revision;
+        ok(revision !== undefined, 'Expected the revision');
+        replaced.command({
+          type: 'replace',
+          revision,
+          document: paragraphs('typing phrase'),
+          selection: { start: 13, end: 13 },
+        });
+      }),
+    ).toStrictEqual([false, paragraphs('typing phrase'), 14]);
+    const frozen = await open(paragraphs('typing feedba'));
+    expect(
+      complete(frozen, () => {
+        frozen.command({ type: 'editable', editable: false });
+      }),
+    ).toStrictEqual([false, paragraphs('typing feedba'), 14]);
+  });
+
   it('keeps typing after a word the system capitalizes or corrects at Space', async () => {
     expect.hasAssertions();
     const page = await open([{ kind: 'paragraph', spans: [] }]);
@@ -1946,25 +2042,29 @@ describe('the Tiptap evaluation page', () => {
     page.command({ type: 'previews', previews: { [photo.id]: thumbnail } });
     const rechecked = shown();
     const { view } = page.editor;
-    const files = { types: ['Files', 'image/png'] };
+    // The files arrive beside HTML that could carry their data; nothing reads either.
+    const reads: string[] = [];
+    const files = {
+      types: ['Files', 'image/png', 'text/html'],
+      getData: (type: string) => {
+        reads.push(type);
+        return '<img src="data:image/png;base64,iVBORw0KGgo=">';
+      },
+    };
     const paste = new ClipboardEvent('paste', { cancelable: true });
     Object.defineProperty(paste, 'clipboardData', { value: files });
     const drop = new DragEvent('drop', { cancelable: true });
     Object.defineProperty(drop, 'dataTransfer', { value: files });
+    view.dom.dispatchEvent(paste);
+    view.dom.dispatchEvent(drop);
+    // Moving content within the page stays ProseMirror's own.
     const move = new DragEvent('drop', { cancelable: true });
     Object.defineProperty(move, 'dataTransfer', { value: files });
-    const handled = [
-      view.someProp('handlePaste', (handle) =>
-        handle(view, paste, Slice.empty),
-      ),
-      view.someProp('handleDrop', (handle) =>
-        handle(view, drop, Slice.empty, false),
-      ),
-      // Moving content within the page stays ProseMirror's own.
-      view.someProp('handleDrop', (handle) =>
-        handle(view, move, Slice.empty, true),
-      ),
-    ];
+    view.dragging = { slice: Slice.empty, move: true };
+    const moved = view.someProp('handleDOMEvents', (handlers) =>
+      handlers.drop?.(view, move),
+    );
+    view.dragging = null;
     expect({
       before,
       after,
@@ -1972,11 +2072,12 @@ describe('the Tiptap evaluation page', () => {
       revoked,
       unverified,
       rechecked,
-      handled,
+      reads,
+      moved,
       prevented: [paste, drop, move].map(
         ({ defaultPrevented }) => defaultPrevented,
       ),
-      pastes: page.pastes(),
+      requests: page.requests(),
       body: bodyOf(page),
     }).toStrictEqual({
       before: null,
@@ -1985,9 +2086,10 @@ describe('the Tiptap evaluation page', () => {
       revoked: null,
       unverified: null,
       rechecked: thumbnail,
-      handled: [true, true, undefined],
+      reads: [],
+      moved: undefined,
       prevented: [true, true, false],
-      pastes: 1,
+      requests: ['paste', 'drop'],
       body: [{ kind: 'paragraph', spans: [{ text: '￼', image: photo }] }],
     });
   });

@@ -50,9 +50,10 @@ stalls overlapping sample windows and in the whole session. Missing or malformed
 probe evidence, including a click sample without its mouse events, fails the journey.
 
 A key sample runs from the key press the app records to the first edit of the
-focused body's text storage that begins with the expected text and the bold,
-italic and underline marks of each of its characters, so a later key press
-cannot hide a late result. A format bar sample runs the same way from the mouse
+focused body's text storage that shows exactly the expected text and the bold,
+italic and underline marks of each of its characters. Each sample needs its own
+edit, after the previous sample's, and a draw after it that no later edit
+replaced, so a later key press cannot hide a late or missing result. A format bar sample runs the same way from the mouse
 release the app records. Both times come from the app, so these samples exclude
 XCUITest. It compares that duration to `1000 / maximumFramesPerSecond`
 of the key window's display, the interval at the display's maximum supported refresh
@@ -83,6 +84,45 @@ samples, p50, p95, maximum, budget and stalls. The final line has the
 query overhead, the synthetic press duration and every session stall. It
 measures neither Mail View switching, keyboard or accessibility journeys, nor the
 iPhone and iPad references.
+
+## Mac typing response journey
+
+The `testTypingResponse` journey compares typing and formatting feedback in both
+Mac composers ([#2962](https://github.com/unwired-dev/product/issues/2962)). It runs
+the current composer in a `registration-performance` `Testing` build, signed in as
+the [performance journey](#mac-performance-journey) is, and the Draft editor page
+in a `registration-draft-editor` `Testing` build:
+
+```sh
+for scenario in registration-performance registration-draft-editor; do
+  UNWIRED_MOCK_SCENARIO=$scenario \
+  mise exec -- pnpm --filter @private-email/macos native:build Testing
+  mise exec -- pnpm --filter @private-email/macos test:native \
+    "$PWD/artifacts/macos-inbox/DerivedData/Build/Products/Testing/UnwiredMail.app" \
+    testTypingResponse
+done
+```
+
+In a new message it takes the performance journey's typing and formatting steps
+and measures them the same way, with the same `PERFORMANCE` lines: each key press
+or format bar release the app records, to the first body edit that shows the
+expected text and marks, and to the first draw after it, placed in its display
+frame. For the page, `apps/macos/src/page-typing-probe.ts` supplies the edit and
+the draw. A `MutationObserver` notes each change of the editor's text and marks
+when ProseMirror has changed the DOM. The next animation frame then notes its start,
+and a task queued from that frame notes the end of its rendering update, which
+stands for the draw. The page times them with `performance.timeOrigin` and
+`performance.now()`, milliseconds since 1970 in WebKit's process, and sends them
+once that frame has rendered. The app converts them to its uptime clock when it
+writes them. A page sample therefore includes WebKit's event delivery from the
+app, ProseMirror's edit and WebKit's style, layout and paint. It leaves out
+WebKit's layer commit to the app and the window server's composite, as the current
+composer's text view draw leaves out compositing. The two clocks agree only to the
+resolution of WebKit's timer, 1 ms, and the app converts every note with one
+offset, so notes the page timed alike keep their order. Both builds launch with
+the system's inline predictions off, which otherwise delayed three of the page's
+key presses by about 5 s ([#2966](https://github.com/unwired-dev/product/issues/2966)).
+The lines are an XCTest attachment named for the composer.
 
 ## Mac composer opening journey
 
@@ -117,6 +157,77 @@ an empty composer (300 ms) and a warm composer (200 ms).
 The journey writes one `PERFORMANCE` JSON line per interaction, with the
 composer, to `xcodebuild.log` and as an XCTest attachment, in the performance
 journey's format.
+
+## Mac selection-change journey
+
+The `testSelectionChangeLatency` journey compares selection changes in both Mac
+composers ([#2951](https://github.com/unwired-dev/product/issues/2951)). It runs the
+current composer in a `registration-performance` `Testing` build, signed in as
+the [performance journey](#mac-performance-journey) is, and the Draft editor page
+in a `registration-draft-editor` `Testing` build:
+
+```sh
+for scenario in registration-performance registration-draft-editor; do
+  UNWIRED_MOCK_SCENARIO=$scenario \
+  mise exec -- pnpm --filter @private-email/macos native:build Testing
+  mise exec -- pnpm --filter @private-email/macos test:native \
+    "$PWD/artifacts/macos-inbox/DerivedData/Build/Products/Testing/UnwiredMail.app" \
+    testSelectionChangeLatency
+done
+```
+
+In a new message it pastes one generated paragraph into the body, then replaces it
+with 1,000 paragraphs, about 67,000 characters. At the end of each body it makes
+20 selection changes: Shift-Left selects the last character and Right collapses
+the selection at the end again, 10 times each. It waits until **Add Link** is
+available for each selected character and unavailable at each caret. A sample
+runs from the key press the app records to the end of Fabric's mount of the
+format bar's first commit afterwards that shows the new selection, before the
+journey saw it. The Link control arms a record in each commit, which also
+computes the Writing tools' state, and the app writes it when Fabric has mounted
+that window's next update. Both ends come from the app's clock, so the samples
+exclude XCUITest. They include WebKit, the page bridge, React's commit and
+Fabric's mount, but not the display frame that draws the result. A sample without
+its record fails the journey.
+
+The journey writes one `PERFORMANCE` JSON line per body to `xcodebuild.log` and
+as an XCTest attachment, with the composer, the samples, p50, p95, maximum,
+main-queue stalls of 100 ms or longer during the samples, and the display's frame
+interval.
+
+## Mac composer memory journey
+
+The `testComposerMemory` journey compares the memory both composers hold
+([#2957](https://github.com/unwired-dev/product/issues/2957)): the current composer
+in the `registration-performance` `Testing` build, after the same sign-in as the
+[performance journey](#mac-performance-journey), and the
+[Draft editor page](draft-editor-evaluation.md) in the `registration-draft-editor`
+`Testing` build. Build each and run the same command on it:
+
+```sh
+mise exec -- pnpm --filter @private-email/macos test:native \
+  "$PWD/artifacts/macos-inbox/DerivedData/Build/Products/Testing/UnwiredMail.app" \
+  testComposerMemory
+```
+
+It reads memory in three states: the Inbox with no composer; that window's New
+Message with one generated paragraph of 50,007 characters pasted into its body;
+and four Inbox windows, each with such a New Message. A composer counts once its
+body shows the whole paragraph. Each state is read three times, a second apart.
+A reading is the physical footprint (`ri_phys_footprint`, which `footprint`
+reports as `phys_footprint`) of the app and of every process macOS holds it
+responsible for, such as its WebKit content, networking and GPU processes and
+system helpers. The journey fails when the app is not running, a process cannot be
+read, or, for the page, no WebKit content process is among them. It writes one
+`PERFORMANCE` JSON line per state to `xcodebuild.log`, and the same states as a
+JSON array in an XCTest attachment, with each reading's processes, its total,
+the state's median total and that median's increase over the first state. No
+memory budget exists, so it records the readings and judges none. The builds'
+mailboxes differ, so only the one-composer increases compare across builds; the
+four-composer increase is the whole session's growth, including three more Inbox
+windows that list each build's own mailboxes. The pasted paragraph replaces the pasteboard
+for the run, which gets its earlier contents back unless something else wrote it
+since.
 
 ## Mac keyboard and accessibility journey
 
@@ -536,6 +647,25 @@ conversions, and after **Save**, a relaunch and reopening the image is still
 between the words with its thumbnail. The inserted image, the context menu, the
 Attachment and the reopened Draft are kept as attachments.
 
+## Mac Draft editor file drop journey
+
+The `testDraftEditorFileDrop` journey uses the same build
+([#2950](https://github.com/unwired-dev/product/issues/2950)):
+
+```sh
+mise exec -- pnpm --filter @private-email/macos test:native \
+  "$PWD/artifacts/macos-inbox/DerivedData/Build/Products/Testing/UnwiredMail.app" \
+  testDraftEditorFileDrop
+```
+
+After signing in, a New Message gets body text. The journey writes `drop-note.txt`
+to a new folder in the test runner's temporary folder, shows it in Finder, moves
+Finder's window below the page and drags the file's row onto the body. The file
+becomes an Attachment whose bytes verify, and the body keeps its text and no image.
+After **Save**, a relaunch and reopening the Draft, the Attachment is still listed.
+The dropped and reopened page are kept as attachments; the journey closes its Finder
+window and removes the folder.
+
 ## Mac list indent journey
 
 The `testListIndent` journey and its `Dark` variant use the same
@@ -781,6 +911,20 @@ and the Outbox then offers its **Undo**. The editor's bottom, not the keyboard e
 fold: the keyboard's typing predictions sit above that element. The captures "Composer sheet", "Composer sheet asks before
 closing", "Composer body fills the sheet", "Composer Send asks for a recipient" and "Composer sheet
 with keyboard" are named with the appearance.
+
+## iPhone Draft editor sheet journey
+
+`testDraftEditorSheet` runs the same swipes on the Draft editor page's composer
+([#2961](https://github.com/unwired-dev/product/issues/2961)), in the
+`registration-draft-editor` Release build that the
+[Draft editor evaluation](draft-editor-evaluation.md#run-the-evaluation) describes, with
+`UNWIRED_JOURNEY=testDraftEditorSheet` on iPhone; iPad skips it. After signing in, New Message
+opens the page in the system sheet over the Inbox, whose rows are out of reach. Swiping the
+untouched sheet down closes it. In a second New Message, with two paragraphs typed into the page,
+the swipe asks **Save Draft** or **Delete Draft** while the sheet and its text stay, the last
+paragraph in sight beneath the question; **Keep Editing** keeps both, and on the next swipe **Save Draft** closes the sheet. The Inbox then lists the Draft, which
+reopens in the page with its text, and a swipe closes it without asking. The captures "Draft
+editor sheet asks before closing" and "Draft editor sheet reopened" are named with the appearance.
 
 ## iPad composer card journey
 

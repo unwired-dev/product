@@ -1241,12 +1241,14 @@
       "title": "Recipient suggestions",
       "recent": "Recent",
       "contacts": "Contacts",
-      "named": "{{name}}, {{address}}"
+      "named": "{{name}}, {{address}}",
+      "inRole": "{{label}}, in {{role}}"
     },
     "bodyRecipient": {
       "greeting": "Hi {{name}},",
       "greetingUnnamed": "Hi,",
       "added": "{{name}} added to To",
+      "inserted": "Inserted {{text}}",
       "noMatches": "No Matches",
       "contactsUnsearchable": "Contacts couldn’t be searched. Showing people from recent mail."
     },
@@ -1945,6 +1947,19 @@
     "unavailable": "This device couldn’t read your Blocked Senders. To try again, leave Blocked Senders and open it again.",
     "loadFailed": "Couldn’t Load Blocked Senders",
     "loadFailedDetail": "Nothing was changed. Try again in a moment."
+  },
+  "unsubscribe": {
+    "action": "Unsubscribe…",
+    "confirmTitle": "Unsubscribe from {{list}}?",
+    "confirm": "Unwired sends {{sender}} an unsubscribe request from {{address}}. It can take a few days to stop. Mail you already have stays.",
+    "confirmAction": "Unsubscribe",
+    "sent": "Unsubscribe request sent",
+    "sentDetail": "To {{sender}} on {{date}}. If their mail keeps coming after 14 days, you can try again.",
+    "failed": "Couldn’t send the request",
+    "failedDetail": "{{sender}} didn’t accept it. Try again later, or block the sender instead.",
+    "uncertain": "No clear answer to the request",
+    "uncertainDetail": "Unwired can’t tell whether {{sender}} received it. You can send it again, or block the sender instead.",
+    "tryAgain": "Try Again"
   },
   "pins": {
     "pinFailed": "This Thread couldn’t be pinned",

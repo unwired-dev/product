@@ -1030,6 +1030,9 @@ const DraftBehavior = Extension.create<unknown, { typing: boolean }>({
   },
   addProseMirrorPlugins() {
     const { editor } = this;
+    // A completion that extends the word at the caret, waiting to learn whether it is the Mac's
+    // inline prediction or a word picked from the completion bubble.
+    let completion: ReturnType<typeof setTimeout> | undefined = undefined;
     return [
       new Plugin({
         props: {
@@ -1051,32 +1054,23 @@ const DraftBehavior = Extension.create<unknown, { typing: boolean }>({
               ? new Slice(content, 1, 1)
               : new Slice(content, slice.openStart, slice.openEnd);
           },
-          // A pasted image is read from the pasteboard by native code, where it can; the page
-          // never reads the data, and a dropped file is refused.
           // Pasting over a selection pastes over it as the current composer does.
-          handlePaste: (view, event, slice) => {
-            if (!carriesFiles(event.clipboardData)) {
-              const { selection } = view.state;
-              if (
-                selection.empty ||
-                !editsAsText(selection) ||
-                slice.size === 0
-              ) {
-                return false;
-              }
-              const { tr } = view.state;
-              pasteOver(tr, slice);
-              view.dispatch(
-                tr
-                  .scrollIntoView()
-                  .setMeta('paste', true)
-                  .setMeta('uiEvent', 'paste'),
-              );
-              return true;
+          handlePaste: (view, _event, slice) => {
+            const { selection } = view.state;
+            if (
+              selection.empty ||
+              !editsAsText(selection) ||
+              slice.size === 0
+            ) {
+              return false;
             }
-            event.preventDefault();
-            globalThis.ReactNativeWebView?.postMessage(
-              JSON.stringify({ type: 'paste' }),
+            const { tr } = view.state;
+            pasteOver(tr, slice);
+            view.dispatch(
+              tr
+                .scrollIntoView()
+                .setMeta('paste', true)
+                .setMeta('uiEvent', 'paste'),
             );
             return true;
           },
@@ -1085,11 +1079,7 @@ const DraftBehavior = Extension.create<unknown, { typing: boolean }>({
           // oxlint-disable-next-line max-params -- ProseMirror's handleDrop signature.
           handleDrop: (view, event, slice, moved) => {
             if (!moved) {
-              if (!carriesFiles(event.dataTransfer)) {
-                return false;
-              }
-              event.preventDefault();
-              return true;
+              return false;
             }
             const target = emptyLineAt(view, event, slice);
             if (target === null) {
@@ -1113,8 +1103,76 @@ const DraftBehavior = Extension.create<unknown, { typing: boolean }>({
           // Text inserted over a selection across lines without a key press, as by dictation or a
           // suggestion, goes through handleTextInput too; ProseMirror would read it from the DOM.
           handleDOMEvents: {
+            // Pasted images and dropped files are read by native code, where it can; the page
+            // never reads the data, so it refuses them before ProseMirror reads their text or HTML.
+            // A drag within the page stays ProseMirror's own.
+            paste: (_view, event) => {
+              if (!carriesFiles(event.clipboardData)) {
+                return false;
+              }
+              event.preventDefault();
+              globalThis.ReactNativeWebView?.postMessage(
+                JSON.stringify({ type: 'paste' }),
+              );
+              return true;
+            },
+            drop: (view, event) => {
+              if (view.dragging !== null || !carriesFiles(event.dataTransfer)) {
+                return false;
+              }
+              event.preventDefault();
+              globalThis.ReactNativeWebView?.postMessage(
+                JSON.stringify({ type: 'drop' }),
+              );
+              return true;
+            },
+            // fallow-ignore-next-line complexity -- Each guard leaves an input event to ProseMirror.
             beforeinput: (view, event) => {
               const { from, to, $from, $to } = view.state.selection;
+              // WebKit's inline prediction arrives as a replacement extending the word at the
+              // caret, followed at once by a compositionend. Let into the page, it stays in the
+              // body after the letters typed through it. Cancelled, WebKit keeps drawing it outside
+              // the body and settles it as typing, Tab and Escape go on. A word picked from the
+              // completion bubble has no compositionend, so the page adds it once the event is over.
+              if (event.inputType === 'insertReplacementText') {
+                const completed =
+                  event.dataTransfer?.getData('text/plain') ?? '';
+                const [range] = event.getTargetRanges();
+                if (range === undefined || from !== to) {
+                  return false;
+                }
+                const start = view.posAtDOM(
+                  range.startContainer,
+                  range.startOffset,
+                );
+                const word = view.state.doc.textBetween(start, from);
+                if (
+                  view.posAtDOM(range.endContainer, range.endOffset) !== from ||
+                  !completed.startsWith(word) ||
+                  completed.length === word.length
+                ) {
+                  return false;
+                }
+                event.preventDefault();
+                const { doc } = view.state;
+                completion = setTimeout(() => {
+                  // Only into the body and caret it was offered for, before the host freezes it;
+                  // it replaces the word as other replacements do, keeping its link and format.
+                  if (
+                    view.editable &&
+                    view.state.doc === doc &&
+                    view.state.selection.empty &&
+                    view.state.selection.from === from
+                  ) {
+                    view.someProp('handleTextInput', (input) =>
+                      input(view, start, from, completed, () =>
+                        view.state.tr.insertText(completed, start, from),
+                      ),
+                    );
+                  }
+                }, 0);
+                return true;
+              }
               const text = event.data;
               if (
                 event.inputType !== 'insertText' ||
@@ -1132,6 +1190,11 @@ const DraftBehavior = Extension.create<unknown, { typing: boolean }>({
                   ),
                 ) ?? false
               );
+            },
+            // A cancelled completion followed by a compositionend is the inline prediction.
+            compositionend: () => {
+              clearTimeout(completion);
+              return false;
             },
           },
           // oxlint-disable-next-line max-params -- ProseMirror's handleTextInput signature.
