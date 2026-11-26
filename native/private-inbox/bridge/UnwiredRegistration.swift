@@ -128,7 +128,11 @@ final class UnwiredRegistration: RCTEventEmitter {
   static let recoveryKeyExports = FileManager.default.temporaryDirectory
     .appendingPathComponent("RecoveryKeyExports", isDirectory: true)
 
-  // Whether JavaScript listens for events; read and written on the main queue.
+  // React Native runs this module's methods here, so it counts listeners here; events are sent
+  // here too.
+  private let queue = DispatchQueue(label: "dev.unwired.registration")
+  override var methodQueue: DispatchQueue! { queue }
+  // Whether JavaScript listens for events; read and written on `queue`.
   private var listening = false
 
   override init() {
@@ -819,8 +823,8 @@ extension UnwiredRegistration {
 
   // A running Draft import's progress, `{ id, fraction }`, while JavaScript listens.
   override func supportedEvents() -> [String]! { ["draftImportProgress"] }
-  override func startObserving() { DispatchQueue.main.async { self.listening = true } }
-  override func stopObserving() { DispatchQueue.main.async { self.listening = false } }
+  override func startObserving() { listening = true }
+  override func stopObserving() { listening = false }
 
   private static var microsoftClientID: String {
     Bundle.main.object(forInfoDictionaryKey: "UnwiredMicrosoftClientID") as? String ?? ""
@@ -2032,7 +2036,7 @@ extension UnwiredRegistration {
         #if UNWIRED_REGISTRATION_MOCK
           defer { SyntheticDraftImportHold.wait() }
         #endif
-        DispatchQueue.main.async {
+        self.queue.async {
           guard self.listening else { return }
           self.sendEvent(withName: "draftImportProgress", body: ["id": id, "fraction": fraction])
         }

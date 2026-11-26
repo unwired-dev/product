@@ -255,9 +255,9 @@ extension RegistrationStore {
   }
 
   // Reads a file in bounded chunks, so its import can report progress.
-  nonisolated static func draftFileBytes(
-    _ url: URL, chunk: Int = 1 << 20, progress: (Double) -> Void
-  ) throws -> Data {
+  nonisolated private static func draftFileBytes(_ url: URL, progress: (Double) -> Void) throws
+    -> Data
+  {
     // A file the person dropped or chose stays readable while this process holds its grant.
     let scoped = url.startAccessingSecurityScopedResource()
     defer { if scoped { url.stopAccessingSecurityScopedResource() } }
@@ -269,7 +269,7 @@ extension RegistrationStore {
     defer { try? handle.close() }
     var bytes = Data(capacity: size)
     var reported = -1
-    while let next = try handle.read(upToCount: chunk), !next.isEmpty {
+    while let next = try handle.read(upToCount: 1 << 20), !next.isEmpty {
       bytes.append(next)
       guard bytes.count <= PrivateInboxStore.draftAssetLimit else {
         throw PrivateInboxError.tooLarge
