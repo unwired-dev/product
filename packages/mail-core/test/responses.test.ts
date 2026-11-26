@@ -681,8 +681,14 @@ describe('replying to and forwarding a received message', () => {
       true,
     );
     expect(downloads()).toBe(fetched);
-    // Once the reader closed, Try Again reads the message again to download it.
+    // Once the reader closed, Try Again reads the message again to download it. After a storage
+    // failure, the next Try Again holds the file again rather than reading the one it released.
     close();
+    storage.failNextImport('locked');
+    await expect(drafts.retryImport(present(pdf, 'report.pdf'))).resolves.toBe(
+      true,
+    );
+    expect(failed().map(({ name }) => name)).toStrictEqual(['report.pdf']);
     await expect(drafts.retryImport(present(pdf, 'report.pdf'))).resolves.toBe(
       true,
     );

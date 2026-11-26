@@ -4770,7 +4770,7 @@ function Editor({
       return;
     }
     for (const id of ids) {
-      void store.cancelImport(id);
+      void store.cancelImport(id, { removed: true });
     }
     const without = (document: SemanticDocument) =>
       ids.reduce((remaining, id) => withoutImage(remaining, id), document);

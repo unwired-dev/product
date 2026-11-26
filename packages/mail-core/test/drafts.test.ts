@@ -3761,7 +3761,12 @@ describe('adding files and images to Drafts', () => {
       return unsaved;
     };
     const removedUnsaved = await failUnsaved();
+    // A Cancel that arrives once the import failed leaves Try Again in place.
     await expect(drafts.cancelImport(removedUnsaved.id)).resolves.toBe(false);
+    expect([...drafts.getRetries()]).toStrictEqual([removedUnsaved.id]);
+    await expect(
+      drafts.cancelImport(removedUnsaved.id, { removed: true }),
+    ).resolves.toBe(false);
     expect(drafts.getRetries().size).toBe(0);
     expect(storage.discardedPicks()).toHaveLength(3);
     await failUnsaved();
@@ -3850,7 +3855,7 @@ describe('adding files and images to Drafts', () => {
     // Reading the same missing file again can't succeed; downloading the forward again can.
     expect([...drafts.getRetries()]).toStrictEqual([plan.id]);
     await expect(drafts.retryImport(plan.id)).resolves.toBe(true);
-    expect(download).toHaveBeenCalledWith();
+    expect(download).toHaveBeenCalledWith({ again: true });
     expect(release).toHaveBeenCalledWith();
     expect(assetsOf(draft())[1]).toMatchObject({ state: 'complete', size: 4 });
   });

@@ -405,14 +405,14 @@ export async function forwardedAttachments(
       name,
       type: mimeType,
       source: sourceOf(saved),
-      // Try Again downloads it again from this mailbox, which the Draft's Mail Profile keeps,
-      // reading the message meanwhile in case its reader closed.
-      download: async () => {
+      // Try Again holds it again from this mailbox, which the Draft's Mail Profile keeps, reading
+      // the message meanwhile in case its reader closed.
+      download: async ({ again: missing }) => {
         const reading = inbox.retainMessage(id);
         try {
           await inbox.readMessage(id);
           await inbox
-            .downloadAttachment(id, locator, { again: true })
+            .downloadAttachment(id, locator, { again: missing })
             .catch(() => undefined);
           const again = inbox.holdAttachmentFile(id, locator);
           return {

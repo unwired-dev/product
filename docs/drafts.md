@@ -727,8 +727,9 @@ sent. On the Mac the row names the reason ("Couldn’t be downloaded"), or says
 ([#2991](https://github.com/unwired-dev/product/issues/2991)): a failed import keeps
 its picked or dropped copy on the device while it can be retried, and Try Again
 (`retryImport`, listed by `getRetries`) reads the same file, pasted image or
-Downloaded Attachment again without a picker, and downloads a forwarded attachment
-again when its file went missing. Only the Mac keeps a picked or pasted copy
+Downloaded Attachment again without a picker. For a forwarded attachment it uses the
+file its mailbox still has, downloading it again when that file went missing or the
+mailbox changed. Cancel arriving once an import failed leaves Try Again in place. Only the Mac keeps a picked or pasted copy
 (`importAsset` with `keep`). The copy is deleted once the file is added or removed, when its Draft is
 discarded or sent, when a composer that never saved it closes, on sign-out and at
 launch; a file too large for Drafts is not retried. Only complete files can be sent: `unsendableAssets` in

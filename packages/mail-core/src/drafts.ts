@@ -916,11 +916,12 @@ export type AssetSource =
       }>;
       file: string;
     }>;
-// Downloads a received attachment again for Try Again, never rejecting: an attachment it cannot
-// download is `unavailable`. Its file stays on the device until `release`.
-export type Download = () => Promise<
-  Readonly<{ source: AssetSource; release: () => void }>
->;
+// Holds a received attachment's file again for Try Again, reusing one still saved for its mailbox
+// and otherwise downloading it; `again` downloads it even then, as when the device removed it.
+// Never rejects: an attachment it cannot download is `unavailable`. The file stays until `release`.
+export type Download = (
+  options: Readonly<{ again: boolean }>,
+) => Promise<Readonly<{ source: AssetSource; release: () => void }>>;
 export type PickedFile = Readonly<{
   name: string;
   type: string;
@@ -1539,7 +1540,7 @@ export function createDrafts(
       source: AssetSource;
       download?: Download | undefined;
       // Whether Try Again downloads a forwarded attachment again, as when its file went missing.
-      fetch: boolean;
+      again: boolean;
     }>
   >();
   let retries: ReadonlySet<string> = new Set<string>();
@@ -2558,7 +2559,7 @@ export function createDrafts(
       retained.set(asset.id, {
         asset,
         ...retry,
-        fetch: fields.notDownloaded === true,
+        again: fields.notDownloaded === true,
       });
     }
     yield* settle(
@@ -2656,20 +2657,21 @@ export function createDrafts(
   };
 
   // Copies an asset's bytes into Draft storage and completes it in every Draft that has it.
-  // `retrying`, for Try Again, turns a failed asset back to importing; with `fetch`, it downloads
-  // a forwarded attachment again first. `keep` keeps a failed file's copy for Try Again.
+  // `retrying`, for Try Again, turns a failed asset back to importing and holds a forwarded
+  // attachment's file again first, as its mailbox now has it; `again` downloads it once more.
+  // `keep` keeps a failed file's copy for Try Again.
   const importAsset = (
     asset: Asset,
     source: AssetSource,
     {
       download,
       retrying = false,
-      fetch = false,
+      again = false,
       keep = false,
     }: Readonly<{
       download?: Download | undefined;
       retrying?: boolean;
-      fetch?: boolean;
+      again?: boolean;
       keep?: boolean;
     }> = {},
   ) =>
@@ -2683,9 +2685,10 @@ export function createDrafts(
       if (retrying) {
         yield* settle(current, asset.id, reimporting);
       }
-      const again = fetch ? download : undefined;
       const fetched =
-        again === undefined ? undefined : yield* Effect.promise(() => again());
+        retrying && download !== undefined
+          ? yield* Effect.promise(() => download({ again }))
+          : undefined;
       const read = fetched?.source ?? source;
       const failure = unreadable(read);
       if (failure !== undefined) {
@@ -3133,16 +3136,20 @@ export function createDrafts(
       await importThenPublish(entry.asset, entry.source, {
         download: entry.download,
         retrying: true,
-        fetch: entry.fetch,
+        again: entry.again,
         keep: true,
       });
       return true;
     },
     // Stops an import; its asset stays in the Draft as cancelled, and is never sent. Removing a
-    // failed file calls it too, so its copy goes once no Draft lists it, even before a save.
-    cancelImport: async (id: string) => {
+    // file calls it with `removed`, so a failed file's copy goes once no Draft lists it, even
+    // before a save.
+    cancelImport: async (
+      id: string,
+      { removed = false }: Readonly<{ removed?: boolean }> = {},
+    ) => {
       if (!importing.has(id)) {
-        if (retained.has(id) && state.kind === 'ready') {
+        if (removed && retained.has(id) && state.kind === 'ready') {
           removedRetries.add(id);
           releaseRemoved(state.drafts);
         }
