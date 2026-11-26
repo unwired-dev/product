@@ -74,6 +74,14 @@ const choose = async (
     select({ nativeEvent: { id: item.id } });
   });
 };
+// The scrolling area holding `element`.
+function scrollOf(
+  element: ReturnType<typeof screen.getByText> | null,
+): ReturnType<typeof screen.getByText> | null {
+  return element === null || element.type === 'RCTScrollView'
+    ? element
+    : scrollOf(element.parent);
+}
 const saveBlocked =
   'This Draft could not be saved, so it stays open. Try again, or discard it.';
 // Reopens a saved Draft while its native import is pending, then completes it before an exit.
@@ -830,8 +838,10 @@ describe('the Tiptap evaluation composer', () => {
       kind: 'paragraph' as const,
       spans: [{ text }].filter((span) => span.text !== ''),
     });
-    const lines = (text: string): SemanticDocument =>
-      text.split('\n').map(paragraph);
+    const lines = (text: string): SemanticDocument => {
+      const [first = '', ...rest] = text.split('\n');
+      return [paragraph(first), ...rest.map(paragraph)];
+    };
     const caret = { top: 30, bottom: 52, left: 16 };
     // The page reports each typed character with the caret after it, and the /'s line.
     const typeEach = async (before: string, typed: string) => {
@@ -866,10 +876,7 @@ describe('the Tiptap evaluation composer', () => {
     await fireEvent(page(), 'layout', {
       nativeEvent: { layout: { x: 0, y: 40, width: 500, height: 400 } },
     });
-    let scroll = page().parent;
-    while (scroll !== null && scroll.type !== 'RCTScrollView') {
-      scroll = scroll.parent;
-    }
+    const scroll = scrollOf(page());
     ok(scroll !== null, 'Expected the composer’s scrolling area');
     await fireEvent(scroll, 'layout', {
       nativeEvent: { layout: { x: 0, y: 0, width: 500, height: 600 } },
