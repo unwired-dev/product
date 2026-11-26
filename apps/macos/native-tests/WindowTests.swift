@@ -372,6 +372,7 @@ final class WindowTests: XCTestCase {
     choose(from: inlineSend, menu: "Remind Me to Send…")
     // The popover keeps a point of its edge on its anchor.
     XCTAssertLessThanOrEqual(popover.frame.maxY, inlineSend.frame.minY + 1, "\(popover.frame) covers Send")
+    XCTAssertTrue(window.frame.contains(popover.frame), "\(popover.frame) leaves \(window.frame)")
     XCTAssertTrue(shows(tomorrow), "\(String(describing: time.value))")
     attach(window.screenshot(), "Choose Date and Time above Send")
     app.typeKey(.escape, modifierFlags: [])

@@ -68,10 +68,7 @@ const styles = StyleSheet.create({
   timeLabel: { alignSelf: 'center' },
   // The time field keeps AppKit's width, which depends on the region, at this view's trailing edge.
   time: { width: 120, height: 24 },
-  // The bell's slot, the header 8pt beside it.
-  bell: { width: 13 },
   note: { flexDirection: 'row', alignItems: 'flex-start', gap: 6 },
-  noteIcon: { width: 12, height: 14 },
   noteText: { flex: 1 },
   separator: { height: StyleSheet.hairlineWidth },
   buttons: { flexDirection: 'row', justifyContent: 'flex-end', gap: spacing.s },
@@ -216,9 +213,8 @@ function ReminderPicker({
         <View style={styles.line}>
           <SFSymbol
             name="bell"
-            size={16}
+            size={13}
             color={colors.textPrimary}
-            style={styles.bell}
           />
           <Label
             accessibilityRole="header"
@@ -253,9 +249,8 @@ function ReminderPicker({
           <View style={styles.note}>
             <SFSymbol
               name="exclamationmark.triangle.fill"
-              size={14}
+              size={12}
               color={colors.statusDestructive}
-              style={styles.noteIcon}
             />
             <View style={styles.noteText}>
               <AnnouncedAlert
@@ -274,9 +269,8 @@ function ReminderPicker({
         <View style={styles.note}>
           <SFSymbol
             name="clock"
-            size={14}
+            size={12}
             color={colors.textSecondary}
-            style={styles.noteIcon}
           />
           <View style={styles.noteText}>
             <Label style={[textStyles.subheadline, secondary]}>
@@ -296,7 +290,7 @@ function ReminderPicker({
           />
           <Button
             label={t('drafts.reminder.set')}
-            fill="accent"
+            fill={passed ? 'quiet' : 'accent'}
             isDefault
             disabled={passed}
             onPress={set}
