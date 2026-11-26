@@ -56,6 +56,16 @@ final class UnwiredNotifications: NSObject, UNUserNotificationCenterDelegate, Se
   func userNotificationCenter(
     _ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse
   ) async {
+    #if os(macOS)
+      // A Send Reminder routes nowhere yet: its tap brings an Inbox window forward, or opens one
+      // after a launch that started without a window.
+      if response.notification.request.identifier.hasPrefix("send-reminder."),
+        response.actionIdentifier == UNNotificationDefaultActionIdentifier
+      {
+        await NotificationTaps.shared.show()
+        return
+      }
+    #endif
     let info = response.notification.request.content.userInfo
     guard let account = info["account"] as? String, !account.isEmpty,
       let epoch = info["epoch"] as? String, !epoch.isEmpty,
@@ -187,8 +197,10 @@ final class UnwiredNotifications: NSObject, UNUserNotificationCenterDelegate, Se
   private var queued: [[String: String]] = []
   private var readers: [String: (id: String, continuation: CheckedContinuation<[String: String]?, Never>)] = [:]
 
-  func receive(_ tap: [String: String]) {
-    #if os(macOS)
+  #if os(macOS)
+    // Brings the key window's reader, or another one, forward, or opens an Inbox window when none is
+    // open; resolves the reading window.
+    @discardableResult func show() -> String? {
       // A closed window's reader never reads again.
       for window in readers.keys where Self.window(window) == nil {
         readers.removeValue(forKey: window)?.continuation.resume(returning: nil)
@@ -204,6 +216,13 @@ final class UnwiredNotifications: NSObject, UNUserNotificationCenterDelegate, Se
         // An open window that has not started reading yet reads the queued notification.
         NSApp.sendAction(Selector(("newWindow:")), to: nil, from: nil)
       }
+      return window
+    }
+  #endif
+
+  func receive(_ tap: [String: String]) {
+    #if os(macOS)
+      let window = show()
     #else
       let window = readers.keys.first
     #endif
