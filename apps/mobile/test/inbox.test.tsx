@@ -3,6 +3,10 @@ import { ok } from 'node:assert/strict';
 import type { NativeGmailMailbox } from '@private-email/mail-core/inbox-store';
 import type { NativePins, Pins } from '@private-email/mail-core/pins';
 import type { Registration } from '@private-email/mail-core/registration';
+import type {
+  Unsubscribe,
+  UnsubscribeOutcome,
+} from '@private-email/mail-core/unsubscribe';
 
 import { ownerOf } from '@private-email/mail-core/drafts';
 import { gmailAction } from '@private-email/mail-core/gmail-actions';
@@ -75,6 +79,7 @@ import { PinsContext } from '../src/pins.tsx';
 import { RegistrationGate } from '../src/registration-gate.tsx';
 import { SidebarToggleContext } from '../src/sidebar-toggle.tsx';
 import { Mailboxes } from '../src/sidebar.tsx';
+import { UnsubscribeContext } from '../src/unsubscribe.tsx';
 import { started } from './started.ts';
 
 // oxlint-disable-next-line vitest/prefer-import-in-mock -- Jest's host adapter boundary.
@@ -1012,6 +1017,7 @@ async function renderConnected(
   {
     windowBar,
     pinsFor,
+    unsubscribe,
     toolbar = false,
     covered = false,
   }: Readonly<{
@@ -1022,6 +1028,8 @@ async function renderConnected(
     toolbar?: boolean;
     // Pin storage for the registered Product Account, instead of the host's.
     pinsFor?: (registration: Registration) => Pins;
+    // Unsubscribe's native request and record, instead of the host's.
+    unsubscribe?: Unsubscribe;
   }> = {},
 ) {
   const synthetic = await createRegistrationScenario('registration-success');
@@ -1096,10 +1104,16 @@ async function renderConnected(
         </InboxProvider>
       </RegistrationGate>
     );
-    return pins === undefined ? (
-      gate
+    const pinned =
+      pins === undefined ? (
+        gate
+      ) : (
+        <PinsContext value={pins}>{gate}</PinsContext>
+      );
+    return unsubscribe === undefined ? (
+      pinned
     ) : (
-      <PinsContext value={pins}>{gate}</PinsContext>
+      <UnsubscribeContext value={unsubscribe}>{pinned}</UnsubscribeContext>
     );
   }
   await render(
@@ -2927,6 +2941,144 @@ describe('connected Gmail Inbox', () => {
       { message: plans, read: false },
     ]);
     expect(graph.folderOf(plans)).toBe('inbox');
+  });
+
+  it('offers one-click Unsubscribe in the reader’s banner and More, confirms it and shows each outcome', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
+    gmail.deliver({
+      from: 'Oliver Park <oliver@example.invalid>',
+      subject: 'Saturday, by the river?',
+    });
+    gmail.deliver({
+      from: 'Alza.cz <news@alza.example>',
+      subject: 'Black Friday',
+      headers: {
+        'List-Id': 'Alza.cz newsletter <newsletter.alza.example>',
+        'List-Unsubscribe': '<https://alza.example/u/42>',
+        'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+      },
+      content: { text: 'This week only.' },
+    });
+    // The first request fails and the second is sent.
+    const request = jest
+      .fn<Promise<UnsubscribeOutcome>, [string]>()
+      .mockResolvedValueOnce('failed')
+      .mockResolvedValueOnce('sent');
+    const requests = () => request.mock.calls.map(([owner]) => owner);
+    await renderConnected(gmail.native, 'gmail', {
+      unsubscribe: {
+        sentRequest: () => Promise.resolve(undefined),
+        request,
+      },
+    });
+    const press = async (name: string) => {
+      await act(async () => {
+        await fireEvent.press(await screen.findByRole('button', { name }));
+      });
+    };
+    await press('Unread. Alza.cz. Black Friday');
+    await screen.findByText('This week only.');
+    // The banner names the list, and More offers the same request.
+    expect(screen.getByText('Alza.cz newsletter')).toBeVisible();
+    expect(menuSections(screen.getByLabelText('More')).flat()).toContain(
+      'Unsubscribe…',
+    );
+    const confirmation = 'Unsubscribe from Alza.cz newsletter?';
+    await press('Unsubscribe…');
+    expect({
+      title: screen.getByRole('header', { name: confirmation }),
+      message: screen.getByText(
+        'Unwired sends Alza.cz an unsubscribe request from alex@example.invalid. It can take a few days to stop. Mail you already have stays.',
+      ),
+    }).toStrictEqual({ title: expect.anything(), message: expect.anything() });
+    await press('Cancel');
+    expect(screen.queryByRole('header', { name: confirmation })).toBeNull();
+    expect(requests()).toStrictEqual([]);
+    await chooseFromMenu(screen.getByLabelText('More'), 'Unsubscribe…');
+    await press('Unsubscribe');
+    await expect(
+      screen.findByText('Couldn’t send the request'),
+    ).resolves.toBeVisible();
+    expect(
+      screen.getByText(
+        'Alza.cz didn’t accept it. Try again later, or block the sender instead.',
+      ),
+    ).toBeVisible();
+    expect(requests()).toStrictEqual(['default']);
+    // Try Again sends without asking again, and Sent never says the mail has stopped.
+    await press('Try Again');
+    await expect(
+      screen.findByText('Unsubscribe request sent'),
+    ).resolves.toBeVisible();
+    expect(
+      screen.getByText(
+        /^To Alza\.cz on .+\. If their mail keeps coming after 14 days, you can try again\.$/u,
+      ),
+    ).toBeVisible();
+    expect(requests()).toStrictEqual(['default', 'default']);
+    expect(screen.queryByRole('button', { name: 'Try Again' })).toBeNull();
+    expect(menuSections(screen.getByLabelText('More')).flat()).not.toContain(
+      'Unsubscribe…',
+    );
+    // A message without an offer shows neither.
+    await press('Unread. Oliver Park. Saturday, by the river?');
+    await screen.findByText('oliver@example.invalid');
+    expect(screen.queryByText('Unsubscribe request sent')).toBeNull();
+    expect(menuSections(screen.getByLabelText('More')).flat()).not.toContain(
+      'Unsubscribe…',
+    );
+  });
+
+  it('shows a list the Profile asked to leave before the message arrived as sent on that date', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
+    gmail.deliver({
+      from: 'Alza.cz <news@alza.example>',
+      subject: 'Black Friday',
+      headers: {
+        'List-Id': 'Alza.cz newsletter <newsletter.alza.example>',
+        'List-Unsubscribe': '<https://alza.example/u/42>',
+        'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+      },
+      content: { text: 'This week only.' },
+    });
+    const lookups: unknown[] = [];
+    const sentAt = Date.UTC(2026, 10, 8, 9);
+    await renderConnected(gmail.native, 'gmail', {
+      unsubscribe: {
+        sentRequest: (profile, offer) => {
+          lookups.push([profile, offer.identity]);
+          return Promise.resolve({
+            profile,
+            identity: 'newsletter.alza.example',
+            list: 'Alza.cz newsletter',
+            sentAt,
+          });
+        },
+        request: () => Promise.reject(new Error('Expected no request')),
+      },
+    });
+    await act(async () => {
+      await fireEvent.press(
+        await screen.findByRole('button', {
+          name: 'Unread. Alza.cz. Black Friday',
+        }),
+      );
+    });
+    await expect(
+      screen.findByText('Unsubscribe request sent'),
+    ).resolves.toBeVisible();
+    expect(
+      screen.getByText(
+        'To Alza.cz on Nov 8. If their mail keeps coming after 14 days, you can try again.',
+      ),
+    ).toBeVisible();
+    expect(lookups).toContainEqual(['default', 'newsletter.alza.example']);
+    expect(screen.queryByRole('button', { name: 'Unsubscribe…' })).toBeNull();
+    expect(menuSections(screen.getByLabelText('More')).flat()).not.toContain(
+      'Unsubscribe…',
+    );
   });
 
   it('organizes Microsoft mail with its folders, without Gmail labels or star', async () => {

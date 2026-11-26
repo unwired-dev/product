@@ -36,6 +36,7 @@ import {
   background,
   buttonStyle,
   contentShape,
+  disabled as swiftDisabled,
   font,
   foregroundStyle,
   frame,
@@ -1285,34 +1286,54 @@ export function BodyUnavailable({
         {sentence}
       </Text>
       {reason === 'missing' || reason === 'imap-missing' ? null : (
-        <Host matchContents>
-          <Button
-            onPress={() => {
-              announced?.delete(id);
-              onTryAgain();
-            }}
-            modifiers={[buttonStyle('plain')]}>
-            {/* The frame's 28pt capsule, inside a 44pt touch target. */}
-            <SwiftUIText
-              modifiers={[
-                ipad
-                  ? font({ size: 15, weight: 'semibold' })
-                  : font({ textStyle: 'footnote', weight: 'semibold' }),
-                foregroundStyle(colors.textPrimary),
-                padding({
-                  horizontal: spacing.m * scale,
-                  vertical: 6 * scale,
-                }),
-                background(colors.fillTrack, shapes.capsule()),
-                frame({ minHeight: 44 }),
-                contentShape(shapes.rectangle()),
-              ]}>
-              {t('common.retry')}
-            </SwiftUIText>
-          </Button>
-        </Host>
+        <BannerButton
+          label={t('common.retry')}
+          onPress={() => {
+            announced?.delete(id);
+            onTryAgain();
+          }}
+        />
       )}
     </View>
+  );
+}
+
+// A Schedule Banner's button: the frame's 28pt capsule inside a 44pt touch target, at 1.15 on iPad.
+export function BannerButton({
+  label,
+  disabled = false,
+  onPress,
+}: {
+  readonly label: string;
+  readonly disabled?: boolean;
+  readonly onPress: () => void;
+}) {
+  const colors = usePalette();
+  const scale = ipad ? ipadListScale : 1;
+  return (
+    <Host matchContents>
+      <Button
+        onPress={onPress}
+        // The plain style dims a disabled button.
+        modifiers={[buttonStyle('plain'), swiftDisabled(disabled)]}>
+        <SwiftUIText
+          modifiers={[
+            ipad
+              ? font({ size: 15, weight: 'semibold' })
+              : font({ textStyle: 'footnote', weight: 'semibold' }),
+            foregroundStyle(colors.textPrimary),
+            padding({
+              horizontal: spacing.m * scale,
+              vertical: 6 * scale,
+            }),
+            background(colors.fillTrack, shapes.capsule()),
+            frame({ minHeight: 44 }),
+            contentShape(shapes.rectangle()),
+          ]}>
+          {label}
+        </SwiftUIText>
+      </Button>
+    </Host>
   );
 }
 

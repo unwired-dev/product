@@ -74,6 +74,22 @@ export const styles = StyleSheet.create({
     borderRadius: radius.card * ipadListScale,
     borderCurve: 'continuous',
   },
+  // A banner's buttons, 8pt apart; their 44pt touch targets reach into its padding, so the
+  // capsules keep the frame's rhythm.
+  bannerActions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.s,
+    marginVertical: -(44 - 28) / 2,
+  },
+  padBannerActions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.s * ipadListScale,
+    marginVertical: -(44 - 28 * ipadListScale) / 2,
+  },
+  // A system alert's anchor takes no room in the banner.
+  alertAnchor: { position: 'absolute' },
   marker: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
   bannerTitle: { ...textStyles.footnote, fontWeight: '500' },
   bannerText: { ...textStyles.footnote },

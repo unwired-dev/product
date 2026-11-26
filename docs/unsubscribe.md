@@ -6,8 +6,10 @@
 [#2077](https://github.com/unwired-dev/product/issues/2077) sends its one-click
 request, [#2823](https://github.com/unwired-dev/product/issues/2823) remembers each
 request that was sent, and [#2824](https://github.com/unwired-dev/product/issues/2824)
-sends a `mailto:` request through the Outbox. The reader banner, confirmation and
-outcomes follow in later #654 slices, under
+sends a `mailto:` request through the Outbox.
+[#2985](https://github.com/unwired-dev/product/issues/2985) adds the iPhone and
+iPad reader's banner, confirmation and outcomes for one-click offers; the
+`mailto:` states follow in a later #654 slice, under
 [ADR 0044](adr/0044-isolate-standards-based-unsubscribe-actions.md).
 
 ## Finding the offer
@@ -129,6 +131,35 @@ Sync. A write storage refuses leaves the outcome as it was, and a record that
 cannot be read, belongs to another account or is locked reads as not sent, so
 neither shows a false Sent state.
 
+## The iPhone and iPad reader
+
+A message with a one-click offer shows the Unsubscribe banner
+(`apps/mobile/src/unsubscribe.tsx`), above the message on iPhone and beneath
+its header on iPad, and the reader's More menu (⋯) adds **Unsubscribe…**. A
+message whose only offer is `mailto:` shows neither yet. The banner names the
+list; the approved frames' count line is left out until
+[#2978](https://github.com/unwired-dev/product/issues/2978) defines it.
+
+**Unsubscribe…**, from the banner or the menu, opens a system alert that names
+the list, the sender and the receiving address. **Cancel** sends nothing.
+**Unsubscribe** calls `unsubscribe.request` once, for the reader's Mail Profile,
+which owns the receiving connection. The banner then shows the outcome:
+
+| Outcome     | Banner                                                                                                |
+| ----------- | ----------------------------------------------------------------------------------------------------- |
+| `sent`      | **Unsubscribe request sent**, dated, with no action. It never says that mail has stopped.             |
+| `failed`    | **Couldn’t send the request**, with **Try Again** and, for a plain sender address, **Block Sender…**. |
+| `uncertain` | **No clear answer to the request**, with the same actions.                                            |
+
+**Try Again** sends once more without asking again. Until `sentRequest` has
+answered, which it does each time the message opens, and while a request is
+under way, the buttons are disabled and the menu item is absent; it is gone once
+a request has ended. Each message's state lives outside the reader, keyed by
+Product Account, Mail Profile, connection and message, so a result that arrives
+after the reader moved on changes only the message it was sent from. A request
+the Profile sent to the list within 14 days before the message arrived shows as
+sent on the date it was sent.
+
 ## Verification
 
 ```sh
@@ -140,7 +171,16 @@ cover each offer, refusal, list name and identity, how a native answer becomes
 an outcome, and which outcomes are recorded and for how long.
 `test/unsubscribe-mailto.test.ts` sends a `mailto:` request from synthetic
 Gmail, Graph and IMAP connections and covers Undo, a refused handoff and
-connections that cannot send. The native tests cover the request bytes, redirects and every outcome,
+connections that cannot send. On iPhone,
+`apps/mobile/test/inbox.test.tsx` opens a synthetic Gmail message in the reader
+and covers the banner, the menu item, Cancel, one request per confirmation, a
+failure, Try Again and the dated Sent state:
+
+```sh
+mise exec -- pnpm --dir apps/mobile exec jest test/inbox.test.tsx -t 'one-click Unsubscribe'
+```
+
+The native tests cover the request bytes, redirects and every outcome,
 including a loopback HTTPS server that takes the request and never answers:
 
 ```sh
