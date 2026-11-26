@@ -239,14 +239,12 @@ export const graphLabels = (
   folder: string | undefined,
   isRead: boolean | undefined,
   roles: FolderRoles,
-  categories?: readonly string[],
 ) => {
   const role = folder === undefined ? undefined : roles.get(folder);
   const place = role === undefined ? folder : roleLabels[role];
   return [
     ...(place === undefined ? [] : [place]),
     ...(isRead === false ? ['UNREAD'] : []),
-    ...categoryLabels(categories),
   ];
 };
 
@@ -273,8 +271,15 @@ const categoryNames = (labels: readonly string[]) => {
     : undefined;
 };
 
-// The categories a label or unlabel action assigns or removes, or none for any other action.
-export const categoryChange = (action: GmailAction) => {
+// The categories a label or unlabel action assigns or removes.
+export type CategoryChange = Readonly<{
+  add: readonly string[];
+  remove: readonly string[];
+}>;
+// A label or unlabel action's category change, or none for any other action.
+export const categoryChange = (
+  action: GmailAction,
+): CategoryChange | undefined => {
   if (action.kind !== 'label' && action.kind !== 'unlabel') {
     return undefined;
   }
@@ -289,7 +294,7 @@ export const categoryChange = (action: GmailAction) => {
 // A message's categories after a change, keeping every other category as Graph has it now.
 export const changedCategories = (
   current: readonly string[],
-  { add, remove }: NonNullable<ReturnType<typeof categoryChange>>,
+  { add, remove }: CategoryChange,
 ) => [
   ...current.filter((name) => !remove.includes(name)),
   ...add.filter((name) => !current.includes(name)),

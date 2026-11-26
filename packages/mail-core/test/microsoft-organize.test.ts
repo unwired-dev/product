@@ -1,9 +1,10 @@
+import * as Base64Url from 'effect/encoding/Base64Url';
+
 import type { GmailInboxState, GmailMessage } from '../src/inbox-store.ts';
 
 import { gmailAction, restoreAfter } from '../src/gmail-actions.ts';
 import { createInboxStore } from '../src/inbox-store.ts';
 import { createGmailSearch, createMailboxes } from '../src/mailboxes.ts';
-import { categoryLabels } from '../src/microsoft-graph.ts';
 import { createRegistration, defaultProfile } from '../src/registration.ts';
 import {
   createSyntheticGmail,
@@ -46,6 +47,10 @@ const message = (inbox: Inbox, id: string): GmailMessage =>
 
 const ids = (inbox: Inbox) =>
   ready(inbox.getSnapshot()).messages.map(({ id }) => id);
+
+// An Outlook category's label: CATEGORY_ and its name in base64url.
+const categoryLabels = (names: readonly string[]) =>
+  names.map((name) => `CATEGORY_${Base64Url.encode(name)}`);
 
 const microsoftInbox = (graph: Graph) =>
   createInboxStore(graph.native, { provider: 'microsoft-graph' });

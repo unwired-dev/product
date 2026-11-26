@@ -18,7 +18,11 @@ import type {
 } from './mailbox-document.ts';
 import type { GmailInvalidPage, NativeGraphMailbox } from './mailbox-read.ts';
 import type { GmailPart } from './message-body.ts';
-import type { FolderRoles, GraphAttachmentInfo } from './microsoft-graph.ts';
+import type {
+  CategoryChange,
+  FolderRoles,
+  GraphAttachmentInfo,
+} from './microsoft-graph.ts';
 import type { OutgoingSend } from './outgoing-message.ts';
 import type {
   ProviderPayload,
@@ -635,12 +639,10 @@ export function createGraphReader(
       });
     }
     const roles = yield* folderRoles(scope);
-    return graphLabels(
-      message.parentFolderId,
-      message.isRead,
-      roles,
-      message.categories,
-    );
+    return [
+      ...graphLabels(message.parentFolderId, message.isRead, roles),
+      ...categoryLabels(message.categories),
+    ];
   });
 
   // Move to's folders: every folder apart from the well-known ones, nested ones included, each
@@ -712,7 +714,7 @@ export function createGraphReader(
   const categoryWrite = Effect.fnUntraced(function* (
     scope: MailboxScope,
     id: string,
-    requested: NonNullable<ReturnType<typeof categoryChange>>,
+    requested: CategoryChange,
   ) {
     const found = yield* graphGet(scope)(
       graphPlacement(id),
@@ -767,15 +769,10 @@ export function createGraphReader(
     const roles = yield* folderRoles(scope);
     return {
       messages: page.value.map((message) =>
-        listedMessage(
-          message,
-          graphLabels(
-            message.parentFolderId,
-            message.isRead,
-            roles,
-            message.categories,
-          ),
-        ),
+        listedMessage(message, [
+          ...graphLabels(message.parentFolderId, message.isRead, roles),
+          ...categoryLabels(message.categories),
+        ]),
       ),
       next: page['@odata.nextLink'],
     };
