@@ -65,6 +65,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
   },
+  timeLabel: { alignSelf: 'center' },
   // The time field keeps AppKit's width, which depends on the region, at this view's trailing edge.
   time: { width: 120, height: 24 },
   // The bell's slot, the header 8pt beside it.
@@ -234,7 +235,7 @@ function ReminderPicker({
           style={styles.calendar}
         />
         <View style={styles.timeRow}>
-          <Label style={[textStyles.body, primary]}>
+          <Label style={[textStyles.body, styles.timeLabel, primary]}>
             {t('drafts.reminder.time')}
           </Label>
           <DatePicker

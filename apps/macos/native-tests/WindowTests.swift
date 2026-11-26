@@ -370,7 +370,8 @@ final class WindowTests: XCTestCase {
     func shows(_ date: Date) -> Bool { String(describing: time.value ?? "").contains(date.description) }
     let inlineSend = window.buttons["Send"].firstMatch
     choose(from: inlineSend, menu: "Remind Me to Send…")
-    XCTAssertLessThanOrEqual(popover.frame.maxY, inlineSend.frame.minY, "\(popover.frame) covers Send")
+    // The popover keeps a point of its edge on its anchor.
+    XCTAssertLessThanOrEqual(popover.frame.maxY, inlineSend.frame.minY + 1, "\(popover.frame) covers Send")
     XCTAssertTrue(shows(tomorrow), "\(String(describing: time.value))")
     attach(window.screenshot(), "Choose Date and Time above Send")
     app.typeKey(.escape, modifierFlags: [])
@@ -384,7 +385,7 @@ final class WindowTests: XCTestCase {
     let send = composer.buttons["Send"].firstMatch
     XCTAssertTrue(send.waitForExistence(timeout: 10))
     choose(from: send, menu: "Remind Me to Send…")
-    XCTAssertGreaterThanOrEqual(popover.frame.minY, send.frame.maxY, "\(popover.frame) covers Send")
+    XCTAssertGreaterThanOrEqual(popover.frame.minY, send.frame.maxY - 1, "\(popover.frame) covers Send")
     XCTAssertTrue(composer.frame.contains(popover.frame), "\(popover.frame) leaves \(composer.frame)")
     XCTAssertTrue(shows(tomorrow), "\(String(describing: time.value))")
     XCTAssertTrue(set.isEnabled)
