@@ -107,7 +107,9 @@ in the Outbox for Check Again but no longer stand for the list, even while
 storage refuses the mark, so a message the list sends after the 14 days offers a
 fresh request with its own recipient. A fresh request never tries again one
 confirmed since, and a confirmation older than the 14 days answers neither
-through a refused retry's chain. The retry stays in the Outbox until each mark
+through a refused retry's chain nor lets that retry stand for the list. A retry
+taken out unsent because a request it tried again was confirmed answers with
+that receipt but never counts as sent itself. The retry stays in the Outbox until each mark
 holds in storage, and Check Again finding an answered request in Sent, or one a
 confirmed retry still in the Outbox tried again, retires it without recording it
 again, so the list's 14 days still run from the retry; while storage refuses the

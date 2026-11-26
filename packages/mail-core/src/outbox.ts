@@ -121,8 +121,9 @@ export const unsendable = (
 // longer stands for it, though its mark may not hold yet, and one from before the connection was
 // added again never does. A request confirmed for another message stands for one the list sent at
 // `receivedAt` only within the list's 14 days, as a recorded request does, and not while that time
-// is unknown; one confirmed for `message` itself stands for it before a newer one for the list.
-// `delivered` tells when a request was confirmed though storage does not hold that time yet.
+// is unknown, as does a request whose retried request was confirmed; one confirmed for `message`
+// itself stands for it before a newer one for the list. `delivered` tells when a request was
+// confirmed though storage does not hold that time yet.
 export const pendingUnsubscribe = <
   E extends Pick<OutboxEntry, 'id' | 'draft' | 'unsubscribe' | 'epoch'>,
 >(
@@ -151,7 +152,11 @@ export const pendingUnsubscribe = <
   );
   const held = Arr.reverse(outbox).filter((each) => {
     const { id, draft, unsubscribe, epoch: incarnation } = each;
-    const sentAt = sentAtOf(each);
+    const sentAt =
+      sentAtOf(each) ??
+      (unsubscribe?.retries ?? [])
+        .map((retried) => delivered?.(retried)?.at)
+        .find((at) => at !== undefined);
     return (
       unsubscribe !== undefined &&
       unsubscribe.answered !== true &&
@@ -545,6 +550,8 @@ export function createOutbox({
   // history may forget, by Outbox identifier and by the Product Account, Mail Profile, connection
   // and message that offered them.
   const confirmedRequests = new Map<string, { at: number; to?: string }>();
+  // The requests that answer with a confirmed request they tried again, never sent themselves.
+  const supersededRequests = new Set<string>();
   const confirmedMessages = new Map<string, { at: number; to?: string }>();
   // When the message `id` was confirmed as sent, and to whom for an unsubscribe request confirmed
   // this session or still waiting for its record; otherwise only among the latest sends.
@@ -575,6 +582,7 @@ export function createOutbox({
       return false;
     }
     confirmedRequests.set(id, retried.delivered);
+    supersededRequests.add(id);
     yield* Effect.promise(() => drafts.restore(id, 'queued'));
     return true;
   });
@@ -594,7 +602,7 @@ export function createOutbox({
             : { ...each, unsubscribe: { ...each.unsubscribe, answered: true } },
         );
   // Whether the unsubscribe request `entry` leaves without its own record: true once it was
-  // answered, or a retry confirmed for it waits in the Outbox, answering for it though its mark
+  // answered, or a retry confirmed sent for it waits in the Outbox, answering for it though its mark
   // may not hold yet; 'waiting' while storage refuses that retry's confirmed time.
   const answeredOf = ({ id, unsubscribe: request }: OutboxEntry) => {
     const retry = drafts
@@ -602,7 +610,8 @@ export function createOutbox({
       .find(
         ({ id: each, unsubscribe }) =>
           unsubscribe?.retries?.includes(id) === true &&
-          (unsubscribe.sentAt !== undefined || confirmedRequests.has(each)),
+          (unsubscribe.sentAt !== undefined ||
+            (confirmedRequests.has(each) && !supersededRequests.has(each))),
       );
     if (
       request?.answered === true ||

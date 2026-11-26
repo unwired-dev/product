@@ -1334,7 +1334,7 @@ describe('recording a mailto unsubscribe request', () => {
     }
   });
 
-  it('offers a request again more than 14 days after the unknown request a refused retry tried again was found sent', async () => {
+  it('offers a request again, with its own message’s offer, more than 14 days after the unknown request a refused retry tried again was found sent', async () => {
     expect.hasAssertions();
     const phone = await receiver('gmail');
     try {
@@ -1352,20 +1352,27 @@ describe('recording a mailto unsubscribe request', () => {
       expect(pending(phone)).toMatchObject({ id: retry, state: 'failed' });
 
       later(15 * 86_400_000);
+      expect(heldFor(phone, '9.INBOX', clock.now)).toBeUndefined();
       const fresh = waitingId(
-        await phone.outbox.unsubscribe(receiving.gmail.id, listed, {
-          message: '9.INBOX',
-          receivedAt: clock.now,
-        }),
+        await phone.outbox.unsubscribe(
+          receiving.gmail.id,
+          { ...listed, address: 'other@lists.alza.example', subject: 'stop' },
+          { message: '9.INBOX', receivedAt: clock.now },
+        ),
       );
       expect([fresh === original, fresh === retry]).toStrictEqual([
         false,
         false,
       ]);
       expect(
-        phone.outbox.getSnapshot().find(({ id }) => id === fresh)?.unsubscribe
-          ?.retries,
-      ).toStrictEqual([retry]);
+        phone.outbox.getSnapshot().find(({ id }) => id === fresh),
+      ).toMatchObject({
+        draft: {
+          to: [{ address: 'other@lists.alza.example' }],
+          subject: 'stop',
+        },
+        unsubscribe: { message: '9.INBOX' },
+      });
     } finally {
       phone.outbox.dispose();
     }
@@ -1396,6 +1403,36 @@ describe('recording a mailto unsubscribe request', () => {
       await expect(
         phone.unsubscribe.sentRequest(profile, listed, confirmedAt),
       ).resolves.toMatchObject({ sentAt: confirmedAt });
+    } finally {
+      phone.outbox.dispose();
+    }
+  });
+
+  it('records an unknown request Check Again found sent, though storage keeps the retry it took out of the Outbox unsent', async () => {
+    expect.hasAssertions();
+    const phone = await receiver('gmail');
+    try {
+      const original = await lose(phone);
+      const profile = profileOf(pending(phone));
+      const retry = await start(phone);
+      refuseKeeping(phone, original);
+      refuseRemoving(phone, retry);
+      await phone.outbox.check(original);
+      const confirmedAt = clock.now;
+      later(undoSendWindow);
+      await phone.outbox.process();
+      expect(phone.outbox.delivered(retry)?.at).toBe(confirmedAt);
+      expect(phone.outbox.getSnapshot()).toMatchObject([
+        { id: original },
+        { id: retry, state: 'queued' },
+      ]);
+
+      phone.stepping.before = async () => undefined;
+      await phone.outbox.process();
+      await expect(
+        phone.unsubscribe.sentRequest(profile, listed, clock.now),
+      ).resolves.toMatchObject({ sentAt: confirmedAt });
+      expect(phone.gmail.sends).toHaveLength(1);
     } finally {
       phone.outbox.dispose();
     }
