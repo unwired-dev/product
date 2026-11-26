@@ -275,7 +275,7 @@ const inset = 20;
 const fieldInset = 16;
 const fieldLabelWidth = 80;
 const padInset = 32 * ipadListScale;
-const padFieldInset = spacing.xxl * ipadListScale;
+export const padFieldInset = spacing.xxl * ipadListScale;
 const padLabelWidth = 64 * ipadListScale;
 // Compact 44pt and regular 41.4pt field rows reach 44pt targets. Each includes its row's rule:
 // iPhone's 1pt and iPad's 1.15pt, the Mac recipe's point at 1.15×.

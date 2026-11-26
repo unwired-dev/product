@@ -82,6 +82,7 @@ import {
   DraftAssets,
   isSlashInsert,
   isSlashTool,
+  padFieldInset,
   retires,
   SendingMailbox,
   slashPickers,
@@ -208,20 +209,24 @@ function usePageSlashMenu(
         menu.close();
       }
     },
-    // After the page reports `body` in place of `previous`: a typed / opens the menu, and typing
-    // filters or closes it.
+    // After the page reports `body` in place of the `previous` one, edited at its selection: a typed
+    // / opens the menu, and typing filters or closes it. What was typed includes what it replaced,
+    // as in the current composer.
     reported: (
-      previous: SemanticDocument,
+      previous: Readonly<{
+        body: SemanticDocument;
+        selection: Selection | undefined;
+      }>,
       body: SemanticDocument,
       selection: Selection,
     ) => {
-      const before = displayOf(previous).text;
+      const before = displayOf(previous.body).text;
       const after = displayOf(body).text;
-      const caret = selection.end;
+      const at = previous.selection ?? selection;
       menu.typed(
         body,
         selection,
-        after.length === before.length + 1 ? after.slice(caret - 1, caret) : '',
+        after.slice(at.start, at.end + after.length - before.length),
       );
     },
   };
@@ -245,6 +250,7 @@ function PageSlashMenu({
   readonly reserve: number;
   readonly shown: ComponentProps<typeof SlashMenuPanel>['shown'] | undefined;
 }) {
+  const { size } = use(ComposerLayoutContext);
   const line = useRef<ViewInstance>(null);
   const [rows, setRows] = useState(0);
   const [room, setRoom] =
@@ -274,7 +280,13 @@ function PageSlashMenu({
         styles.slashLine,
         { top: caret.top, height: caret.bottom - caret.top },
       ]}>
-      <View style={flipped ? styles.slashMenuAbove : styles.slashMenuBelow}>
+      <View
+        style={[
+          flipped ? styles.slashMenuAbove : styles.slashMenuBelow,
+          // On iPad the panel keeps the native fields' inset; the page's text starts 16pt in, and
+          // the menu 8pt left of it.
+          size !== 'compact' && { left: 16 - spacing.s - padFieldInset },
+        ]}>
         <SlashMenuPanel
           {...panel}
           shown={shown}
@@ -619,8 +631,23 @@ function EvaluationEditor({
     busy,
     run,
   });
-  // A Writing tool chosen in the menu, captured once the page reports the body without its query.
-  const slashTool = useRef<Exclude<SlashTool, 'generate'>>(undefined);
+  // An Insert command's picker or a Writing tool chosen in the menu, which runs once the page
+  // reports the body its choice made; a page that rejected the choice as stale runs neither.
+  const slashNext =
+    useRef<Readonly<{ body: string; run: () => void }>>(undefined);
+  const slashNextOf = (kind: SlashCommand) => {
+    if (isSlashInsert(kind)) {
+      return () => {
+        void add(...slashPickers[kind]);
+      };
+    }
+    if (isSlashTool(kind) && isPageTool(kind)) {
+      return () => {
+        capture(kind);
+      };
+    }
+    return undefined;
+  };
   // Choosing a block removes the query and sets the caret's block as one edit in the page, so one
   // Undo restores the text as typed. An Insert command removes the query and opens its picker, and
   // a Writing tool removes it and runs as from the format bar.
@@ -655,17 +682,17 @@ function EvaluationEditor({
         end: choice.query.start,
       },
     });
-    if (isSlashInsert(choice.kind)) {
-      void add(...slashPickers[choice.kind]);
-    } else if (isSlashTool(choice.kind) && isPageTool(choice.kind)) {
-      slashTool.current = choice.kind;
-    }
+    const next = slashNextOf(choice.kind);
+    slashNext.current = next && {
+      body: displayOf(result.document).text,
+      run: next,
+    };
   };
-  const runSlashTool = () => {
-    const tool = slashTool.current;
-    slashTool.current = undefined;
-    if (tool !== undefined) {
-      capture(tool);
+  const afterSlash = (body: SemanticDocument) => {
+    const pending = slashNext.current;
+    slashNext.current = undefined;
+    if (pending?.body === displayOf(body).text) {
+      pending.run();
     }
   };
   // The keys the page hands over while the menu shows.
@@ -1019,6 +1046,7 @@ function EvaluationEditor({
                     } = message;
                     const flushed =
                       frozen && next.revision === bodyRevision.current;
+                    const was = pageNow.current?.selection;
                     slashMenu.moved(
                       pageNow.current,
                       next,
@@ -1051,11 +1079,11 @@ function EvaluationEditor({
                         : { attachments }),
                     });
                     slashMenu.reported(
-                      textOf(previous.body),
+                      { body: textOf(previous.body), selection: was },
                       body,
                       next.selection,
                     );
-                    runSlashTool();
+                    afterSlash(body);
                     if (frozen) {
                       paused.current?.(true);
                     }

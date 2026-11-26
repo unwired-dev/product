@@ -174,9 +174,10 @@ the current composer's:
   hangs under it, or over it without room. While it shows, the page hands Return,
   Tab, Up Arrow, Down Arrow and Escape to the host instead of editing. A Basic
   Block removes the query and sets the block as one edit that one **Undo**
-  reverts; an Insert command removes the query and opens its picker; a Writing
-  tool removes it and runs as from the format bar. The Mac page has none, as the
-  Mac composer has none yet.
+  reverts; an Insert command removes the query and opens its picker, and a Writing
+  tool removes it and runs as from the format bar, once the page reports that body,
+  so a removal the page refused as stale runs neither. Moving the caret or leaving
+  the body closes the menu. The Mac page has none, as the Mac composer has none yet.
 - **Paste.** Pasted HTML keeps only supported meaning: headings one to three,
   paragraphs, lists, quotes, code and the five marks. Smaller headings, tables and
   styled text become paragraphs; a heading or code inside a quote or list item

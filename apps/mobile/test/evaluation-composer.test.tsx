@@ -931,18 +931,38 @@ describe('the Tiptap evaluation composer', () => {
     await report({ selection: { start: 5, end: 5 }, caret });
     expect(menu()).toBeNull();
 
-    // Attach File… removes the query and opens the Files picker.
+    // A / typed over selected text opens it too.
+    await report({ selection: { start: 3, end: 6 }, caret });
+    await report({
+      document: lines('Hi\n/'),
+      selection: { start: 4, end: 4 },
+      caret,
+    });
+    expect(menu()).not.toBeNull();
+    await key('Escape');
+
+    // Attach File… removes the query and, once the page reports that body, opens the Files picker.
     storage.addFile('file:///plan.pdf', 'plan');
     storage.pickNext('files', [
       { uri: 'file:///plan.pdf', name: 'plan.pdf', type: 'application/pdf' },
     ]);
     await typeEach('', 'Hi\n/att');
     await press('Attach File…');
+    await report({
+      document: lines('Hi\n'),
+      selection: { start: 3, end: 3 },
+    });
     await waitFor(() => {
       expect(
         injectedScripts.filter((script) => script.includes('"plan.pdf"')),
       ).toHaveLength(1);
     });
+
+    // A text tool whose removal the page rejected for an edit typed first never runs.
+    await typeEach('', 'Hi\n/rew');
+    await press('Rewrite');
+    await typeEach('Hi\n/rew', 'x');
+    expect(screen.queryByText(syntheticRewrite)).toBeNull();
 
     // A text tool removes the query and, once the page reports that body, runs as from the format
     // bar.
