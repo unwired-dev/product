@@ -647,8 +647,19 @@ five seconds for WebKit website data (local storage, IndexedDB, cache storage,
 cookies and other WebKit stores). No sample found any, through typing, imports,
 **Save Draft**, relaunch and reopening, on iPhone and on iPad.
 
-Outstanding for #820: the Mac native journey, which needs a signed mock profile;
-pasting image data into the page on Mac, and dropping files on the page on every
+On the Mac, `testDraftEditorInlineImage`
+([#2948](https://github.com/unwired-dev/product/issues/2948),
+[Mac Draft editor Inline Image journey](native-journeys.md#mac-draft-editor-inline-image-journey))
+passed on 2026-11-26 with Xcode 27.2 (`27B52`) on macOS 27.2.1, in a signed
+`registration-draft-editor` `Testing` build from main at `01c50416b`. **Insert Image…**
+placed a PNG chosen in the system open panel after the typed text, and the page showed
+its native thumbnail; **Attach Instead** and **Show Inline** from the row's context menu
+converted it, and two **Undo** and two **Redo** stepped back and forward through both
+conversions; after **Save**, a relaunch and reopening, the image was in place with its
+thumbnail. The journey's mock copy needed the app's own user-selected file entitlement
+for the open panel to appear.
+
+Outstanding for #820: pasting image data into the page on Mac, and dropping files on the page on every
 host, which need native interception in the web view (the page refuses both unread);
 **Paste Image** and in-page paste on a device; and physical iPhone and iPad runs.
 Website data after account removal and a network capture are recorded in

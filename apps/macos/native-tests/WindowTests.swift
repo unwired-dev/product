@@ -470,6 +470,117 @@ final class WindowTests: XCTestCase {
     XCTAssertFalse(offer.waitForExistence(timeout: 45))
   }
 
+  // #2948: Insert Image… places an image chosen in the system open panel at the page's selection,
+  // and the page shows its thumbnail once the bytes verify. Attach Instead and Show Inline from
+  // the row's context menu are each one edit that Undo and Redo step through, and the image keeps
+  // its place through Save, relaunch and reopening, as the iPhone and iPad journey checks there.
+  func testDraftEditorInlineImage() throws {
+    continueAfterFailure = false
+    let environment = ProcessInfo.processInfo.environment
+    XCTAssertEqual(environment["UNWIRED_TEST_SCENARIO"], "registration-draft-editor")
+    let appURL = URL(fileURLWithPath: try XCTUnwrap(environment["UNWIRED_APP_PATH"]))
+    // The sandboxed runner may write only its run directory, beside Mock.app.
+    let file = appURL.deletingLastPathComponent().appendingPathComponent("inline-photo.png")
+    let drawn = NSImage(size: NSSize(width: 600, height: 400), flipped: false) { rect in
+      NSColor.systemTeal.setFill()
+      rect.fill()
+      return true
+    }
+    let png = try XCTUnwrap(
+      drawn.tiffRepresentation.flatMap { NSBitmapImageRep(data: $0) }?
+        .representation(using: .png, properties: [:]))
+    try png.write(to: file)
+    addTeardownBlock { try? FileManager.default.removeItem(at: file) }
+    let app = XCUIApplication(url: appURL)
+    app.launchArguments += ["-ApplePersistenceIgnoreState", "YES", "-interfaceLanguage", "en"]
+    app.launch()
+    addTeardownBlock { if app.state != .notRunning { app.terminate() } }
+    let window = app.windows["Inbox 1"]
+    XCTAssertTrue(window.waitForExistence(timeout: 30))
+    draftEditorSignIn(window)
+    func capture(_ name: String) {
+      let shot = XCTAttachment(screenshot: window.screenshot())
+      shot.name = name
+      shot.lifetime = .keepAlways
+      add(shot)
+    }
+
+    window.buttons["New Message"].click()
+    let body = window.webViews.textViews["Message body"]
+    XCTAssertTrue(body.waitForExistence(timeout: 15))
+    // The toolbar appears once the page is ready and moves the page down; focus it after that.
+    XCTAssertTrue(window.buttons["Undo"].waitForExistence(timeout: 30))
+    body.click()
+    body.typeText("Before ")
+    XCTAssertTrue(webText("Before", in: window).waitForExistence(timeout: 10))
+    window.buttons["Insert Image…"].click()
+    let panel = window.sheets.firstMatch
+    XCTAssertTrue(panel.waitForExistence(timeout: 15))
+    // Go to Folder selects the file once it lists the path, which it does not for one with `..`.
+    panel.typeKey("g", modifierFlags: [.command, .shift])
+    let goTo = panel.sheets["GoToWindow"]
+    XCTAssertTrue(goTo.waitForExistence(timeout: 10))
+    app.typeText(file.standardizedFileURL.path)
+    waitUntil { goTo.tables.firstMatch.cells.count > 0 }
+    app.typeKey(.return, modifierFlags: [])
+    XCTAssertTrue(goTo.waitForNonExistence(timeout: 10))
+    let open = panel.buttons["Open"]
+    waitUntil { open.isEnabled }
+    open.click()
+    XCTAssertTrue(panel.waitForNonExistence(timeout: 15))
+    let row = window.descendants(matching: .any)
+      .matching(NSPredicate(format: "label BEGINSWITH %@", "inline-photo.png, ")).firstMatch
+    XCTAssertTrue(row.waitForExistence(timeout: 30))
+    XCTAssertTrue(window.images["Inline image inline-photo.png"].waitForExistence(timeout: 30))
+    // The placeholder gives way to the native thumbnail once the bytes verify.
+    let inline = body.images.firstMatch
+    XCTAssertTrue(inline.waitForExistence(timeout: 30))
+    waitUntil { inline.frame.width > 60 }
+    // At the selection: after the text typed before it.
+    XCTAssertGreaterThan(inline.frame.minX, webText("Before", in: window).frame.minX)
+    capture("Draft editor page inline image")
+
+    row.rightClick()
+    let toAttachment = app.menuItems["Attach Instead"]
+    XCTAssertTrue(toAttachment.waitForExistence(timeout: 10))
+    capture("Draft editor page image context menu")
+    toAttachment.click()
+    waitUntil { body.images.count == 0 }
+    XCTAssertTrue(row.waitForExistence(timeout: 15))
+    row.rightClick()
+    let toInline = app.menuItems["Show Inline"]
+    XCTAssertTrue(toInline.waitForExistence(timeout: 10))
+    capture("Draft editor page image as Attachment")
+    toInline.click()
+    waitUntil { body.images.count == 1 }
+    // Each conversion is one edit: Undo reverts Show Inline, then Attach Instead; Redo replays them.
+    let undo = window.buttons["Undo"]
+    let redo = window.buttons["Redo"]
+    undo.click()
+    waitUntil { body.images.count == 0 }
+    undo.click()
+    waitUntil { body.images.count == 1 }
+    redo.click()
+    waitUntil { body.images.count == 0 }
+    redo.click()
+    waitUntil { body.images.count == 1 }
+
+    // Reopened from encrypted storage, the image keeps its place and shows its thumbnail again.
+    reopenDraft(app)
+    let before = webText("Before", in: window)
+    XCTAssertTrue(before.waitForExistence(timeout: 15))
+    let reopened = window.webViews.textViews["Message body"].images.firstMatch
+    XCTAssertTrue(reopened.waitForExistence(timeout: 30))
+    waitUntil { reopened.frame.width > 60 }
+    XCTAssertGreaterThan(reopened.frame.minX, before.frame.minX)
+    XCTAssertTrue(window.images["Inline image inline-photo.png"].waitForExistence(timeout: 30))
+    capture("Draft editor page inline image after relaunch")
+    // Reopening changed nothing, so Close needs no save choice.
+    window.buttons["Close"].click()
+    waitUntil { window.webViews.count == 0 }
+    XCTAssertFalse(window.sheets.firstMatch.exists)
+  }
+
   // Moving the entry into the reader must keep the open query and command rows in the window.
   func testCommandPaletteWindowBounds() throws {
     continueAfterFailure = false
