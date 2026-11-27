@@ -197,7 +197,13 @@ export function BlockDomainSheet({
           onPress={close}
         />
         <Button
-          label={t('blockedSenders.blockDomainAction', { domain })}
+          // A domain longer than 24 characters, even of the widest letters, could push Block past the
+          // sheet, so the heading alone names it then.
+          label={
+            domain.length > 24
+              ? t('blockedSenders.blockDomainAction', { context: 'short' })
+              : t('blockedSenders.blockDomainAction', { domain })
+          }
           disabled={saving || !read.settled}
           onPress={() => {
             void block();

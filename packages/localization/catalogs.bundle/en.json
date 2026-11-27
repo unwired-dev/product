@@ -1980,6 +1980,7 @@
     "exemptContactsUnreadable_only": "Contacts couldn’t be read, so new mail from your contacts at {{domain}} would go to Trash too. To read them again, choose Block, then Try Again.",
     "blockDomainFooter": "Future mail goes to Trash and can be recovered. Mail you already have stays where it is. Nothing is reported as spam.",
     "blockDomainAction": "Block {{domain}}",
+    "blockDomainAction_short": "Block",
     "blockDomainFailed": "{{domain}} couldn’t be blocked",
     "blockDomainUnexempted": "Block {{domain}} without exempting contacts?",
     "blockDomainUnexemptedDetail": "Contacts couldn’t be read, so new mail from your contacts at {{domain}} and its subdomains will go to Trash too.",
