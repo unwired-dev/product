@@ -184,6 +184,7 @@ import {
   useOutcomeAnnouncement,
 } from './design.tsx';
 import { DraftAssistance, DroppedAssistance } from './draft-assistance.tsx';
+import { native } from './host.ts';
 import { useLocalization } from './localization.ts';
 import {
   MailAssistanceProfileContext,
@@ -205,6 +206,7 @@ import { AssistanceContext } from './message-summary.tsx';
 import { AccountContext } from './registration-gate.tsx';
 import { ReminderBanner, SendMenu } from './send-reminder.tsx';
 import { windowHost } from './settings-window-client.ts';
+import { ProgressBar } from './sync-status.tsx';
 import { textStyles, usePalette } from './theme.ts';
 import {
   DraftTranslation,
@@ -305,6 +307,8 @@ const styles = StyleSheet.create({
   // The warning glyph sits 4 pt from its reason, as in the #2991 frames.
   assetWarningRow: { gap: 3 },
   assetStatus: { ...textStyles.subheadline, flexShrink: 1 },
+  // R2 of #2992: a 120 pt bar 2 pt under the status.
+  assetProgress: { width: 120, marginTop: 2 },
   // The small indicator's 20 pt box fits the 14 pt status line, so a checking chip keeps its height.
   assetChecking: { marginVertical: -3 },
   thumbnail: { width: 28, height: 28, borderRadius: radius.control },
@@ -1335,11 +1339,14 @@ const assetStatus = (
   {
     asset,
     running,
+    progress,
     checking,
     preview,
   }: Readonly<{
     asset: Asset;
     running: boolean;
+    // The fraction of a running import read so far, once native code reports it.
+    progress: number | undefined;
     checking: boolean;
     preview: AssetPreview | undefined;
   }>,
@@ -1361,11 +1368,14 @@ const assetStatus = (
     return size(asset.size);
   }
   if (asset.state === 'importing') {
-    return t(
-      running
-        ? 'drafts.assets.status.adding'
-        : 'drafts.assets.status.interrupted',
-    );
+    if (!running) {
+      return t('drafts.assets.status.interrupted');
+    }
+    return progress === undefined
+      ? t('drafts.assets.status.importing')
+      : t('drafts.assets.status.importingProgress', {
+          percent: Math.round(progress * 100),
+        });
   }
   if (asset.state === 'cancelled') {
     return t('drafts.assets.status.cancelled');
@@ -1544,12 +1554,15 @@ function AssetStatus({
   preview,
   failed,
   status,
+  progress,
 }: Readonly<{
   checking: boolean;
   preview: AssetPreview | undefined;
   // A file that wasn't added shows its reason as a warning.
   failed: boolean;
   status: string;
+  // A running import's fraction, drawn as a bar under the status.
+  progress: number | undefined;
 }>) {
   const colors = usePalette();
   let statusColor =
@@ -1559,7 +1572,7 @@ function AssetStatus({
   if (failed) {
     statusColor = colors.statusWarning;
   }
-  return (
+  const row = (
     <View
       style={[styles.assetStatusRow, failed ? styles.assetWarningRow : null]}>
       {checking ? (
@@ -1587,6 +1600,17 @@ function AssetStatus({
         {status}
       </Text>
     </View>
+  );
+  return progress === undefined ? (
+    row
+  ) : (
+    <>
+      {row}
+      <ProgressBar
+        percent={progress * 100}
+        style={[styles.assetProgress, { backgroundColor: colors.fillQuiet }]}
+      />
+    </>
   );
 }
 
@@ -1716,6 +1740,30 @@ const assetMenu = (
   };
 };
 
+// A running import's fraction read so far, as native code reports it; undefined before its first
+// report, such as for pasted bytes, which report none.
+function useImportProgress(id: string, running: boolean) {
+  const [progress, setProgress] = useState<number>();
+  useEffect(() => {
+    if (!running) {
+      return undefined;
+    }
+    const subscription = new NativeEventEmitter(native()).addListener(
+      'draftImportProgress',
+      (event: { readonly id: string; readonly fraction: number }) => {
+        if (event.id === id) {
+          setProgress(event.fraction);
+        }
+      },
+    );
+    return () => {
+      subscription.remove();
+      setProgress(undefined);
+    };
+  }, [id, running]);
+  return running ? progress : undefined;
+}
+
 function AssetRow({
   asset,
   editable,
@@ -1755,6 +1803,7 @@ function AssetRow({
     [settings.locale],
   );
   const { preview, retry, checking } = usePreview(asset, inline, check);
+  const progress = useImportProgress(asset.id, running);
   const uri = inline && preview?.kind === 'ready' ? preview.uri : undefined;
   useEffect(() => {
     if (inline) {
@@ -1764,6 +1813,7 @@ function AssetRow({
   const status = assetStatus(t, (bytes) => fileSize(t, sizeFormat, bytes), {
     asset,
     running,
+    progress,
     checking,
     preview,
   });
@@ -1823,6 +1873,7 @@ function AssetRow({
           preview={preview}
           failed={asset.state === 'failed'}
           status={status}
+          progress={progress}
         />
       </View>
       {preview?.kind === 'locked' || preview?.kind === 'incomplete' ? (
@@ -3204,24 +3255,59 @@ const slashMenuMargin = 28;
 const slashMenuInset = 7;
 const slashMenuGap = 3;
 
+// Where a body shows the line of the / that opened its Slash Command Menu, from the / on.
+type SlashLine = Readonly<{ left: number; top: number; bottom: number }>;
+
+// The line of the character at `at` in the body's text view `bodyID`, once it is known.
+function useCharacterLine(bodyID: string | undefined, at: number | undefined) {
+  const [line, setLine] = useState<SlashLine & Readonly<{ at: number }>>();
+  useEffect(() => {
+    if (at === undefined || bodyID === undefined) {
+      return;
+    }
+    let live = true;
+    void (async () => {
+      try {
+        const frame = await windowHost()?.composerCharacterFrame(bodyID, at);
+        if (live && frame !== null && frame !== undefined) {
+          setLine({
+            at,
+            left: frame.x,
+            top: frame.y,
+            bottom: frame.y + frame.height,
+          });
+        }
+      } catch {
+        // Without its place the menu stays closed; the typed text is kept.
+      }
+    })();
+    return () => {
+      live = false;
+    };
+  }, [at, bodyID]);
+  return line;
+}
+// A reported `line` for the / at `at`.
+const lineAt = (line: SlashLine | undefined, at: number | undefined) =>
+  line === undefined || at === undefined ? undefined : { ...line, at };
+
 // The Slash Command Menu in an editor's body. Typing / as the first non-whitespace character of a
 // body block outside code opens its Basic Blocks under the caret's line, or over it when more room
 // is there; typing filters them. An empty result, a caret move, leaving the body, Escape or a choice
-// closes it, keeping the typed text.
-function useSlashMenu(
+// closes it, keeping the typed text. The menu asks the body's text view `bodyID` where the / is, or
+// hangs from the `line` a Draft editor page reports.
+export function useSlashMenu(
   draft: Draft,
   selection: Selection,
-  {
-    paused,
-    pausedNow,
-    bodyID,
-  }: Readonly<{
+  options: Readonly<{
     paused: boolean;
     // Ahead of rendering, as native events can arrive before a pause commits.
     pausedNow: Readonly<{ current: boolean }>;
-    bodyID: string;
-  }>,
+  }> &
+    (Readonly<{ bodyID: string }> | Readonly<{ line: SlashLine | undefined }>),
 ) {
+  const { paused, pausedNow } = options;
+  const bodyID = 'bodyID' in options ? options.bodyID : undefined;
   const { t } = useLocalization();
   const titleOf = useCallback(
     (kind: BlockKind) =>
@@ -3287,35 +3373,9 @@ function useSlashMenu(
   const latest = (body: SemanticDocument, at: Selection) =>
     pausedNow.current ? undefined : listed(body, at, armedNow.current);
   // Where the body shows the /'s line, and where the body sits.
-  const [anchor, setAnchor] =
-    useState<
-      Readonly<{ at: number; left: number; top: number; bottom: number }>
-    >();
+  const found = useCharacterLine(bodyID, armed);
+  const anchor = 'line' in options ? lineAt(options.line, armed) : found;
   const [body, setBody] = useState({ x: 0, y: 0, width: 0 });
-  useEffect(() => {
-    if (armed === undefined) {
-      return;
-    }
-    let live = true;
-    void (async () => {
-      try {
-        const frame = await windowHost()?.composerCharacterFrame(bodyID, armed);
-        if (live && frame !== null && frame !== undefined) {
-          setAnchor({
-            at: armed,
-            left: frame.x,
-            top: frame.y,
-            bottom: frame.y + frame.height,
-          });
-        }
-      } catch {
-        // Without its place the menu stays closed; the typed text is kept.
-      }
-    })();
-    return () => {
-      live = false;
-    };
-  }, [armed, bodyID]);
   const wanted = slashMenuHeight(kinds.length);
   const above =
     anchor === undefined ? 0 : body.y + anchor.top - room.y - slashMenuMargin;
@@ -3362,6 +3422,31 @@ function useSlashMenu(
             },
           ],
         };
+  // Up and Down move the highlight through the blocks listed for the latest `document` and caret
+  // `at`, Return and Tab choose it, Escape closes.
+  const press = (
+    key: string,
+    now: Readonly<{ document: SemanticDocument; at: Selection }>,
+    apply: () => void,
+  ) => {
+    if (key === 'ArrowDown' || key === 'ArrowUp') {
+      const listing = latest(now.document, now.at)?.kinds ?? [];
+      const index =
+        chosenNow.current === undefined
+          ? 0
+          : Math.max(listing.indexOf(chosenNow.current), 0);
+      const step = key === 'ArrowDown' ? 1 : -1;
+      const next =
+        listing[Math.min(Math.max(index + step, 0), listing.length - 1)];
+      if (next !== undefined && next !== listing[index]) {
+        choose(next);
+      }
+    } else if (key === 'Escape') {
+      close();
+    } else if (key === 'Enter' || key === 'Tab') {
+      apply();
+    }
+  };
   // Focus stays in the body, so VoiceOver hears each highlighted block as it shows.
   const heard = shown === undefined ? undefined : labelOf(shown.active);
   useEffect(() => {
@@ -3427,34 +3512,24 @@ function useSlashMenu(
         ? undefined
         : { query: open.query, kind: picked };
     },
-    // Up and Down move the highlight, Return and Tab choose it, Escape closes.
     keyDown: (event: KeyEvent['nativeEvent'], apply: () => void) => {
-      if (shown === undefined || !plainEvent(event)) {
-        return;
-      }
-      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-        const index = Math.max(
-          kinds.indexOf(chosenNow.current ?? shown.active),
-          0,
+      if (shown !== undefined && plainEvent(event)) {
+        press(
+          event.key,
+          { document: textOf(draft.body), at: selection },
+          apply,
         );
-        const step = event.key === 'ArrowDown' ? 1 : -1;
-        const next =
-          kinds[Math.min(Math.max(index + step, 0), kinds.length - 1)];
-        if (next !== undefined && next !== kinds[index]) {
-          choose(next);
-        }
-      } else if (event.key === 'Escape') {
-        close();
-      } else if (event.key === 'Enter' || event.key === 'Tab') {
-        apply();
       }
     },
+    // The keys a Draft editor page hands over while the menu shows, or Escape as the body leaves,
+    // which may arrive before the latest report renders.
+    press,
   };
 }
 
 // The body's Slash Command Menu while it shows: its Basic Blocks in a glass menu, the highlighted
 // row filled and kept in view.
-function BodySlashMenu({
+export function BodySlashMenu({
   shown,
   titleOf,
   labelOf,

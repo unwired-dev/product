@@ -17,7 +17,7 @@ state as an Effect program in `packages/mail-core`.
 Native code adds value at credential custody. Under
 [ADR 0067](../adr/0067-keep-native-code-to-a-minimal-vault.md), provider tokens never
 leave native code. One purpose-specific Gmail read accepts only `profile`,
-`history`, `labels`, `messages`, alphanumeric `messages/<id>` paths and
+`history`, `labels`, `settings/vacation`, `messages`, alphanumeric `messages/<id>` paths and
 `messages/<id>/attachments/<part>` with alphanumeric, underscore or hyphen part
 identifiers below
 `https://gmail.googleapis.com/gmail/v1/users/me/`. It renews and attaches the

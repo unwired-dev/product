@@ -1,3 +1,27 @@
+diff --git a/ios/Modifiers/PresentationModifiers.swift b/ios/Modifiers/PresentationModifiers.swift
+index 19645fa991e0f134d34b7b416096de85618045aa..c16766a98c1619bb9db5af83639314a8b2cc4fc8 100644
+--- a/ios/Modifiers/PresentationModifiers.swift
++++ b/ios/Modifiers/PresentationModifiers.swift
+@@ -130,9 +130,18 @@ private struct PresentationDetentsSelectionView<WrappedContent: View>: View {
+     self._selectedDetent = State(initialValue: initialSelection ?? firstOrderedDetent ?? .large)
+   }
+ 
++  // A new detent set can drop the selected detent before `onChange` updates it, and SwiftUI needs
++  // the selection to be one of the detents: until then, read the given selection (#2979).
++  private var selection: Binding<PresentationDetent> {
++    Binding(
++      get: { detents.contains(selectedDetent) ? selectedDetent : initialSelection ?? selectedDetent },
++      set: { selectedDetent = $0 }
++    )
++  }
++
+   var body: some View {
+     wrappedContent
+-      .presentationDetents(detents, selection: $selectedDetent)
++      .presentationDetents(detents, selection: selection)
+       .onChange(of: selectedDetent) { newDetent in
+         if let serialized = detentSerializationMap[newDetent] {
+           eventDispatcher?(["presentationDetents": ["detent": serialized]])
 diff --git a/ios/Popover/PopoverView.swift b/ios/Popover/PopoverView.swift
 index dac02b2ea14de86cf43387b1bcefe995dfb07c4d..40438dc6edc33fbba41534916b5333fde3493525 100644
 --- a/ios/Popover/PopoverView.swift

@@ -32,6 +32,8 @@ interface SyntheticGraphMessage {
   isRead: boolean;
   // A well-known folder's name, or a folder's ID.
   folder: string;
+  // Its Outlook categories, by name.
+  categories: readonly string[];
   readonly body: Readonly<{ contentType: 'html' | 'text'; content: string }>;
   readonly attachments: readonly SyntheticGraphAttachment[];
   readonly headers: ReadonlyArray<Readonly<{ name: string; value: string }>>;
@@ -161,6 +163,7 @@ export function createSyntheticGraph({
     attachments = [],
     headers = [],
     folder = 'inbox',
+    categories = [],
     calendar,
   }: {
     readonly from?: SyntheticGraphMessage['from'];
@@ -173,6 +176,7 @@ export function createSyntheticGraph({
     readonly headers?: SyntheticGraphMessage['headers'];
     // A well-known folder's name or a folder's ID.
     readonly folder?: string;
+    readonly categories?: readonly string[];
     readonly calendar?: string;
   } = {}) => {
     nextId += 1;
@@ -187,6 +191,7 @@ export function createSyntheticGraph({
       from,
       isRead,
       folder,
+      categories,
       body,
       attachments,
       headers,
@@ -217,6 +222,7 @@ export function createSyntheticGraph({
     bodyPreview,
     from,
     isRead,
+    categories,
   }: SyntheticGraphMessage) => ({
     '@odata.etag': 'W/"synthetic"',
     id,
@@ -226,6 +232,7 @@ export function createSyntheticGraph({
     bodyPreview,
     isRead,
     from: { emailAddress: from },
+    categories,
   });
   const inFolder =
     (folder: string) =>
@@ -290,10 +297,16 @@ export function createSyntheticGraph({
     });
   };
 
-  const placement = ({ id, folder, isRead }: SyntheticGraphMessage) => ({
+  const placement = ({
+    id,
+    folder,
+    isRead,
+    categories,
+  }: SyntheticGraphMessage) => ({
     id,
     parentFolderId: folderId(folder),
     isRead,
+    categories,
   });
   const message = (id: string, path: readonly string[], offset: number) => {
     const found = messages.get(id);
@@ -583,6 +596,7 @@ export function createSyntheticGraph({
       from: { name: '', address },
       isRead: true,
       folder: 'sentitems',
+      categories: [],
       body: { contentType: 'text', content: '' },
       attachments,
       headers: [],
@@ -644,8 +658,12 @@ export function createSyntheticGraph({
     if (found === undefined) {
       return notFound();
     }
-    if ('read' in request) {
-      found.isRead = request.read;
+    if ('read' in request || 'categories' in request) {
+      if ('read' in request) {
+        found.isRead = request.read;
+      } else {
+        found.categories = request.categories;
+      }
       changes.push(found.id);
       return respond(placement(found));
     }
@@ -845,6 +863,14 @@ export function createSyntheticGraph({
         found.folder = folder;
       });
     },
+    // The message's categories become `categories`, as when changed in Outlook.
+    categorize: (id: string, categories: readonly string[]) => {
+      change(id, (found) => {
+        found.categories = categories;
+      });
+    },
+    // A message's categories now.
+    categoriesOf: (id: string) => messages.get(id)?.categories,
     // The message is deleted for good, as when emptied from Deleted Items in Outlook.
     purge: (id: string) => {
       if (messages.delete(id)) {

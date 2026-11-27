@@ -1455,6 +1455,8 @@
       "status": {
         "checking": "Checking…",
         "adding": "Adding…",
+        "importing": "Importing…",
+        "importingProgress": "Importing… {{percent, number}}%",
         "interrupted": "Not added: adding was interrupted",
         "cancelled": "Not added: cancelled",
         "tooLarge": "Not added: too large for Drafts on this device",
@@ -1971,7 +1973,18 @@
     "failedDetail": "{{sender}} didn’t accept it. Try again later, or block the sender instead.",
     "uncertain": "No clear answer to the request",
     "uncertainDetail": "Unwired can’t tell whether {{sender}} received it. You can send it again, or block the sender instead.",
-    "tryAgain": "Try Again"
+    "tryAgain": "Try Again",
+    "confirmEmail": "Unwired emails an unsubscribe request to {{to}} from {{address}}. It appears in Sent. It can take a few days to stop. Mail you already have stays.",
+    "waiting": "Unsubscribe request waiting to send",
+    "waitingDetail_one": "Sending in {{count}} second to {{to}} from {{address}}. The email will be in Sent.",
+    "waitingDetail_other": "Sending in {{count}} seconds to {{to}} from {{address}}. The email will be in Sent.",
+    "sendingDetail": "Sending to {{to}} from {{address}}. The email will be in Sent.",
+    "waitingToast": "Sending unsubscribe request",
+    "emailSentDetail": "Emailed to {{to}} on {{date}}. It’s in Sent. If their mail keeps coming after 14 days, you can try again.",
+    "signInDetail": "{{sender}} unsubscribes by email from {{address}}. {{provider}} needs you to sign in again before this address can send.",
+    "signIn": "Sign In…",
+    "receiveOnlyDetail": "{{sender}} unsubscribes by email, but {{address}} has no outgoing server, so Unwired can’t send it. It won’t use another address.",
+    "mailboxSettings": "Mailbox Settings…"
   },
   "pins": {
     "pinFailed": "This Thread couldn’t be pinned",

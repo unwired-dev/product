@@ -721,6 +721,19 @@ Heading 2, which the **Text style** pop-up shows, and remove the query. After
 typing, two Command-Z take back the typing and then restore `/he` as a
 paragraph. The open and filtered menus are kept as attachments.
 
+`testDraftEditorSlashCommandMenu` and its `Dark` variant run the same menu in the
+Draft editor page ([#3010](https://github.com/unwired-dev/product/issues/3010)) on
+the `registration-draft-editor` `Testing` build that the
+[Draft editor evaluation](draft-editor-evaluation.md#run-the-evaluation) describes.
+After signing in, a New Message body gets `Hi`, a new line and `/`, which opens
+the Basic Blocks under the `/` and right of it. Typing `he` leaves the three
+headings; Down Arrow and Return set Heading 2, which the **Text style** pop-up
+shows, and remove the query. After typing, two Command-Z take back the typing and
+then restore `/he` as a paragraph without opening the menu. A `/` on the next line
+opens it again, Escape closes it, and typing on keeps it closed. The captures
+"Draft editor page Slash Command Menu", "… filtered" and "Heading 2 from the Draft
+editor page Slash Command Menu" are named with the appearance.
+
 ## Mac list indent journey
 
 The `testListIndent` journey and its `Dark` variant use the same
@@ -1029,7 +1042,11 @@ banner, **Change** and **Remove Reminder**
 line must name the device's time zone in full, such as "Times in Central European
 Standard Time (Prague)" ([#2147](https://github.com/unwired-dev/product/issues/2147)). The captures are
 named "Send menu", "Remind Me to Send sheet" or "popover" and "Draft with a Send
-Reminder". The journey fails later on iPhone
+Reminder". **Change** then opens **Choose Date and Time…**, whose system calendar
+starts at the stored reminder ("Choose Date and Time"); from 8:00, today's date
+shows the passed-time message with **Set Reminder** dimmed ("Choose Date and
+Time, time has passed"), and Return sets the day after tomorrow, which the
+banner names ([#2979](https://github.com/unwired-dev/product/issues/2979)). The journey fails later on iPhone
 ([#2587](https://github.com/unwired-dev/product/issues/2587)).
 
 ## iPhone and iPad Gmail pause journey

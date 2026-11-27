@@ -168,18 +168,32 @@ Other folders are breadth-first traversal targets with path names. Discovery
 stops at 250 offered folders or each folder's first page; the encrypted document
 retains the resulting list and a visible truncation flag. Role actions remain
 unavailable until their required folder is known and present. Microsoft offers
-read state and moves, with no Gmail label toggles or star.
+read state, moves and Outlook categories, with no star.
 
 The shared durable action queue retains ordered intent, immutable attempts,
 ownership fences, refusal markers and removal-only Undo. Graph placement maps to
 internal role labels plus UNREAD, with ARCHIVE distinct from every other folder.
+Each Outlook category in a message's `categories` maps to a label of its own:
+`CATEGORY_` and the name in base64url, a prefix no role label or Graph folder ID
+has. So a category never names a folder, and Move to never offers one or moves
+to one. Actions admit category labels up to the length of Outlook's 255-character
+name limit; a longer name stays on the message in Graph without a label. The
+`label` and `unlabel` actions with category labels are Graph changes. The reader
+reads the message's current categories, adds or removes only the requested names
+and writes the resulting list, so a category changed elsewhere before that read
+is kept. A read that omits the categories or describes another message writes
+nothing and the action waits for the next attempt. An action naming a category
+Outlook could not store is not queued, and a resulting list native code would
+refuse settles as a refusal instead of blocking the queue. A change made in Outlook between that read and the write can still be
+overwritten, because Graph's message PATCH replaces the whole list.
 Archive reconciliation requires that role rather than merely absence from Inbox.
 Authoritative placement replies require both parentFolderId and isRead; incomplete
 replies keep the action pending for read-back and retry. Permanent refusal restores
 provider-derived state, and interrupted writes reconcile before another dispatch.
 
-Native `graphModify` admits only one read-state change or destination folder,
-validates identifiers and constructs PATCH message or POST move requests behind
+Native `graphModify` admits only one read-state change, category list or destination
+folder. It validates identifiers and category names (one line of at most 255
+characters each) and constructs PATCH message or POST move requests behind
 the existing `graphCall` authorization and generation fences. Each write requires
 a current credential-only Trusted Device check before provider renewal; an
 unavailable check prevents dispatch, and a revoked device is purged first.

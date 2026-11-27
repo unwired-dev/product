@@ -16,7 +16,11 @@ import type {
   NativeAttachments,
 } from './attachment-downloads.ts';
 import type { DeliveryProblem } from './draft-model.ts';
-import type { GmailAction, GmailLabel } from './gmail-actions.ts';
+import type {
+  GmailAction,
+  GmailLabel,
+  GmailVacation,
+} from './gmail-actions.ts';
 import type {
   Cache,
   GmailMessage,
@@ -349,9 +353,17 @@ export type GmailSearchPage =
       reason: 'offline' | 'authentication' | 'failed';
     }>;
 
-const searchUnavailable = (
-  reason: Extract<GmailSearchPage, { kind: 'unavailable' }>['reason'],
-): GmailSearchPage => ({ kind: 'unavailable', reason });
+type Unavailable = Extract<GmailSearchPage, { kind: 'unavailable' }>;
+
+const searchUnavailable = (reason: Unavailable['reason']): Unavailable => ({
+  kind: 'unavailable',
+  reason,
+});
+
+// A mailbox's Out of Office as its provider stores it, or why the provider could not answer.
+export type OutOfOfficeRead =
+  | Readonly<{ kind: 'found'; vacation: GmailVacation }>
+  | Unavailable;
 
 // A presentation's plain-text fallback after its rich view failed, still collapsible.
 const readableOnly = ({
@@ -3847,7 +3859,7 @@ export function createInboxStore(
     { kind, diagnostic }: Readonly<Pick<SyncFailure, 'kind' | 'diagnostic'>>,
     reading: number,
     label = 'Gmail search failed:',
-  ): Effect.Effect<GmailSearchPage | undefined> {
+  ): Effect.Effect<Unavailable | undefined> {
     // Native work started for a mailbox that changed; nothing is shown.
     if (kind === 'invalidated' || owner !== reading || state.kind !== 'ready') {
       return Effect.void.pipe(Effect.as(undefined));
@@ -4364,6 +4376,33 @@ export function createInboxStore(
     // Searches this mailbox at its provider; undefined when the Inbox closed or changed meanwhile.
     searchGmail: (query: string, pageToken?: string) =>
       runLogged(searchGmail(query, pageToken)),
+    // Reads this mailbox's Out of Office from its provider, as a search does. Undefined when it was
+    // not read, as when the provider offers none, or the Inbox closed or changed meanwhile.
+    outOfOffice: (): Promise<OutOfOfficeRead | undefined> => {
+      const scope = opened;
+      const reading = owner;
+      const read = providerReader.vacation;
+      if (scope === undefined || state.kind !== 'ready' || read === undefined) {
+        return Promise.resolve(undefined);
+      }
+      const label = 'Gmail Out of Office could not be read:';
+      return runLogged(
+        read(scope).pipe(
+          Effect.map((vacation): OutOfOfficeRead | undefined => ({
+            kind: 'found',
+            vacation,
+          })),
+          Effect.catchTags({
+            SyncFailure: (failure) => searchFailed(failure, reading, label),
+            GmailNotFound: () => Effect.succeed(searchUnavailable('failed')),
+            GmailInvalidPage: () => Effect.succeed(searchUnavailable('failed')),
+          }),
+          Effect.map((result) =>
+            owner === reading && state.kind === 'ready' ? result : undefined,
+          ),
+        ),
+      );
+    },
     // Loads an opened message's Remote Message Content: from the Authorized Remote Content Cache,
     // and with `network` also through the isolated native fetch, which only an authorized
     // presentation asks for. Six requests run per message and twelve account-wide; the readers

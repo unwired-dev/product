@@ -1491,6 +1491,52 @@ describe('the host assembly', () => {
     expect(opened).toStrictEqual([{ draft, profile: defaultProfile }]);
   });
 
+  it('opens a Send Reminder’s Draft from its tap, before the Drafts opened, and nothing for a stale Draft or another account', async () => {
+    expect.hasAssertions();
+    const { host, named, opened, reopened, draftStorage, notificationActions } =
+      await replyingHost();
+    // Stored by an earlier launch; this one has not opened its Drafts yet.
+    const earlier = createDrafts(draftStorage.native, host.registration);
+    await earlier.load();
+    const create = async () =>
+      required(
+        await earlier.create({
+          id: named.connection,
+          address: 'alex@example.invalid',
+        }),
+      );
+    const draft = await create();
+    const discarded = await create();
+    await earlier.discard(discarded);
+    const tap = (id: string, account: string, tapped: string) =>
+      notificationActions.send({
+        id,
+        account,
+        action: 'open-reminder',
+        draft: tapped,
+      });
+
+    await tap('due', named.account, draft);
+    await tap('discarded', named.account, discarded);
+    await tap('another account', 'account-other', draft);
+    expect({ opened, outbox: host.outbox.getSnapshot() }).toStrictEqual({
+      opened: [{ draft, profile: defaultProfile }],
+      outbox: [],
+    });
+    // Asked again once a composer leaves, it follows the connection's Profile, and a removed
+    // connection opens nothing.
+    await host.registration.createProfile('Work');
+    const work = required(
+      profilesOf(host.registration.getSnapshot().snapshot).find(
+        ({ name }) => name === 'Work',
+      ),
+    ).id;
+    await host.registration.moveMailbox(named.connection, work);
+    expect(reopened.profile()).toBe(work);
+    await host.registration.removeMailbox(named.connection);
+    expect(reopened.profile()).toBeUndefined();
+  });
+
   it('archives nothing when the connection is recreated while a notification action opens the Drafts', async () => {
     expect.hasAssertions();
     const { host, gmail, answered, named, notificationActions } =

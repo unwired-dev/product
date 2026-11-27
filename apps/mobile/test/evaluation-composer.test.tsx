@@ -850,7 +850,7 @@ describe('the Tiptap evaluation composer', () => {
       const [first = '', ...rest] = text.split('\n');
       return [paragraph(first), ...rest.map(paragraph)];
     };
-    const caret = { top: 30, bottom: 52 };
+    const caret = { top: 30, bottom: 52, left: 16 };
     // The page reports each typed character with the caret after it, and the caret's line.
     const typeEach = async (before: string, typed: string) => {
       for (let end = 1; end <= typed.length; end += 1) {

@@ -35,7 +35,12 @@ import {
 import { MenuButton, SFSymbol } from './design.tsx';
 import { useLocalization } from './localization.ts';
 import { profileChoices } from './profile-choices.ts';
-import { SettingsGroup, SettingsRow, settingsColumns } from './settings.tsx';
+import {
+  SettingsActionRow,
+  SettingsGroup,
+  SettingsRow,
+  settingsColumns,
+} from './settings.tsx';
 import {
   textStyles,
   useLargeText,
@@ -476,29 +481,22 @@ export function MailProfilesSettings({
             )}
           </Pressable>
         ))}
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={t('profiles.add')}
+        <SettingsActionRow
+          label={t('profiles.add')}
           disabled={busy}
           onPress={() => {
             promptNewProfile(t, (name) =>
               change({ control: 'new' }, () => store.createProfile(name)),
             );
-          }}
-          style={({ pressed }) =>
-            pressed && {
-              backgroundColor: colors.accentSelectionSubtle,
-            }
-          }>
+          }}>
           <SettingsRow
             // The iPad frames give this group's every row an icon; iPhone's keep this one without.
             icon={settingsColumns ? 'plus' : undefined}
             title={t('profiles.add')}
-            titleTone="accent"
-            disabled={busy}>
+            titleTone="accent">
             {progress('new')}
           </SettingsRow>
-        </Pressable>
+        </SettingsActionRow>
       </SettingsGroup>
       <SettingsGroup
         title={nameOf(selected)}
@@ -616,44 +614,29 @@ export function MailProfilesSettings({
         </SettingsGroup>
       )}
       <SettingsGroup footer={t('profiles.settings.duplicateFooter')}>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={t('profiles.duplicate')}
+        <SettingsActionRow
+          label={t('profiles.duplicate')}
           disabled={busy}
           onPress={() => {
             void duplicate();
-          }}
-          style={({ pressed }) =>
-            pressed && {
-              backgroundColor: colors.accentSelectionSubtle,
-            }
-          }>
-          <SettingsRow
-            title={t('profiles.duplicate')}
-            disabled={busy}>
+          }}>
+          <SettingsRow title={t('profiles.duplicate')}>
             {progress('duplicate')}
           </SettingsRow>
-        </Pressable>
+        </SettingsActionRow>
       </SettingsGroup>
       {selected === defaultProfile ? null : (
         <SettingsGroup footer={t('profiles.settings.removeFooter')}>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={t('profiles.remove')}
+          <SettingsActionRow
+            label={t('profiles.remove')}
             disabled={busy}
-            onPress={confirmRemoval}
-            style={({ pressed }) =>
-              pressed && {
-                backgroundColor: colors.accentSelectionSubtle,
-              }
-            }>
+            onPress={confirmRemoval}>
             <SettingsRow
               title={t('profiles.remove')}
-              titleTone="destructive"
-              disabled={busy}>
+              titleTone="destructive">
               {progress('remove')}
             </SettingsRow>
-          </Pressable>
+          </SettingsActionRow>
         </SettingsGroup>
       )}
       {choices === undefined ? null : (
