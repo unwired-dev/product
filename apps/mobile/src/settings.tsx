@@ -746,9 +746,7 @@ export function SettingsWorkspace({
         {destination === undefined ? children : null}
         {/* The card stands alone, so it draws no hairline. */}
         <RowHairline value={false}>
-          {/* The hosted card keeps its measured height, so a changed name or detail measures afresh. */}
           <SettingsActionRow
-            key={`${account}\n${String(privateSync)}`}
             label={t('settings.destinations.account')}
             disabled={false}
             ignoreSafeArea="container"
@@ -956,15 +954,11 @@ export function SettingsActionRow({
   // The destination list already applies this inset. A second would move a scrolling label.
   readonly ignoreSafeArea?: 'container';
 }) {
-  // A text size changed while Settings is open keeps the hosted row's old height; a fresh host
-  // measures the row again.
-  const { fontScale } = useWindowDimensions();
   return (
     <View>
       <Hairline />
       <Host
         {...hostProps}
-        key={fontScale}
         matchContents={{ vertical: true }}>
         <SwiftUIButton
           onPress={onPress}
@@ -973,9 +967,7 @@ export function SettingsActionRow({
             inactive(disabled),
             spokenLabel(label),
           ]}>
-          <RNHostView
-            boundedByHost
-            matchContents={{ vertical: true }}>
+          <RNHostView matchContents={{ vertical: true }}>
             <RowHairline value={false}>
               <View
                 accessibilityElementsHidden
