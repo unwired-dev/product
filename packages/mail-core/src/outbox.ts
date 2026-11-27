@@ -412,8 +412,18 @@ export function createOutbox({
       ? request.check
       : 'idle';
   };
+  // The Send of each waiting Invitation Response whose Undo storage refused, until it stops waiting.
+  const refusedUndos = new Map<string, number>();
+  const undoRefused = (entry: OutboxEntry) =>
+    entry.state === 'waiting' && refusedUndos.get(entry.id) === entry.sendAt;
   const publish = () => {
     const outbox = drafts.getOutbox();
+    for (const id of refusedUndos.keys()) {
+      const entry = outbox.find((each) => each.id === id);
+      if (entry === undefined || !undoRefused(entry)) {
+        refusedUndos.delete(id);
+      }
+    }
     for (const [id, request] of asked) {
       const entry = outbox.find((each) => each.id === id);
       // A pending caller retires its request after learning why the entry disappeared.
@@ -1590,7 +1600,11 @@ export function createOutbox({
       const outbox = drafts.getOutbox();
       if (outbox !== listed) {
         listed = outbox;
-        snapshot = outbox.map((entry) => ({ ...entry, check: checkOf(entry) }));
+        snapshot = outbox.map((entry) => ({
+          ...entry,
+          check: checkOf(entry),
+          ...(undoRefused(entry) ? { undo: 'refused' as const } : {}),
+        }));
       }
       return snapshot;
     },
@@ -1721,11 +1735,21 @@ export function createOutbox({
     },
     // Returns a message to the Drafts, as Undo, after a refusal, or when the person chooses to
     // edit one whose delivery is unknown; only while it is `only` when given. An Invitation
-    // Response or an unsubscribe request only leaves the Outbox. Resolves the Draft's identifier,
-    // or false when it can no longer return.
+    // Response or an unsubscribe request only leaves the Outbox; a waiting response that storage
+    // refused to take back says so until it stops waiting. Resolves the Draft's identifier, or
+    // false when it can no longer return.
     undo: async (id: string, only?: OutboxEntry['state']) => {
       retryAt.delete(id);
       const restored = await drafts.restore(id, only);
+      const kept = entryOf(id);
+      if (
+        restored === false &&
+        kept?.invitation !== undefined &&
+        kept.state === 'waiting'
+      ) {
+        refusedUndos.set(id, kept.sendAt);
+        publish();
+      }
       if (restored !== false && drafts.getDeliveryCleanup().length > 0) {
         void process();
       }
@@ -1790,6 +1814,7 @@ export function createOutbox({
       checks.clear();
       queuedChecks.clear();
       asked.clear();
+      refusedUndos.clear();
     },
   };
 }

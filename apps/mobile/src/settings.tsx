@@ -219,6 +219,7 @@ const styles = StyleSheet.create({
     paddingTop: spacing.m,
     paddingHorizontal: rowInset,
   },
+  actionRowDisabled: { opacity: 0.9 },
   cells: { marginTop: -StyleSheet.hairlineWidth },
   group: {
     overflow: 'hidden',
@@ -909,7 +910,8 @@ export function AccountCard({
 const RowHairline = createContext(true);
 
 // A row that runs one action: the system button, with the row as its label and its spoken name.
-// The button dims the row while it is disabled; the hairline stays outside it, at full strength.
+// The button dims the row while it is disabled, to half strength; the frames draw a disabled row
+// at 45%, so the row adds 90%. The hairline stays outside the button, at full strength.
 export function SettingsActionRow({
   label,
   disabled,
@@ -934,7 +936,11 @@ export function SettingsActionRow({
           ]}>
           <RNHostView matchContents={{ vertical: true }}>
             <RowHairline value={false}>
-              <View accessibilityElementsHidden>{children}</View>
+              <View
+                accessibilityElementsHidden
+                style={disabled && styles.actionRowDisabled}>
+                {children}
+              </View>
             </RowHairline>
           </RNHostView>
         </SwiftUIButton>

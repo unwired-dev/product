@@ -400,9 +400,14 @@ const responseSymbols = {
   failed: ['exclamationmark.triangle.fill', 'statusDestructive'],
   unknown: ['info.circle', 'statusWarning'],
 } as const satisfies Record<OutboxSnapshotEntry['state'], readonly string[]>;
+// A waiting response storage refused to take back.
+const undoRefusedSymbol = [
+  'exclamationmark.triangle.fill',
+  'statusWarning',
+] as const;
 
 // An Invitation Response's row: the meeting, the choice and where it stands, with Undo while it
-// waits, Check Again when its delivery is unknown, and Open Invitation, as capsules under its words
+// waits (Try Again once storage refused it), Check Again when its delivery is unknown, and Open Invitation, as capsules under its words
 // on iPhone and iPad. It has no Edit, since it was never a Draft.
 function ResponseRow({
   entry,
@@ -425,7 +430,8 @@ function ResponseRow({
     recipients,
     status: unconfirmed ?? status,
   });
-  const [symbol, tone] = responseSymbols[entry.state];
+  const [symbol, tone] =
+    entry.undo === 'refused' ? undoRefusedSymbol : responseSymbols[entry.state];
   return (
     <View style={[styles.row, { backgroundColor: colors.surfaceSidebar }]}>
       <View
@@ -470,7 +476,9 @@ function ResponseRow({
           {entry.state === 'waiting' ? (
             <RowAction
               capsule
-              label={t('outbox.undo')}
+              label={t(
+                entry.undo === 'refused' ? 'outbox.tryAgain' : 'outbox.undo',
+              )}
               onPress={() => {
                 actions.undoResponse(entry);
               }}
