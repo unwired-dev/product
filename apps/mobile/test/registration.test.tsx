@@ -3892,21 +3892,53 @@ describe('product registration', () => {
       });
       expect(screen.getByRole('button', { name: title })).toBeEnabled();
       slow.mockRestore();
-      // Unreadable Contacts can exempt no one: the sheet says so, and Block asks before blocking
-      // without them; Try Again reads Contacts again.
+      // A read that fails after Cancel says nothing over the reader.
       await press('Cancel');
-      const unreadable = jest
+      const announce = jest.spyOn(
+        AccessibilityInfo,
+        'announceForAccessibility',
+      );
+      const late = Promise.withResolvers<typeof appleContacts.contacts>();
+      const closed = jest
         .spyOn(Contact, 'getAllDetails')
-        .mockRejectedValueOnce(new Error('unreadable'));
+        .mockReturnValueOnce(late.promise);
       await sheet();
-      await expect(
-        screen.findByText(
-          'Contacts couldn’t be read, so new mail from your contacts at mail.example.invalid would go to Trash too. Block offers to read them again.',
+      await press('Cancel');
+      await act(async () => {
+        late.reject(new Error('unreadable'));
+      });
+      expect(announce).not.toHaveBeenCalled();
+      closed.mockRestore();
+      // Unreadable Contacts can exempt no one: the sheet says so for the chosen scope, and Block asks
+      // before blocking without them. Blocking anyway exempts no one; a refused write says so and
+      // keeps the sheet.
+      const unreadable = () =>
+        jest
+          .spyOn(Contact, 'getAllDetails')
+          .mockRejectedValueOnce(new Error('unreadable'));
+      const warning =
+        'Contacts couldn’t be read, so new mail from your contacts at mail.example.invalid and its subdomains would go to Trash too. To read them again, choose Block, then Try Again.';
+      const confirm = async (button: number) => {
+        await press(title);
+        await act(async () => {
+          notSaved.mock.lastCall?.[2]?.[button]?.onPress?.();
+        });
+      };
+      let failing = unreadable();
+      await sheet();
+      await expect(screen.findByText(warning)).resolves.toBeVisible();
+      expect(announce).toHaveBeenLastCalledWith(warning);
+      failing.mockRestore();
+      await act(async () => {
+        await fireEvent.press(choice('mail.example.invalid only'));
+      });
+      expect(
+        screen.getByText(
+          'Contacts couldn’t be read, so new mail from your contacts at mail.example.invalid would go to Trash too. To read them again, choose Block, then Try Again.',
         ),
-      ).resolves.toBeVisible();
-      unreadable.mockRestore();
-      await press(title);
-      expect(notSaved).toHaveBeenLastCalledWith(
+      ).toBeVisible();
+      await confirm(2);
+      expect(notSaved).toHaveBeenCalledWith(
         'Block mail.example.invalid without exempting contacts?',
         'Contacts couldn’t be read, so new mail from your contacts at mail.example.invalid will go to Trash too.',
         [
@@ -3915,28 +3947,45 @@ describe('product registration', () => {
           expect.objectContaining({ text: title, style: 'destructive' }),
         ],
       );
-      await expect(
-        blocked.blockedDomains(defaultProfile),
-      ).resolves.toStrictEqual([]);
-      await act(async () => {
-        // Try Again comes first.
-        notSaved.mock.lastCall?.[2]?.[0]?.onPress?.();
-      });
       await waitFor(() => {
-        expect(screen.getByLabelText('Contacts at This Domain')).toBeVisible();
-      });
-      expect(
-        choice('mail.example.invalid and its subdomains').props
-          .accessibilityState.checked,
-      ).toBe(true);
-      await press(title);
-      await waitFor(() => {
-        expect(notSaved).toHaveBeenCalledWith(
+        expect(notSaved).toHaveBeenLastCalledWith(
           'mail.example.invalid couldn’t be blocked',
           'The change wasn’t saved on this device. Try again.',
         );
       });
       expect(screen.getByTestId('block-domain')).toBeVisible();
+      await confirm(2);
+      await waitFor(() => {
+        expect(screen.queryByTestId('block-domain')).toBeNull();
+      });
+      await expect(
+        blocked.blockedDomains(defaultProfile),
+      ).resolves.toMatchObject([
+        { domain: 'mail.example.invalid', subdomains: false, exempt: [] },
+      ]);
+      // Try Again reads Contacts again and keeps the chosen scope.
+      failing = unreadable();
+      await sheet();
+      await expect(screen.findByText(warning)).resolves.toBeVisible();
+      failing.mockRestore();
+      await act(async () => {
+        await fireEvent.press(choice('mail.example.invalid only'));
+      });
+      await confirm(0);
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: title })).toBeEnabled();
+      });
+      expect({
+        only: choice('mail.example.invalid only').props.accessibilityState
+          .checked,
+        warning: screen.queryByText(/Contacts couldn’t be read/u),
+      }).toStrictEqual({ only: true, warning: null });
+      await act(async () => {
+        await fireEvent.press(
+          choice('mail.example.invalid and its subdomains'),
+        );
+      });
+      expect(screen.getByLabelText('Contacts at This Domain')).toBeVisible();
       await press(title);
       await waitFor(() => {
         expect(screen.queryByTestId('block-domain')).toBeNull();

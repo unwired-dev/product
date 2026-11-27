@@ -162,12 +162,12 @@ function SheetButton({
 // keeps the sheet open.
 function BlockDomainForm({
   sender,
+  open,
   onClose,
-  onRetry,
 }: {
   readonly sender: DomainSender;
+  readonly open: boolean;
   readonly onClose: () => void;
-  readonly onRetry: () => void;
 }) {
   const store = use(BlockedSendersContext);
   const colors = usePalette();
@@ -176,10 +176,12 @@ function BlockDomainForm({
   const [subdomains, setSubdomains] = useState(true);
   const [exempting, setExempting] = useState(true);
   const [saving, setSaving] = useState(false);
-  // Contacts already readable; blocking never asks for Contacts access, and waits for the read so
-  // the exemption is not lost.
-  const read = useContactAddresses(true, false);
-  const unreadable = t('blockedSenders.exemptContactsUnreadable', { domain });
+  // Contacts already readable while the sheet is open, again on Try Again; blocking never asks for
+  // Contacts access, and waits for the read so the exemption is not lost.
+  const [attempt, setAttempt] = useState(0);
+  const read = useContactAddresses(open, false, attempt);
+  const scope = subdomains ? { domain } : { domain, context: 'only' };
+  const unreadable = t('blockedSenders.exemptContactsUnreadable', scope);
   useEffect(() => {
     if (read.failed) {
       AccessibilityInfo.announceForAccessibility(unreadable);
@@ -369,9 +371,14 @@ function BlockDomainForm({
             // Unreadable Contacts can exempt no one: say what Block then does, and offer a read.
             Alert.alert(
               t('blockedSenders.blockDomainUnexempted', { domain }),
-              t('blockedSenders.blockDomainUnexemptedDetail', { domain }),
+              t('blockedSenders.blockDomainUnexemptedDetail', scope),
               [
-                { text: t('common.retry'), onPress: onRetry },
+                {
+                  text: t('common.retry'),
+                  onPress: () => {
+                    setAttempt(attempt + 1);
+                  },
+                },
                 { text: t('common.cancel'), style: 'cancel' },
                 {
                   text: t('blockedSenders.blockDomainAction', { domain }),
@@ -450,10 +457,8 @@ export function BlockDomainSheet({
               <BlockDomainForm
                 key={opening}
                 sender={sender}
+                open={open}
                 onClose={onClose}
-                onRetry={() => {
-                  setOpening(opening + 1);
-                }}
               />
             </View>
           </RNHostView>
