@@ -83,7 +83,8 @@ export const AccountContext = createContext<
       mailboxes: readonly MailboxConnection[];
       // Settings opens on the given destination, such as Email Accounts for a password.
       openAccount: (destination?: SettingsDestination) => void;
-      authorizeMailbox: (connection: string) => Promise<void>;
+      // Resolves true once the sign-in completed, not when it was cancelled.
+      authorizeMailbox: (connection: string) => Promise<unknown>;
       // With 'explicit' and a connection, verifies only that connection with its provider.
       refreshInbox: (
         load: () => Promise<void>,

@@ -395,7 +395,9 @@ function Mailboxes({
                       address: mailbox.address,
                       provider,
                     }),
-                    () => store.authorizeMailbox(mailbox.id),
+                    async () => {
+                      await store.authorizeMailbox(mailbox.id);
+                    },
                     { title: t('settings.signIn') },
                   )
                 : null}
@@ -530,7 +532,7 @@ function useCardButton(store: Registration) {
   const { busy } = useSyncExternalStore(store.subscribe, store.getSnapshot);
   return function cardButton(
     label: string,
-    action: () => Promise<void>,
+    action: () => Promise<unknown>,
     fill?: 'accent' | 'destructive',
   ) {
     return (

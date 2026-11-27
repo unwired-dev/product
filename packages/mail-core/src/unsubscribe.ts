@@ -223,13 +223,15 @@ export const requestUnsubscribe = (
   );
 
 // A request to leave a mailing list that ended `sent`: the Mail Profile that owns the receiving
-// connection, the list's Mailing List Identity and name, and when it was sent in milliseconds since
-// the epoch. It holds no unsubscribe URI, raw header or request body.
+// connection, the list's Mailing List Identity and name, when it was sent in milliseconds since
+// the epoch, and the address a `mailto:` request was emailed to. It holds no unsubscribe URI, raw
+// header or request body.
 const SentRequestSchema = Schema.Struct({
   profile: Schema.NonEmptyString,
   identity: Schema.NonEmptyString,
   list: Schema.NonEmptyString,
   sentAt: Schema.Int,
+  to: Schema.optionalKey(Schema.NonEmptyString),
 });
 export type SentUnsubscribeRequest = typeof SentRequestSchema.Type;
 
@@ -276,8 +278,9 @@ const report = (
     ? Effect.void
     : Effect.logError('Unsubscribe request storage failed:', error.diagnostic);
 
-// One-click unsubscribe requests, each recorded on this device for the Mail Profile that sent it
-// once it ends `sent`. Records are not synchronized.
+// Unsubscribe requests, each recorded on this device for the Mail Profile that sent it once it ends
+// `sent`: one-click requests here, and `mailto:` requests by the Outbox once it confirms them.
+// Records are not synchronized.
 export function createUnsubscribe(
   storage: NativeUnsubscribe & NativeUnsubscribeRequests,
   registration: Pick<Registration, 'getSnapshot'>,
@@ -297,8 +300,8 @@ export function createUnsubscribe(
       }
       return { owner, revision, requests: document?.requests ?? [] };
     });
-  // Records `request`, replacing the Profile's earlier one for the list. Resolves whether storage
-  // holds it.
+  // Records `request`, replacing the Profile's earlier one for the list; a newer one stays. Resolves
+  // whether storage holds it or the newer one.
   const remember = (
     account: string | undefined,
     request: SentUnsubscribeRequest,
@@ -306,6 +309,15 @@ export function createUnsubscribe(
     runLogged(
       Effect.gen(function* () {
         const { owner, revision, requests } = yield* opened(account);
+        if (
+          requests.some(
+            (each) =>
+              matches(request.profile, request.identity)(each) &&
+              each.sentAt > request.sentAt,
+          )
+        ) {
+          return true;
+        }
         const document = yield* Schema.encodeEffect(DocumentSchema)({
           requests: [
             ...requests.filter(
@@ -377,6 +389,10 @@ export function createUnsubscribe(
       }
       return outcome;
     },
+    // Records `request`, a confirmed `mailto:` request, for `account`, only while it is signed in.
+    // Resolves whether storage holds it.
+    record: (account: string, request: SentUnsubscribeRequest) =>
+      remember(account, request),
   };
 }
 export type Unsubscribe = ReturnType<typeof createUnsubscribe>;
