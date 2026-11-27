@@ -3786,6 +3786,10 @@ final class WindowTests: XCTestCase {
     block.click()
     XCTAssertTrue(sheet.waitForNonExistence(timeout: 10))
 
+    // The Blocked Domain is stored on this device, so Settings lists it after a relaunch.
+    app.terminate()
+    app.launch()
+    XCTAssertTrue(window.waitForExistence(timeout: 60))
     app.typeKey(",", modifierFlags: .command)
     XCTAssertTrue(settings.waitForExistence(timeout: 15))
     settings.buttons["Blocked Senders"].click()
