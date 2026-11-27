@@ -779,6 +779,75 @@ describe('product registration', () => {
     ).toBeVisible();
   });
 
+  it("opens a named IMAP mailbox's password entry in Email Accounts (#2463)", async () => {
+    expect.hasAssertions();
+    const imap = createSyntheticImap({
+      address: 'alex@icloud.example.invalid',
+    });
+    const { synthetic, setup } = await signedIn();
+    const connection = await connectImap(setup, {
+      address: 'alex@icloud.example.invalid',
+      host: 'imap.mail.me.com',
+      username: 'alex@icloud.example.invalid',
+    });
+    await confirmRecoveryKey(setup);
+    const store = createRegistration(synthetic.relaunch());
+    const connections = createMailboxes(
+      syntheticConnections({}, { [connection]: imap.native }),
+      store,
+    );
+    // What the invitation card's Mailbox Settings… asks for.
+    const opener: { open?: () => void } = {};
+    function MailboxSettings() {
+      const account = useContext(AccountContext);
+      opener.open = () => {
+        account?.openAccount('mailboxes', undefined, { mailbox: connection });
+      };
+      return null;
+    }
+    await render(
+      <RegistrationGate
+        store={started(store)}
+        preview={false}>
+        <InboxProvider
+          mailboxes={{
+            ...connections,
+            getSnapshot: connections.getConnections,
+          }}>
+          <Shell
+            onSelect={() => undefined}
+            selected={undefined}
+          />
+          <MailboxSettings />
+        </InboxProvider>
+      </RegistrationGate>,
+    );
+    const repair = {
+      name: 'Enter the Password for alex@icloud.example.invalid Again',
+    };
+    const request = async () => {
+      await act(async () => {
+        opener.open?.();
+      });
+    };
+    await expect(
+      screen.findByRole('button', {
+        name: 'Inbox. In alex@icloud.example.invalid',
+      }),
+    ).resolves.toBeVisible();
+    // Email Accounts opens with that mailbox's entry.
+    await request();
+    expect(screen.getByRole('header', { name: 'iCloud Mail' })).toBeVisible();
+    expect(screen.queryByRole('button', repair)).toBeNull();
+    // Once closed, another request opens it again in the open Email Accounts.
+    await act(async () => {
+      await fireEvent.press(screen.getByRole('button', { name: 'Cancel' }));
+    });
+    expect(screen.getByRole('button', repair)).toBeVisible();
+    await request();
+    expect(screen.getByRole('header', { name: 'iCloud Mail' })).toBeVisible();
+  });
+
   it('keeps a failed folder warning on its exact sidebar row through navigation and recovery, and retires removed folders', async () => {
     /* oxlint-disable vitest/max-expects -- One journey proves the warning, the fallback and a recreated folder. */
     expect.hasAssertions();

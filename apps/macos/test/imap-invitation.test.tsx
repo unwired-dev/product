@@ -32,7 +32,9 @@ import { AccountContext } from '../src/registration-gate.tsx';
 const account = 'synthetic-product-account';
 const mara = { id: 'connection-mara', address: 'mara.novak@icloud.com' };
 const { icloud } = imapProviders;
-const snapshot: RegistrationSnapshot = {
+// The mailbox's state; a password its mail server refused leaves it waiting for authorization.
+let mailboxState: 'connected' | 'authorization' = 'connected';
+const snapshotOf = (): RegistrationSnapshot => ({
   kind: 'connected',
   productAccountId: account,
   signInProvider: 'google',
@@ -40,14 +42,14 @@ const snapshot: RegistrationSnapshot = {
     {
       ...mara,
       provider: 'imap',
-      state: 'connected',
+      state: mailboxState,
       imap: { host: icloud.host, port: icloud.port, username: 'mara.novak' },
       smtp: { ...icloud.smtp, username: mara.address },
     },
   ]),
-};
+});
 const registration = {
-  getSnapshot: () => ({ snapshot, busy: false, failed: false }),
+  getSnapshot: () => ({ snapshot: snapshotOf(), busy: false, failed: false }),
   resume: () => Promise.resolve(),
   subscribe: () => () => undefined,
 };
@@ -131,12 +133,16 @@ async function device(summaries: readonly string[]) {
       await outbox.process();
     });
   };
+  // What each Settings request opened.
+  const opened: unknown[] = [];
   function Providers({ children }: { readonly children: React.ReactNode }) {
     return (
       <AccountContext
         value={{
-          mailboxes: mailboxesOf(snapshot),
-          openAccount: () => undefined,
+          mailboxes: mailboxesOf(snapshotOf()),
+          openAccount: (...request) => {
+            opened.push(request);
+          },
           authorizeMailbox: () => Promise.resolve(),
           refreshInbox: (load) => load(),
           account,
@@ -154,7 +160,15 @@ async function device(summaries: readonly string[]) {
       </AccountContext>
     );
   }
-  return { imap, ids, inbox: mailbox.inbox, outbox, deliver, Providers };
+  return {
+    imap,
+    ids,
+    inbox: mailbox.inbox,
+    outbox,
+    deliver,
+    opened,
+    Providers,
+  };
 }
 
 const present = <T,>(value: T | undefined, what: string): T => {
@@ -205,6 +219,7 @@ describe('imap invitation responses on the Mac', () => {
       ],
     });
     clock.now = Date.UTC(2026, 10, 2, 9, 52);
+    mailboxState = 'connected';
     jest.setSystemTime(clock.now);
   });
   // oxlint-disable-next-line vitest/no-hooks -- Every journey runs on the same controlled clock.
@@ -331,6 +346,46 @@ describe('imap invitation responses on the Mac', () => {
       expect(
         screen.getByRole('button', { name: 'View in Outbox' }),
       ).toBeOnTheScreen();
+    } finally {
+      await app.unmount();
+      mail.outbox.dispose();
+    }
+  });
+
+  it('offers Mailbox Settings when the mail server refused the sign-in', async () => {
+    expect.hasAssertions();
+    const mail = await device(['Q4 roadmap review']);
+    const [id = ''] = mail.ids;
+    const app = await render(
+      <mail.Providers>
+        <ShowOutboxContext value={() => undefined}>
+          <MessageBody
+            inbox={mail.inbox}
+            id={id}
+            connection={mara.id}
+          />
+        </ShowOutboxContext>
+      </mail.Providers>,
+    );
+    try {
+      await press('Accept');
+      // The mail server refused the password while the response waited.
+      mailboxState = 'authorization';
+      await mail.deliver();
+      expect(mail.imap.smtp.accepted).toStrictEqual([]);
+      expect(
+        screen.getByText('iCloud needs you to sign in again'),
+      ).toBeOnTheScreen();
+      expect(
+        screen.getByText(
+          `${mara.address} can’t send responses until you sign in. Nothing has been sent.`,
+        ),
+      ).toBeOnTheScreen();
+      for (const name of ['Accept', 'Maybe', 'Decline']) {
+        expect(screen.getByRole('button', { name })).toBeEnabled();
+      }
+      await press('Mailbox Settings…');
+      expect(mail.opened).toStrictEqual([['mailboxes', mara.id]]);
     } finally {
       await app.unmount();
       mail.outbox.dispose();

@@ -24,6 +24,7 @@ import {
   View,
 } from 'react-native';
 
+import type { SettingsRequest } from './settings-window.ts';
 import type { SettingsButton, SettingsDestination } from './settings.tsx';
 
 import { BlockedSenderSettings } from './blocked-senders.tsx';
@@ -125,25 +126,42 @@ function RemoveConfirmation({
   );
 }
 
+const repairOf = (request: SettingsRequest | undefined) =>
+  request?.mailbox === undefined
+    ? undefined
+    : ({ kind: 'repair', id: request.mailbox } as const);
+
 // Each Mailbox Connection with its state, adding another, and removal after confirmation.
 function Mailboxes({
   mailboxes,
   button,
   microsoft,
+  request,
   store,
 }: {
   readonly mailboxes: readonly MailboxConnection[];
   readonly button: SettingsButton;
   readonly microsoft: boolean;
+  readonly request: SettingsRequest | undefined;
   readonly store: Registration;
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
   const [confirming, setConfirming] = useState<MailboxConnection['id']>();
-  // The IMAP connection whose password is being entered again, or a new one being added.
+  // The IMAP connection whose password is being entered again, or a new one being added; each
+  // request naming a mailbox opens its entry.
   const [imap, setImap] = useState<
-    { kind: 'repair'; id: MailboxConnection['id'] } | { kind: 'new' }
-  >();
+    | { kind: 'repair'; id: MailboxConnection['id'] }
+    | { kind: 'new' }
+    | undefined
+  >(() => repairOf(request));
+  const [followed, setFollowed] = useState(request);
+  if (followed !== request) {
+    setFollowed(request);
+    if (request?.mailbox !== undefined) {
+      setImap(repairOf(request));
+    }
+  }
   if (mailboxes.length === 0) {
     return null;
   }
@@ -669,6 +687,7 @@ export function AccountSettings({
   button,
   destination,
   microsoft,
+  request,
   screen,
   store,
 }: {
@@ -677,6 +696,8 @@ export function AccountSettings({
   // Without one, every section shows, as on the welcome flow's account page.
   readonly destination?: SettingsDestination;
   readonly microsoft: boolean;
+  // The Settings window's latest request, which can name a mailbox whose password to enter.
+  readonly request?: SettingsRequest | undefined;
   readonly screen: RegistrationScreen;
   readonly store: Registration;
 }) {
@@ -725,6 +746,7 @@ export function AccountSettings({
             mailboxes={mailboxes}
             button={button}
             microsoft={microsoft}
+            request={request}
             store={store}
           />
           <SpamTrashFolders

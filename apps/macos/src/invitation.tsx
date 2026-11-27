@@ -764,6 +764,7 @@ function ImapResponding({
   const colors = usePalette();
   const { t } = useLocalization();
   const formats = useFormats();
+  const account = use(AccountContext);
   const showOutbox = use(ShowOutboxContext);
   const responses = imapInvitationResponses(inbox, useOutbox(), connection);
   const state = useSyncExternalStore(responses.subscribe, () =>
@@ -809,6 +810,18 @@ function ImapResponding({
         }}
       />
     ) : null;
+  // A refused sign-in leaves every choice; the mailbox's password is entered in its Settings.
+  const settings =
+    state.kind === 'authentication' && account !== undefined ? (
+      <Button
+        label={t('invitation.mailboxSettings')}
+        onPress={() => {
+          if (current()) {
+            account.openAccount('mailboxes', connection);
+          }
+        }}
+      />
+    ) : null;
   return (
     <View style={[styles.card, { backgroundColor: colors.fillQuiet }]}>
       <Details
@@ -826,10 +839,13 @@ function ImapResponding({
       <Status
         {...status}
         more={
-          undo === null && viewInOutbox === null ? undefined : (
+          undo === null &&
+          viewInOutbox === null &&
+          settings === null ? undefined : (
             <>
               {undo}
               {viewInOutbox}
+              {settings}
             </>
           )
         }>

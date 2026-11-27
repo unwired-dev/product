@@ -218,6 +218,12 @@ mail server** for a reviewed provider, **The mail server** for any other.
   checks the chosen button; another choice changes it. **Not sent** says the mail
   server refused the response and leaves every choice. **Delivery unknown** offers
   no choice, only **View in Outbox**.
+- When the mail server refused the password, the card reads **{provider} needs
+  you to sign in again** · _{address} can’t send responses until you sign in.
+  Nothing has been sent._ and leaves every choice
+  ([#2463](https://github.com/unwired-dev/product/issues/2463)). **Mailbox
+  Settings…** below them opens Settings at the mailboxes with that mailbox's
+  password entry open.
 - **View in Outbox** shows the window's Outbox, ending any search that would hide
   it. On Mac that is the sidebar's Outbox; on iPhone and iPad, until the rest of
   [#2101](https://github.com/unwired-dev/product/issues/2101), it is the Outbox at

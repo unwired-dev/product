@@ -81,8 +81,12 @@ export const AccountContext = createContext<
   | Readonly<{
       // Every Mailbox Connection, including those waiting for authorization again.
       mailboxes: readonly MailboxConnection[];
-      // Settings opens on the given destination, such as Email Accounts for a password.
-      openAccount: (destination?: SettingsDestination) => void;
+      // Settings opens on the given destination, such as Email Accounts for a password, with
+      // `mailbox`'s password entry open.
+      openAccount: (
+        destination?: SettingsDestination,
+        mailbox?: string,
+      ) => void;
       authorizeMailbox: (connection: string) => Promise<void>;
       // With 'explicit' and a connection, verifies only that connection with its provider.
       refreshInbox: (
@@ -232,9 +236,9 @@ function RegistrationGateContent({
   const actions = useMemo(
     () => ({
       mailboxes: screen.mailboxes,
-      openAccount: (destination?: SettingsDestination) => {
+      openAccount: (destination?: SettingsDestination, mailbox?: string) => {
         if (choices !== undefined) {
-          openSettings(choices.inbox.account, destination);
+          openSettings(choices.inbox.account, destination, mailbox);
         }
       },
       authorizeMailbox: store.authorizeMailbox,
@@ -523,6 +527,7 @@ function SettingsPage({
             button={button}
             destination={destination}
             microsoft={microsoft}
+            request={request}
             screen={screen}
             store={store}
           />

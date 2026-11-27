@@ -93,11 +93,12 @@ export const AccountContext = createContext<
       mailboxes: readonly MailboxConnection[];
       // Settings opens on the given destination, such as Email Accounts for a password. Its Open
       // Inbox then calls `onInbox`, which shows the kept Inbox when Settings opened from elsewhere.
-      // `profile` is the window's Mail Profile, whose preferences Settings shows.
+      // `profile` is the window's Mail Profile, whose preferences Settings shows; Mailboxes opens
+      // the password entry of the IMAP connection `mailbox`.
       openAccount: (
         destination?: SettingsDestination,
         onInbox?: () => void,
-        profile?: string,
+        scope?: Readonly<{ profile?: string; mailbox?: string }>,
       ) => void;
       authorizeMailbox: (connection: string) => Promise<void>;
       refreshInbox: (load: () => Promise<void>) => Promise<void>;
@@ -130,6 +131,7 @@ type SettingsRequest = Readonly<{
   profile: string;
   destination: SettingsDestination | undefined;
   onInbox: (() => void) | undefined;
+  mailbox?: string | undefined;
 }>;
 
 // The Mail Profile whose preferences Settings shows; the account page has no window's.
@@ -219,7 +221,10 @@ function RegistrationGateContent({
       openAccount: (
         destination?: SettingsDestination,
         onInbox?: () => void,
-        profile = defaultProfile,
+        {
+          profile = defaultProfile,
+          mailbox,
+        }: Readonly<{ profile?: string; mailbox?: string }> = {},
       ) => {
         if (choices !== undefined) {
           // A field beneath Settings keeps its text but not the keyboard.
@@ -229,6 +234,7 @@ function RegistrationGateContent({
             profile,
             destination,
             onInbox,
+            mailbox,
           });
         }
       },
@@ -583,6 +589,7 @@ function SettingsPage({
             button={button}
             destination={selectedDestination}
             microsoft={microsoft}
+            request={request}
             screen={screen}
             store={store}
           />

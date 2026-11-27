@@ -910,6 +910,72 @@ describe('product registration', () => {
     ).toBeVisible();
   });
 
+  it("opens a named IMAP mailbox's password entry in Email Accounts (#2463)", async () => {
+    expect.hasAssertions();
+    const imap = createSyntheticImap({
+      address: 'alex@icloud.example.invalid',
+    });
+    const account = await signedIn();
+    const connection = await connectImap(account, {
+      address: 'alex@icloud.example.invalid',
+      host: 'imap.mail.me.com',
+      username: 'alex@icloud.example.invalid',
+    });
+    const store = createRegistration(account.synthetic.vault);
+    const connections = createMailboxes(
+      syntheticConnections({}, { [connection]: imap.native }),
+      store,
+    );
+    await render(
+      <MacWindows store={store}>
+        <RegistrationGate
+          store={started(store)}
+          preview={false}>
+          <InboxProvider
+            mailboxes={{
+              ...connections,
+              getSnapshot: connections.getConnections,
+            }}>
+            <Shell
+              onSelect={() => undefined}
+              selected={undefined}
+            />
+          </InboxProvider>
+        </RegistrationGate>
+      </MacWindows>,
+    );
+    const repair = {
+      name: 'Enter the Password for alex@icloud.example.invalid Again',
+    };
+    const request = async () => {
+      await act(async () => {
+        openSettings(
+          'account-synthetic-product-subject',
+          'mailboxes',
+          connection,
+        );
+      });
+    };
+    // From another destination, Email Accounts opens with that mailbox's entry.
+    await openAccount();
+    await request();
+    expect(
+      settingsWindow().getByRole('header', { name: 'iCloud Mail' }),
+    ).toBeVisible();
+    expect(settingsWindow().queryByRole('button', repair)).toBeNull();
+    // Once closed, another request opens it again in the open Email Accounts.
+    await act(async () => {
+      await fireEvent.press(
+        settingsWindow().getByRole('button', { name: 'Cancel' }),
+      );
+    });
+    expect(settingsWindow().getByRole('button', repair)).toBeVisible();
+    await request();
+    expect(
+      settingsWindow().getByRole('header', { name: 'iCloud Mail' }),
+    ).toBeVisible();
+  });
+
   it('chooses Spam and Trash folders for an IMAP server that marks none in a sheet from the All Mail notice, keeping the sheet open when saving fails', async () => {
     /* oxlint-disable vitest/max-expects -- One journey proves the choice, Cancel/reopen during Save, failure recovery and inclusion. */
     expect.hasAssertions();
