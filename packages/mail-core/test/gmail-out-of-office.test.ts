@@ -97,30 +97,11 @@ describe("reading a Gmail mailbox's Out of Office", () => {
     expect(inbox.getSnapshot()).toMatchObject({ sync: 'authentication' });
   });
 
-  it('reads nothing before the Inbox opens, after it closes or for Microsoft mail', async () => {
+  it('reads nothing before the Inbox opens or for Microsoft mail', async () => {
     expect.hasAssertions();
-    const { inbox, answers, requests } = vacationInbox();
+    const { inbox, requests } = vacationInbox();
     await expect(inbox.outOfOffice()).resolves.toBeUndefined();
     expect(requests).toHaveLength(0);
-
-    await inbox.load();
-    const { promise, resolve } = Promise.withResolvers<unknown>();
-    answers.push(promise);
-    const reading = inbox.outOfOffice();
-    // The Inbox closes while the read is under way. Native code refuses an answer for a mailbox
-    // replaced meanwhile, as it does for search.
-    inbox.forget();
-    resolve(answer({ enableAutoReply: true }));
-    await expect(reading).resolves.toBeUndefined();
-    // A refusal that arrives after the Inbox closed is dropped too.
-    await inbox.load();
-    const refused = Promise.withResolvers<unknown>();
-    answers.push(refused.promise);
-    const refusing = inbox.outOfOffice();
-    inbox.forget();
-    refused.resolve(answer({}, 404));
-    await expect(refusing).resolves.toBeUndefined();
-    expect(requests).toHaveLength(2);
 
     const graph = createSyntheticGraph();
     const microsoft = createInboxStore(graph.native, {
@@ -128,5 +109,21 @@ describe("reading a Gmail mailbox's Out of Office", () => {
     });
     await microsoft.load();
     await expect(microsoft.outOfOffice()).resolves.toBeUndefined();
+  });
+
+  it('drops an answer or a refusal that arrives after the Inbox closed', async () => {
+    expect.hasAssertions();
+    const { inbox, answers, requests } = vacationInbox();
+    // Native code refuses an answer for a mailbox replaced meanwhile, as it does for search.
+    for (const late of [answer({ enableAutoReply: true }), answer({}, 404)]) {
+      await inbox.load();
+      const { promise, resolve } = Promise.withResolvers<unknown>();
+      answers.push(promise);
+      const reading = inbox.outOfOffice();
+      inbox.forget();
+      resolve(late);
+      await expect(reading).resolves.toBeUndefined();
+    }
+    expect(requests).toHaveLength(2);
   });
 });
