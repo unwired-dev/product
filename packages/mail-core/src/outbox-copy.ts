@@ -7,9 +7,10 @@ import type { MailProvider } from './registration-snapshot.ts';
 // Sent mailbox did not confirm it.
 export type OutboxCheck = 'idle' | 'checking' | 'unconfirmed';
 
-// An Outbox entry as hosts read it.
+// An Outbox entry as hosts read it. `undo` is 'refused' while an Invitation Response storage
+// refused to take back still waits out its Undo Send Window.
 export type OutboxSnapshotEntry = OutboxEntry &
-  Readonly<{ check: OutboxCheck }>;
+  Readonly<{ check: OutboxCheck; undo?: 'refused' }>;
 
 // The provider whose words a row uses; 'unlisted' when its connection is no longer listed.
 type CopyProvider = MailProvider | 'unlisted';
@@ -94,10 +95,19 @@ const responseCopy = new Map<string, (typeof responseEntries)[number][1]>(
   responseEntries,
 );
 
-const responseStatus = ({ invitation, state, problem }: OutboxSnapshotEntry) =>
-  invitation === undefined
-    ? undefined
+const responseStatus = ({
+  invitation,
+  state,
+  problem,
+  undo,
+}: OutboxSnapshotEntry) => {
+  if (invitation === undefined) {
+    return undefined;
+  }
+  return undo === 'refused'
+    ? 'outbox.invitation.undoRefused'
     : responseCopy.get(problem === undefined ? state : `${state} ${problem}`);
+};
 
 // Where a message stands, in words: waiting out Undo Send, waiting to send and why, sending,
 // sent with its Sent copy pending and why, refused and why, or handed off without a confirmed
