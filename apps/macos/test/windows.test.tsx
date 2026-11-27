@@ -3386,8 +3386,39 @@ describe('mac windows over a connected Gmail mailbox', () => {
       ]);
       // Blocking leaves the mail already here in place.
       expect(window.getByText('Offers@Mail.NW-Deals.com')).toBeVisible();
+      // Unreadable Contacts are named before Block, which then asks, and Try Again reads them again.
+      appleContacts.unreadable = true;
+      sheet = await open();
+      await expect(
+        sheet.findByText(
+          'Contacts couldn’t be read, so new mail from your contacts at mail.nw-deals.com and its subdomains would go to Trash too. To read them again, choose Block, then Try Again.',
+        ),
+      ).resolves.toBeVisible();
+      await act(async () => {
+        await fireEvent.press(
+          sheet.getByRole('button', { name: 'Block mail.nw-deals.com' }),
+        );
+      });
+      expect(sheetShown()).toMatchObject({
+        title: 'Block mail.nw-deals.com without exempting contacts?',
+        buttons: ['Try Again', 'Block mail.nw-deals.com', 'Cancel'],
+        cancel: 2,
+        destructive: 1,
+      });
+      appleContacts.unreadable = false;
+      await act(async () => {
+        chooseSheetButton('Try Again');
+      });
+      await expect(
+        sheet.findByRole('switch', { name: 'Contacts at this domain' }),
+      ).resolves.toBeVisible();
+      expect(blockDomainSheet()).not.toBeNull();
     } finally {
-      Object.assign(appleContacts, { granted: false, addresses: [] });
+      Object.assign(appleContacts, {
+        granted: false,
+        unreadable: false,
+        addresses: [],
+      });
       await app.unmount();
     }
   });

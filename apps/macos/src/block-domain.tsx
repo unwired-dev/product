@@ -10,7 +10,7 @@ import type { DomainSender } from './settings-window-client.ts';
 
 import { BlockedSendersContext } from './blocked-senders.tsx';
 import { useContactAddresses } from './contacts.ts';
-import { Button, SFSymbol } from './design.tsx';
+import { askInSheet, Button, SFSymbol } from './design.tsx';
 import { Label } from './label.tsx';
 import { useLocalization } from './localization.ts';
 import { windowHost } from './settings-window-client.ts';
@@ -55,15 +55,20 @@ export function BlockDomainSheet({
   const [saving, setSaving] = useState(false);
   const [failed, setFailed] = useState(false);
   const mounted = useRef(true);
+  const anchor = useRef<View>(null);
+  const asking = useRef<ReturnType<typeof askInSheet>>(undefined);
   useLayoutEffect(() => {
     mounted.current = true;
     return () => {
       mounted.current = false;
+      asking.current?.retire();
     };
   }, []);
-  // Contacts already readable; blocking never asks for Contacts access, and waits for the read so
-  // the exemption is not lost.
-  const read = useContactAddresses(true, false);
+  // Contacts already readable, again on Try Again; blocking never asks for Contacts access, and
+  // waits for the read so the exemption is not lost.
+  const [attempt, setAttempt] = useState(0);
+  const read = useContactAddresses(true, false, attempt);
+  const scope = subdomains ? { domain } : { domain, context: 'only' };
   const contacts = addressesAtDomain(
     domain,
     subdomains,
@@ -97,12 +102,38 @@ export function BlockDomainSheet({
       setFailed(true);
     }
   };
+  // Unreadable Contacts can exempt no one: say what Block then does, and offer a read.
+  const confirmUnexempted = async () => {
+    asking.current?.retire();
+    const asked = askInSheet(anchor.current, {
+      title: t('blockedSenders.blockDomainUnexempted', { domain }),
+      detail: t('blockedSenders.blockDomainUnexemptedDetail', scope),
+      buttons: [
+        t('common.retry'),
+        t('blockedSenders.blockDomainAction', { domain }),
+        t('common.cancel'),
+      ],
+      cancel: 2,
+      destructive: 1,
+    });
+    asking.current = asked;
+    const choice = await asked.answer;
+    if (!mounted.current || asking.current !== asked) {
+      return;
+    }
+    if (choice === 0) {
+      setAttempt(attempt + 1);
+    } else if (choice === 1) {
+      await block();
+    }
+  };
   const choices = [
     { value: true, label: t('blockedSenders.withSubdomains', { domain }) },
     { value: false, label: t('blockedSenders.domainOnly', { domain }) },
   ];
   return (
     <View
+      ref={anchor}
       // Without a surface of its own, the sheet stays white in Dark (#1923).
       style={[styles.sheet, { backgroundColor: colors.surfaceContent }]}
       onLayout={({ nativeEvent }) => {
@@ -154,6 +185,16 @@ export function BlockDomainSheet({
           subtitle={keeps}
         />
       </SettingsGroup>
+      {read.failed ? (
+        <SettingsGroup title={t('blockedSenders.exemptions')}>
+          {/* Block then exempts no one, so say so before it is pressed. */}
+          <SettingsRow
+            title={t('blockedSenders.exemptContacts', { context: 'mac' })}
+            subtitle={t('blockedSenders.exemptContactsUnreadable', scope)}
+            subtitleTone="warning"
+          />
+        </SettingsGroup>
+      ) : null}
       {contacts.length === 0 ? null : (
         <SettingsGroup title={t('blockedSenders.exemptions')}>
           <SettingsRow
@@ -206,7 +247,7 @@ export function BlockDomainSheet({
           }
           disabled={saving || !read.settled}
           onPress={() => {
-            void block();
+            void (read.failed ? confirmUnexempted() : block());
           }}
         />
       </View>
