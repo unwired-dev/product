@@ -486,33 +486,30 @@ function DestinationRow({
   const colors = usePalette();
   const large = useLargeText();
   return (
-    <Pressable
-      accessibilityLabel={label}
-      accessibilityRole="button"
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.row,
-        pressed && { backgroundColor: colors.accentSelectionSubtle },
-      ]}>
-      <Hairline />
-      <View style={styles.destinationIcon}>
+    <SettingsActionRow
+      label={label}
+      disabled={false}
+      onPress={onPress}>
+      <View style={styles.row}>
+        <View style={styles.destinationIcon}>
+          <SFSymbol
+            name={icon}
+            size={20}
+            color={colors.accentInk}
+          />
+        </View>
+        <Text
+          numberOfLines={large ? 0 : 1}
+          style={[type.title, styles.grow, { color: colors.textPrimary }]}>
+          {label}
+        </Text>
         <SFSymbol
-          name={icon}
-          size={20}
-          color={colors.accentInk}
+          name="chevron.right"
+          size={14}
+          color={colors.textSecondary}
         />
       </View>
-      <Text
-        numberOfLines={large ? 0 : 1}
-        style={[type.title, styles.grow, { color: colors.textPrimary }]}>
-        {label}
-      </Text>
-      <SFSymbol
-        name="chevron.right"
-        size={14}
-        color={colors.textSecondary}
-      />
-    </Pressable>
+    </SettingsActionRow>
   );
 }
 
@@ -737,44 +734,44 @@ export function SettingsWorkspace({
       <ScrollView contentContainerStyle={styles.content}>
         {/* `children` are the shown destination's groups once one is pushed. */}
         {destination === undefined ? children : null}
-        <Pressable
-          accessibilityLabel={t('settings.destinations.account')}
-          accessibilityRole="button"
-          onPress={() => {
-            onDestination('account');
-          }}
-          style={({ pressed }) => [
-            styles.card,
-            {
-              backgroundColor: pressed
-                ? colors.accentSelectionSubtle
-                : colors.fillQuiet,
-            },
-          ]}>
-          <AccountMonogram
-            name={account}
-            size={52}
-          />
-          <View style={styles.grow}>
-            <Text
-              numberOfLines={lines}
-              style={[type.account, { color: colors.textPrimary }]}>
-              {account}
-            </Text>
-            <Text
-              numberOfLines={lines}
-              style={[textStyles.footnote, { color: colors.textSecondary }]}>
-              {privateSync
-                ? t('settings.accountPrivateSync')
-                : t('settings.destinations.account')}
-            </Text>
-          </View>
-          <SFSymbol
-            name="chevron.right"
-            size={14}
-            color={colors.textSecondary}
-          />
-        </Pressable>
+        {/* The card stands alone, so it draws no hairline. */}
+        <RowHairline value={false}>
+          <SettingsActionRow
+            label={t('settings.destinations.account')}
+            disabled={false}
+            onPress={() => {
+              onDestination('account');
+            }}>
+            <View style={[styles.card, { backgroundColor: colors.fillQuiet }]}>
+              <AccountMonogram
+                name={account}
+                size={52}
+              />
+              <View style={styles.grow}>
+                <Text
+                  numberOfLines={lines}
+                  style={[type.account, { color: colors.textPrimary }]}>
+                  {account}
+                </Text>
+                <Text
+                  numberOfLines={lines}
+                  style={[
+                    textStyles.footnote,
+                    { color: colors.textSecondary },
+                  ]}>
+                  {privateSync
+                    ? t('settings.accountPrivateSync')
+                    : t('settings.destinations.account')}
+                </Text>
+              </View>
+              <SFSymbol
+                name="chevron.right"
+                size={14}
+                color={colors.textSecondary}
+              />
+            </View>
+          </SettingsActionRow>
+        </RowHairline>
         {sections.map((section) => (
           <SettingsGroup
             key={section.title}
@@ -946,10 +943,15 @@ export function SettingsActionRow({
   readonly onPress: () => void;
   readonly children: ReactElement;
 }) {
+  // A text size changed while Settings is open keeps the hosted row's old height; a fresh host
+  // measures the row again.
+  const { fontScale } = useWindowDimensions();
   return (
     <View>
       <Hairline />
-      <Host matchContents={{ vertical: true }}>
+      <Host
+        key={fontScale}
+        matchContents={{ vertical: true }}>
         <SwiftUIButton
           onPress={onPress}
           modifiers={[
@@ -957,7 +959,9 @@ export function SettingsActionRow({
             inactive(disabled),
             spokenLabel(label),
           ]}>
-          <RNHostView matchContents={{ vertical: true }}>
+          <RNHostView
+            boundedByHost
+            matchContents={{ vertical: true }}>
             <RowHairline value={false}>
               <View
                 accessibilityElementsHidden
