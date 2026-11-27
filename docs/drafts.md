@@ -1146,7 +1146,9 @@ made elsewhere; a device that stays offline can still post a reminder another
 device changed or removed meanwhile. Its content and the device's Show Sender and
 Subject level are described in
 [New Mail Notifications](new-mail-notifications.md#send-reminder-notifications).
-A tap only opens the app until a later #2833 slice opens the Draft.
+A tap opens the Draft in its Mail Profile and changes nothing
+([#3036](https://github.com/unwired-dev/product/issues/3036)); New Mail
+Notifications describes how.
 
 ## Verification
 

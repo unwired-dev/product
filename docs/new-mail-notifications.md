@@ -228,6 +228,18 @@ signs out or is purged. Turning Show Sender and Subject off withdraws at once
 each one that shows its Draft, pending or delivered, and the generic one replaces
 it for a reminder still ahead.
 
+A tap opens the Draft's current revision in its Mail Profile, its connection's
+current one ([#3036](https://github.com/unwired-dev/product/issues/3036)), as
+**Open Draft** on a typed reply's notification does: on the Mac in its own New
+Message window, after an Inbox window comes forward or opens; on iPhone and iPad
+once Registration admits the mail shell, in the composer after the open Draft's
+Save/Discard/Cancel exit, rechecked after that exit. The notification names only
+the Draft and the Product Account that owns it. A tap that launches the app waits
+for this launch's Drafts to open. A Draft no longer listed, another Product
+Account's, or one whose connection is gone or unavailable opens nothing; the app
+still comes forward. The tap sends, queues and changes nothing, the reminder
+included.
+
 ## Diagnostics
 
 When a notification does not appear, the device's unified log says why without naming the

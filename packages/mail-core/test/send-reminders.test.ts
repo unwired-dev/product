@@ -804,6 +804,7 @@ describe('due Send Reminder notifications', () => {
         title,
         body,
         profile: 'work',
+        draft: keys.draft,
         dueAt: keys.dueAt,
         previews,
       },
