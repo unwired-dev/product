@@ -1,7 +1,8 @@
 import type { ReactElement, ReactNode } from 'react';
 
-import { Host, Button as SwiftUIButton } from '@expo/ui/swift-ui';
+import { Host, RNHostView, Button as SwiftUIButton } from '@expo/ui/swift-ui';
 import {
+  accessibilityLabel as spokenLabel,
   buttonBorderShape,
   buttonStyle,
   controlSize,
@@ -15,7 +16,7 @@ import {
   spacing,
   typography,
 } from '@private-email/mail-core/theme';
-import { Fragment } from 'react';
+import { createContext, Fragment, use } from 'react';
 import {
   Platform,
   Pressable,
@@ -904,6 +905,44 @@ export function AccountCard({
   );
 }
 
+// Whether a row draws its own hairline; an action row draws it outside its button.
+const RowHairline = createContext(true);
+
+// A row that runs one action: the system button, with the row as its label and its spoken name.
+// The button dims the row while it is disabled; the hairline stays outside it, at full strength.
+export function SettingsActionRow({
+  label,
+  disabled,
+  onPress,
+  children,
+}: {
+  readonly label: string;
+  readonly disabled: boolean;
+  readonly onPress: () => void;
+  readonly children: ReactElement;
+}) {
+  return (
+    <View>
+      <Hairline />
+      <Host matchContents={{ vertical: true }}>
+        <SwiftUIButton
+          onPress={onPress}
+          modifiers={[
+            buttonStyle('plain'),
+            inactive(disabled),
+            spokenLabel(label),
+          ]}>
+          <RNHostView matchContents={{ vertical: true }}>
+            <RowHairline value={false}>
+              <View accessibilityElementsHidden>{children}</View>
+            </RowHairline>
+          </RNHostView>
+        </SwiftUIButton>
+      </Host>
+    </View>
+  );
+}
+
 // A titled group of rows with hairlines between them and an optional explanation below.
 export function SettingsGroup({
   title,
@@ -965,6 +1004,9 @@ export function SettingsGroup({
 // The hairline above a group cell; the group hides the first one.
 function Hairline() {
   const colors = usePalette();
+  if (!use(RowHairline)) {
+    return null;
+  }
   return (
     <View style={[styles.separator, { backgroundColor: colors.separator }]} />
   );
