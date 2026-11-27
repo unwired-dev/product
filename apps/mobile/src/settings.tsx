@@ -1,7 +1,8 @@
 import type { ReactElement, ReactNode } from 'react';
 
-import { Host, Button as SwiftUIButton } from '@expo/ui/swift-ui';
+import { Host, RNHostView, Button as SwiftUIButton } from '@expo/ui/swift-ui';
 import {
+  accessibilityLabel as spokenLabel,
   buttonBorderShape,
   buttonStyle,
   controlSize,
@@ -901,6 +902,36 @@ export function AccountCard({
         </Text>
       </View>
     </View>
+  );
+}
+
+// A row that runs one action: the system button, with the row as its label and its spoken name.
+// The button dims the row while it is disabled.
+export function SettingsActionRow({
+  label,
+  disabled,
+  onPress,
+  children,
+}: {
+  readonly label: string;
+  readonly disabled: boolean;
+  readonly onPress: () => void;
+  readonly children: ReactElement;
+}) {
+  return (
+    <Host matchContents={{ vertical: true }}>
+      <SwiftUIButton
+        onPress={onPress}
+        modifiers={[
+          buttonStyle('plain'),
+          inactive(disabled),
+          spokenLabel(label),
+        ]}>
+        <RNHostView matchContents={{ vertical: true }}>
+          <View accessibilityElementsHidden>{children}</View>
+        </RNHostView>
+      </SwiftUIButton>
+    </Host>
   );
 }
 

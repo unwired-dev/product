@@ -48,6 +48,7 @@ import {
 import { ScaledToolbar, SFSymbol, ToolbarButton } from './design.tsx';
 import { useLocalization } from './localization.ts';
 import {
+  SettingsActionRow,
   SettingsBlock,
   SettingsGroup,
   SettingsRow,
@@ -299,23 +300,17 @@ function SignatureEditor({
           ))}
         </TextInput>
       </SettingsBlock>
-      <Pressable
-        accessibilityLabel={t('signatures.delete')}
-        accessibilityRole="button"
-        accessibilityState={{ disabled: busy || signature === undefined }}
+      <SettingsActionRow
+        label={t('signatures.delete')}
         disabled={busy || signature === undefined}
         onPress={() => {
           change(emptyDocument);
-        }}
-        style={({ pressed }) =>
-          pressed && { backgroundColor: colors.accentSelectionSubtle }
-        }>
+        }}>
         <SettingsRow
           title={t('signatures.delete')}
           titleTone="destructive"
-          disabled={busy || signature === undefined}
         />
-      </Pressable>
+      </SettingsActionRow>
     </SettingsGroup>
   );
 }
