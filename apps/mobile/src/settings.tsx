@@ -746,7 +746,9 @@ export function SettingsWorkspace({
         {destination === undefined ? children : null}
         {/* The card stands alone, so it draws no hairline. */}
         <RowHairline value={false}>
+          {/* The hosted card keeps its measured height, so a changed name or detail measures afresh. */}
           <SettingsActionRow
+            key={`${account}\n${String(privateSync)}`}
             label={t('settings.destinations.account')}
             disabled={false}
             ignoreSafeArea="container"
