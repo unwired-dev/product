@@ -1,8 +1,11 @@
 import type * as Effect from 'effect/Effect';
 import type * as Option from 'effect/Option';
 
-import type { GmailAction, GmailLabel } from './gmail-actions.ts';
-import type { GmailVacation } from './gmail-reader.ts';
+import type {
+  GmailAction,
+  GmailLabel,
+  GmailVacation,
+} from './gmail-actions.ts';
 import type {
   GmailMessage,
   MailboxDocument,

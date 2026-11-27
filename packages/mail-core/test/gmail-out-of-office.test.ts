@@ -15,7 +15,6 @@ const vacationInbox = () => {
       }
       requests.push(query);
       const answer = answers.shift();
-      // oxlint-disable-next-line vitest/no-conditional-in-test -- A rejection stands for a request that failed on this device.
       return answer instanceof Error
         ? Promise.reject(answer)
         : Promise.resolve(answer);
@@ -64,7 +63,7 @@ describe("reading a Gmail mailbox's Out of Office", () => {
 
   it('says why Gmail could not answer, and a refused grant asks for Gmail again', async () => {
     expect.hasAssertions();
-    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    vi.spyOn(console, 'error').mockReturnValue();
     const { inbox, answers } = vacationInbox();
     await inbox.load();
     answers.push(
@@ -83,7 +82,6 @@ describe("reading a Gmail mailbox's Out of Office", () => {
       'failed',
       'offline',
     ]) {
-      // oxlint-disable-next-line no-await-in-loop -- Each answer is read in turn.
       await expect(inbox.outOfOffice()).resolves.toStrictEqual({
         kind: 'unavailable',
         reason,

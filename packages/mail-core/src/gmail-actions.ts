@@ -318,3 +318,21 @@ export const quickActions = (
       label: t(`gmailActions.label.${action.kind}`),
       action,
     }));
+
+// Gmail's vacation responder, the mailbox's Out of Office, as Gmail stores it: a field Gmail
+// leaves out is off or empty, and times are milliseconds since the epoch.
+export const GmailVacationSchema = Schema.Struct({
+  enableAutoReply: Schema.optionalKey(Schema.Boolean),
+  responseSubject: Schema.optionalKey(Schema.String),
+  responseBodyPlainText: Schema.optionalKey(Schema.String),
+  responseBodyHtml: Schema.optionalKey(Schema.String),
+  restrictToContacts: Schema.optionalKey(Schema.Boolean),
+  restrictToDomain: Schema.optionalKey(Schema.Boolean),
+  startTime: Schema.optionalKey(
+    Schema.String.check(Schema.isPattern(/^\d{1,15}$/u)),
+  ),
+  endTime: Schema.optionalKey(
+    Schema.String.check(Schema.isPattern(/^\d{1,15}$/u)),
+  ),
+});
+export type GmailVacation = typeof GmailVacationSchema.Type;

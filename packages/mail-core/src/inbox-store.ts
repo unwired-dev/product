@@ -16,8 +16,11 @@ import type {
   NativeAttachments,
 } from './attachment-downloads.ts';
 import type { DeliveryProblem } from './draft-model.ts';
-import type { GmailAction, GmailLabel } from './gmail-actions.ts';
-import type { GmailVacation } from './gmail-reader.ts';
+import type {
+  GmailAction,
+  GmailLabel,
+  GmailVacation,
+} from './gmail-actions.ts';
 import type {
   Cache,
   GmailMessage,
