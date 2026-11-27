@@ -2332,7 +2332,8 @@ password manager by running
   final downloaded count is unverified.
 - **2026-11-27, iPhone credential entry with a clean scan
   ([#2685](https://github.com/unwired-dev/product/issues/2685)).** Target: Expo client,
-  Release build without a Mock Mail Session, a new iPhone 18 Pro Simulator on iOS 27.0. Build: the app source of
+  Release build without a Mock Mail Session, a new iPhone 18 Pro Simulator on iOS 27.0.
+  Build: the app source of
   `f37589913f36101ccfe8f52d81329280108d6209`. Toolchain: Xcode 27.2 (27B52). Operator:
   agent, with credentials read at run time from the approved password manager. Result:
   pass. Every value went through the pasteboard steps above: Google Product Sign-In took
@@ -2347,10 +2348,13 @@ password manager by running
   data directory with its state and logs, and `~/Library/Caches`, and in the whole shell
   history. No file held any of them. Limitations: of the 33,078 files listed, 11,741 still
   existed when the scan began, and 83 of those were gone by its end, so the scan
-  reported a read error for its last batch; the rest had been deleted before.
-  After pasting the Recovery Key, a clearing tap made at the field's old coordinates
-  landed on a mailbox button once the screen had changed; its sheet was dismissed. A
-  text scan cannot see a credential in a screenshot
+  reported a read error for its last batch; the rest had been deleted before. The run
+  predates the snapshot rule of step 1 above: accessibility snapshots ran while the
+  keyboard could offer a pasted value, but neither the driver's working directory nor
+  `~/.agent-device` held a screenshot afterwards. After pasting the Recovery Key, a
+  clearing tap made at the field's old coordinates landed on a mailbox button once the
+  screen had changed; its sheet was dismissed. A text scan cannot see a credential in a
+  screenshot
   ([#3053](https://github.com/unwired-dev/product/issues/3053)). Earlier that day, once
   the copies earlier runs left were removed
   ([#2688](https://github.com/unwired-dev/product/issues/2688)), a scan of the whole Mac
