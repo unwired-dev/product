@@ -706,3 +706,36 @@ mail content.
   first page with no keyboard. The scan reads text, not these images, so it cannot show
   that no password or Recovery Key was captured. Mac, iPad attachments, renewal and
   revocation, and uncertain outcomes were not run and stay on #637.
+- **2026-11-27, iPhone meeting invitation response
+  ([#2703](https://github.com/unwired-dev/product/issues/2703)).** Target, operator and
+  toolchain as on 2026-11-18, on a new iPhone 18 Pro Simulator. Build: a new Release build
+  from the app source of `7be517a81d85c21722ffc86d62a0c390587314ff`, then the same source
+  with the fix from [#3024](https://github.com/unwired-dev/product/issues/3024)
+  (`ff652f9ce6d288cd48bc1263e392fcbb02ba11f0`) installed over it. Result: fail, then pass
+  with the fix. A fresh Google Product Sign-In with the Recovery Key, then **Microsoft 365
+  and Outlook**, connected the personal mailbox with the passwords and the Recovery Key
+  entered through the [Simulator
+  pasteboard](imap-mailboxes.md#certification-runs-through-the-app). A separate iCloud
+  test mailbox, the organizer, sent three meeting requests for the Outlook.com address,
+  each with one `text/calendar; method=REQUEST` part. Outlook.com filed one in **Junk
+  Email** and the others in the Inbox. Opening each showed the invitation card with the
+  meeting's time, **Invited, You, {address} · Outlook.com** and **Accept**, **Maybe** and
+  **Decline**. Before the fix, **Accept** read **Accepted. Outlook.com confirmed it sent
+  your response…**, and the organizer's mailbox received the response with its text, but
+  Exchange had replaced its `METHOD:REPLY` with an empty part, once from Junk Email and
+  once from the Inbox. With the fix, **Maybe** on the third read **Tentatively accepted.
+  Outlook.com confirmed it sent your response…**, and the organizer's mailbox received one
+  `METHOD:REPLY` with the invitation's UID, the Outlook.com attendee with
+  `PARTSTAT=TENTATIVE`, and the meeting's start, which Exchange rewrote in a named time
+  zone. **Sign Out of This Device** returned the app to Welcome. With the Simulator
+  deleted, `simulator-credentials.zsh scan`, run on each path, found no password or
+  Recovery Key in `~/.agent-device`, `~/Library/Logs`, T3 Code's device directory, the
+  shell history, the scratch files, the repository's `artifacts/expo-bootstrap` directory
+  with this run's DerivedData or this run's session transcripts. The six-digit one-time
+  code the scan also looked for matched once, inside an unchanged test vector of a Swift
+  package checkout, and no longer matched once the code had changed. Limitations: Microsoft's one-time
+  sign-in code was typed, as it expires within minutes. **Decline**, a cancelled,
+  someone-else's or ambiguous invitation, a refused or unconfirmed response and **Check
+  Again** were not run on the live mailbox; the synthetic Graph mailbox tests cover a
+  lost response found again in Sent Items, and the other states share the Gmail tests.
+  Mac and iPad were not run.
