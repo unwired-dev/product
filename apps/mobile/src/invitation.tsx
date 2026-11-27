@@ -954,9 +954,12 @@ function ImapResponding({
   useStatusAnnouncement(status);
   const inOutbox =
     state.kind === 'waiting' ||
+    state.kind === 'undo-refused' ||
     state.kind === 'queued' ||
     state.kind === 'sending';
   const unknown = state.kind === 'unknown' || state.kind === 'checking';
+  // Try Again takes Undo's place once storage refused it.
+  const undo = state.kind === 'waiting' || state.kind === 'undo-refused';
   const viewInOutbox = (inOutbox || unknown) && showOutbox !== undefined;
   return (
     <View style={[styles.card, { backgroundColor: colors.fillQuiet }]}>
@@ -986,11 +989,13 @@ function ImapResponding({
             }}
           />
         )}
-        {state.kind === 'waiting' || viewInOutbox ? (
+        {undo || viewInOutbox ? (
           <Actions>
-            {state.kind === 'waiting' ? (
+            {undo ? (
               <Action
-                label={t('outbox.undo')}
+                label={t(
+                  state.kind === 'waiting' ? 'outbox.undo' : 'outbox.tryAgain',
+                )}
                 onPress={() => {
                   if (current()) {
                     void responses.undo(invitation);
