@@ -133,7 +133,9 @@ function RemoveConfirmation({
           </View>
         </View>
       )}
-      <PushButtonRow style={styles.inline}>
+      <PushButtonRow
+        style={styles.inline}
+        buttons={removing ? 'removing' : 'remove'}>
         <View style={styles.inline}>
           {removing ? (
             <ActivityIndicator

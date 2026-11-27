@@ -23,7 +23,9 @@ describe('settings push button row', () => {
     Dimensions.set({ window: { ...window, fontScale: 1 } });
     try {
       await render(
-        <PushButtonRow style={{ flexDirection: 'row' }}>
+        <PushButtonRow
+          buttons="remove"
+          style={{ flexDirection: 'row' }}>
           <Text>Remove</Text>
           <Text>Cancel</Text>
         </PushButtonRow>,
@@ -39,10 +41,10 @@ describe('settings push button row', () => {
 
       expect(row()).toBe(root);
 
-      // Without Remove the row measures Cancel alone, side by side again.
+      // New buttons measure again side by side.
       await screen.rerender(
         <PushButtonRow
-          key="cancel"
+          buttons="cancel"
           style={{ flexDirection: 'row' }}>
           <Text>Cancel</Text>
         </PushButtonRow>,

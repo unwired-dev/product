@@ -169,6 +169,8 @@ const rule = settingsColumns ? ipadListScale : StyleSheet.hairlineWidth;
 // around it keeps the 44pt target without moving the layout.
 const pushButtonHeight = settingsColumns ? 28 * ipadListScale : 36;
 const pushButtonSlop = (44 - pushButtonHeight) / 2;
+// Stacked push buttons keep their 44pt hit areas apart.
+const pushButtonGap = Math.max(spacing.s, 2 * pushButtonSlop);
 
 const styles = StyleSheet.create({
   page: { flex: 1 },
@@ -256,7 +258,11 @@ const styles = StyleSheet.create({
   rowStacked: { flexDirection: 'column', alignItems: 'stretch' },
   rowTextStacked: { flex: 0 },
   // Stacked controls keep their own height beneath the text.
-  trailingStacked: { justifyContent: 'flex-start', marginVertical: 0 },
+  trailingStacked: {
+    justifyContent: 'flex-start',
+    marginVertical: 0,
+    gap: pushButtonGap,
+  },
   // A 24pt symbol slot puts the destinations' titles on the frames' x68 axis.
   destinationIcon: { width: 24, alignItems: 'center' },
   // iPad's two-line rows are 61.3pt, as the frames draw them.
@@ -328,8 +334,7 @@ const styles = StyleSheet.create({
   pushButton: { alignSelf: 'flex-start' },
   // Beside a busy indicator the button shrinks to the room left.
   pushButtonWrapping: { width: '100%', flexShrink: 1 },
-  // Stacked buttons keep their 44pt hit areas apart.
-  pushButtonColumn: { gap: Math.max(spacing.s, 2 * pushButtonSlop) },
+  pushButtonColumn: { gap: pushButtonGap },
   // The row's wrapping controls drop a child's negative top margin; a column keeps it.
   pushButtonHost: { marginVertical: -pushButtonSlop },
 });
@@ -1291,18 +1296,23 @@ export function settingsButton(busy: boolean): SettingsButton {
 // Push buttons side by side; larger text, or buttons wider than the room, stack them.
 export function PushButtonRow({
   style,
+  buttons,
   children,
 }: {
   readonly style: StyleProp<ViewStyle>;
+  // What the buttons show: a change, like a new text size, measures them again side by side.
+  readonly buttons: string;
   readonly children: ReactNode;
 }) {
   const large = useLargeText();
   const { fontScale } = useWindowDimensions();
-  // A new text size measures the buttons again side by side; so does a new key, for new buttons.
   const [room, setRoom] = useState(Infinity);
-  const [measured, setMeasured] = useState({ fontScale, needed: 0 });
+  const [measured, setMeasured] = useState({ fontScale, buttons, needed: 0 });
   const stacked =
-    large || (measured.fontScale === fontScale && measured.needed >= room);
+    large ||
+    (measured.fontScale === fontScale &&
+      measured.buttons === buttons &&
+      measured.needed >= room);
   return (
     <View
       style={stacked ? styles.pushButtonColumn : null}
@@ -1319,6 +1329,7 @@ export function PushButtonRow({
             onLayout={(event) => {
               setMeasured({
                 fontScale,
+                buttons,
                 needed: event.nativeEvent.layout.width,
               });
             }}>

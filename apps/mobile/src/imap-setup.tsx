@@ -213,7 +213,6 @@ export function ImapForm({
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
-  const Actions = settings ? PushButtonRow : View;
   const { imapFailure } = useSyncExternalStore(
     store.subscribe,
     store.getSnapshot,
@@ -313,6 +312,23 @@ export function ImapForm({
   const forgetPassword = () => {
     setFields((current) => ({ ...current, password: '', smtpPassword: '' }));
   };
+  const actions = (
+    <>
+      {button(t('imap.cancel'), async () => {
+        forgetPassword();
+        onCancel();
+      })}
+      {setup === undefined
+        ? null
+        : primaryButton(t('imap.connect'), async () => {
+            forgetPassword();
+            await store.connectImap(setup);
+            if (store.getSnapshot().imapFailure === undefined) {
+              onConnected?.();
+            }
+          })}
+    </>
+  );
   return (
     <View style={styles.device}>
       <Text
@@ -391,23 +407,15 @@ export function ImapForm({
         review={setup}
         failure={imapFailure}
       />
-      <Actions
-        key={setup === undefined ? 'cancel' : 'connect'}
-        style={formStyles.actions}>
-        {button(t('imap.cancel'), async () => {
-          forgetPassword();
-          onCancel();
-        })}
-        {setup === undefined
-          ? null
-          : primaryButton(t('imap.connect'), async () => {
-              forgetPassword();
-              await store.connectImap(setup);
-              if (store.getSnapshot().imapFailure === undefined) {
-                onConnected?.();
-              }
-            })}
-      </Actions>
+      {settings ? (
+        <PushButtonRow
+          style={formStyles.actions}
+          buttons={setup === undefined ? 'cancel' : 'connect'}>
+          {actions}
+        </PushButtonRow>
+      ) : (
+        <View style={formStyles.actions}>{actions}</View>
+      )}
     </View>
   );
 }
