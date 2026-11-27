@@ -2353,9 +2353,9 @@ password manager by running
   rest had been deleted. Its last batch reported a read error, so its files were scanned
   again one at a time: 4 had been deleted, and the other 737 held none of the values.
   The run predates the snapshot rule of step 1 above: accessibility snapshots ran while the
-  keyboard could offer a pasted value; afterwards the driver's working directory was empty and
-  `~/.agent-device` held no image written since the run began. After pasting the Recovery
-  Key, a clearing tap made at the field's old coordinates landed on a mailbox button once
+  keyboard could offer a pasted value; afterwards the driver's working directory was
+  empty and `~/.agent-device` held no image written since the run began. After pasting the
+  Recovery Key, a clearing tap made at the field's old coordinates landed on a mailbox button once
   the screen had changed; its sheet was dismissed. A text scan cannot see a credential in a
   screenshot ([#3053](https://github.com/unwired-dev/product/issues/3053)). Earlier that
   day, once the copies earlier runs left were removed
