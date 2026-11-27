@@ -87,6 +87,7 @@ const codeOnly = new Set([
   // Single values with no variable yet.
   'statusSuccess',
   'fillBanner',
+  'textDetail',
   'radiusMenu',
   'radiusAlertMac',
   'radiusAlertTouch',

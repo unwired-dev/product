@@ -474,15 +474,20 @@ On iPhone and iPad, the default Gmail registration journey
 ([#2166](https://github.com/unwired-dev/product/issues/2166)) long-presses the
 open message's sender, chooses **Block Sender…**, and confirms
 `Block rowan@example.invalid?` in the system alert. Settings › Blocked Senders
-then lists the address as `0 since`; **Edit** switches to **Done** and back, and
-a swipe's **Delete** leaves **No Blocked Senders**. Closing Settings returns to
+then lists the address as `0 since`. The journey then chooses **Block Domain…**
+from the same menu ([#2816](https://github.com/unwired-dev/product/issues/2816)),
+whose sheet `Block example.invalid` offers the domain with its subdomains, and
+blocks it. Settings › Blocked Senders lists the domain, **With subdomains**,
+above the address; **Edit** switches to **Done** and back, and a swipe's
+**Delete** on each leaves **No Blocked Senders**. Closing Settings returns to
 the open message on iPad; iPhone reopens it from the Inbox. iPad opens Settings
 through the Command Palette, as it does again after the relaunch
 ([#989](https://github.com/unwired-dev/product/issues/989)). The tap that
 closes an open menu goes to the link in the rendered body on iPad, and on iPhone
 to the dimmed top half above the Labels sheet
 ([#2781](https://github.com/unwired-dev/product/issues/2781)). The
-alert, the list and its edit mode are kept as attachments.
+alert, the sender menu, the Block Domain sheet, the list and its edit mode are
+kept as attachments.
 
 Back in that message, the journey chooses **Pin**
 ([#2343](https://github.com/unwired-dev/product/issues/2343)): from the

@@ -8,11 +8,13 @@ import {
   environment,
   font,
   foregroundStyle,
+  kerning,
   listRowBackground,
   listStyle,
   scrollContentBackground,
   tint,
 } from '@expo/ui/swift-ui/modifiers';
+import { shownDomain } from '@private-email/mail-core/blocked-senders';
 import { profileName } from '@private-email/mail-core/profile-windows';
 import { defaultProfile } from '@private-email/mail-core/registration';
 import { radius } from '@private-email/mail-core/theme';
@@ -20,6 +22,7 @@ import * as Arr from 'effect/Array';
 import * as Order from 'effect/Order';
 import {
   createContext,
+  Fragment,
   use,
   useEffect,
   useMemo,
@@ -135,11 +138,46 @@ function Unavailable({ onRetry }: { readonly onRetry: () => void }) {
   );
 }
 
-// A row's second line: its block date and count, or a failed unblock.
-const detail = (tone: string) => [
-  font({ textStyle: 'subheadline' }),
+// A row's first line, in the frames' Body: 17pt on iPhone, the iPad list's 15pt on iPad.
+const primary = (tone: string) => [
+  font({ textStyle: device === 'ipad' ? 'subheadline' : 'body' }),
   foregroundStyle(tone),
 ];
+
+// The frames start an iPhone row's second line 24pt below its first, which SwiftUI's natural line
+// heights reach with 4pt between them.
+const rowSpacing = device === 'ipad' ? 2 : 4;
+
+// A row's second line: its block date and count, or a failed unblock.
+const detail = (tone: string) => [
+  font({ textStyle: 'footnote' }),
+  foregroundStyle(tone),
+];
+
+// A Blocked Domain's second line: an `xn--` name with the characters it shows, else its choices.
+const domainDetail = (
+  t: ReturnType<typeof useLocalization>['t'],
+  {
+    domain,
+    subdomains,
+    exempt,
+  }: Readonly<{
+    domain: string;
+    subdomains: boolean;
+    exempt: readonly string[];
+  }>,
+) => {
+  const shown = shownDomain(domain);
+  if (shown === undefined) {
+    return subdomains
+      ? t('blockedSenders.withSubdomainsDetail', { count: exempt.length })
+      : t('blockedSenders.domainOnlyDetail', { count: exempt.length });
+  }
+  const { script, ...shows } = shown;
+  return script === undefined
+    ? t('blockedSenders.shownAs', shows)
+    : t('blockedSenders.shownAs', { ...shows, context: script });
+};
 
 const newestFirst = Order.flip(
   Order.mapInput(
@@ -152,11 +190,53 @@ type Listed = ReadonlyArray<
   Readonly<{
     profile: string;
     senders: Awaited<ReturnType<(typeof blockedSenders)['blockedSenders']>>;
+    domains: Awaited<ReturnType<(typeof blockedSenders)['blockedDomains']>>;
   }>
 >;
 
-// Settings › Blocked Senders: each Mail Profile's Blocked Senders, newest first, with how many
-// arrivals this device moved to Trash, in the system list, whose swipe and Edit unblock one.
+// A section's header: the Mail Profile's name over its first section, then Domains or Addresses.
+function SectionHeader({
+  profile,
+  title,
+}: {
+  readonly profile: string | undefined;
+  readonly title: string;
+}) {
+  const colors = usePalette();
+  return (
+    <VStack
+      alignment="leading"
+      // The frames set the Domains or Addresses ink 45pt below the name's on iPhone, 42pt on iPad.
+      spacing={device === 'ipad' ? 20 : 22}>
+      {profile === undefined ? null : (
+        <Text
+          modifiers={[
+            font({ size: 20, weight: 'semibold' }),
+            // The frames track the name at -0.23pt, 0.22pt looser than the system's 20pt.
+            kerning(0.22),
+            foregroundStyle(colors.textPrimary),
+          ]}>
+          {profile}
+        </Text>
+      )}
+      <Text
+        modifiers={[
+          font({
+            textStyle: device === 'ipad' ? 'footnote' : 'subheadline',
+            weight: 'semibold',
+          }),
+          foregroundStyle(colors.textSecondary),
+        ]}>
+        {title}
+      </Text>
+    </VStack>
+  );
+}
+
+// Settings › Blocked Senders: each Mail Profile's Blocked Domains, then its Blocked Senders, newest
+// first, each sender with how many arrivals this device moved to Trash and each domain with its
+// choices, or an `xn--` name with the characters it shows. The system list's swipe and Edit
+// unblock one.
 export function BlockedSenderSettings({
   profiles,
   editing,
@@ -185,6 +265,11 @@ export function BlockedSenderSettings({
       setFailed(`${profile}\n${address}`);
     }
   };
+  const unblockDomain = async (profile: string, domain: string) => {
+    if (!(await store.unblockDomain(profile, domain))) {
+      setFailed(`${profile}\n${domain}`);
+    }
+  };
   const scopes = useMemo(
     () => [defaultProfile, ...profiles.map(({ id }) => id)],
     [profiles],
@@ -200,6 +285,7 @@ export function BlockedSenderSettings({
         scopes.map(async (profile) => ({
           profile,
           senders: await store.blockedSenders(profile),
+          domains: await store.blockedDomains(profile),
         })),
       );
       if (read === current) {
@@ -221,7 +307,11 @@ export function BlockedSenderSettings({
   if (listed === undefined) {
     return null;
   }
-  if (listed.some(({ senders }) => senders === undefined)) {
+  if (
+    listed.some(
+      ({ senders, domains }) => senders === undefined || domains === undefined,
+    )
+  ) {
     return (
       <Unavailable
         onRetry={() => {
@@ -230,11 +320,18 @@ export function BlockedSenderSettings({
       />
     );
   }
-  const groups = listed.flatMap(({ profile, senders = [] }) =>
-    senders.length === 0
+  const groups = listed.flatMap(({ profile, senders = [], domains = [] }) =>
+    senders.length + domains.length === 0
       ? []
-      : [{ profile, senders: Arr.sort(senders, newestFirst) }],
+      : [
+          {
+            profile,
+            senders: Arr.sort(senders, newestFirst),
+            domains: Arr.sort(domains, newestFirst),
+          },
+        ],
   );
+  const footer = <Text>{t('blockedSenders.footer', { context: device })}</Text>;
   if (groups.length === 0) {
     return <SettingsGroup footer={t('blockedSenders.none')} />;
   }
@@ -246,54 +343,108 @@ export function BlockedSenderSettings({
           scrollContentBackground('hidden'),
           environment('editMode', editing ? 'active' : 'inactive'),
         ]}>
-        {groups.map(({ profile, senders }, index) => (
-          <Section
-            key={profile}
-            title={profileName(t, profile, profiles)}
-            footer={
-              index === groups.length - 1 ? (
-                <Text>{t('blockedSenders.footer', { context: device })}</Text>
-              ) : undefined
-            }>
-            <List.ForEach
-              data={senders}
-              keyExtractor={({ address }) => address}
-              onDelete={(indices) => {
-                setFailed(undefined);
-                for (const { address } of indices.flatMap(
-                  (each) => senders[each] ?? [],
-                )) {
-                  void unblock(profile, address);
-                }
-              }}>
-              {({ item: { address, blockedAt, moved } }) => {
-                const blocked = date.format(blockedAt);
-                return (
-                  <VStack
-                    alignment="leading"
-                    spacing={2}
-                    modifiers={[listRowBackground(colors.fillQuiet)]}>
-                    <Text>{address}</Text>
-                    {failed === `${profile}\n${address}` ? (
-                      <Text modifiers={detail(colors.statusWarning)}>
-                        {t('blockedSenders.unblockFailed')}
-                      </Text>
-                    ) : (
-                      <Text modifiers={detail(colors.textSecondary)}>
-                        {moved === 0
-                          ? t('blockedSenders.blockedNone', { date: blocked })
-                          : t('blockedSenders.blocked', {
-                              date: blocked,
-                              moved,
-                            })}
-                      </Text>
+        {groups.map(({ profile, senders, domains }, index) => {
+          const name = profileName(t, profile, profiles);
+          const last = index === groups.length - 1;
+          return (
+            <Fragment key={profile}>
+              {domains.length === 0 ? null : (
+                <Section
+                  header={
+                    <SectionHeader
+                      profile={name}
+                      title={t('blockedSenders.domains')}
+                    />
+                  }
+                  footer={last && senders.length === 0 ? footer : undefined}>
+                  <List.ForEach
+                    data={domains}
+                    keyExtractor={({ domain }) => domain}
+                    onDelete={(indices) => {
+                      setFailed(undefined);
+                      for (const { domain } of indices.flatMap(
+                        (each) => domains[each] ?? [],
+                      )) {
+                        void unblockDomain(profile, domain);
+                      }
+                    }}>
+                    {({ item: block }) => (
+                      <VStack
+                        alignment="leading"
+                        spacing={rowSpacing}
+                        modifiers={[listRowBackground(colors.fillQuiet)]}>
+                        <Text modifiers={primary(colors.textPrimary)}>
+                          {block.domain}
+                        </Text>
+                        {failed === `${profile}\n${block.domain}` ? (
+                          <Text modifiers={detail(colors.statusWarning)}>
+                            {t('blockedSenders.unblockFailed')}
+                          </Text>
+                        ) : (
+                          <Text modifiers={detail(colors.textDetail)}>
+                            {domainDetail(t, block)}
+                          </Text>
+                        )}
+                      </VStack>
                     )}
-                  </VStack>
-                );
-              }}
-            </List.ForEach>
-          </Section>
-        ))}
+                  </List.ForEach>
+                </Section>
+              )}
+              {senders.length === 0 ? null : (
+                <Section
+                  header={
+                    <SectionHeader
+                      profile={domains.length === 0 ? name : undefined}
+                      title={t('blockedSenders.addresses')}
+                    />
+                  }
+                  footer={last ? footer : undefined}>
+                  <List.ForEach
+                    data={senders}
+                    keyExtractor={({ address }) => address}
+                    onDelete={(indices) => {
+                      setFailed(undefined);
+                      for (const { address } of indices.flatMap(
+                        (each) => senders[each] ?? [],
+                      )) {
+                        void unblock(profile, address);
+                      }
+                    }}>
+                    {({ item: { address, blockedAt, moved } }) => {
+                      const blocked = date.format(blockedAt);
+                      return (
+                        <VStack
+                          alignment="leading"
+                          spacing={rowSpacing}
+                          modifiers={[listRowBackground(colors.fillQuiet)]}>
+                          <Text modifiers={primary(colors.textPrimary)}>
+                            {address}
+                          </Text>
+                          {failed === `${profile}\n${address}` ? (
+                            <Text modifiers={detail(colors.statusWarning)}>
+                              {t('blockedSenders.unblockFailed')}
+                            </Text>
+                          ) : (
+                            <Text modifiers={detail(colors.textDetail)}>
+                              {moved === 0
+                                ? t('blockedSenders.blockedNone', {
+                                    date: blocked,
+                                  })
+                                : t('blockedSenders.blocked', {
+                                    date: blocked,
+                                    moved,
+                                  })}
+                            </Text>
+                          )}
+                        </VStack>
+                      );
+                    }}
+                  </List.ForEach>
+                </Section>
+              )}
+            </Fragment>
+          );
+        })}
       </List>
     </Host>
   );

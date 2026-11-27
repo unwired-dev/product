@@ -21,17 +21,23 @@ const fields = [
 
 // Every email address of the Apple Contacts this app may read, under the contact's name. With
 // `ask`, they are read the first time `reading` is true, requesting Contacts access then; without
-// it, only contacts already readable are read, each time `reading` turns true, so access granted
-// meanwhile counts, and they are dropped when it turns false. Until access is granted there are
-// none; `failed` tells that reading them failed. They stay in memory on this device, never saved or synchronized.
+// it, only contacts already readable are read, each time `reading` turns true or `attempt` changes
+// while it is, so access granted meanwhile counts, and they are dropped when it turns false. Until access is granted there are
+// none; `failed` tells that reading them failed, and `settled` that the read finished. They stay in memory on this device, never saved or synchronized.
 export function useContactAddresses(
   reading: boolean,
   ask = true,
-): Readonly<{ addresses: readonly ContactAddress[]; failed: boolean }> {
+  attempt = 0,
+): Readonly<{
+  addresses: readonly ContactAddress[];
+  failed: boolean;
+  settled: boolean;
+}> {
   const [read, setRead] = useState<{
     addresses: readonly ContactAddress[];
     failed: boolean;
-  }>({ addresses: [], failed: false });
+    settled: boolean;
+  }>({ addresses: [], failed: false, settled: false });
   const asked = useRef(false);
   useEffect(() => {
     if (!reading || (ask && asked.current)) {
@@ -60,18 +66,20 @@ export function useContactAddresses(
             ),
           ),
           failed: false,
+          settled: true,
         });
       } catch {
         // Unreadable contacts leave recent correspondents as the only suggestions.
-        keep({ addresses: [], failed: true });
+        keep({ addresses: [], failed: true, settled: true });
       }
     })();
     return () => {
       current = false;
       if (!ask) {
-        setRead({ addresses: [], failed: false });
+        setRead({ addresses: [], failed: false, settled: false });
       }
     };
-  }, [reading, ask]);
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- Each attempt reads again.
+  }, [reading, ask, attempt]);
   return read;
 }

@@ -217,7 +217,7 @@ export function MessageHeader({
   const now = useNow();
   const connection = useMailbox()?.id ?? '';
   const block = useBlockSender();
-  const blockItems = block.items(message.address, connection, message.id);
+  const blockItems = block.items(message, connection, message.id);
   const copyAddress = () => {
     void setStringAsync(message.address);
   };
