@@ -1,6 +1,6 @@
-import { createInboxStore } from '../src/inbox-store.ts';
-import { createSyntheticGmail } from '../src/testing/gmail-mailbox.ts';
-import { createSyntheticGraph } from '../src/testing/graph-mailbox.ts';
+import { createInboxStore } from '@private-email/mail-core/inbox-store';
+import { createSyntheticGmail } from '@private-email/mail-core/testing/gmail-mailbox';
+import { createSyntheticGraph } from '@private-email/mail-core/testing/graph-mailbox';
 
 // Gmail's vacation responder, read with the existing Gmail grant (#3039).
 const vacationInbox = () => {
