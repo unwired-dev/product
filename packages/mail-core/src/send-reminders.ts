@@ -829,28 +829,10 @@ const offerFrom = <A>(
     },
   });
 
-// The times the Mac reminder menu offers: This Evening at 20:00 while it is still ahead, then
-// Tomorrow Morning at 9:00.
+// The times every reminder menu offers (#3001): This Evening at 18:00 while it is still ahead,
+// Tomorrow Morning at 8:00, This Weekend on Saturday at 9:00 from Sunday to Thursday, and Next Week
+// on the first Monday after tomorrow at 8:00.
 export const reminderTimes = (now: number, timeZone: string) =>
-  offerFrom(now, timeZone, (at) => {
-    const evening = at(0, 20);
-    return [
-      ...(evening > now
-        ? [{ time: 'thisEvening', dueAt: evening } as const]
-        : []),
-      { time: 'tomorrowMorning', dueAt: at(1, 9) } as const,
-    ];
-  });
-
-// The times the iPhone and iPad reminder choices offer, as their frames draw them: This Evening at
-// 18:00 while it is still ahead, Tomorrow Morning at 8:00, with `weekend` (iPhone) This Weekend on
-// Saturday at 9:00 from Sunday to Thursday, and Next Week on the first Monday after tomorrow at
-// 8:00.
-export const mobileReminderTimes = (
-  now: number,
-  timeZone: string,
-  weekend: boolean,
-) =>
   offerFrom(now, timeZone, (at, weekday) => {
     // Days to the first `day` (1 Monday to 7 Sunday) after tomorrow.
     const after = (day: number) => ((day - weekday + 12) % 7) + 2;
@@ -861,7 +843,7 @@ export const mobileReminderTimes = (
         ? [{ time: 'thisEvening', dueAt: evening } as const]
         : []),
       { time: 'tomorrowMorning', dueAt: at(1, 8) } as const,
-      ...(weekend && saturday < 7
+      ...(saturday < 7
         ? [{ time: 'thisWeekend', dueAt: at(saturday, 9) } as const]
         : []),
       { time: 'nextWeek', dueAt: at(after(1), 8) } as const,

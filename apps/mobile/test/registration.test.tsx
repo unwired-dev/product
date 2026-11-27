@@ -36,15 +36,17 @@ import {
   waitFor,
   within,
 } from '@testing-library/react-native';
-import { useContext, useMemo, useState } from 'react';
+import { useContext, useEffect, useMemo, useState } from 'react';
 import {
   AccessibilityInfo,
   Alert,
   AppState,
   Pressable,
+  ScrollView,
   Text,
   TextInput,
   TurboModuleRegistry,
+  View,
 } from 'react-native';
 
 import type { Selection } from '../src/inbox.tsx';
@@ -779,6 +781,95 @@ describe('product registration', () => {
         "iCloud Mail requires an app-specific password, which you create in your account's security settings. Your usual password does not work.",
       ),
     ).toBeVisible();
+  });
+
+  it("opens a named IMAP mailbox's password entry in Email Accounts (#2463)", async () => {
+    /* oxlint-disable vitest/max-expects -- One journey checks the form, its scroll and Settings navigation. */
+    /* oxlint-disable typescript/no-unsafe-type-assertion -- Untyped React Native native-method stubs. */
+    expect.hasAssertions();
+    const imap = createSyntheticImap({
+      address: 'alex@icloud.example.invalid',
+    });
+    const { synthetic, setup } = await signedIn();
+    const connection = await connectImap(setup, {
+      address: 'alex@icloud.example.invalid',
+      host: 'imap.mail.me.com',
+      username: 'alex@icloud.example.invalid',
+    });
+    await confirmRecoveryKey(setup);
+    const store = createRegistration(synthetic.relaunch());
+    const connections = createMailboxes(
+      syntheticConnections({}, { [connection]: imap.native }),
+      store,
+    );
+    // What the invitation card's Mailbox Settings… asks for.
+    const opener: { open?: () => void } = {};
+    function MailboxSettings() {
+      const account = useContext(AccountContext);
+      useEffect(() => {
+        opener.open = () => {
+          account?.openAccount('mailboxes', undefined, { mailbox: connection });
+        };
+      });
+      return null;
+    }
+    await render(
+      <RegistrationGate
+        store={started(store)}
+        preview={false}>
+        <InboxProvider
+          mailboxes={{
+            ...connections,
+            getSnapshot: connections.getConnections,
+          }}>
+          <Shell
+            onSelect={() => undefined}
+            selected={undefined}
+          />
+          <MailboxSettings />
+        </InboxProvider>
+      </RegistrationGate>,
+    );
+    const repair = {
+      name: 'Enter the Password for alex@icloud.example.invalid Again',
+    };
+    // The form sits 640 points down the Settings content; the request scrolls to it.
+    const scrolled = jest
+      .spyOn(ScrollView.prototype, 'scrollTo')
+      .mockReturnValue(undefined);
+    jest.spyOn(View.prototype as never, 'measureLayout').mockImplementation(((
+      _relative: unknown,
+      success: (...values: number[]) => void,
+    ) => {
+      success(0, 640, 320, 400);
+    }) as never);
+    jest
+      .spyOn(ScrollView.prototype as never, 'getInnerViewRef')
+      .mockReturnValue({} as never);
+    const request = async () => {
+      await act(async () => {
+        opener.open?.();
+      });
+    };
+    await screen.findByRole('button', {
+      name: 'Inbox. In alex@icloud.example.invalid',
+    });
+    // Email Accounts opens with that mailbox's entry, scrolled to it.
+    await request();
+    expect(scrolled).toHaveBeenCalledWith({ y: 640 });
+    expect(screen.getByRole('header', { name: 'iCloud Mail' })).toBeVisible();
+    expect(screen.queryByRole('button', repair)).toBeNull();
+    // Once closed, another request opens it again in the open Email Accounts.
+    await act(async () => {
+      await fireEvent.press(screen.getByRole('button', { name: 'Cancel' }));
+    });
+    expect(screen.getByRole('button', repair)).toBeVisible();
+    // Moving to another page and back leaves it closed.
+    await backToSettings();
+    await openSettings('Email Accounts');
+    expect(screen.getByRole('button', repair)).toBeVisible();
+    await request();
+    expect(screen.getByRole('header', { name: 'iCloud Mail' })).toBeVisible();
   });
 
   it('keeps a failed folder warning on its exact sidebar row through navigation and recovery, and retires removed folders', async () => {

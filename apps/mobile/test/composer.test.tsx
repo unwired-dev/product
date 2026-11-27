@@ -33,7 +33,7 @@ import {
 import {
   createSendReminders,
   reminderCity,
-  mobileReminderTimes,
+  reminderTimes,
 } from '@private-email/mail-core/send-reminders';
 import {
   createSyntheticDrafts,
@@ -2706,11 +2706,9 @@ describe('composing Drafts', () => {
     expect(screen.getByLabelText('Subject')).toHaveProp('value', 'Unsaved');
     // Settings opens over the Inbox, so the Draft stays open beneath it.
     await press('Account');
-    expect(openAccount).toHaveBeenCalledWith(
-      undefined,
-      expect.any(Function),
-      defaultProfile,
-    );
+    expect(openAccount).toHaveBeenCalledWith(undefined, expect.any(Function), {
+      profile: defaultProfile,
+    });
     expect(screen.getByLabelText('Subject')).toHaveProp('value', 'Unsaved');
     // Asking again replaces the notice; the next refused Save Draft offers Try again.
     await saveDraft();
@@ -2814,10 +2812,10 @@ describe('composing Drafts', () => {
 
   // The password repair opens Settings on Email Accounts; both name the window's Mail Profile.
   it.each([
-    ['Account', [undefined, expect.any(Function), defaultProfile]],
+    ['Account', [undefined, expect.any(Function), { profile: defaultProfile }]],
     [
       'Enter the Password for imap@example.invalid Again',
-      ['mailboxes', undefined, defaultProfile],
+      ['mailboxes', undefined, { profile: defaultProfile }],
     ],
   ] as const)(
     'opens %s in Settings over an open composer',
@@ -4494,27 +4492,23 @@ describe('composing Drafts', () => {
     {
       size: 'compact',
       role: 'button',
-      choices: /^(?:This Evening|Tomorrow Morning|This Weekend|Next Week), /u,
-      count: 4,
       confirm: async () => undefined,
     },
     {
       size: 'regular',
       role: 'radio',
-      choices: /^(?:This Evening|Tomorrow Morning|Next Week), /u,
-      count: 3,
       confirm: async () => press('Set Reminder'),
     },
   ] as const)(
     'sets, changes and removes a Draft’s Send Reminder from the Send menu on $size without sending it',
-    async ({ size, role, choices, count, confirm }) => {
+    async ({ size, role, confirm }) => {
       expect.hasAssertions();
       // Noon on a Monday, so every choice is offered.
       const noon = new Date(2026, 9, 12, 12);
       const clock = jest.spyOn(Date, 'now').mockReturnValue(noon.getTime());
       try {
         const { timeZone } = Intl.DateTimeFormat().resolvedOptions();
-        const tomorrow = mobileReminderTimes(Date.now(), timeZone, false).find(
+        const tomorrow = reminderTimes(Date.now(), timeZone).find(
           ({ time }) => time === 'tomorrowMorning',
         );
         ok(tomorrow);
@@ -4544,9 +4538,11 @@ describe('composing Drafts', () => {
             'Keeps this message in Drafts and reminds you to send it. Nothing is sent automatically.',
           ),
         ).toBeOnTheScreen();
-        expect(screen.getAllByRole(role, { name: choices })).toHaveLength(
-          count,
-        );
+        expect(
+          screen.getAllByRole(role, {
+            name: /^(?:This Evening|Tomorrow Morning|This Weekend|Next Week), /u,
+          }),
+        ).toHaveLength(4);
         // A reminder that storage refuses is reported and stores nothing.
         reminders.state.refusing = true;
         await chooseTomorrow();
@@ -4633,7 +4629,7 @@ describe('composing Drafts', () => {
       const clock = jest.spyOn(Date, 'now').mockReturnValue(noon.getTime());
       try {
         const { timeZone } = Intl.DateTimeFormat().resolvedOptions();
-        const tomorrow = mobileReminderTimes(Date.now(), timeZone, false).find(
+        const tomorrow = reminderTimes(Date.now(), timeZone).find(
           ({ time }) => time === 'tomorrowMorning',
         );
         ok(tomorrow);

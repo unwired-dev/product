@@ -30,7 +30,12 @@ import { ipad } from './inbox-styles.ts';
 import { useLocalization, useMessageDateFormats } from './localization.ts';
 import { useNow } from './mailbox-state.ts';
 import { registrationStyles as styles } from './registration-styles.ts';
-import { SettingsBlock, SettingsGroup, SettingsRow } from './settings.tsx';
+import {
+  PushButtonColumn,
+  SettingsBlock,
+  SettingsGroup,
+  SettingsRow,
+} from './settings.tsx';
 import { usePalette } from './theme.ts';
 
 // The system alert owns presentation, focus and Escape; Cancel's role makes it the dismissal choice.
@@ -147,10 +152,12 @@ function RevocationProposal({
           {t('revocation.mismatch')}
         </AnnouncedAlert>
       ) : null}
-      {button(t('revocation.remove', { name }), () =>
-        store.confirmRevocation(entry),
-      )}
-      {button(t('revocation.cancel'), store.cancelRevocation)}
+      <PushButtonColumn>
+        {button(t('revocation.remove', { name }), () =>
+          store.confirmRevocation(entry),
+        )}
+        {button(t('revocation.cancel'), store.cancelRevocation)}
+      </PushButtonColumn>
     </SettingsBlock>
   );
 }

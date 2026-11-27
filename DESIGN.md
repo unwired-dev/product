@@ -630,7 +630,11 @@ Two frame sizes differ from the device on purpose. Here the system wins:
   components such as Sidebar Item, Message Row, Settings Row, Category Chip and
   Sheet as 1.15× instances, whose text draws at 14.95pt, 12.65pt or 11.5pt. The
   app rounds each size to a whole point, as [Typography](#typography) lists
-  ([#2650](https://github.com/unwired-dev/product/issues/2650)).
+  ([#2650](https://github.com/unwired-dev/product/issues/2650)). Those
+  instances also set SF Pro's letter spacing to 0, where the system applies the
+  font's own tracking, so a label on the device runs a few points narrower,
+  about 5pt across Delete Unwired Account…
+  ([#3045](https://github.com/unwired-dev/product/issues/3045)).
 
 These frames show a decision the app has not built yet. The frame wins, and the
 app follows under the issue named:
@@ -654,20 +658,15 @@ app follows under the issue named:
   time field the width its region needs. The popover sits AppKit's 14 pt below
   its anchor, where the frames draw 6 pt, and above Send in the Inbox window's
   composer, whose Send sits at the window's bottom. iPhone and iPad offer it
-  (#2979). The Mac offers
-  This Evening at 20:00 and Tomorrow Morning at 9:00, as
-  M3 draws them; iPhone and iPad offer the times their frames draw (#2136). The
-  Mac menu shows each time on the item's second line and the note
-  as a dimmed item on one line, as AppKit draws them, where M3 draws the time
-  trailing and the note wrapped in small type. Until #658 schedules
-  notifications, no device reminds the person yet.
+  (#2979).
 - **Mail Views:** the row of Mail View chips in the Inbox list waits for #2131.
 - **Reader More menu:** on iPad More lists Move to Spam after Mark as Unread
   (#2662), and the iPhone Reply sheet lists it; in Spam it reads Not Spam. The
   Mac menu waits for #2132.
-- **Unsubscribe banner:** the Mac banner leaves out the line under the list
-  name that counts the list's messages and how many were opened ("17 since
-  August, opened 2."), so it is one line shorter, until #2978 defines it.
+- **Unsubscribe banner:** the Mac, iPhone and iPad banners leave out the line
+  under the list name that counts the list's messages and how many were
+  opened ("17 since August, opened 2."), so it is one line shorter, until
+  #2978 defines it.
 - **Compact iPad window:** the reader's navigation bar holds Back and the
   Command input (#2133); the frame's Previous and Next wait for an issue that
   names them. The input there and on the composer's From row has no ⌘K key cap

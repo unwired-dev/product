@@ -511,16 +511,28 @@ final class WindowTests: XCTestCase {
       }
       let item = app.menuItems["Choose Date and Time…"]
       XCTAssertTrue(item.waitForExistence(timeout: 5))
+      // #3001: the times every platform offers, each titled with its time; This Evening depends on
+      // the clock, and This Weekend is offered from Sunday to Thursday.
+      func offered(_ title: String) -> Bool {
+        app.menuItems.matching(NSPredicate(format: "label BEGINSWITH %@ OR title BEGINSWITH %@", title, title))
+          .firstMatch.exists
+      }
+      XCTAssertTrue(offered("Tomorrow Morning"), app.menuItems.debugDescription)
+      // The time trails the title and is spoken with it.
+      XCTAssertTrue(app.menuItems.matching(NSPredicate(format: "label BEGINSWITH %@", "Tomorrow Morning, ")).firstMatch.exists)
+      XCTAssertTrue(offered("Next Week"))
+      XCTAssertEqual(offered("This Weekend"), (1...5).contains(Calendar.current.component(.weekday, from: Date())))
+      if menu != nil { attach(XCUIScreen.main.screenshot(), "Reminder menu") }
       item.click()
       XCTAssertTrue(set.waitForExistence(timeout: 10))
     }
 
-    // From Send it starts tomorrow at 9:00. In the inline composer Send sits at the window's bottom,
+    // From Send it starts tomorrow at 8:00. In the inline composer Send sits at the window's bottom,
     // so the popover opens above it; Escape closes it without a reminder.
     let clocks = Calendar.current
     let today = clocks.startOfDay(for: Date())
     let tomorrow = try XCTUnwrap(
-      clocks.date(bySettingHour: 9, minute: 0, second: 0, of: clocks.date(byAdding: .day, value: 1, to: today)!))
+      clocks.date(bySettingHour: 8, minute: 0, second: 0, of: clocks.date(byAdding: .day, value: 1, to: today)!))
     // XCUITest passes the field's date only as its description, such as "2026-11-27 08:00:00 +0000".
     func shows(_ date: Date) -> Bool { String(describing: time.value ?? "").contains(date.description) }
     let inlineSend = window.buttons["Send"].firstMatch
@@ -549,7 +561,7 @@ final class WindowTests: XCTestCase {
     attach(popover.screenshot(), "Choose Date and Time popover")
     composer.typeKey(.return, modifierFlags: [])
     XCTAssertTrue(set.waitForNonExistence(timeout: 10))
-    // The banner's clock follows the host's locale; Change below checks the stored 9:00.
+    // The banner's clock follows the host's locale; Change below checks the stored 8:00.
     let banner = text("Reminder for tomorrow,", in: composer)
     XCTAssertTrue(banner.waitForExistence(timeout: 10))
 
@@ -561,8 +573,8 @@ final class WindowTests: XCTestCase {
     let passed = text("That time has passed. Choose a later time.", in: popover)
     XCTAssertFalse(passed.exists)
     app.typeKey(.leftArrow, modifierFlags: [])
-    let todayAtNine = try XCTUnwrap(clocks.date(bySettingHour: 9, minute: 0, second: 0, of: today))
-    waitUntil { shows(todayAtNine) }
+    let todayAtEight = try XCTUnwrap(clocks.date(bySettingHour: 8, minute: 0, second: 0, of: today))
+    waitUntil { shows(todayAtEight) }
     time.coordinate(withNormalizedOffset: CGVector(dx: 0.15, dy: 0.5)).click()
     for _ in 0..<24 where !passed.exists {
       app.typeKey(.downArrow, modifierFlags: [])

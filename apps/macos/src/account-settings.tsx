@@ -15,7 +15,7 @@ import {
   profilesOf,
   recoveryKeyEntry,
 } from '@private-email/mail-core/registration';
-import { useState, useSyncExternalStore } from 'react';
+import { use, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import {
   AccessibilityInfo,
   ActivityIndicator,
@@ -24,6 +24,7 @@ import {
   View,
 } from 'react-native';
 
+import type { SettingsRequest } from './settings-window.ts';
 import type { SettingsButton, SettingsDestination } from './settings.tsx';
 
 import { BlockedSenderSettings } from './blocked-senders.tsx';
@@ -37,6 +38,7 @@ import { TrustCard } from './onboarding.tsx';
 import { MailProfilesSettings } from './profile-settings.tsx';
 import { registrationStyles as styles } from './registration-styles.ts';
 import { RemoteContentSettings } from './remote-content.tsx';
+import { SettingsScroll } from './settings.tsx';
 import {
   SettingsBlock,
   SettingsGroup,
@@ -125,25 +127,60 @@ function RemoveConfirmation({
   );
 }
 
+const repairOf = (request: SettingsRequest | undefined) =>
+  request?.mailbox === undefined
+    ? undefined
+    : ({ kind: 'repair', id: request.mailbox } as const);
+
 // Each Mailbox Connection with its state, adding another, and removal after confirmation.
 function Mailboxes({
   mailboxes,
   button,
   microsoft,
+  request,
   store,
 }: {
   readonly mailboxes: readonly MailboxConnection[];
   readonly button: SettingsButton;
   readonly microsoft: boolean;
+  readonly request: SettingsRequest | undefined;
   readonly store: Registration;
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
+  const settings = use(SettingsScroll);
+  const repairForm = useRef<View>(null);
   const [confirming, setConfirming] = useState<MailboxConnection['id']>();
-  // The IMAP connection whose password is being entered again, or a new one being added.
+  // The IMAP connection whose password is being entered again, or a new one being added; each
+  // request naming a mailbox opens its entry.
   const [imap, setImap] = useState<
-    { kind: 'repair'; id: MailboxConnection['id'] } | { kind: 'new' }
-  >();
+    | { kind: 'repair'; id: MailboxConnection['id'] }
+    | { kind: 'new' }
+    | undefined
+  >(() => repairOf(request));
+  const [followed, setFollowed] = useState(request);
+  if (followed !== request) {
+    setFollowed(request);
+    if (request?.mailbox !== undefined) {
+      setImap(repairOf(request));
+    }
+  }
+  // A request naming a mailbox scrolls its password form into view, below the mailboxes above it.
+  useEffect(() => {
+    const form = repairForm.current;
+    const content = settings?.content.current;
+    if (
+      request?.mailbox === undefined ||
+      form === null ||
+      content === undefined ||
+      content === null
+    ) {
+      return;
+    }
+    form.measureLayout(content, (_left, top) => {
+      settings?.scroll.current?.scrollTo({ y: top });
+    });
+  }, [request, settings]);
   if (mailboxes.length === 0) {
     return null;
   }
@@ -214,14 +251,16 @@ function Mailboxes({
                   </Label>
                 ) : null}
                 {repairing ? (
-                  <ImapSetup
-                    button={button}
-                    onClose={() => {
-                      setImap(undefined);
-                    }}
-                    repair={mailbox}
-                    store={store}
-                  />
+                  <View ref={repairForm}>
+                    <ImapSetup
+                      button={button}
+                      onClose={() => {
+                        setImap(undefined);
+                      }}
+                      repair={mailbox}
+                      store={store}
+                    />
+                  </View>
                 ) : null}
                 {confirming === mailbox.id ? (
                   <RemoveConfirmation
@@ -671,6 +710,7 @@ export function AccountSettings({
   button,
   destination,
   microsoft,
+  request,
   screen,
   store,
 }: {
@@ -679,6 +719,8 @@ export function AccountSettings({
   // Without one, every section shows, as on the welcome flow's account page.
   readonly destination?: SettingsDestination;
   readonly microsoft: boolean;
+  // The Settings window's latest request, which can name a mailbox whose password to enter.
+  readonly request?: SettingsRequest | undefined;
   readonly screen: RegistrationScreen;
   readonly store: Registration;
 }) {
@@ -727,6 +769,7 @@ export function AccountSettings({
             mailboxes={mailboxes}
             button={button}
             microsoft={microsoft}
+            request={request}
             store={store}
           />
           <SpamTrashFolders

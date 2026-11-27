@@ -4,6 +4,7 @@ interface Item {
   readonly id: string;
   readonly title: string;
   readonly subtitle?: string;
+  readonly detail?: string;
   readonly accessibilityLabel?: string;
   readonly symbol?: string;
   readonly checked?: boolean;

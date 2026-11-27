@@ -12,6 +12,7 @@ import type {
   RegistrationScreen,
   RemovalFailure,
 } from '@private-email/mail-core/registration';
+import type { HostInstance } from 'react-native';
 
 import {
   HStack,
@@ -41,7 +42,7 @@ import {
   palette,
   typography,
 } from '@private-email/mail-core/theme';
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { use, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import {
   AccessibilityInfo,
   ActivityIndicator,
@@ -72,7 +73,10 @@ import { MailProfilesSettings } from './profile-settings.tsx';
 import { registrationStyles as styles } from './registration-styles.ts';
 import { native } from './registration.ts';
 import { RemoteContentSettings } from './remote-content.tsx';
+import { SettingsScroll } from './settings.tsx';
 import {
+  PushButtonColumn,
+  PushButtonRow,
   settingsColumns,
   SettingsActionRow,
   SettingsBlock,
@@ -132,48 +136,52 @@ function RemoveConfirmation({
           </View>
         </View>
       )}
-      <View style={styles.inline}>
-        {removing ? (
-          <ActivityIndicator
-            size="small"
-            color={colors.textSecondary}
-          />
-        ) : null}
-        {button(
-          removing
-            ? t('mailboxes.removing')
-            : t('mailboxes.remove', { address }),
-          async () => {
-            setFailed(undefined);
-            setRemoving(true);
-            const failure = await remove();
-            setRemoving(false);
-            if (failure === undefined) {
-              onClose();
-              return;
-            }
-            const message = t(
-              failure === 'unconfirmed'
-                ? 'mailboxes.removeUnconfirmed'
-                : 'mailboxes.removeFailed',
-              failure === 'offline'
-                ? { address, context: device }
-                : { address },
-            );
-            setFailed(message);
-            AccessibilityInfo.announceForAccessibility(message);
-          },
-          // iPhone's row has room for Remove and Cancel only without the address.
-          {
-            tone: 'destructive',
-            ...(device === 'iphone' &&
-              !removing && { title: t('settings.remove') }),
-          },
-        )}
+      <PushButtonRow
+        style={styles.inline}
+        buttons={removing ? 'removing' : 'remove'}>
+        <View style={styles.inline}>
+          {removing ? (
+            <ActivityIndicator
+              size="small"
+              color={colors.textSecondary}
+            />
+          ) : null}
+          {button(
+            removing
+              ? t('mailboxes.removing')
+              : t('mailboxes.remove', { address }),
+            async () => {
+              setFailed(undefined);
+              setRemoving(true);
+              const failure = await remove();
+              setRemoving(false);
+              if (failure === undefined) {
+                onClose();
+                return;
+              }
+              const message = t(
+                failure === 'unconfirmed'
+                  ? 'mailboxes.removeUnconfirmed'
+                  : 'mailboxes.removeFailed',
+                failure === 'offline'
+                  ? { address, context: device }
+                  : { address },
+              );
+              setFailed(message);
+              AccessibilityInfo.announceForAccessibility(message);
+            },
+            // iPhone's row has room for Remove and Cancel only without the address.
+            {
+              tone: 'destructive',
+              ...(device === 'iphone' &&
+                !removing && { title: t('settings.remove') }),
+            },
+          )}
+        </View>
         {button(t('mailboxes.cancel'), async () => {
           onClose();
         })}
-      </View>
+      </PushButtonRow>
     </>
   );
 }
@@ -304,12 +312,22 @@ function ConnectionActions({
   );
 }
 
+// A request to open Settings, which can name the IMAP connection whose password to enter; each
+// is a new value.
+type MailboxRequest = Readonly<{ mailbox?: string | undefined }>;
+
+const repairOf = (request: MailboxRequest | undefined) =>
+  request?.mailbox === undefined
+    ? undefined
+    : ({ kind: 'repair', id: request.mailbox } as const);
+
 // Each Mailbox Connection with its state, adding another, and removal after confirmation.
 function Mailboxes({
   mailboxes,
   profiles,
   button,
   microsoft,
+  request,
   store,
 }: {
   readonly mailboxes: readonly MailboxConnection[];
@@ -317,6 +335,7 @@ function Mailboxes({
   readonly profiles: readonly MailProfile[];
   readonly button: SettingsButton;
   readonly microsoft: boolean;
+  readonly request: MailboxRequest | undefined;
   readonly store: Registration;
 }) {
   const colors = usePalette();
@@ -329,11 +348,38 @@ function Mailboxes({
     mailbox.state === 'connected'
       ? updatedOf(t, inboxes.find(({ id }) => id === mailbox.id)?.state, now)
       : undefined;
+  const scroll = use(SettingsScroll);
+  const repairForm = useRef<HostInstance>(null);
   const [confirming, setConfirming] = useState<MailboxConnection['id']>();
-  // The IMAP connection whose password is being entered again, or a new one being added.
+  // The IMAP connection whose password is being entered again, or a new one being added; each
+  // request naming a mailbox opens its entry.
   const [imap, setImap] = useState<
-    { kind: 'repair'; id: MailboxConnection['id'] } | { kind: 'new' }
-  >();
+    | { kind: 'repair'; id: MailboxConnection['id'] }
+    | { kind: 'new' }
+    | undefined
+  >(() => repairOf(request));
+  const [followed, setFollowed] = useState(request);
+  if (followed !== request) {
+    setFollowed(request);
+    if (request?.mailbox !== undefined) {
+      setImap(repairOf(request));
+    }
+  }
+  // A request naming a mailbox scrolls its password form into view, below the mailboxes above it.
+  useEffect(() => {
+    const content = scroll?.current?.getInnerViewRef();
+    if (
+      request?.mailbox === undefined ||
+      repairForm.current === null ||
+      content === undefined ||
+      content === null
+    ) {
+      return;
+    }
+    repairForm.current.measureLayout(content, (_left, top) => {
+      scroll?.current?.scrollTo({ y: top });
+    });
+  }, [request, scroll]);
   if (mailboxes.length === 0) {
     return null;
   }
@@ -418,14 +464,16 @@ function Mailboxes({
                   </Text>
                 ) : null}
                 {repairing ? (
-                  <ImapSetup
-                    button={button}
-                    onClose={() => {
-                      setImap(undefined);
-                    }}
-                    repair={mailbox}
-                    store={store}
-                  />
+                  <View ref={repairForm}>
+                    <ImapSetup
+                      button={button}
+                      onClose={() => {
+                        setImap(undefined);
+                      }}
+                      repair={mailbox}
+                      store={store}
+                    />
+                  </View>
                 ) : null}
                 {confirming === mailbox.id ? (
                   <RemoveConfirmation
@@ -1261,14 +1309,16 @@ export function AccountActions({
           <Text style={[styles.text, { color: colors.textPrimary }]}>
             {confirmation.description}
           </Text>
-          {button(confirmation.label, confirmation.action, {
-            tone: selected === 'deletion' ? 'destructive' : undefined,
-          })}
-          {pending === undefined
-            ? button(t('accountRemoval.cancel'), async () => {
-                setConfirming(undefined);
-              })
-            : null}
+          <PushButtonColumn>
+            {button(confirmation.label, confirmation.action, {
+              tone: selected === 'deletion' ? 'destructive' : undefined,
+            })}
+            {pending === undefined
+              ? button(t('accountRemoval.cancel'), async () => {
+                  setConfirming(undefined);
+                })
+              : null}
+          </PushButtonColumn>
         </SettingsBlock>
       )}
     </SettingsGroup>
@@ -1282,6 +1332,7 @@ export function AccountSettings({
   button,
   destination,
   microsoft,
+  request,
   screen,
   store,
 }: {
@@ -1290,6 +1341,8 @@ export function AccountSettings({
   // Without one, every section shows, as on the welcome flow's account page.
   readonly destination?: SettingsDestination;
   readonly microsoft: boolean;
+  // The latest request to open Settings, which can name a mailbox whose password to enter.
+  readonly request?: MailboxRequest | undefined;
   readonly screen: RegistrationScreen;
   readonly store: Registration;
 }) {
@@ -1341,6 +1394,7 @@ export function AccountSettings({
           profiles={profilesOf(snapshot)}
           button={button}
           microsoft={microsoft}
+          request={request}
           store={store}
         />
       ) : null}

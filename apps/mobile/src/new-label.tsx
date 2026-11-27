@@ -11,6 +11,7 @@ import {
   Text as SwiftUIText,
 } from '@expo/ui/swift-ui';
 import {
+  accessibilityLabel as spokenLabel,
   background,
   buttonBorderShape,
   buttonStyle,
@@ -88,7 +89,8 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   choiceTitle: { flex: 1 },
-  move: { width: 52, alignItems: 'center', justifyContent: 'center' },
+  move: { width: 52 },
+  moveSymbol: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   header: {
     ...textStyles.footnote,
     fontWeight: '600',
@@ -151,7 +153,7 @@ function FormButton({
   );
 }
 
-// A tappable row of a grouped list.
+// A row of a grouped list that runs one action: the system button, with the row as its label.
 function Row({
   label,
   separated = false,
@@ -173,19 +175,23 @@ function Row({
           style={[styles.separator, { backgroundColor: colors.separator }]}
         />
       ) : null}
-      <Pressable
-        accessibilityLabel={label}
-        accessibilityRole="button"
-        accessibilityState={{ disabled }}
-        disabled={disabled}
-        focusable
-        onPress={onPress}
-        style={({ pressed }) => [
-          styles.row,
-          pressed && { backgroundColor: colors.accentSelectionSubtle },
-        ]}>
-        {children}
-      </Pressable>
+      <Host matchContents={{ vertical: true }}>
+        <SwiftUIButton
+          onPress={onPress}
+          modifiers={[
+            buttonStyle('plain'),
+            inactive(disabled),
+            spokenLabel(label),
+          ]}>
+          <RNHostView matchContents={{ vertical: true }}>
+            <View
+              accessibilityElementsHidden
+              style={styles.row}>
+              {children}
+            </View>
+          </RNHostView>
+        </SwiftUIButton>
+      </Host>
     </>
   );
 }
@@ -289,24 +295,27 @@ export function LabelChoices({
                       ) : null}
                     </Pressable>
                     {onMove === undefined ? null : (
-                      <Pressable
-                        accessibilityLabel={t('gmailActions.moveTo', {
-                          label: label.name,
-                        })}
-                        accessibilityRole="button"
-                        focusable
-                        onPress={() => {
-                          onMove(label.id);
-                        }}
-                        style={({ pressed }) => [
-                          styles.move,
-                          pressed && pressedRow,
-                        ]}>
-                        <SFSymbol
-                          name="folder"
-                          color={colors.textSecondary}
-                        />
-                      </Pressable>
+                      <Host style={styles.move}>
+                        <SwiftUIButton
+                          onPress={() => {
+                            onMove(label.id);
+                          }}
+                          modifiers={[
+                            buttonStyle('plain'),
+                            spokenLabel(
+                              t('gmailActions.moveTo', { label: label.name }),
+                            ),
+                          ]}>
+                          <RNHostView>
+                            <View style={styles.moveSymbol}>
+                              <SFSymbol
+                                name="folder"
+                                color={colors.textSecondary}
+                              />
+                            </View>
+                          </RNHostView>
+                        </SwiftUIButton>
+                      </Host>
                     )}
                   </View>
                 </View>

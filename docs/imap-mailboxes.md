@@ -834,11 +834,17 @@ password manager by running
    until the software keyboard closes, take no screenshot, also when the paste fails or
    the pasteboard has been cleared: the keyboard's suggestion bar offers **Paste from
    CoreSimulatorBridge** with the value in plain text
-   ([#2685](https://github.com/unwired-dev/product/issues/2685)).
+   ([#2685](https://github.com/unwired-dev/product/issues/2685)). For the same time, run
+   no agent-device `snapshot` or `open --foreground`: when the accessibility tree comes
+   back sparse, they save a screenshot of their own, `snapshot-fallback.png`
+   ([#3053](https://github.com/unwired-dev/product/issues/3053)). Take a snapshot before
+   the copy, while no earlier pasted value can be on screen, then read the screen with
+   `diff snapshot`, which compares against it, and act at that snapshot's coordinates or
+   by selector, such as `press 'label="Paste"'`; these save no screenshot. While a field shows the value, step 4 applies instead.
 2. Open the edit menu and press **Paste**: in Google's sign-in sheet, long-press the
    field; in the app, tap the focused field again. The keyboard's own Paste key pastes
    nothing into the app's fields. On iPad, scroll **Recovery Key** clear of the software
-   keyboard before taking step 4's snapshot
+   keyboard and take step 4's snapshot before the copy
    ([#2743](https://github.com/unwired-dev/product/issues/2743)).
 3. `simulator-credentials.zsh clear <udid>` empties the pasteboard at once.
 4. When the field shows its text, as **Recovery Key** does, nothing may read the screen
