@@ -329,6 +329,12 @@ banner after the server refuses the request and the receive-only banner:
 mise exec -- pnpm --dir apps/mobile exec jest test/unsubscribe-mailto.test.tsx
 ```
 
+An iPhone and iPad native journey of the `mailto:` confirmation and waiting
+state is deferred for the same reason as the Mac's. For #3060 a
+`registration-imap-folders` Release build over the same temporary fixture took
+the confirmation, waiting, needs-sign-in and sent states in Light and Dark on an
+iPhone 17 Pro Simulator (iOS 27.0) for the design judge.
+
 The [iPhone and iPad Unsubscribe journey](native-journeys.md#iphone-and-ipad-unsubscribe-journey)
 runs the banner, the confirmation and each outcome in the real app.
 
