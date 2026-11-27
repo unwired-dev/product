@@ -1,8 +1,9 @@
 import type { Translate } from '@private-email/localization';
-import type { ReactElement } from 'react';
+import type { ReactElement, ReactNode } from 'react';
 
 import {
   BottomSheet,
+  Button as SwiftUIButton,
   Group,
   Host,
   Popover,
@@ -10,8 +11,11 @@ import {
   RNHostView,
 } from '@expo/ui/swift-ui';
 import {
+  buttonStyle,
+  disabled as inactive,
   presentationDetents,
   presentationDragIndicator,
+  accessibilityLabel as spokenLabel,
   tint,
 } from '@expo/ui/swift-ui/modifiers';
 import { spacing, typography } from '@private-email/mail-core/theme';
@@ -140,9 +144,7 @@ const styles = StyleSheet.create({
   },
   // A 44pt target around the 29pt button, without growing the row.
   limitAction: {
-    minHeight: 44,
     marginVertical: -7.5,
-    justifyContent: 'center',
   },
   limitButton: {
     paddingHorizontal: 14,
@@ -186,9 +188,12 @@ const styles = StyleSheet.create({
   },
   // A 44pt target around Done, without growing the header.
   done: {
+    marginVertical: -11,
+  },
+  // A details button's 44pt target, its label at the trailing edge.
+  target: {
     minHeight: 44,
     minWidth: 44,
-    marginVertical: -11,
     alignItems: 'flex-end',
     justifyContent: 'center',
   },
@@ -207,9 +212,7 @@ const styles = StyleSheet.create({
   },
   // A 44pt target around the 20pt label, without growing the row.
   rowAction: {
-    minHeight: 44,
     marginVertical: -12,
-    justifyContent: 'center',
   },
   rowActionLabel: {
     ...typography.ios.subheadline,
@@ -803,14 +806,14 @@ function SyncStatusDetails({
           {t('syncStatus.title')}
         </Text>
         {popover ? null : (
-          <Pressable
-            accessibilityRole="button"
+          <DetailsButton
+            label={t('common.done')}
             onPress={onDone}
             style={styles.done}>
             <Text style={[styles.sheetTitle, { color: colors.accentInk }]}>
               {t('common.done')}
             </Text>
-          </Pressable>
+          </DetailsButton>
         )}
       </View>
       {shown.map((mailbox, index) => (
@@ -1009,15 +1012,16 @@ function Connection({
           {title}
         </Text>
         {action === undefined ? null : (
-          <Pressable
-            accessibilityLabel={action.name}
-            accessibilityRole="button"
-            onPress={authorize ? onAuthorize : onTryAgain}
+          <DetailsButton
+            label={action.name ?? action.label}
+            onPress={() => {
+              (authorize ? onAuthorize : onTryAgain)?.();
+            }}
             style={styles.rowAction}>
             <Text style={[styles.rowActionLabel, { color: colors.accentInk }]}>
               {action.label}
             </Text>
-          </Pressable>
+          </DetailsButton>
         )}
       </View>
       {/* One element: the status says the counts, and a 3pt bar alone is too small a target. */}
@@ -1031,12 +1035,8 @@ function Connection({
       </View>
       {limit === undefined ? null : (
         <View style={styles.limitActions}>
-          <Pressable
-            accessibilityLabel={t('syncStatus.tryAgainFor', {
-              account: title,
-            })}
-            accessibilityRole="button"
-            accessibilityState={{ disabled: waiting !== undefined }}
+          <DetailsButton
+            label={t('syncStatus.tryAgainFor', { account: title })}
             disabled={waiting !== undefined}
             onPress={onTryAgain}
             style={styles.limitAction}>
@@ -1064,7 +1064,7 @@ function Connection({
                 {t('syncStatus.tryAgain')}
               </Text>
             </View>
-          </Pressable>
+          </DetailsButton>
           {waiting === undefined ? null : (
             <Text style={[styles.detail, { color: colors.textSecondary }]}>
               {t('syncStatus.availableAt', { time: format(waiting) })}
@@ -1073,5 +1073,42 @@ function Connection({
         </View>
       )}
     </View>
+  );
+}
+
+// A button in the details: the system button, with its text or fill as its label.
+function DetailsButton({
+  label,
+  disabled = false,
+  onPress,
+  style,
+  children,
+}: {
+  readonly label: string;
+  readonly disabled?: boolean;
+  readonly onPress: () => void;
+  readonly style: Parameters<typeof Host>[0]['style'];
+  readonly children: ReactNode;
+}) {
+  return (
+    <Host
+      matchContents
+      style={style}>
+      <SwiftUIButton
+        onPress={onPress}
+        modifiers={[
+          buttonStyle('plain'),
+          inactive(disabled),
+          spokenLabel(label),
+        ]}>
+        <RNHostView matchContents>
+          <View
+            accessibilityElementsHidden
+            style={styles.target}>
+            {children}
+          </View>
+        </RNHostView>
+      </SwiftUIButton>
+    </Host>
   );
 }
