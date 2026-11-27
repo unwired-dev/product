@@ -82,7 +82,7 @@ export const menuState = (sections: readonly MenuSection[]) => {
         destructive,
         subtitle,
         checked,
-        detail,
+        ...(detail === undefined ? {} : { detail }),
         disabled,
         accessibilityLabel,
         monogram,
