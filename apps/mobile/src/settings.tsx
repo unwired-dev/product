@@ -1,14 +1,26 @@
 import type { ReactElement, ReactNode, RefObject } from 'react';
-import type { ScrollViewInstance } from 'react-native';
+import type { ScrollViewInstance, StyleProp, ViewStyle } from 'react-native';
 
-import { Host, RNHostView, Button as SwiftUIButton } from '@expo/ui/swift-ui';
+import {
+  Host,
+  RNHostView,
+  Button as SwiftUIButton,
+  Text as SwiftUIText,
+} from '@expo/ui/swift-ui';
 import {
   accessibilityLabel as spokenLabel,
+  background,
   buttonBorderShape,
   buttonStyle,
+  contentShape,
   controlSize,
   disabled as inactive,
+  font,
+  foregroundStyle,
+  frame,
   labelStyle,
+  padding,
+  shapes,
   tint,
 } from '@expo/ui/swift-ui/modifiers';
 import {
@@ -17,13 +29,14 @@ import {
   spacing,
   typography,
 } from '@private-email/mail-core/theme';
-import { createContext, Fragment, use, useRef } from 'react';
+import { createContext, Fragment, use, useRef, useState } from 'react';
 import {
   Platform,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -151,12 +164,18 @@ const groupRadius = settingsColumns ? radius.card : radius.settingsDetail;
 // iPad rows follow the frames' Mac recipe at 1.15×: 46pt single-line and 61.3pt two-line rows.
 // iPhone's Settings Row pads 13pt, so a 36pt push button makes a 62pt row.
 const rowPadding = settingsColumns ? 10 * ipadListScale : 13;
-const phoneButtonHeight = 36;
 // iPhone's frames draw a row with a switch at least 56pt tall.
 export const switchRowHeight = settingsColumns ? undefined : 56;
 const rowInset = settingsColumns ? spacing.m * ipadListScale : spacing.l;
 // iPad's row rules are the Mac recipe's point at 1.15×, as its frames draw them.
 const rule = settingsColumns ? ipadListScale : StyleSheet.hairlineWidth;
+
+// iPad draws the Mac's 28pt push button at 1.15×, iPhone's frames a 36pt one; the clear slop
+// around it keeps the 44pt target without moving the layout.
+const pushButtonHeight = settingsColumns ? 28 * ipadListScale : 36;
+const pushButtonSlop = (44 - pushButtonHeight) / 2;
+// Stacked push buttons keep their 44pt hit areas apart.
+const pushButtonGap = Math.max(spacing.s, 2 * pushButtonSlop);
 
 const styles = StyleSheet.create({
   page: { flex: 1 },
@@ -257,7 +276,9 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     justifyContent: 'flex-end',
     alignItems: 'center',
-    gap: spacing.s,
+    columnGap: spacing.s,
+    // Wrapped push buttons keep their hit areas apart.
+    rowGap: pushButtonGap,
     flexShrink: 1,
     marginVertical: settingsColumns ? -rowPadding : 0,
   },
@@ -314,19 +335,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  // iPad draws the Mac's 28pt push button at 1.15×, iPhone's frames a 36pt one; hit slop keeps
-  // the 44pt target.
-  button: {
-    minHeight: settingsColumns ? 28 * ipadListScale : phoneButtonHeight,
-    justifyContent: 'center',
-    paddingHorizontal: settingsColumns ? spacing.m : 14,
-    borderRadius: radius.control,
-    borderCurve: 'continuous',
-  },
+  pushButton: { alignSelf: 'flex-start' },
+  // Beside a busy indicator the button shrinks to the room left.
+  pushButtonWrapping: { width: '100%', flexShrink: 1 },
+  pushButtonColumn: { gap: pushButtonGap },
+  // The row's wrapping controls drop a child's negative top margin; a column keeps it.
+  pushButtonHost: { marginVertical: -pushButtonSlop },
 });
-
-const buttonSlop =
-  (44 - (settingsColumns ? 28 * ipadListScale : phoneButtonHeight)) / 2;
 
 // The Mail Profile and account monogram: the first letter on brand graphite.
 function AccountMonogram({
@@ -1026,6 +1041,10 @@ function Hairline() {
   );
 }
 
+// Push buttons beside other controls keep their own width; elsewhere a push button takes its
+// column's width so a long title wraps.
+const InlinePushButtons = createContext(false);
+
 // A row: an optional SF Symbol or icon view, the title and its subtitle, then its trailing controls.
 export function SettingsRow({
   icon,
@@ -1150,7 +1169,7 @@ export function SettingsRow({
       )}
       {children === undefined ? null : (
         <View style={[styles.trailing, large && styles.trailingStacked]}>
-          {children}
+          <InlinePushButtons value={!large}>{children}</InlinePushButtons>
         </View>
       )}
     </View>
@@ -1267,6 +1286,15 @@ export function SettingsBlock({ children }: { readonly children: ReactNode }) {
   );
 }
 
+// Push buttons one above another in a block, their hit areas apart.
+export function PushButtonColumn({
+  children,
+}: {
+  readonly children: ReactNode;
+}) {
+  return <View style={styles.pushButtonColumn}>{children}</View>;
+}
+
 // Settings push buttons; while registration is busy they are disabled.
 export function settingsButton(busy: boolean): SettingsButton {
   return function SettingsPushButton(label, action, options) {
@@ -1285,6 +1313,57 @@ export function settingsButton(busy: boolean): SettingsButton {
   };
 }
 
+// Push buttons side by side; larger text, or buttons wider than the room, stack them.
+export function PushButtonRow({
+  style,
+  buttons,
+  children,
+}: {
+  readonly style: StyleProp<ViewStyle>;
+  // What the buttons show: a change, like a new text size, measures them again side by side.
+  readonly buttons: string;
+  readonly children: ReactNode;
+}) {
+  const large = useLargeText();
+  const { fontScale } = useWindowDimensions();
+  const [room, setRoom] = useState(Infinity);
+  const [measured, setMeasured] = useState({ fontScale, buttons, needed: 0 });
+  const stacked =
+    large ||
+    (measured.fontScale === fontScale &&
+      measured.buttons === buttons &&
+      measured.needed >= room);
+  return (
+    <View
+      style={stacked ? styles.pushButtonColumn : null}
+      onLayout={(event) => {
+        setRoom(event.nativeEvent.layout.width);
+      }}>
+      <InlinePushButtons value={!stacked}>
+        {stacked ? (
+          children
+        ) : (
+          // Sized by its buttons, so its width is the room they need.
+          <View
+            style={[styles.pushButton, style]}
+            onLayout={(event) => {
+              setMeasured({
+                fontScale,
+                buttons,
+                needed: event.nativeEvent.layout.width,
+              });
+            }}>
+            {children}
+          </View>
+        )}
+      </InlinePushButtons>
+    </View>
+  );
+}
+
+// A system button drawn as the frames' push button: a primary label on the quiet fill with the
+// control corners, or a destructive label without a fill, aligned with the row's text. The
+// bordered style would draw a darker capsule.
 function PushButton({
   busy,
   label,
@@ -1299,43 +1378,53 @@ function PushButton({
   readonly onPress: () => void;
 }) {
   const colors = usePalette();
+  const wrapping = !use(InlinePushButtons);
+  const shape = shapes.roundedRectangle({
+    cornerRadius: settingsColumns
+      ? radius.control * ipadListScale
+      : radius.control,
+  });
+  const side = settingsColumns ? spacing.m * ipadListScale : 14;
   return (
-    <Pressable
-      accessibilityLabel={label}
-      accessibilityRole="button"
-      accessibilityState={{ disabled: busy }}
-      disabled={busy}
-      hitSlop={buttonSlop}
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.button,
-        {
-          alignSelf: 'flex-start',
-          backgroundColor:
-            tone === 'destructive' ? 'transparent' : colors.fillQuiet,
-          opacity: busy ? 0.4 : 1,
-        },
-        pressed &&
-          tone !== 'destructive' && {
-            backgroundColor: colors.accentSelectionSubtle,
-          },
-      ]}>
-      {({ pressed }) => (
-        <Text
-          style={[
-            type.title,
-            {
-              textDecorationLine:
-                pressed && tone === 'destructive' ? 'underline' : 'none',
-              color:
+    <View style={wrapping ? styles.pushButtonWrapping : styles.pushButton}>
+      <Host
+        key={wrapping ? 'wrapping' : 'ideal'}
+        matchContents={wrapping ? { vertical: true } : true}
+        style={styles.pushButtonHost}>
+        <SwiftUIButton
+          role={tone ?? 'default'}
+          onPress={onPress}
+          modifiers={[
+            buttonStyle('plain'),
+            inactive(busy),
+            spokenLabel(label),
+            ...(wrapping
+              ? [frame({ maxWidth: Infinity, alignment: 'leading' })]
+              : []),
+          ]}>
+          <SwiftUIText
+            modifiers={[
+              font({ textStyle: settingsColumns ? 'subheadline' : 'body' }),
+              foregroundStyle(
                 tone === 'destructive'
                   ? colors.statusDestructive
                   : colors.textPrimary,
-            },
-          ]}>
-          {title}
-        </Text>
-      )}
-    </Pressable>
+              ),
+              padding({
+                horizontal: tone === 'destructive' ? 0 : side,
+                vertical: 6,
+              }),
+              frame({ minHeight: pushButtonHeight }),
+              ...(tone === 'destructive'
+                ? []
+                : [background(colors.fillQuiet, shape)]),
+              padding({ vertical: pushButtonSlop }),
+              contentShape(shapes.rectangle()),
+            ]}>
+            {title}
+          </SwiftUIText>
+        </SwiftUIButton>
+      </Host>
+    </View>
   );
 }

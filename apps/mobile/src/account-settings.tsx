@@ -75,6 +75,8 @@ import { native } from './registration.ts';
 import { RemoteContentSettings } from './remote-content.tsx';
 import { SettingsScroll } from './settings.tsx';
 import {
+  PushButtonColumn,
+  PushButtonRow,
   settingsColumns,
   SettingsActionRow,
   SettingsBlock,
@@ -134,48 +136,52 @@ function RemoveConfirmation({
           </View>
         </View>
       )}
-      <View style={styles.inline}>
-        {removing ? (
-          <ActivityIndicator
-            size="small"
-            color={colors.textSecondary}
-          />
-        ) : null}
-        {button(
-          removing
-            ? t('mailboxes.removing')
-            : t('mailboxes.remove', { address }),
-          async () => {
-            setFailed(undefined);
-            setRemoving(true);
-            const failure = await remove();
-            setRemoving(false);
-            if (failure === undefined) {
-              onClose();
-              return;
-            }
-            const message = t(
-              failure === 'unconfirmed'
-                ? 'mailboxes.removeUnconfirmed'
-                : 'mailboxes.removeFailed',
-              failure === 'offline'
-                ? { address, context: device }
-                : { address },
-            );
-            setFailed(message);
-            AccessibilityInfo.announceForAccessibility(message);
-          },
-          // iPhone's row has room for Remove and Cancel only without the address.
-          {
-            tone: 'destructive',
-            ...(device === 'iphone' &&
-              !removing && { title: t('settings.remove') }),
-          },
-        )}
+      <PushButtonRow
+        style={styles.inline}
+        buttons={removing ? 'removing' : 'remove'}>
+        <View style={styles.inline}>
+          {removing ? (
+            <ActivityIndicator
+              size="small"
+              color={colors.textSecondary}
+            />
+          ) : null}
+          {button(
+            removing
+              ? t('mailboxes.removing')
+              : t('mailboxes.remove', { address }),
+            async () => {
+              setFailed(undefined);
+              setRemoving(true);
+              const failure = await remove();
+              setRemoving(false);
+              if (failure === undefined) {
+                onClose();
+                return;
+              }
+              const message = t(
+                failure === 'unconfirmed'
+                  ? 'mailboxes.removeUnconfirmed'
+                  : 'mailboxes.removeFailed',
+                failure === 'offline'
+                  ? { address, context: device }
+                  : { address },
+              );
+              setFailed(message);
+              AccessibilityInfo.announceForAccessibility(message);
+            },
+            // iPhone's row has room for Remove and Cancel only without the address.
+            {
+              tone: 'destructive',
+              ...(device === 'iphone' &&
+                !removing && { title: t('settings.remove') }),
+            },
+          )}
+        </View>
         {button(t('mailboxes.cancel'), async () => {
           onClose();
         })}
-      </View>
+      </PushButtonRow>
     </>
   );
 }
@@ -1303,14 +1309,16 @@ export function AccountActions({
           <Text style={[styles.text, { color: colors.textPrimary }]}>
             {confirmation.description}
           </Text>
-          {button(confirmation.label, confirmation.action, {
-            tone: selected === 'deletion' ? 'destructive' : undefined,
-          })}
-          {pending === undefined
-            ? button(t('accountRemoval.cancel'), async () => {
-                setConfirming(undefined);
-              })
-            : null}
+          <PushButtonColumn>
+            {button(confirmation.label, confirmation.action, {
+              tone: selected === 'deletion' ? 'destructive' : undefined,
+            })}
+            {pending === undefined
+              ? button(t('accountRemoval.cancel'), async () => {
+                  setConfirming(undefined);
+                })
+              : null}
+          </PushButtonColumn>
         </SettingsBlock>
       )}
     </SettingsGroup>

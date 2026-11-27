@@ -29,6 +29,7 @@ import { AnnouncedAlert, SFSymbol } from './design.tsx';
 import { useLocalization } from './localization.ts';
 import { ProviderList, ProviderRow } from './onboarding.tsx';
 import { registrationStyles as styles } from './registration-styles.ts';
+import { PushButtonRow } from './settings.tsx';
 import { textStyles, usePalette } from './theme.ts';
 
 const providers = [
@@ -63,7 +64,12 @@ const formStyles = StyleSheet.create({
     borderCurve: 'continuous',
   },
   choiceLabel: { ...textStyles.subheadline },
-  actions: { flexDirection: 'row', justifyContent: 'flex-end', gap: spacing.s },
+  actions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    alignSelf: 'flex-end',
+    gap: spacing.s,
+  },
   notes: { ...textStyles.footnote },
   found: {
     flexDirection: 'row',
@@ -127,6 +133,7 @@ export function ImapSetup({
         onConnected={onClose}
         provider={provider}
         repair={repair}
+        settings
         store={store}
       />
     );
@@ -191,6 +198,7 @@ export function ImapForm({
   repair,
   onCancel,
   onConnected,
+  settings = false,
 }: {
   readonly store: Registration;
   readonly button: Button;
@@ -200,6 +208,8 @@ export function ImapForm({
   readonly repair: MailboxConnection | undefined;
   readonly onCancel: () => void;
   readonly onConnected: (() => void) | undefined;
+  // In Settings, Cancel and Connect are push buttons that stack when they do not fit.
+  readonly settings?: boolean;
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
@@ -302,6 +312,23 @@ export function ImapForm({
   const forgetPassword = () => {
     setFields((current) => ({ ...current, password: '', smtpPassword: '' }));
   };
+  const actions = (
+    <>
+      {button(t('imap.cancel'), async () => {
+        forgetPassword();
+        onCancel();
+      })}
+      {setup === undefined
+        ? null
+        : primaryButton(t('imap.connect'), async () => {
+            forgetPassword();
+            await store.connectImap(setup);
+            if (store.getSnapshot().imapFailure === undefined) {
+              onConnected?.();
+            }
+          })}
+    </>
+  );
   return (
     <View style={styles.device}>
       <Text
@@ -380,21 +407,15 @@ export function ImapForm({
         review={setup}
         failure={imapFailure}
       />
-      <View style={formStyles.actions}>
-        {button(t('imap.cancel'), async () => {
-          forgetPassword();
-          onCancel();
-        })}
-        {setup === undefined
-          ? null
-          : primaryButton(t('imap.connect'), async () => {
-              forgetPassword();
-              await store.connectImap(setup);
-              if (store.getSnapshot().imapFailure === undefined) {
-                onConnected?.();
-              }
-            })}
-      </View>
+      {settings ? (
+        <PushButtonRow
+          style={formStyles.actions}
+          buttons={setup === undefined ? 'cancel' : 'connect'}>
+          {actions}
+        </PushButtonRow>
+      ) : (
+        <View style={formStyles.actions}>{actions}</View>
+      )}
     </View>
   );
 }
