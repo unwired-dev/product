@@ -743,7 +743,9 @@ mail content.
   ([#3049](https://github.com/unwired-dev/product/issues/3049)).** Target, operator and
   toolchain as on 2026-11-25, on a new iPad Pro 11-inch (M5) Simulator on iOS 27.0.
   Build: a new Release build from the app source of
-  `f37589913f36101ccfe8f52d81329280108d6209`. Result: pass. A fresh Google Product
+  `f37589913f36101ccfe8f52d81329280108d6209`. Result: partial: the attachment checks
+  passed, the Undo Send window remains unverified, and credential handling is unverified
+  (see the limitations). A fresh Google Product
   Sign-In with the Recovery Key, then **Microsoft 365 and Outlook**, connected the
   personal mailbox with every address, password and the Recovery Key entered through the
   [Simulator pasteboard](imap-mailboxes.md#certification-runs-through-the-app); Microsoft
@@ -753,10 +755,10 @@ mail content.
   least 9 seconds after **Send**, which had gone 16 seconds after it; the message
   appeared once in **Sent Items** and arrived in the Inbox. In the reader beside the
   list, the photo showed in the body and the PDF was listed below it with Graph's listed
-  size, 933 bytes. **Download** saved it with its name and exactly the bytes sent (same
-  size and SHA-256 prefix), and **Open** showed it in Quick Look. After a relaunch the
+  size, 933 bytes. **Download** saved it with its name, the 603 bytes sent and the same
+  SHA-256 prefix, and **Open** showed it in Quick Look. After a relaunch the
   photo still showed and the PDF was listed with **Download**, as a relaunch deletes the
-  files an earlier process downloaded; it downloaded again with the same bytes. An
+  files an earlier process downloaded; it downloaded again with the same size and prefix. An
   earlier message from the same run carried the PDF and the same photo from **Attach
   Photo**, which adds a photo as a file: it arrived with both listed as attachments,
   which is the documented behavior. **Sign Out of This Device** returned the app to
@@ -765,12 +767,16 @@ mail content.
   when the accessibility snapshot failed, the device driver saved a screenshot on its own
   into the repository checkout while the composer's keyboard was shown, shortly after the
   mailbox address had been pasted and about nine minutes after the last password; it was
-  deleted unopened. With
+  deleted unopened
+  ([#3053](https://github.com/unwired-dev/product/issues/3053)). With
   the Simulator deleted, `simulator-credentials.zsh scan`, run on each path, found no
   password or Recovery Key in `~/.agent-device`, `~/Library/Logs`, T3 Code's device
   directory, the shell history, the temporary directory, the repository's `artifacts`
   directory with this run's DerivedData, the scratch files or this run's session
   transcripts. Limitations: Microsoft's one-time sign-in code was typed, as it expires
   within minutes; the first entry typed no digit, and the same code typed again after
-  focusing the first digit field was accepted. Mac, iPad attachments of 3 MB or more,
+  focusing the first digit field was accepted. The **Outbox** row was seen 9 seconds
+  after **Send** and was gone 16 seconds after it, so the observations do not show that
+  the message left after the 10-second window. The scan reads text, not the driver's
+  screenshot, so it cannot show that no password or Recovery Key was captured. Mac, iPad attachments of 3 MB or more,
   renewal and revocation, and uncertain outcomes were not run and stay on #637.
