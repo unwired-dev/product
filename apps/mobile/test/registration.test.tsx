@@ -3892,20 +3892,38 @@ describe('product registration', () => {
       });
       expect(screen.getByRole('button', { name: title })).toBeEnabled();
       slow.mockRestore();
-      // An unreadable Contacts says no one is exempted before Block is pressed.
+      // Unreadable Contacts can exempt no one: the sheet says so, and Block asks before blocking
+      // without them; Try Again reads Contacts again.
       await press('Cancel');
       const unreadable = jest
         .spyOn(Contact, 'getAllDetails')
         .mockRejectedValueOnce(new Error('unreadable'));
       await sheet();
       await expect(
-        screen.findByText('Contacts couldn’t be read, so none are exempted.'),
+        screen.findByText(
+          'Contacts couldn’t be read, so new mail from your contacts at mail.example.invalid would go to Trash too. Block offers to read them again.',
+        ),
       ).resolves.toBeVisible();
       unreadable.mockRestore();
-      await press('Cancel');
-      await sheet();
+      await press(title);
+      expect(notSaved).toHaveBeenLastCalledWith(
+        'Block mail.example.invalid without exempting contacts?',
+        'Contacts couldn’t be read, so new mail from your contacts at mail.example.invalid will go to Trash too.',
+        [
+          expect.objectContaining({ text: 'Try Again' }),
+          expect.objectContaining({ text: 'Cancel', style: 'cancel' }),
+          expect.objectContaining({ text: title, style: 'destructive' }),
+        ],
+      );
+      await expect(
+        blocked.blockedDomains(defaultProfile),
+      ).resolves.toStrictEqual([]);
+      await act(async () => {
+        // Try Again comes first.
+        notSaved.mock.lastCall?.[2]?.[0]?.onPress?.();
+      });
       await waitFor(() => {
-        expect(screen.getByRole('button', { name: title })).toBeEnabled();
+        expect(screen.getByLabelText('Contacts at This Domain')).toBeVisible();
       });
       expect(
         choice('mail.example.invalid and its subdomains').props

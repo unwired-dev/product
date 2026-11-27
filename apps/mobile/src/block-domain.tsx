@@ -29,8 +29,9 @@ import {
   spacing,
   typography,
 } from '@private-email/mail-core/theme';
-import { use, useState } from 'react';
+import { use, useEffect, useState } from 'react';
 import {
+  AccessibilityInfo,
   Alert,
   Platform,
   Pressable,
@@ -162,9 +163,11 @@ function SheetButton({
 function BlockDomainForm({
   sender,
   onClose,
+  onRetry,
 }: {
   readonly sender: DomainSender;
   readonly onClose: () => void;
+  readonly onRetry: () => void;
 }) {
   const store = use(BlockedSendersContext);
   const colors = usePalette();
@@ -176,6 +179,12 @@ function BlockDomainForm({
   // Contacts already readable; blocking never asks for Contacts access, and waits for the read so
   // the exemption is not lost.
   const read = useContactAddresses(true, false);
+  const unreadable = t('blockedSenders.exemptContactsUnreadable', { domain });
+  useEffect(() => {
+    if (read.failed) {
+      AccessibilityInfo.announceForAccessibility(unreadable);
+    }
+  }, [read.failed, unreadable]);
   const contacts = addressesAtDomain(
     domain,
     subdomains,
@@ -299,7 +308,7 @@ function BlockDomainForm({
                   {/* Block then exempts no one, so say so before it is pressed. */}
                   <Text
                     style={[styles.detail, { color: colors.statusWarning }]}>
-                    {t('blockedSenders.exemptContactsUnreadable')}
+                    {unreadable}
                   </Text>
                 </View>
               </View>
@@ -353,7 +362,26 @@ function BlockDomainForm({
           color={colors.statusDestructive}
           disabled={saving || !read.settled}
           onPress={() => {
-            void block();
+            if (!read.failed) {
+              void block();
+              return;
+            }
+            // Unreadable Contacts can exempt no one: say what Block then does, and offer a read.
+            Alert.alert(
+              t('blockedSenders.blockDomainUnexempted', { domain }),
+              t('blockedSenders.blockDomainUnexemptedDetail', { domain }),
+              [
+                { text: t('common.retry'), onPress: onRetry },
+                { text: t('common.cancel'), style: 'cancel' },
+                {
+                  text: t('blockedSenders.blockDomainAction', { domain }),
+                  style: 'destructive',
+                  onPress: () => {
+                    void block();
+                  },
+                },
+              ],
+            );
           }}
         />
       </View>
@@ -423,6 +451,9 @@ export function BlockDomainSheet({
                 key={opening}
                 sender={sender}
                 onClose={onClose}
+                onRetry={() => {
+                  setOpening(opening + 1);
+                }}
               />
             </View>
           </RNHostView>
