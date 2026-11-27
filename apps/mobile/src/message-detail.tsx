@@ -114,7 +114,7 @@ import { ReplySheet } from './reply-sheet.tsx';
 import { SidebarToggleContext } from './sidebar-toggle.tsx';
 import { textStyles, usePalette } from './theme.ts';
 import { MessageTranslation } from './translation.tsx';
-import { UnsubscribeBanner } from './unsubscribe.tsx';
+import { UnsubscribeBanner, useUnsubscribeToast } from './unsubscribe.tsx';
 
 // On iPhone the reader is a pushed screen with its own header and bottom toolbar, in every
 // orientation; on iPad the toolbar sits at the top like the Mac's.
@@ -123,6 +123,8 @@ const compact = Platform.OS === 'ios' && !Platform.isPad;
 // floating toolbar's 52pt glass sits 2pt above the bottom safe area, as the frames place them.
 const readerEdges = { top: true, bottom: !compact, left: true, right: true };
 const toolbarLift = 2;
+// The toolbar the reader's toast sits 12pt above: iPhone's 52pt glass or iPad's scaled bar.
+const bottomToolbarHeight = compact ? 52 : scaledToolbarHeight;
 // The iPad reader follows the Mac reading pane at 1.15×: 46pt side padding, and the subject 82.8pt
 // beneath the safe area, under the toolbar.
 const sideInset = compact ? spacing.l : 40 * ipadListScale;
@@ -1089,6 +1091,7 @@ function MailboxMessage({
     id,
     state.kind === 'ready' && message !== undefined,
   );
+  const unsubscribing = useUnsubscribeToast(id, message);
   // A new message sends from the reader's mailbox when it can, otherwise as the Inbox's New
   // Message does in its Mail Profile.
   const mailboxes = account?.mailboxes ?? [];
@@ -1205,8 +1208,9 @@ function MailboxMessage({
             <SaveOutcomeToast
               shown={saving.shown}
               bottom={
-                insets.bottom + toolbarLift + scaledToolbarHeight + spacing.m
+                insets.bottom + toolbarLift + bottomToolbarHeight + spacing.m
               }
+              other={unsubscribing}
             />
           </LinkConfirmationProvider>
         </SaveOutcomeContext>
