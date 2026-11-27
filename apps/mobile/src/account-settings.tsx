@@ -12,6 +12,7 @@ import type {
   RegistrationScreen,
   RemovalFailure,
 } from '@private-email/mail-core/registration';
+import type { HostInstance } from 'react-native';
 
 import {
   HStack,
@@ -41,7 +42,7 @@ import {
   palette,
   typography,
 } from '@private-email/mail-core/theme';
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { use, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import {
   AccessibilityInfo,
   ActivityIndicator,
@@ -73,6 +74,7 @@ import { MailProfilesSettings } from './profile-settings.tsx';
 import { registrationStyles as styles } from './registration-styles.ts';
 import { native } from './registration.ts';
 import { RemoteContentSettings } from './remote-content.tsx';
+import { SettingsScroll } from './settings.tsx';
 import {
   settingsColumns,
   SettingsBlock,
@@ -347,6 +349,8 @@ function Mailboxes({
     mailbox.state === 'connected'
       ? updatedOf(t, inboxes.find(({ id }) => id === mailbox.id)?.state, now)
       : undefined;
+  const scroll = use(SettingsScroll);
+  const repairForm = useRef<HostInstance>(null);
   const [confirming, setConfirming] = useState<MailboxConnection['id']>();
   // The IMAP connection whose password is being entered again, or a new one being added; each
   // request naming a mailbox opens its entry.
@@ -362,6 +366,21 @@ function Mailboxes({
       setImap(repairOf(request));
     }
   }
+  // A request naming a mailbox scrolls its password form into view, below the mailboxes above it.
+  useEffect(() => {
+    const content = scroll?.current?.getInnerViewRef();
+    if (
+      request?.mailbox === undefined ||
+      repairForm.current === null ||
+      content === undefined ||
+      content === null
+    ) {
+      return;
+    }
+    repairForm.current.measureLayout(content, (_left, top) => {
+      scroll?.current?.scrollTo({ y: top });
+    });
+  }, [request, scroll]);
   if (mailboxes.length === 0) {
     return null;
   }
@@ -444,14 +463,16 @@ function Mailboxes({
                   </Text>
                 ) : null}
                 {repairing ? (
-                  <ImapSetup
-                    button={button}
-                    onClose={() => {
-                      setImap(undefined);
-                    }}
-                    repair={mailbox}
-                    store={store}
-                  />
+                  <View ref={repairForm}>
+                    <ImapSetup
+                      button={button}
+                      onClose={() => {
+                        setImap(undefined);
+                      }}
+                      repair={mailbox}
+                      store={store}
+                    />
+                  </View>
                 ) : null}
                 {confirming === mailbox.id ? (
                   <RemoveConfirmation

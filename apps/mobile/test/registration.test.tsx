@@ -41,9 +41,11 @@ import {
   AccessibilityInfo,
   AppState,
   Pressable,
+  ScrollView,
   Text,
   TextInput,
   TurboModuleRegistry,
+  View,
 } from 'react-native';
 
 import type { Selection } from '../src/inbox.tsx';
@@ -827,6 +829,19 @@ describe('product registration', () => {
     const repair = {
       name: 'Enter the Password for alex@icloud.example.invalid Again',
     };
+    // The form sits 640 points down the Settings content; the request scrolls to it.
+    const scrolled = jest
+      .spyOn(ScrollView.prototype, 'scrollTo')
+      .mockReturnValue(undefined);
+    jest.spyOn(View.prototype as never, 'measureLayout').mockImplementation(((
+      _relative: unknown,
+      success: (...values: number[]) => void,
+    ) => {
+      success(0, 640, 320, 400);
+    }) as never);
+    jest
+      .spyOn(ScrollView.prototype as never, 'getInnerViewRef')
+      .mockReturnValue({} as never);
     const request = async () => {
       await act(async () => {
         opener.open?.();
@@ -835,8 +850,9 @@ describe('product registration', () => {
     await screen.findByRole('button', {
       name: 'Inbox. In alex@icloud.example.invalid',
     });
-    // Email Accounts opens with that mailbox's entry.
+    // Email Accounts opens with that mailbox's entry, scrolled to it.
     await request();
+    expect(scrolled).toHaveBeenCalledWith({ y: 640 });
     expect(screen.getByRole('header', { name: 'iCloud Mail' })).toBeVisible();
     expect(screen.queryByRole('button', repair)).toBeNull();
     // Once closed, another request opens it again in the open Email Accounts.

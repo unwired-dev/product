@@ -1,8 +1,8 @@
-import type { ReactElement, ReactNode, Ref } from 'react';
+import type { ReactElement, ReactNode, Ref, RefObject } from 'react';
 import type { PressableProps } from 'react-native';
 
 import { radius, spacing } from '@private-email/mail-core/theme';
-import { Fragment, useState } from 'react';
+import { createContext, Fragment, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { Button, Glass, SFSymbol } from './design.tsx';
@@ -276,6 +276,15 @@ function SidebarItem({
 }
 
 // The Settings layout: the glass sidebar of destinations beside the selected destination's form.
+// The Settings detail's scroll view, which a request scrolls to what it reveals.
+export const SettingsScroll = createContext<
+  | Readonly<{
+      scroll: RefObject<ScrollView | null>;
+      content: RefObject<View | null>;
+    }>
+  | undefined
+>(undefined);
+
 export function SettingsWindow({
   account,
   destination,
@@ -297,6 +306,8 @@ export function SettingsWindow({
   const { t } = useLocalization();
   const [accountFocused, setAccountFocused] = useState(false);
   const selected = destination === 'account';
+  const scroll = useRef<ScrollView>(null);
+  const content = useRef<View>(null);
   return (
     <View style={[styles.window, { backgroundColor: colors.surfaceContent }]}>
       {/* The surface beneath the glass gives AppKit a layer to cast the sidebar's shadow from, as
@@ -413,23 +424,30 @@ export function SettingsWindow({
           )}
         </ScrollView>
       </View>
-      <ScrollView
-        style={[styles.detail, { backgroundColor: colors.surfaceContent }]}>
-        <View style={styles.titleRow}>
-          <Label
-            accessibilityRole="header"
-            style={[
-              textStyles.title3Emphasized,
-              { alignSelf: 'center', color: colors.textPrimary },
-            ]}>
-            {t(
-              `settings.destinations.${onWelcome === undefined ? destination : 'privacy'}`,
-            )}
-          </Label>
-          {accessory}
-        </View>
-        <View style={styles.content}>{children}</View>
-      </ScrollView>
+      <SettingsScroll value={{ scroll, content }}>
+        <ScrollView
+          ref={scroll}
+          style={[styles.detail, { backgroundColor: colors.surfaceContent }]}>
+          <View style={styles.titleRow}>
+            <Label
+              accessibilityRole="header"
+              style={[
+                textStyles.title3Emphasized,
+                { alignSelf: 'center', color: colors.textPrimary },
+              ]}>
+              {t(
+                `settings.destinations.${onWelcome === undefined ? destination : 'privacy'}`,
+              )}
+            </Label>
+            {accessory}
+          </View>
+          <View
+            ref={content}
+            style={styles.content}>
+            {children}
+          </View>
+        </ScrollView>
+      </SettingsScroll>
     </View>
   );
 }

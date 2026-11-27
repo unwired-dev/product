@@ -5,5 +5,5 @@
 
 When an IMAP mailbox's mail server refuses the password for an invitation
 response, the invitation card offers **Mailbox Settings…** below Accept, Maybe and
-Decline. It opens Settings at the mailboxes with that mailbox's password entry
-open (#2463).
+Decline. It opens Settings at the mailboxes, scrolled to that mailbox's password entry
+(#2463).

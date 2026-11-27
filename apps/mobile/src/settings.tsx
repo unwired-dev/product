@@ -1,4 +1,5 @@
-import type { ReactElement, ReactNode } from 'react';
+import type { ReactElement, ReactNode, RefObject } from 'react';
+import type { ScrollViewInstance } from 'react-native';
 
 import { Host, Button as SwiftUIButton } from '@expo/ui/swift-ui';
 import {
@@ -15,7 +16,7 @@ import {
   spacing,
   typography,
 } from '@private-email/mail-core/theme';
-import { Fragment } from 'react';
+import { createContext, Fragment, useRef } from 'react';
 import {
   Platform,
   Pressable,
@@ -39,6 +40,11 @@ import { useLocalization } from './localization.ts';
 import { textStyles, useLargeText, usePalette } from './theme.ts';
 
 // Settings destinations this client supports; the others follow their owning issues.
+// The Settings content's scroll view, which a request scrolls to what it reveals.
+export const SettingsScroll = createContext<
+  RefObject<ScrollViewInstance | null> | undefined
+>(undefined);
+
 export type SettingsDestination =
   | 'account'
   | 'mailboxes'
@@ -538,13 +544,15 @@ export function SettingsWorkspace({
   const { t } = useLocalization();
   const insets = useSafeAreaInsets();
   const header = usePaletteHeader();
+  const scroll = useRef<ScrollViewInstance>(null);
   const content =
     edit === undefined ? (
       // A control beside a field, such as the signature's Bold, acts on the first tap.
       <ScrollView
+        ref={scroll}
         contentContainerStyle={styles.content}
         keyboardShouldPersistTaps="handled">
-        {children}
+        <SettingsScroll value={scroll}>{children}</SettingsScroll>
       </ScrollView>
     ) : (
       <View style={styles.page}>{children}</View>

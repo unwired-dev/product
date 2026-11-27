@@ -52,6 +52,7 @@ import {
   AppState,
   DeviceEventEmitter,
   Pressable,
+  ScrollView,
   Text,
   TurboModuleRegistry,
   View,
@@ -947,6 +948,16 @@ describe('product registration', () => {
     const repair = {
       name: 'Enter the Password for alex@icloud.example.invalid Again',
     };
+    // The form sits 640 points down the Settings content; the request scrolls to it.
+    const scrolled = jest
+      .spyOn(ScrollView.prototype, 'scrollTo')
+      .mockReturnValue(undefined);
+    jest.spyOn(View.prototype as never, 'measureLayout').mockImplementation(((
+      _relative: unknown,
+      success: (...values: number[]) => void,
+    ) => {
+      success(0, 640, 320, 400);
+    }) as never);
     const request = async () => {
       await act(async () => {
         openSettings(
@@ -959,6 +970,7 @@ describe('product registration', () => {
     // From another destination, Email Accounts opens with that mailbox's entry.
     await openAccount();
     await request();
+    expect(scrolled).toHaveBeenCalledWith({ y: 640 });
     expect(
       settingsWindow().getByRole('header', { name: 'iCloud Mail' }),
     ).toBeVisible();

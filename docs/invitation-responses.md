@@ -222,8 +222,11 @@ mail server** for a reviewed provider, **The mail server** for any other.
   you to sign in again** · _{address} can’t send responses until you sign in.
   Nothing has been sent._ and leaves every choice
   ([#2463](https://github.com/unwired-dev/product/issues/2463)). **Mailbox
-  Settings…** below them opens Settings at the mailboxes with that mailbox's
-  password entry open.
+  Settings…** below them opens Settings at the mailboxes, scrolled to that mailbox's
+  password entry, which opens in place beneath its row among the other mailboxes.
+  This is the accepted reading of the owner's
+  [decision](https://github.com/unwired-dev/product/issues/2463): no separate
+  mailbox page exists.
 - **View in Outbox** shows the window's Outbox, ending any search that would hide
   it. On Mac that is the sidebar's Outbox; on iPhone and iPad, until the rest of
   [#2101](https://github.com/unwired-dev/product/issues/2101), it is the Outbox at
