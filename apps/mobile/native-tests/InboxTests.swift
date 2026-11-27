@@ -116,6 +116,10 @@ final class InboxTests: XCTestCase {
     try audit(app, "Sync Status Details Progress")
     let done = app.buttons["Done"]
     if done.exists {
+      // #3077: the sheet's own drag, released early from a system button, fires nothing.
+      swipeReleasedEarly(from: done.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)))
+      XCTAssertFalse(
+        title.waitForNonExistence(timeout: 3), "Done closed the details at a swipe released early")
       done.tap()
     } else {
       // The popover opens above its capsule.
@@ -137,6 +141,12 @@ final class InboxTests: XCTestCase {
       XCTAssertLessThanOrEqual(tryAgain.frame.maxY, attention.frame.minY)
     }
     try audit(app, "Sync Status Details Attention")
+    if done.exists {
+      swipeReleasedEarly(
+        from: tryAgain.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)))
+      XCTAssertFalse(
+        attention.waitForNonExistence(timeout: 5), "Try Again fired at a swipe released early")
+    }
     // The connection's own Try Again downloads the rest, and the details close with the capsule.
     tryAgain.tap()
     XCTAssertTrue(attention.waitForNonExistence(timeout: 30))
