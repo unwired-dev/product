@@ -64,7 +64,12 @@ const formStyles = StyleSheet.create({
     borderCurve: 'continuous',
   },
   choiceLabel: { ...textStyles.subheadline },
-  actions: { flexDirection: 'row', justifyContent: 'flex-end', gap: spacing.s },
+  actions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    alignSelf: 'flex-end',
+    gap: spacing.s,
+  },
   notes: { ...textStyles.footnote },
   found: {
     flexDirection: 'row',
@@ -128,6 +133,7 @@ export function ImapSetup({
         onConnected={onClose}
         provider={provider}
         repair={repair}
+        settings
         store={store}
       />
     );
@@ -192,6 +198,7 @@ export function ImapForm({
   repair,
   onCancel,
   onConnected,
+  settings = false,
 }: {
   readonly store: Registration;
   readonly button: Button;
@@ -201,9 +208,12 @@ export function ImapForm({
   readonly repair: MailboxConnection | undefined;
   readonly onCancel: () => void;
   readonly onConnected: (() => void) | undefined;
+  // In Settings, Cancel and Connect are push buttons that stack when they do not fit.
+  readonly settings?: boolean;
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
+  const Actions = settings ? PushButtonRow : View;
   const { imapFailure } = useSyncExternalStore(
     store.subscribe,
     store.getSnapshot,
@@ -381,7 +391,7 @@ export function ImapForm({
         review={setup}
         failure={imapFailure}
       />
-      <PushButtonRow style={formStyles.actions}>
+      <Actions style={formStyles.actions}>
         {button(t('imap.cancel'), async () => {
           forgetPassword();
           onCancel();
@@ -395,7 +405,7 @@ export function ImapForm({
                 onConnected?.();
               }
             })}
-      </PushButtonRow>
+      </Actions>
     </View>
   );
 }

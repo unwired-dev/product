@@ -29,7 +29,7 @@ import {
   spacing,
   typography,
 } from '@private-email/mail-core/theme';
-import { createContext, Fragment, use } from 'react';
+import { createContext, Fragment, use, useState } from 'react';
 import {
   Platform,
   Pressable,
@@ -1286,7 +1286,7 @@ export function settingsButton(busy: boolean): SettingsButton {
   };
 }
 
-// Push buttons side by side; larger text stacks them.
+// Push buttons side by side; larger text, or buttons wider than the room, stack them.
 export function PushButtonRow({
   style,
   children,
@@ -1295,9 +1295,29 @@ export function PushButtonRow({
   readonly children: ReactNode;
 }) {
   const large = useLargeText();
+  const [room, setRoom] = useState(Infinity);
+  const [needed, setNeeded] = useState(0);
+  const stacked = large || needed >= room;
   return (
-    <View style={large ? styles.pushButtonColumn : style}>
-      <InlinePushButtons value={!large}>{children}</InlinePushButtons>
+    <View
+      style={stacked ? styles.pushButtonColumn : null}
+      onLayout={(event) => {
+        setRoom(event.nativeEvent.layout.width);
+      }}>
+      <InlinePushButtons value={!stacked}>
+        {stacked ? (
+          children
+        ) : (
+          // Sized by its buttons, so its width is the room they need.
+          <View
+            style={[styles.pushButton, style]}
+            onLayout={(event) => {
+              setNeeded(event.nativeEvent.layout.width);
+            }}>
+            {children}
+          </View>
+        )}
+      </InlinePushButtons>
     </View>
   );
 }
