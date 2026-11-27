@@ -171,7 +171,10 @@ export function SaveOutcomeToast({
       />
     );
   }
-  toast ??= other;
+  // A closed save toast gives its place back to the other toast.
+  if (other !== null && shown?.open !== true) {
+    toast = other;
+  }
   useLayoutEffect(() => {
     windowBar?.showReaderNotice(toast);
   });

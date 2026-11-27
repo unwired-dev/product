@@ -1,10 +1,12 @@
+import type { ReactNode } from 'react';
+
 import { createImapInbox } from '@private-email/mail-core/imap-inbox';
 import { createInboxStore } from '@private-email/mail-core/inbox-store';
 import { createSyntheticGmail } from '@private-email/mail-core/testing/gmail-mailbox';
 import { createSyntheticImap } from '@private-email/mail-core/testing/imap-mailbox';
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { useLayoutEffect } from 'react';
-import { AccessibilityInfo, Linking } from 'react-native';
+import { AccessibilityInfo, Linking, Text } from 'react-native';
 
 import {
   SaveFailedNotice,
@@ -429,11 +431,14 @@ function SavingReader({
   inbox,
   id,
   readable = true,
+  other,
 }: {
   readonly inbox: ReturnType<typeof createInboxStore>;
   readonly id: string;
   // False while storage is locked.
   readonly readable?: boolean;
+  // Another reader toast sharing the place, such as an Unsubscribe request's Undo Send.
+  readonly other?: ReactNode;
 }) {
   const saving = useSaveOutcome(id, readable);
   return (
@@ -446,13 +451,14 @@ function SavingReader({
       <SaveOutcomeToast
         shown={saving.shown}
         bottom={0}
+        other={other}
       />
     </SaveOutcomeContext>
   );
 }
 
 // Renders a reader around one downloaded notes.txt, with its context menu and Save to Files… item.
-const openSaving = async () => {
+const openSaving = async (other?: ReactNode) => {
   const gmail = createSyntheticGmail();
   const id = gmail.deliver({ content: { text: 'Notes attached.' } });
   const inbox = createInboxStore(gmail.native);
@@ -461,6 +467,7 @@ const openSaving = async () => {
     <SavingReader
       inbox={inbox}
       id={id}
+      other={other}
     />,
   );
   await fireEvent.press(await screen.findByLabelText('Download notes.txt'));
@@ -501,6 +508,29 @@ describe('saving a received attachment to Files', () => {
     } finally {
       await app.unmount();
       show.mockRestore();
+    }
+  });
+
+  it('gives its place back to the reader’s other toast once the saved toast closes', async () => {
+    expect.hasAssertions();
+    // Only the saved toast's timer is controlled.
+    jest.useFakeTimers({
+      doNotFake: ['nextTick', 'setImmediate', 'queueMicrotask'],
+    });
+    const { app, save } = await openSaving(<Text>Undo Send toast</Text>);
+    try {
+      await save();
+      await expect(
+        screen.findByText('Saved to Downloads'),
+      ).resolves.toBeOnTheScreen();
+      expect(screen.queryByText('Undo Send toast')).toBeNull();
+      await act(async () => {
+        jest.advanceTimersByTime(6000);
+      });
+      expect(screen.getByText('Undo Send toast')).toBeOnTheScreen();
+    } finally {
+      await app.unmount();
+      jest.useRealTimers();
     }
   });
 
