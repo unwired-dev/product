@@ -59,7 +59,8 @@ const metric = (iphone: number, mac: number) =>
 // centred 400pt sheet uses the iPad list type. iPad draws no divider between the choices.
 const styles = StyleSheet.create({
   sheet: { flex: 1, gap: 10, padding: 20 },
-  panel: { width: 400, gap: 10, padding: 20 },
+  // The fitted form sheet adds 10pt above and below its content.
+  panel: { width: 400, gap: 10, paddingHorizontal: 20, paddingVertical: 10 },
   content: { gap: 10 },
   scroll: { flexShrink: 1 },
   title: { ...textStyles.headline },
