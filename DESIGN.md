@@ -85,6 +85,7 @@ Graphite neutrals with a single warm seal.
 | On Apple button   | `apple/on-button`          | Text and the Apple logo on the Apple button                          |
 | Primary text      | `text/primary`             | Mirrors macOS Labels/Primary                                         |
 | Secondary text    | `text/secondary`           | Previews, timestamps, captions, section headers                      |
+| Detail text       | `textDetail` (code only)   | iPhone and iPad Settings Row second line: 60% black or white         |
 | Content surface   | `surface/content`          | Message list and reading pane                                        |
 | Sidebar surface   | `surface/sidebar`          | Opaque stand-in for the sidebar material                             |
 | Panel surface     | `surface/panel`            | iPad floating sidebar panels, as the frames' glass reads             |
