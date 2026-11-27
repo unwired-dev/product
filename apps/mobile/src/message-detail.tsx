@@ -123,7 +123,8 @@ const compact = Platform.OS === 'ios' && !Platform.isPad;
 // floating toolbar's 52pt glass sits 2pt above the bottom safe area, as the frames place them.
 const readerEdges = { top: true, bottom: !compact, left: true, right: true };
 const toolbarLift = 2;
-const compactToolbarHeight = 52;
+// The toolbar the reader's toast sits 12pt above: iPhone's 52pt glass or iPad's scaled bar.
+const bottomToolbarHeight = compact ? 52 : scaledToolbarHeight;
 // The iPad reader follows the Mac reading pane at 1.15×: 46pt side padding, and the subject 82.8pt
 // beneath the safe area, under the toolbar.
 const sideInset = compact ? spacing.l : 40 * ipadListScale;
@@ -1207,10 +1208,7 @@ function MailboxMessage({
             <SaveOutcomeToast
               shown={saving.shown}
               bottom={
-                insets.bottom +
-                toolbarLift +
-                (compact ? compactToolbarHeight : scaledToolbarHeight) +
-                spacing.m
+                insets.bottom + toolbarLift + bottomToolbarHeight + spacing.m
               }
               other={unsubscribing}
             />
