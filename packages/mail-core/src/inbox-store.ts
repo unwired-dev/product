@@ -4387,28 +4387,29 @@ export function createInboxStore(
       const scope = opened;
       const reading = owner;
       const { vacation, automaticReplies } = providerReader;
-      if (
-        scope === undefined ||
-        state.kind !== 'ready' ||
-        (vacation === undefined && automaticReplies === undefined)
-      ) {
+      if (scope === undefined || state.kind !== 'ready') {
         return Promise.resolve(undefined);
       }
-      const label = 'Out of Office could not be read:';
-      const read: Effect.Effect<
-        OutOfOfficeRead,
-        SyncFailure | GmailNotFound | GmailInvalidPage
-      > =
+      const read:
+        | Effect.Effect<
+            OutOfOfficeRead,
+            SyncFailure | GmailNotFound | GmailInvalidPage
+          >
+        | undefined =
         vacation === undefined
-          ? automaticReplies!(scope).pipe(
+          ? automaticReplies?.(scope).pipe(
               Effect.map((replies) => ({
                 kind: 'found',
                 automaticReplies: replies,
               })),
             )
           : vacation(scope).pipe(
-              Effect.map((found) => ({ kind: 'found', vacation: found })),
+              Effect.map((settings) => ({ kind: 'found', vacation: settings })),
             );
+      if (read === undefined) {
+        return Promise.resolve(undefined);
+      }
+      const label = 'Out of Office could not be read:';
       return runLogged(
         read.pipe(
           Effect.catchTags({

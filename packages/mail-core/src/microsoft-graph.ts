@@ -4,6 +4,7 @@ import * as Base64Url from 'effect/encoding/Base64Url';
 import * as Option from 'effect/Option';
 import * as Result from 'effect/Result';
 import * as Schema from 'effect/Schema';
+import * as SchemaTransformation from 'effect/SchemaTransformation';
 
 import type { GmailAction } from './gmail-actions.ts';
 import type { GmailPart } from './message-body.ts';
@@ -355,16 +356,32 @@ const GraphPlacementSchema = Schema.Struct({
 export const decodeGraphPlacement = json(GraphPlacementSchema);
 export const decodeGraphFolder = json(Schema.Struct({ id: GraphId }));
 
-// Graph's date and time with the time zone it is in; nothing is converted.
+// Graph's date and time in the time zone it names; nothing is converted.
 const GraphZonedTime = Schema.Struct({
-  dateTime: Schema.String,
+  dateTime: Schema.String.check(
+    Schema.isPattern(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,7})?$/u),
+  ),
   timeZone: Schema.String,
 });
+// One of Graph's enumeration values, in any letter case, as the documented spelling.
+const graphEnum = <const L extends readonly [string, ...string[]]>(values: L) =>
+  Schema.String.pipe(
+    Schema.decodeTo(
+      Schema.Literals(values),
+      SchemaTransformation.transform({
+        decode: (value) =>
+          (values.find(
+            (known) => known.toLowerCase() === value.toLowerCase(),
+          ) ?? value) as L[number],
+        encode: (value) => value,
+      }),
+    ),
+  );
 // Automatic replies as Graph stores them: a field Graph leaves out stays out.
-export const GraphAutomaticRepliesSchema = Schema.Struct({
-  status: Schema.Literals(['disabled', 'alwaysEnabled', 'scheduled']),
+const GraphAutomaticRepliesSchema = Schema.Struct({
+  status: graphEnum(['disabled', 'alwaysEnabled', 'scheduled']),
   externalAudience: Schema.optionalKey(
-    Schema.Literals(['none', 'contactsOnly', 'all']),
+    graphEnum(['none', 'contactsOnly', 'all']),
   ),
   internalReplyMessage: Schema.optionalKey(Schema.String),
   externalReplyMessage: Schema.optionalKey(Schema.String),

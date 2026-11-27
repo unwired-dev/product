@@ -226,9 +226,9 @@ mailbox's automatic replies, Outlook's name for Out of Office. No screen shows i
   lets a Graph read reach. The answer is decoded as Graph stores it: the status
   (`disabled`, `alwaysEnabled` or `scheduled`), the external audience, the internal and
   external messages, and the scheduled start and end, each with the time zone Graph
-  names. A field Graph leaves out stays out. Nothing is cached.
-- **Failures.** A malformed answer, no connection or a provider failure answers
-  unavailable, as a [search](#organizing-and-searching) does. A 403 answers unavailable
+  names, in any letter case Graph uses. A field Graph leaves out stays out. Nothing is cached.
+- **Failures.** Before the Inbox opens it reads nothing. A malformed answer or a provider
+  failure answers unavailable, as a [search](#organizing-and-searching) does. A 403 answers unavailable
   with the reason `permission` and leaves the Inbox as it is, because mail still works
   without the settings grant; any other refused token asks for Microsoft again, as every
   read does. An answer for an Inbox that closed meanwhile is dropped.

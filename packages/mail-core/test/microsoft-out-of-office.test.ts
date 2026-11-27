@@ -56,7 +56,8 @@ describe("reading a Microsoft mailbox's automatic replies", () => {
         '@odata.context': 'https://graph.microsoft.com/v1.0/$metadata',
         ...scheduled,
       }),
-      answer({ status: 'disabled', externalAudience: 'none' }),
+      // Graph's own example spells the values with a capital letter.
+      answer({ status: 'Disabled', externalAudience: 'None' }),
       answer({ status: 'alwaysEnabled', internalReplyMessage: '' }),
     );
 
@@ -90,9 +91,14 @@ describe("reading a Microsoft mailbox's automatic replies", () => {
       answer({ status: 'sometimes' }),
       answer({ status: 'scheduled', scheduledStartDateTime: '2026-11-30' }),
       answer({ externalAudience: 'all' }),
+      answer({
+        status: 'scheduled',
+        scheduledStartDateTime: { dateTime: 'tomorrow', timeZone: 'UTC' },
+      }),
       answer({}, 503),
       new Error('The request never left this device.'),
       answer({}, 404),
+      answer({}, 410),
       answer({}, 500),
     );
     for (const reason of [
@@ -101,6 +107,8 @@ describe("reading a Microsoft mailbox's automatic replies", () => {
       'offline',
       'offline',
       'offline',
+      'offline',
+      'failed',
       'failed',
       'offline',
     ]) {

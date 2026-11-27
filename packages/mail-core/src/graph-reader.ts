@@ -1237,7 +1237,7 @@ export function createGraphReader(
     ) => Effect.succeed(preflight),
     invitations: true,
     automaticReplies: (scope: MailboxScope) =>
-      graphGet(scope)(graphAutomaticReplies, decodeGraphAutomaticReplies),
+      graphRead(scope)(graphAutomaticReplies, decodeGraphAutomaticReplies),
     labels,
     readLabels,
     modify,
