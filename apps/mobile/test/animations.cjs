@@ -342,6 +342,7 @@ jest.mock('@expo/ui/swift-ui/modifiers', () => ({
   foregroundStyle: (style) => ({ $type: 'foregroundStyle', style }),
   frame: (params) => ({ $type: 'frame', ...params }),
   ignoreSafeArea: (params) => ({ $type: 'ignoreSafeArea', ...params }),
+  kerning: (value) => ({ $type: 'kerning', value }),
   listRowBackground: (color) => ({ $type: 'listRowBackground', color }),
   listStyle: (style) => ({ $type: 'listStyle', style }),
   monospacedDigit: () => ({ $type: 'monospacedDigit' }),

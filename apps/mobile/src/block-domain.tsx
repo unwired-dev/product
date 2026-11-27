@@ -258,8 +258,8 @@ function BlockDomainForm({
               {subdomains === value ? (
                 <SFSymbol
                   name="checkmark"
-                  // iPad's mark is the list type's, about 10pt of ink.
-                  size={compact ? 16 : 11}
+                  // The frames' mark is about 11pt of ink on iPhone and 10pt on iPad.
+                  size={compact ? 13.5 : 11}
                   color={colors.textSecondary}
                 />
               ) : null}

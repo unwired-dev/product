@@ -8,6 +8,7 @@ import {
   environment,
   font,
   foregroundStyle,
+  kerning,
   listRowBackground,
   listStyle,
   scrollContentBackground,
@@ -143,6 +144,10 @@ const primary = (tone: string) => [
   foregroundStyle(tone),
 ];
 
+// The frames start an iPhone row's second line 24pt below its first, which SwiftUI's natural line
+// heights reach with 4pt between them.
+const rowSpacing = device === 'ipad' ? 2 : 4;
+
 // A row's second line: its block date and count, or a failed unblock.
 const detail = (tone: string) => [
   font({ textStyle: 'footnote' }),
@@ -207,6 +212,8 @@ function SectionHeader({
         <Text
           modifiers={[
             font({ size: 20, weight: 'semibold' }),
+            // The frames track the name at -0.23pt, 0.22pt looser than the system's 20pt.
+            kerning(0.22),
             foregroundStyle(colors.textPrimary),
           ]}>
           {profile}
@@ -364,7 +371,7 @@ export function BlockedSenderSettings({
                     {({ item: block }) => (
                       <VStack
                         alignment="leading"
-                        spacing={2}
+                        spacing={rowSpacing}
                         modifiers={[listRowBackground(colors.fillQuiet)]}>
                         <Text modifiers={primary(colors.textPrimary)}>
                           {block.domain}
@@ -408,7 +415,7 @@ export function BlockedSenderSettings({
                       return (
                         <VStack
                           alignment="leading"
-                          spacing={2}
+                          spacing={rowSpacing}
                           modifiers={[listRowBackground(colors.fillQuiet)]}>
                           <Text modifiers={primary(colors.textPrimary)}>
                             {address}
