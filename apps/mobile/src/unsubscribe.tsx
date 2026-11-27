@@ -8,6 +8,7 @@ import type {
   UnsubscribeOffer,
   UnsubscribeOutcome,
 } from '@private-email/mail-core/unsubscribe';
+import type { ReactNode } from 'react';
 
 import { Alert, Button, Host, Spacer, Text } from '@expo/ui/swift-ui';
 import { frame } from '@expo/ui/swift-ui/modifiers';
@@ -116,6 +117,100 @@ const pendingOf = (pending: OutboxSnapshotEntry) => {
   }
   return { kind: 'queued', to } as const;
 };
+
+// Admits the `mailto:` request from `connection` in place of the message `key` names' last one; the
+// Outbox sends a refused or unknown request it holds again in place of `offer`, and answers with
+// one of the message's requests confirmed meanwhile.
+const email = async ({
+  outbox,
+  key,
+  connection,
+  epoch,
+  message,
+  receivedAt,
+  offer,
+}: Readonly<{
+  outbox: ReturnType<typeof useOutbox>;
+  key: string;
+  connection: string;
+  // The connection's incarnation the request was confirmed for.
+  epoch: string;
+  // The message that offered the request, and when it arrived.
+  message: string;
+  receivedAt: number | undefined;
+  offer: Extract<UnsubscribeOffer, { kind: 'mailto' }>;
+}>) => {
+  const admitted = await outbox
+    .unsubscribe(connection, offer, {
+      message,
+      retrying: entries.get(key)?.requests,
+      epoch,
+      receivedAt,
+    })
+    .catch(() => ({ kind: 'failed' }) as const);
+  update(key, (each) => ({
+    ...each,
+    sending: false,
+    outcome: admitted.kind === 'failed' ? { kind: 'failed' } : undefined,
+    ...(admitted.kind === 'waiting'
+      ? { requests: [...(each.requests ?? []), admitted.id] }
+      : {}),
+  }));
+};
+
+// Sends the one-click `offer` for `profile` and records how it ended for the message `key` names,
+// dated when it was sent; a Sent request the lookup found meanwhile stays over a failure.
+const click = async (
+  store: Unsubscribe,
+  { key, profile }: Readonly<{ key: string; profile: string }>,
+  offer: Exclude<UnsubscribeOffer, { kind: 'mailto' }>,
+) => {
+  let at = Date.now();
+  const answered = await store
+    .request(profile, offer, () => {
+      at = Date.now();
+      return at;
+    })
+    .catch((): UnsubscribeOutcome => 'uncertain');
+  const ended: Outcome =
+    answered === 'sent' ? { kind: 'sent', at } : { kind: answered };
+  update(key, (each) => ({
+    ...each,
+    sending: false,
+    outcome:
+      ended.kind === 'sent' || each.outcome?.kind !== 'sent'
+        ? ended
+        : each.outcome,
+  }));
+};
+
+// Why the receiving connection cannot send the `mailto:` request: the provider refused the last one
+// until sign-in, or the connection receives only or needs authorization.
+const blockedOf = (
+  offer: UnsubscribeOffer | undefined,
+  pending: OutboxSnapshotEntry | undefined,
+  receiving: MailboxConnection | undefined,
+) => {
+  if (needsSignIn(pending)) {
+    return 'authorization';
+  }
+  return offer?.kind === 'mailto' && receiving !== undefined
+    ? unsendable(receiving)
+    : undefined;
+};
+
+// Why the receiving connection cannot send the request; the refused request a repair takes out of
+// the Outbox, so the offer returns; and the request waiting out its Undo Send Window, whose toast
+// offers Undo.
+const pendingStateOf = (
+  offer: UnsubscribeOffer | undefined,
+  pending: OutboxSnapshotEntry | undefined,
+  receiving: MailboxConnection | undefined,
+) => ({
+  blocked: blockedOf(offer, pending, receiving),
+  refused: needsSignIn(pending) ? pending?.id : undefined,
+  waiting: pending?.state === 'waiting' ? pending.id : undefined,
+});
 
 // Whether `later` is sent and replaces `current`: anything but a sent outcome, or one that does
 // not know the recipient `later` names.
@@ -237,52 +332,6 @@ function useOffer(id: string, receivedAt: number | undefined) {
   });
   const outcome = outcomeOf(entry, pending, confirmed);
   const retry = outcome?.kind === 'failed' || outcome?.kind === 'uncertain';
-  // Admits the `mailto:` request in place of the message's last one; the Outbox sends a refused or
-  // unknown request it holds again in place of `sending`, and answers with one of the message's
-  // requests confirmed meanwhile.
-  const email = async (
-    sending: Extract<UnsubscribeOffer, { kind: 'mailto' }>,
-  ) => {
-    const admitted = await outbox
-      .unsubscribe(connection, sending, {
-        message: id,
-        retrying: entries.get(key)?.requests,
-        epoch: receiving?.epoch ?? 'legacy',
-        receivedAt,
-      })
-      .catch(() => ({ kind: 'failed' }) as const);
-    update(key, (each) => ({
-      ...each,
-      sending: false,
-      outcome: admitted.kind === 'failed' ? { kind: 'failed' } : undefined,
-      ...(admitted.kind === 'waiting'
-        ? { requests: [...(each.requests ?? []), admitted.id] }
-        : {}),
-    }));
-  };
-  // Sends the one-click request and records how it ended, dated when it was sent; a Sent request
-  // the lookup found meanwhile stays over a failure.
-  const click = async (
-    sending: Exclude<UnsubscribeOffer, { kind: 'mailto' }>,
-  ) => {
-    let at = Date.now();
-    const answered = await store
-      .request(profile, sending, () => {
-        at = Date.now();
-        return at;
-      })
-      .catch((): UnsubscribeOutcome => 'uncertain');
-    const ended: Outcome =
-      answered === 'sent' ? { kind: 'sent', at } : { kind: answered };
-    update(key, (each) => ({
-      ...each,
-      sending: false,
-      outcome:
-        ended.kind === 'sent' || each.outcome?.kind !== 'sent'
-          ? ended
-          : each.outcome,
-    }));
-  };
   // Sends the request once; a press before the stored request is known, while one is under way or
   // in the Outbox, or after one was sent sends nothing.
   const send = async (sending: UnsubscribeOffer) => {
@@ -296,7 +345,17 @@ function useOffer(id: string, receivedAt: number | undefined) {
       return;
     }
     update(key, (each) => ({ ...each, sending: true }));
-    await (sending.kind === 'mailto' ? email(sending) : click(sending));
+    await (sending.kind === 'mailto'
+      ? email({
+          outbox,
+          key,
+          connection,
+          epoch: receiving?.epoch ?? 'legacy',
+          message: id,
+          receivedAt,
+          offer: sending,
+        })
+      : click(store, { key, profile }, sending));
   };
   return {
     store,
@@ -304,17 +363,7 @@ function useOffer(id: string, receivedAt: number | undefined) {
     offer: mailbox === undefined ? undefined : offer,
     mailbox,
     receiving,
-    // Why the receiving connection cannot send the request: the provider refused the last one
-    // until sign-in, or the connection receives only or needs authorization.
-    blocked: needsSignIn(pending)
-      ? ('authorization' as const)
-      : offer?.kind === 'mailto' && receiving !== undefined
-        ? unsendable(receiving)
-        : undefined,
-    // The refused request a repair takes out of the Outbox, so the offer returns.
-    refused: needsSignIn(pending) ? pending?.id : undefined,
-    // The request waiting out its Undo Send Window, whose toast offers Undo.
-    waiting: pending?.state === 'waiting' ? pending.id : undefined,
+    ...pendingStateOf(offer, pending, receiving),
     key,
     entry,
     outcome,
@@ -350,8 +399,9 @@ export function useUnsubscribeItems(id: string): readonly MenuItem[] {
 // closes once the request is handed off or undone.
 export function useUnsubscribeToast(
   id: string,
-  receivedAt: string | undefined,
+  message: Readonly<{ receivedAt: string }> | undefined,
 ) {
+  const receivedAt = message?.receivedAt;
   const { t } = useLocalization();
   const outbox = useOutbox();
   const { waiting } = useOffer(
@@ -546,6 +596,140 @@ function Repair({
   );
 }
 
+// The banner's buttons for where the request stands: a connection that cannot send offers its
+// repair in place of Unsubscribe…, a failed or uncertain request Try Again and Block Sender…, and
+// a request under way or sent nothing.
+function Actions({
+  outcome,
+  blocked,
+  receiving,
+  refused,
+  offered,
+  busy,
+  blocking,
+  onAsk,
+  onRequest,
+}: {
+  readonly outcome: ReturnType<typeof useOffer>['outcome'];
+  readonly blocked: ReturnType<typeof useOffer>['blocked'];
+  readonly receiving: MailboxConnection | undefined;
+  readonly refused: string | undefined;
+  readonly offered: boolean;
+  // A request is under way or the stored request is not known yet.
+  readonly busy: boolean;
+  readonly blocking:
+    | ReturnType<ReturnType<typeof useBlockSender>['items']>[number]
+    | undefined;
+  readonly onAsk: () => void;
+  readonly onRequest: () => void;
+}) {
+  const { t } = useLocalization();
+  let buttons: ReactNode = null;
+  if (outcome === undefined && blocked !== undefined) {
+    buttons = (
+      <Repair
+        blocked={blocked}
+        connection={receiving}
+        refused={refused}
+        onRetry={onRequest}
+      />
+    );
+  } else if (outcome === undefined) {
+    buttons = (
+      <BannerButton
+        widen={labelInset}
+        label={t('unsubscribe.action')}
+        disabled={!offered}
+        onPress={onAsk}
+      />
+    );
+  } else if (outcome.kind === 'failed' || outcome.kind === 'uncertain') {
+    buttons = (
+      <>
+        <BannerButton
+          widen={labelInset}
+          label={t('unsubscribe.tryAgain')}
+          disabled={busy}
+          onPress={onRequest}
+        />
+        {blocking === undefined ? null : (
+          <BannerButton
+            widen={labelInset}
+            label={blocking.title}
+            disabled={busy}
+            onPress={() => {
+              blocking.run();
+            }}
+          />
+        )}
+      </>
+    );
+  } else {
+    // A request under way or sent offers nothing.
+    return null;
+  }
+  return (
+    <View style={ipad ? styles.padBannerActions : styles.bannerActions}>
+      {buttons}
+    </View>
+  );
+}
+
+// The system alert that confirms the request for `list` before sending it.
+function Confirmation({
+  list,
+  message,
+  onClose,
+  onConfirm,
+}: {
+  readonly list: string;
+  readonly message: string;
+  readonly onClose: () => void;
+  readonly onConfirm: () => void;
+}) {
+  const { t } = useLocalization();
+  return (
+    <View style={styles.alertAnchor}>
+      <Host matchContents>
+        {/* The system alert owns focus and dismissal; Cancel's role makes it the dismissal
+            choice, and Unsubscribe is the default. */}
+        <Alert
+          testID="unsubscribe-confirmation"
+          title={t('unsubscribe.confirmTitle', { list })}
+          isPresented
+          onIsPresentedChange={(presented) => {
+            if (!presented) {
+              onClose();
+            }
+          }}>
+          {/* SwiftUI drops an alert attached to an empty view, so it anchors on a zero-size spacer. */}
+          <Alert.Trigger>
+            <Spacer modifiers={[frame({ width: 0, height: 0 })]} />
+          </Alert.Trigger>
+          <Alert.Actions>
+            <Button
+              label={t('unsubscribe.confirmAction')}
+              onPress={() => {
+                onClose();
+                onConfirm();
+              }}
+            />
+            <Button
+              // oxlint-disable-next-line jsx-a11y/aria-role -- SwiftUI button role, not ARIA.
+              role="cancel"
+              label={t('common.cancel')}
+              onPress={onClose}
+            />
+          </Alert.Actions>
+          <Alert.Message>
+            <Text>{message}</Text>
+          </Alert.Message>
+        </Alert>
+      </Host>
+    </View>
+  );
+}
+
 // The reader's Unsubscribe banner, where the device's frames draw it: above the message on iPhone,
 // beneath its header on iPad.
 export function UnsubscribeBanner({
@@ -692,52 +876,21 @@ function Banner({
   const close = () => {
     update(key, (each) => ({ ...each, asking: false }));
   };
-  const { sending = false } = entry;
-  const [blocking] = block.items(message, mailbox.id, message.id);
-  const busy = sending || entry.checked !== true;
-  let actions = null;
-  if (outcome === undefined && blocked !== undefined) {
-    actions = (
-      <Repair
-        blocked={blocked}
-        connection={receiving}
-        refused={refused}
-        onRetry={request}
-      />
-    );
-  } else if (outcome === undefined) {
-    actions = (
-      <BannerButton
-        widen={labelInset}
-        label={t('unsubscribe.action')}
-        disabled={!offered}
-        onPress={() => {
-          update(key, (each) => ({ ...each, asking: true }));
-        }}
-      />
-    );
-  } else if (outcome.kind === 'failed' || outcome.kind === 'uncertain') {
-    actions = (
-      <>
-        <BannerButton
-          widen={labelInset}
-          label={t('unsubscribe.tryAgain')}
-          disabled={busy}
-          onPress={request}
-        />
-        {blocking === undefined ? null : (
-          <BannerButton
-            widen={labelInset}
-            label={blocking.title}
-            disabled={busy}
-            onPress={() => {
-              blocking.run();
-            }}
-          />
-        )}
-      </>
-    );
-  }
+  const actions = (
+    <Actions
+      outcome={outcome}
+      blocked={blocked}
+      receiving={receiving}
+      refused={refused}
+      offered={offered}
+      busy={entry.sending === true || entry.checked !== true}
+      blocking={block.items(message, mailbox.id, message.id)[0]}
+      onAsk={() => {
+        update(key, (each) => ({ ...each, asking: true }));
+      }}
+      onRequest={request}
+    />
+  );
   return (
     <View
       style={[
@@ -769,60 +922,24 @@ function Banner({
           </NativeText>
         )}
       </View>
-      {actions === null ? null : (
-        <View style={ipad ? styles.padBannerActions : styles.bannerActions}>
-          {actions}
-        </View>
-      )}
+      {actions}
       {entry.asking === true && offered && blocked === undefined ? (
-        <View style={styles.alertAnchor}>
-          <Host matchContents>
-            {/* The system alert owns focus and dismissal; Cancel's role makes it the dismissal
-                choice, and Unsubscribe is the default. */}
-            <Alert
-              testID="unsubscribe-confirmation"
-              title={t('unsubscribe.confirmTitle', { list: offer.list })}
-              isPresented
-              onIsPresentedChange={(presented) => {
-                if (!presented) {
-                  close();
-                }
-              }}>
-              {/* SwiftUI drops an alert attached to an empty view, so it anchors on a zero-size spacer. */}
-              <Alert.Trigger>
-                <Spacer modifiers={[frame({ width: 0, height: 0 })]} />
-              </Alert.Trigger>
-              <Alert.Actions>
-                <Button
-                  label={t('unsubscribe.confirmAction')}
-                  onPress={() => {
-                    close();
-                    request();
-                  }}
-                />
-                <Button
-                  // oxlint-disable-next-line jsx-a11y/aria-role -- SwiftUI button role, not ARIA.
-                  role="cancel"
-                  label={t('common.cancel')}
-                  onPress={close}
-                />
-              </Alert.Actions>
-              <Alert.Message>
-                <Text>
-                  {offer.kind === 'mailto'
-                    ? t('unsubscribe.confirmEmail', {
-                        to: offer.address,
-                        address: mailbox.address,
-                      })
-                    : t('unsubscribe.confirm', {
-                        sender: message.sender,
-                        address: mailbox.address,
-                      })}
-                </Text>
-              </Alert.Message>
-            </Alert>
-          </Host>
-        </View>
+        <Confirmation
+          list={offer.list}
+          message={
+            offer.kind === 'mailto'
+              ? t('unsubscribe.confirmEmail', {
+                  to: offer.address,
+                  address: mailbox.address,
+                })
+              : t('unsubscribe.confirm', {
+                  sender: message.sender,
+                  address: mailbox.address,
+                })
+          }
+          onClose={close}
+          onConfirm={request}
+        />
       ) : null}
       {block.alert}
     </View>

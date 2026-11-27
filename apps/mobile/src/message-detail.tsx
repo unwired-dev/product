@@ -1089,7 +1089,7 @@ function MailboxMessage({
     id,
     state.kind === 'ready' && message !== undefined,
   );
-  const unsubscribing = useUnsubscribeToast(id, message?.receivedAt);
+  const unsubscribing = useUnsubscribeToast(id, message);
   // A new message sends from the reader's mailbox when it can, otherwise as the Inbox's New
   // Message does in its Mail Profile.
   const mailboxes = account?.mailboxes ?? [];
