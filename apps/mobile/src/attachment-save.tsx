@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 
 import { spacing } from '@private-email/mail-core/theme';
 import {
+  Fragment,
   use,
   useEffect,
   useLayoutEffect,
@@ -142,6 +143,7 @@ export function SaveOutcomeToast({
     const { copy } = said.outcome;
     toast = (
       <Toast
+        key="save"
         open={shown?.open === true}
         symbol="square.and.arrow.down"
         message={
@@ -161,6 +163,7 @@ export function SaveOutcomeToast({
     const { name, retry } = said.outcome;
     toast = (
       <Toast
+        key="save"
         open={shown?.open === true}
         symbol="exclamationmark.triangle.fill"
         message={t('attachment.saveFailed', { name })}
@@ -171,9 +174,10 @@ export function SaveOutcomeToast({
       />
     );
   }
-  // A closed save toast gives its place back to the other toast.
-  if (other !== null && shown?.open !== true) {
-    toast = other;
+  // A save that shows no toast, or one that closed, gives the place to the other toast, which is
+  // never drawn with the save toast's words.
+  if (other !== null && (toast === null || shown?.open !== true)) {
+    toast = <Fragment key="other">{other}</Fragment>;
   }
   useLayoutEffect(() => {
     windowBar?.showReaderNotice(toast);

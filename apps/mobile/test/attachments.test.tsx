@@ -594,6 +594,21 @@ describe('saving a received attachment to Files', () => {
     }
   });
 
+  it('leaves the reader’s other toast in place beside a failed save’s notice', async () => {
+    expect.hasAssertions();
+    const { gmail, app, save } = await openSaving(<Text>Undo Send toast</Text>);
+    try {
+      gmail.failPresent('unavailable');
+      await save();
+      await expect(
+        screen.findByText('Couldn’t save “notes.txt”'),
+      ).resolves.toBeOnTheScreen();
+      expect(screen.getByText('Undo Send toast')).toBeOnTheScreen();
+    } finally {
+      await app.unmount();
+    }
+  });
+
   it('says a failed save saved nothing and offers Save to Files… again', async () => {
     expect.hasAssertions();
     const { gmail, app, save } = await openSaving();
