@@ -34,8 +34,8 @@ separately.
 - Choosing a response sends one iCalendar `METHOD:REPLY` from the invited
   address to the organizer, in the invitation's Gmail thread, as a reply to the
   invitation message, with the invitation's subject prefixed `Re:` so Gmail keeps
-  it in that conversation. The reply carries the event's UID, SEQUENCE and organizer,
-  and the attendee line with only its participation status changed. A second
+  it in that conversation. The reply carries the event's UID, SEQUENCE, start, end and
+  organizer, and the attendee line with only its participation status changed. A second
   press while sending, or the same choice after Gmail confirmed it, sends
   nothing. Choosing another response sends that one.
 - After Gmail confirms, the card says **Accepted**, **Tentatively accepted** or
@@ -157,6 +157,9 @@ through the Gmail journey above, sent directly through the owning connection.
 - A choice sends one `METHOD:REPLY` through Graph's `sendMail` with a Message-ID
   made from its MIME boundary. **Check Again** looks for that Message-ID in Sent
   Items, which Microsoft fills only after accepting the message.
+- Exchange delivers a reply that names no meeting start with an empty calendar
+  part, so the organizer's calendar never learns the answer; every reply names the
+  meeting's start and end ([#3024](https://github.com/unwired-dev/product/issues/3024)).
 - The card names an Outlook.com, Hotmail, Live or MSN address's provider
   **Outlook.com** and any other Microsoft address's **Microsoft 365**, as in
   **{address} · Outlook.com** and **Outlook.com confirmed it sent your
