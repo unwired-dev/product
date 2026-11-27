@@ -3892,6 +3892,21 @@ describe('product registration', () => {
       });
       expect(screen.getByRole('button', { name: title })).toBeEnabled();
       slow.mockRestore();
+      // An unreadable Contacts says no one is exempted before Block is pressed.
+      await press('Cancel');
+      const unreadable = jest
+        .spyOn(Contact, 'getAllDetails')
+        .mockRejectedValueOnce(new Error('unreadable'));
+      await sheet();
+      await expect(
+        screen.findByText('Contacts couldn’t be read, so none are exempted.'),
+      ).resolves.toBeVisible();
+      unreadable.mockRestore();
+      await press('Cancel');
+      await sheet();
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: title })).toBeEnabled();
+      });
       expect(
         choice('mail.example.invalid and its subdomains').props
           .accessibilityState.checked,

@@ -283,6 +283,29 @@ function BlockDomainForm({
             </View>
           </View>
         </View>
+        {read.failed ? (
+          <>
+            <Text
+              accessibilityRole="header"
+              style={[styles.header, secondary]}>
+              {t('blockedSenders.exemptions')}
+            </Text>
+            <View style={[styles.group, quiet]}>
+              <View style={styles.row}>
+                <View style={styles.text}>
+                  <Text style={[styles.body, primary]}>
+                    {t('blockedSenders.exemptContacts')}
+                  </Text>
+                  {/* Block then exempts no one, so say so before it is pressed. */}
+                  <Text
+                    style={[styles.detail, { color: colors.statusWarning }]}>
+                    {t('blockedSenders.exemptContactsUnreadable')}
+                  </Text>
+                </View>
+              </View>
+            </View>
+          </>
+        ) : null}
         {contacts.length === 0 ? null : (
           <>
             <Text

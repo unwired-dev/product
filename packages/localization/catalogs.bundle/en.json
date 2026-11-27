@@ -1975,6 +1975,7 @@
     "ruleKeeps_only": "Doesn’t block its subdomains, other domains or names that look alike",
     "exemptions": "Exemptions",
     "exemptContacts": "Contacts at This Domain",
+    "exemptContactsUnreadable": "Contacts couldn’t be read, so none are exempted.",
     "blockDomainFooter": "Future mail goes to Trash and can be recovered. Mail you already have stays where it is. Nothing is reported as spam.",
     "blockDomainAction": "Block {{domain}}",
     "blockDomainFailed": "{{domain}} couldn’t be blocked",
