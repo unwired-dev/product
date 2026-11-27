@@ -2335,28 +2335,30 @@ password manager by running
   Release build without a Mock Mail Session, a new iPhone 18 Pro Simulator on iOS 27.0.
   Build: the app source of `f37589913f36101ccfe8f52d81329280108d6209`. Toolchain: Xcode
   27.2 (27B52). Operator: agent, with credentials read at run time from the approved
-  password manager. Result: pass. Every value went through the pasteboard steps above:
-  Google Product Sign-In took the certification Product Account's Google password and its
-  Recovery Key, **iCloud Mail** connected with its app-specific password, and **Other IMAP
-  Account** connected Seznam Email with its mail-client password. Both IMAP mailboxes read
-  **Updated just now**. **Sign Out of This Device** returned the app to Welcome, and the
-  Simulator was deleted. The scan of step 5 above then looked for those four values in
-  every file written since the run began, under `~/.agent-device`, `~/Library/Logs`,
-  Xcode's DerivedData, CoreSimulator's directory, the temporary directories with the
-  operator's scratch files, this checkout's `artifacts`, the agents' session transcripts,
-  T3 Code's data directory with its state and logs, and `~/Library/Caches`, and in the
-  whole shell history, then in each result bundle written since then, as a bundle. No file
-  held any of them. This run's runner bundle was still being written when the files were
-  listed, so its plain files, among them the runner's session log, were scanned; the
-  runner later replaced it. Limitations: of the 33,078 files listed, 11,741 still existed
-  when the scan began; the rest had been deleted. Its last batch reported a read error, so
-  its files were scanned again one at a time: 4 had been deleted, and the other 737 held
-  none of the values. The run predates the snapshot rule of step 1 above: accessibility
-  snapshots ran while the keyboard could offer a pasted value; afterwards the driver's
-  working directory was empty and `~/.agent-device` held no image written since the run
-  began. After pasting the Recovery Key, a clearing tap made at the field's old
-  coordinates landed on a mailbox button once the screen had changed; its sheet was
-  dismissed. A text scan cannot see a credential in a screenshot
+  password manager. Result: pass. All four credentials were pasted through the pasteboard
+  steps above, none typed: Google Product Sign-In took the certification Product Account's
+  Google password, the app then unlocked with its Recovery Key, **iCloud Mail** connected
+  with its app-specific password, and **Other IMAP Account** connected Seznam Email with
+  its mail-client password. Both IMAP mailboxes read **Updated just now**. **Sign Out of
+  This Device** returned the app to Welcome, and the Simulator was deleted. The scan of
+  step 5 above then listed the files written since the run began under `~/.agent-device`,
+  `~/Library/Logs`, Xcode's DerivedData, CoreSimulator's directory, the temporary
+  directories with the operator's scratch files, this checkout's `artifacts`, the agents'
+  session transcripts, T3 Code's data directory with its state and logs, and
+  `~/Library/Caches`, and added the whole shell history. Of the 33,078 files listed,
+  11,741 still existed when the scan began; the rest had been deleted. None of the files
+  it read held any of the four values. These included the four plain diagnostic files this
+  run's runner result bundle held when the files were listed, among them the runner's
+  session log; the runner had replaced that bundle before the result bundles were scanned.
+  The 14 other result bundles written since the run began were then scanned as bundles,
+  and none held a value. Limitations: the scan's last batch exited with status 2, a read
+  error; scanned again one file at a time, 4 of its files had been deleted and the other
+  737 held none of the values. The run predates the snapshot rule of step 1 above:
+  accessibility snapshots ran while the keyboard could offer a pasted value. Afterwards
+  the driver's working directory was empty, and no PNG or JPG written since the run began
+  was found under `~/.agent-device`. After pasting the Recovery Key, a clearing tap made
+  at the field's old coordinates landed on a mailbox button once the screen had changed;
+  its sheet was dismissed. A text scan cannot see a credential in a screenshot
   ([#3053](https://github.com/unwired-dev/product/issues/3053)). Earlier that day, once
   the copies earlier runs left were removed
   ([#2688](https://github.com/unwired-dev/product/issues/2688)), a partial rescan of the
