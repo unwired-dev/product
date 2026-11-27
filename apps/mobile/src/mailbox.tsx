@@ -201,8 +201,12 @@ export function ProfileScope({
         openAccount: (
           destination?: SettingsDestination,
           onInbox?: () => void,
+          scope?: Readonly<{ mailbox?: string }>,
         ) => {
-          account.openAccount(destination, onInbox, owner);
+          account.openAccount(destination, onInbox, {
+            ...scope,
+            profile: owner,
+          });
         },
       },
     [account, owner],

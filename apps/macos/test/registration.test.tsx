@@ -52,6 +52,7 @@ import {
   AppState,
   DeviceEventEmitter,
   Pressable,
+  ScrollView,
   Text,
   TurboModuleRegistry,
   View,
@@ -907,6 +908,92 @@ describe('product registration', () => {
       screen.getByText(
         "iCloud Mail requires an app-specific password, which you create in your account's security settings. Your usual password does not work.",
       ),
+    ).toBeVisible();
+  });
+
+  it("opens a named IMAP mailbox's password entry in Email Accounts (#2463)", async () => {
+    /* oxlint-disable vitest/max-expects -- One journey checks the form, its scroll and Settings navigation. */
+    /* oxlint-disable typescript/no-unsafe-type-assertion -- Untyped React Native native-method stubs. */
+    expect.hasAssertions();
+    const imap = createSyntheticImap({
+      address: 'alex@icloud.example.invalid',
+    });
+    const account = await signedIn();
+    const connection = await connectImap(account, {
+      address: 'alex@icloud.example.invalid',
+      host: 'imap.mail.me.com',
+      username: 'alex@icloud.example.invalid',
+    });
+    const store = createRegistration(account.synthetic.vault);
+    const connections = createMailboxes(
+      syntheticConnections({}, { [connection]: imap.native }),
+      store,
+    );
+    await render(
+      <MacWindows store={store}>
+        <RegistrationGate
+          store={started(store)}
+          preview={false}>
+          <InboxProvider
+            mailboxes={{
+              ...connections,
+              getSnapshot: connections.getConnections,
+            }}>
+            <Shell
+              onSelect={() => undefined}
+              selected={undefined}
+            />
+          </InboxProvider>
+        </RegistrationGate>
+      </MacWindows>,
+    );
+    const repair = {
+      name: 'Enter the Password for alex@icloud.example.invalid Again',
+    };
+    // The form sits 640 points down the Settings content; the request scrolls to it.
+    const scrolled = jest
+      .spyOn(ScrollView.prototype, 'scrollTo')
+      .mockReturnValue(undefined);
+    jest.spyOn(View.prototype as never, 'measureLayout').mockImplementation(((
+      _relative: unknown,
+      success: (...values: number[]) => void,
+    ) => {
+      success(0, 640, 320, 400);
+    }) as never);
+    const request = async () => {
+      await act(async () => {
+        openSettings(
+          'account-synthetic-product-subject',
+          'mailboxes',
+          connection,
+        );
+      });
+    };
+    // From another destination, Email Accounts opens with that mailbox's entry.
+    await openAccount();
+    await request();
+    expect(scrolled).toHaveBeenCalledWith({ y: 640 });
+    expect(
+      settingsWindow().getByRole('header', { name: 'iCloud Mail' }),
+    ).toBeVisible();
+    expect(settingsWindow().queryByRole('button', repair)).toBeNull();
+    // Once closed, another request opens it again in the open Email Accounts.
+    await act(async () => {
+      await fireEvent.press(
+        settingsWindow().getByRole('button', { name: 'Cancel' }),
+      );
+    });
+    expect(settingsWindow().getByRole('button', repair)).toBeVisible();
+    // Moving to another page and back leaves it closed.
+    for (const name of ['Language', 'Email Accounts']) {
+      await act(async () => {
+        await fireEvent.press(settingsWindow().getByRole('button', { name }));
+      });
+    }
+    expect(settingsWindow().getByRole('button', repair)).toBeVisible();
+    await request();
+    expect(
+      settingsWindow().getByRole('header', { name: 'iCloud Mail' }),
     ).toBeVisible();
   });
 

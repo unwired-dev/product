@@ -81,8 +81,12 @@ export const AccountContext = createContext<
   | Readonly<{
       // Every Mailbox Connection, including those waiting for authorization again.
       mailboxes: readonly MailboxConnection[];
-      // Settings opens on the given destination, such as Email Accounts for a password.
-      openAccount: (destination?: SettingsDestination) => void;
+      // Settings opens on the given destination, such as Email Accounts for a password, with
+      // `mailbox`'s password entry open.
+      openAccount: (
+        destination?: SettingsDestination,
+        mailbox?: string,
+      ) => void;
       // Resolves true once the sign-in completed, not when it was cancelled.
       authorizeMailbox: (connection: string) => Promise<unknown>;
       // With 'explicit' and a connection, verifies only that connection with its provider.
@@ -233,9 +237,9 @@ function RegistrationGateContent({
   const actions = useMemo(
     () => ({
       mailboxes: screen.mailboxes,
-      openAccount: (destination?: SettingsDestination) => {
+      openAccount: (destination?: SettingsDestination, mailbox?: string) => {
         if (choices !== undefined) {
-          openSettings(choices.inbox.account, destination);
+          openSettings(choices.inbox.account, destination, mailbox);
         }
       },
       authorizeMailbox: store.authorizeMailbox,
@@ -435,14 +439,21 @@ function SettingsPage({
   const [destination, setDestination] = useState<SettingsDestination>(
     () => request?.destination ?? 'account',
   );
+  // The request whose mailbox password entry Email Accounts opens, until the person moves on.
+  const [repair, setRepair] = useState(request);
   // A later request names its destination; one without keeps the person's place.
   const [followed, setFollowed] = useState(request);
   if (followed !== request) {
     setFollowed(request);
+    setRepair(request);
     if (request?.destination !== undefined) {
       setDestination(request.destination);
     }
   }
+  const navigate = (next: typeof destination) => {
+    setRepair(undefined);
+    setDestination(next);
+  };
   const { copy, actions, identity } = screen;
   if (snapshot.kind === 'signed-out' || identity === undefined) {
     return null;
@@ -459,7 +470,7 @@ function SettingsPage({
       <SettingsWindow
         account={name}
         destination={destination}
-        onDestination={setDestination}
+        onDestination={navigate}
         accessory={
           <>
             {busy ? (
@@ -516,7 +527,7 @@ function SettingsPage({
         {destination === 'language' ? <LanguageSettings /> : null}
         <ErrorReportingDestination
           destination={destination}
-          onDestination={setDestination}
+          onDestination={navigate}
         />
         {actions.settings ? (
           <AccountSettings
@@ -524,6 +535,7 @@ function SettingsPage({
             button={button}
             destination={destination}
             microsoft={microsoft}
+            request={repair}
             screen={screen}
             store={store}
           />

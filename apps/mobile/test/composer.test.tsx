@@ -2706,11 +2706,9 @@ describe('composing Drafts', () => {
     expect(screen.getByLabelText('Subject')).toHaveProp('value', 'Unsaved');
     // Settings opens over the Inbox, so the Draft stays open beneath it.
     await press('Account');
-    expect(openAccount).toHaveBeenCalledWith(
-      undefined,
-      expect.any(Function),
-      defaultProfile,
-    );
+    expect(openAccount).toHaveBeenCalledWith(undefined, expect.any(Function), {
+      profile: defaultProfile,
+    });
     expect(screen.getByLabelText('Subject')).toHaveProp('value', 'Unsaved');
     // Asking again replaces the notice; the next refused Save Draft offers Try again.
     await saveDraft();
@@ -2814,10 +2812,10 @@ describe('composing Drafts', () => {
 
   // The password repair opens Settings on Email Accounts; both name the window's Mail Profile.
   it.each([
-    ['Account', [undefined, expect.any(Function), defaultProfile]],
+    ['Account', [undefined, expect.any(Function), { profile: defaultProfile }]],
     [
       'Enter the Password for imap@example.invalid Again',
-      ['mailboxes', undefined, defaultProfile],
+      ['mailboxes', undefined, { profile: defaultProfile }],
     ],
   ] as const)(
     'opens %s in Settings over an open composer',

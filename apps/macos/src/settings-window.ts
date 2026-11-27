@@ -11,6 +11,8 @@ import {
 export type SettingsRequest = Readonly<{
   account?: string | undefined;
   destination?: SettingsDestination;
+  // The IMAP connection whose password Mailboxes asks for.
+  mailbox?: string | undefined;
 }>;
 
 const emptyRequest: SettingsRequest = {};
@@ -32,6 +34,7 @@ const latest = () => request;
 export function openSettings(
   account: string | undefined,
   destination?: SettingsDestination,
+  mailbox?: string,
 ) {
   observeSettingsClose((closedSerial) => {
     if (closedSerial === requestSerial) {
@@ -39,7 +42,8 @@ export function openSettings(
     }
   });
   requestSerial += 1;
-  request = destination === undefined ? { account } : { account, destination };
+  request =
+    destination === undefined ? { account } : { account, destination, mailbox };
   for (const listener of listeners) {
     listener();
   }

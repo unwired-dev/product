@@ -93,11 +93,12 @@ export const AccountContext = createContext<
       mailboxes: readonly MailboxConnection[];
       // Settings opens on the given destination, such as Email Accounts for a password. Its Open
       // Inbox then calls `onInbox`, which shows the kept Inbox when Settings opened from elsewhere.
-      // `profile` is the window's Mail Profile, whose preferences Settings shows.
+      // `profile` is the window's Mail Profile, whose preferences Settings shows; Mailboxes opens
+      // the password entry of the IMAP connection `mailbox`.
       openAccount: (
         destination?: SettingsDestination,
         onInbox?: () => void,
-        profile?: string,
+        scope?: Readonly<{ profile?: string; mailbox?: string }>,
       ) => void;
       authorizeMailbox: (connection: string) => Promise<unknown>;
       refreshInbox: (load: () => Promise<void>) => Promise<void>;
@@ -130,6 +131,7 @@ type SettingsRequest = Readonly<{
   profile: string;
   destination: SettingsDestination | undefined;
   onInbox: (() => void) | undefined;
+  mailbox?: string | undefined;
 }>;
 
 // The Mail Profile whose preferences Settings shows; the account page has no window's.
@@ -219,7 +221,10 @@ function RegistrationGateContent({
       openAccount: (
         destination?: SettingsDestination,
         onInbox?: () => void,
-        profile = defaultProfile,
+        {
+          profile = defaultProfile,
+          mailbox,
+        }: Readonly<{ profile?: string; mailbox?: string }> = {},
       ) => {
         if (choices !== undefined) {
           // A field beneath Settings keeps its text but not the keyboard.
@@ -229,6 +234,7 @@ function RegistrationGateContent({
             profile,
             destination,
             onInbox,
+            mailbox,
           });
         }
       },
@@ -492,14 +498,21 @@ function SettingsPage({
     }
     return settingsColumns ? 'account' : undefined;
   });
+  // The request whose mailbox password entry Email Accounts opens, until the person moves on.
+  const [repair, setRepair] = useState(request);
   // A later request names its destination; one without keeps the person's place.
   const [followed, setFollowed] = useState(request);
   if (followed !== request) {
     setFollowed(request);
+    setRepair(request);
     if (request?.destination !== undefined) {
       setDestination(request.destination);
     }
   }
+  const navigate = (next: typeof destination) => {
+    setRepair(undefined);
+    setDestination(next);
+  };
   const { destination: selectedDestination, detail } =
     reportingDetail(destination);
   const [editing, setEditing] = useState<SettingsDestination>();
@@ -518,7 +531,7 @@ function SettingsPage({
         account={name}
         privateSync={snapshot.privateSync === 'ready'}
         destination={selectedDestination}
-        onDestination={setDestination}
+        onDestination={navigate}
         detail={detail}
         edit={edit}
         navigation={{ onBack, onInbox, disabled: busy }}
@@ -569,7 +582,7 @@ function SettingsPage({
         ) : null}
         <ErrorReportingDestination
           destination={selectedDestination}
-          onDestination={setDestination}
+          onDestination={navigate}
         />
         {edit === undefined ? null : (
           <BlockedSenderSettings
@@ -583,6 +596,7 @@ function SettingsPage({
             button={button}
             destination={selectedDestination}
             microsoft={microsoft}
+            request={repair}
             screen={screen}
             store={store}
           />
