@@ -599,6 +599,8 @@ const ScheduledReminderSchema = Schema.Struct({
   body: Schema.String,
   // Groups it with its Mail Profile's other notifications.
   profile: Schema.String,
+  // The Draft its tap opens.
+  draft: Schema.String,
   dueAt: Schema.Int,
   previews: Schema.Boolean,
 });
@@ -705,6 +707,7 @@ export function followReminderNotifications(
                 id: `send-reminder.${current.previews ? 'preview.' : ''}${dueAt}.${recordId({ profile, draft: id })}`,
                 ...reminderNotificationContent(t, current.previews, draft),
                 profile,
+                draft: id,
                 dueAt,
                 previews: current.previews,
               },

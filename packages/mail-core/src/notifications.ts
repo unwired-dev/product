@@ -5,7 +5,7 @@ import * as Option from 'effect/Option';
 import * as Schema from 'effect/Schema';
 
 import type { Draft, OutboxEntry } from './draft-model.ts';
-import type { Drafts } from './drafts.ts';
+import type { Drafts, DraftsState } from './drafts.ts';
 import type { ImapInbox } from './imap-inbox.ts';
 import type { ImapAction } from './imap-model.ts';
 import type { GmailInbox } from './inbox-store.ts';
@@ -61,9 +61,10 @@ const Opened = Schema.Struct({
 });
 export type OpenedNotification = typeof Opened.Type;
 
-// Archive or Mark as Read, a reply typed into the Reply field, or Undo or Open Draft on that
-// reply's own notification, chosen without opening the application. Native code finishes the
-// system's handler once `id` completes.
+// Archive or Mark as Read, a reply typed into the Reply field, Undo or Open Draft on that reply's
+// own notification, chosen without opening the application, or a tap on a Send Reminder, which
+// names its Draft and the Product Account that owns it. Native code finishes the system's handler
+// once `id` completes.
 const Chosen = {
   ...Mailbox.fields,
   message: Schema.NonEmptyString,
@@ -79,6 +80,12 @@ const Action = Schema.Union([
   Schema.Struct({
     ...Chosen,
     action: Schema.Literals(['undo', 'open-draft']),
+    draft: Schema.NonEmptyString,
+  }),
+  Schema.Struct({
+    id: Schema.NonEmptyString,
+    account: Schema.NonEmptyString,
+    action: Schema.Literal('open-reminder'),
     draft: Schema.NonEmptyString,
   }),
 ]);
@@ -1000,6 +1007,23 @@ async function replyFrom(
   });
 }
 
+// The Mail Profile a Send Reminder's Draft opens in: its connection's current one, while the
+// Product Account the notification named lists the Draft and the connection is available.
+const reminderProfile = (
+  account: RegistrationSnapshot,
+  drafts: DraftsState,
+  { account: owner, draft }: Readonly<{ account: string; draft: string }>,
+) => {
+  if (account.kind === 'signed-out' || account.productAccountId !== owner) {
+    return undefined;
+  }
+  const connection = draftOf(drafts, draft)?.connection;
+  const mailbox = mailboxesOf(account).find(({ id }) => id === connection);
+  return mailbox === undefined || mailbox.profile === unavailableProfile
+    ? undefined
+    : mailbox.profile;
+};
+
 // Acts on one action chosen on a notification while the connection is still the one it named.
 // Undo and Open Draft change only this device's Drafts and Outbox, so they need no open Inbox.
 async function act(
@@ -1019,6 +1043,17 @@ async function act(
   }>,
   chosen: typeof Action.Type,
 ) {
+  if (chosen.action === 'open-reminder') {
+    // A tap can launch the application before its Drafts open.
+    await replies.drafts.load();
+    const profile = () =>
+      reminderProfile(snapshot(), replies.drafts.getSnapshot(), chosen);
+    const opened = profile();
+    if (opened !== undefined) {
+      replies.openDraft(chosen.draft, opened, profile);
+    }
+    return;
+  }
   const { account, connection, epoch, message } = chosen;
   const named = { account, connection, epoch, message };
   // An action can launch the application before its Drafts and Outbox open; the connection is
