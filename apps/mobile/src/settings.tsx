@@ -905,6 +905,9 @@ export function AccountCard({
   );
 }
 
+// Whether a row draws its own hairline; an action row draws it outside its button.
+const RowHairline = createContext(true);
+
 // A row that runs one action: the system button, with the row as its label and its spoken name.
 // The button dims the row while it is disabled; the hairline stays outside it, at full strength.
 export function SettingsActionRow({
@@ -998,12 +1001,12 @@ export function SettingsGroup({
   );
 }
 
-// Whether a row draws its own hairline; an action row draws it outside its button.
-const RowHairline = createContext(true);
-
 // The hairline above a group cell; the group hides the first one.
 function Hairline() {
   const colors = usePalette();
+  if (!use(RowHairline)) {
+    return null;
+  }
   return (
     <View style={[styles.separator, { backgroundColor: colors.separator }]} />
   );
@@ -1056,7 +1059,7 @@ export function SettingsRow({
         large && styles.rowStacked,
         minHeight === undefined ? null : { minHeight },
       ]}>
-      {use(RowHairline) ? <Hairline /> : null}
+      <Hairline />
       {typeof icon === 'string' ? (
         <View
           style={[
