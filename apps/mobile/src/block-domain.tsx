@@ -13,6 +13,7 @@ import {
   font,
   foregroundStyle,
   frame,
+  ignoreSafeArea,
   disabled as inactive,
   presentationBackground,
   presentationDetents,
@@ -23,7 +24,11 @@ import {
   addressesAtDomain,
   parentDomain,
 } from '@private-email/mail-core/blocked-senders';
-import { spacing } from '@private-email/mail-core/theme';
+import {
+  ipadListScale,
+  spacing,
+  typography,
+} from '@private-email/mail-core/theme';
 import { use, useState } from 'react';
 import {
   Alert,
@@ -36,7 +41,6 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { BlockedSendersContext } from './blocked-senders.tsx';
 import { useContactAddresses } from './contacts.ts';
@@ -46,8 +50,13 @@ import { textStyles, useAppearance, usePalette } from './theme.ts';
 
 const compact = Platform.OS === 'ios' && !Platform.isPad;
 
-// The I2 and P2 frames: 20pt inside the panel and 10pt between its parts, grouped rows of at least
-// 52pt (56pt with a switch), and two 48pt capsules. iPad's centred sheet is 400pt wide.
+// The iPhone metric, or on iPad the Mac Settings Row metric at the frames' 1.15×.
+const metric = (iphone: number, mac: number) =>
+  compact ? iphone : mac * ipadListScale;
+
+// The I2 and P2 frames: 20pt inside the panel and 10pt between its parts, grouped rows, and two
+// 48pt capsules. iPhone rows use the iOS type and are at least 52pt (56pt with a switch); iPad's
+// centred 400pt sheet uses the iPad list type. iPad draws no divider between the choices.
 const styles = StyleSheet.create({
   sheet: { flex: 1, gap: 10, padding: 20 },
   panel: { width: 400, gap: 10, padding: 20 },
@@ -55,20 +64,24 @@ const styles = StyleSheet.create({
   scroll: { flexShrink: 1 },
   title: { ...textStyles.headline },
   from: { ...textStyles.subheadline },
-  group: { borderRadius: 17, borderCurve: 'continuous', overflow: 'hidden' },
+  group: {
+    borderRadius: metric(17, 10),
+    borderCurve: 'continuous',
+    overflow: 'hidden',
+  },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
-    minHeight: 52,
-    paddingHorizontal: 16,
-    paddingVertical: 13,
+    gap: metric(12, 10),
+    minHeight: metric(52, 40),
+    paddingHorizontal: metric(16, 12),
+    paddingVertical: metric(13, 10),
   },
-  switchRow: { minHeight: 56 },
+  switchRow: { minHeight: metric(56, 40) },
   // Shrinks to the row, so a long domain wraps as the frames draw it.
-  text: { flex: 1, flexShrink: 1, gap: 2 },
-  body: { ...textStyles.body },
-  detail: { ...textStyles.footnote },
+  text: { flex: 1, flexShrink: 1, gap: metric(2, 2) },
+  body: compact ? textStyles.body : typography.ipadList.body,
+  detail: compact ? textStyles.footnote : typography.ipadList.subheadline,
   separator: {
     position: 'absolute',
     top: 0,
@@ -77,11 +90,18 @@ const styles = StyleSheet.create({
     height: StyleSheet.hairlineWidth,
   },
   header: {
-    ...textStyles.subheadlineEmphasized,
-    paddingLeft: 16,
-    paddingTop: 13,
+    ...(compact
+      ? textStyles.subheadlineEmphasized
+      : { ...typography.ipadList.subheadline, fontWeight: '600' }),
+    paddingLeft: metric(15.6, 12),
+    paddingTop: metric(13, 10),
   },
-  footer: { ...textStyles.subheadline, paddingHorizontal: 16 },
+  footer: {
+    ...(compact
+      ? { ...textStyles.subheadline, lineHeight: 18.2 }
+      : typography.ipadList.subheadline),
+    paddingHorizontal: metric(15.6, 12),
+  },
   buttons: { gap: spacing.s },
 });
 
@@ -218,7 +238,7 @@ function BlockDomainForm({
                 styles.row,
                 pressed && { backgroundColor: colors.accentSelectionSubtle },
               ]}>
-              {index > 0 ? (
+              {compact && index > 0 ? (
                 <View
                   style={[
                     styles.separator,
@@ -323,7 +343,6 @@ export function BlockDomainSheet({
   const colors = usePalette();
   const appearance = useAppearance();
   const { height } = useWindowDimensions();
-  const { bottom } = useSafeAreaInsets();
   const [opening, setOpening] = useState(0);
   const [wasOpen, setWasOpen] = useState(open);
   if (open !== wasOpen) {
@@ -347,11 +366,14 @@ export function BlockDomainSheet({
         <Group
           modifiers={[
             compact
-              ? // The frame's sheet is 707pt tall; a custom detent leaves out the bottom safe area.
+              ? // The frame's sheet starts 707pt above the screen's foot. The floating sheet ends
+                // 8pt above it and draws 6pt beyond its detent.
                 presentationDetents([
-                  { height: Math.min(707, height - 70) - bottom },
+                  { height: Math.min(707, height - 70) - 14 },
                 ])
               : presentationSizing('fitted'),
+            // The panel's 20pt padding is the whole inset, as the frames draw it.
+            ignoreSafeArea(),
             // The Dark frames draw the sheet as the glass panel surface; Light keeps the system's
             // sheet glass, as the Reply sheet does.
             ...(appearance === 'dark'

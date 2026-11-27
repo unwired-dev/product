@@ -16,7 +16,7 @@ import {
 import { shownDomain } from '@private-email/mail-core/blocked-senders';
 import { profileName } from '@private-email/mail-core/profile-windows';
 import { defaultProfile } from '@private-email/mail-core/registration';
-import { radius } from '@private-email/mail-core/theme';
+import { radius, typography } from '@private-email/mail-core/theme';
 import * as Arr from 'effect/Array';
 import * as Order from 'effect/Order';
 import {
@@ -137,9 +137,19 @@ function Unavailable({ onRetry }: { readonly onRetry: () => void }) {
   );
 }
 
+// A row's first line, in the frames' Body: the iOS style on iPhone, the iPad list's on iPad.
+const primary = (tone: string) => [
+  device === 'ipad'
+    ? font({ size: typography.ipadList.body.fontSize })
+    : font({ textStyle: 'body' }),
+  foregroundStyle(tone),
+];
+
 // A row's second line: its block date and count, or a failed unblock.
 const detail = (tone: string) => [
-  font({ textStyle: 'subheadline' }),
+  device === 'ipad'
+    ? font({ size: typography.ipadList.subheadline.fontSize })
+    : font({ textStyle: 'footnote' }),
   foregroundStyle(tone),
 ];
 
@@ -195,7 +205,8 @@ function SectionHeader({
   return (
     <VStack
       alignment="leading"
-      spacing={13}>
+      // The frames set the Domains or Addresses ink 45pt below the name's on iPhone, 40pt on iPad.
+      spacing={device === 'ipad' ? 17 : 22}>
       {profile === undefined ? null : (
         <Text
           modifiers={[
@@ -207,7 +218,12 @@ function SectionHeader({
       )}
       <Text
         modifiers={[
-          font({ textStyle: 'subheadline', weight: 'semibold' }),
+          device === 'ipad'
+            ? font({
+                size: typography.ipadList.subheadline.fontSize,
+                weight: 'semibold',
+              })
+            : font({ textStyle: 'subheadline', weight: 'semibold' }),
           foregroundStyle(colors.textSecondary),
         ]}>
         {title}
@@ -356,7 +372,9 @@ export function BlockedSenderSettings({
                         alignment="leading"
                         spacing={2}
                         modifiers={[listRowBackground(colors.fillQuiet)]}>
-                        <Text>{block.domain}</Text>
+                        <Text modifiers={primary(colors.textPrimary)}>
+                          {block.domain}
+                        </Text>
                         {failed === `${profile}\n${block.domain}` ? (
                           <Text modifiers={detail(colors.statusWarning)}>
                             {t('blockedSenders.unblockFailed')}
@@ -398,7 +416,9 @@ export function BlockedSenderSettings({
                           alignment="leading"
                           spacing={2}
                           modifiers={[listRowBackground(colors.fillQuiet)]}>
-                          <Text>{address}</Text>
+                          <Text modifiers={primary(colors.textPrimary)}>
+                            {address}
+                          </Text>
                           {failed === `${profile}\n${address}` ? (
                             <Text modifiers={detail(colors.statusWarning)}>
                               {t('blockedSenders.unblockFailed')}
