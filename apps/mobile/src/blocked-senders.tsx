@@ -16,7 +16,7 @@ import {
 import { shownDomain } from '@private-email/mail-core/blocked-senders';
 import { profileName } from '@private-email/mail-core/profile-windows';
 import { defaultProfile } from '@private-email/mail-core/registration';
-import { radius, typography } from '@private-email/mail-core/theme';
+import { radius } from '@private-email/mail-core/theme';
 import * as Arr from 'effect/Array';
 import * as Order from 'effect/Order';
 import {
@@ -137,19 +137,15 @@ function Unavailable({ onRetry }: { readonly onRetry: () => void }) {
   );
 }
 
-// A row's first line, in the frames' Body: the iOS style on iPhone, the iPad list's on iPad.
+// A row's first line, in the frames' Body: 17pt on iPhone, the iPad list's 15pt on iPad.
 const primary = (tone: string) => [
-  device === 'ipad'
-    ? font({ size: typography.ipadList.body.fontSize })
-    : font({ textStyle: 'body' }),
+  font({ textStyle: device === 'ipad' ? 'subheadline' : 'body' }),
   foregroundStyle(tone),
 ];
 
 // A row's second line: its block date and count, or a failed unblock.
 const detail = (tone: string) => [
-  device === 'ipad'
-    ? font({ size: typography.ipadList.subheadline.fontSize })
-    : font({ textStyle: 'footnote' }),
+  font({ textStyle: 'footnote' }),
   foregroundStyle(tone),
 ];
 
@@ -218,12 +214,10 @@ function SectionHeader({
       )}
       <Text
         modifiers={[
-          device === 'ipad'
-            ? font({
-                size: typography.ipadList.subheadline.fontSize,
-                weight: 'semibold',
-              })
-            : font({ textStyle: 'subheadline', weight: 'semibold' }),
+          font({
+            textStyle: device === 'ipad' ? 'footnote' : 'subheadline',
+            weight: 'semibold',
+          }),
           foregroundStyle(colors.textSecondary),
         ]}>
         {title}

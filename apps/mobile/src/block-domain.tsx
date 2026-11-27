@@ -373,8 +373,10 @@ export function BlockDomainSheet({
                   { height: Math.min(707, height - 70) - 14 },
                 ])
               : presentationSizing('fitted'),
-            // The panel's 20pt padding is the whole inset, as the frames draw it.
-            ignoreSafeArea(),
+            // The iPhone panel's 20pt padding is its whole bottom inset, as the frames draw it.
+            ...(compact
+              ? [ignoreSafeArea({ regions: 'container', edges: 'bottom' })]
+              : []),
             // The Dark frames draw the sheet as the glass panel surface; Light keeps the system's
             // sheet glass, as the Reply sheet does.
             ...(appearance === 'dark'
