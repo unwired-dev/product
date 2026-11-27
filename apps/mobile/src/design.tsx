@@ -518,24 +518,30 @@ const NativeArrowKeys = requireNativeComponent<
     readonly onTab: (event: NativeSyntheticEvent<{ shift: boolean }>) => void;
     readonly escape: boolean;
     readonly onEscape: () => void;
+    readonly handlesReturn?: boolean;
+    readonly onReturn?: (() => void) | undefined;
   }
 >('UnwiredArrowKeys');
 
 // A hardware keyboard's Up and Down Arrow, as `ArrowUp` and `ArrowDown`, while `enabled`, its
 // Tab and Shift-Tab while `tabs`, and its Escape or Command-period while `onEscape` is given:
 // taken ahead of a text field among the children, which would otherwise move its caret or type a
-// tab.
+// tab. While `onReturn` is given, this view also takes Return for its visible picker.
 export function ArrowKeys({
-  enabled,
+  enabled = false,
   onArrow,
   tabs = false,
   onTab,
   onEscape,
+  onReturn,
+  contentStyle,
   children,
   ...props
 }: ViewProps & {
-  readonly enabled: boolean;
-  readonly onArrow: (key: string) => void;
+  readonly enabled?: boolean;
+  readonly onArrow?: (key: string) => void;
+  readonly onReturn?: () => void;
+  readonly contentStyle?: ViewProps['style'];
   readonly tabs?: boolean;
   readonly onTab?: (shift: boolean) => void;
   readonly onEscape?: (() => void) | undefined;
@@ -546,8 +552,10 @@ export function ArrowKeys({
       enabled={enabled}
       tabs={tabs && onTab !== undefined}
       escape={onEscape !== undefined}
+      handlesReturn={onReturn !== undefined}
+      onReturn={onReturn}
       onArrow={({ nativeEvent }) => {
-        onArrow(nativeEvent.key);
+        onArrow?.(nativeEvent.key);
       }}
       onTab={({ nativeEvent }) => {
         onTab?.(nativeEvent.shift);
@@ -558,7 +566,7 @@ export function ArrowKeys({
       {/* Fabric would flatten a layout-only child the legacy view takes as its own. */}
       <View
         collapsable={false}
-        style={styles.menuContent}>
+        style={[styles.menuContent, contentStyle]}>
         {children}
       </View>
     </NativeArrowKeys>

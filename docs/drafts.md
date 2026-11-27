@@ -335,6 +335,8 @@ move the highlight, Return, Tab or a click sets the caret's block as the Text
 style pop-up does and removes the slash query as one Undo step, and Escape,
 deleting the `/`, moving the caret or leaving the body closes the menu. VoiceOver
 hears **Slash commands** as it opens and each highlighted row with its marker.
+The Mac Draft editor page opens the same menu
+([#3010](https://github.com/unwired-dev/product/issues/3010)).
 
 Each block can also be centered, right-aligned or justified; a block without an
 alignment is start-aligned, and a Draft holding any other alignment is not saved
@@ -730,7 +732,13 @@ size caption and drawing the image in the body with corner handles come in later
 [#1735](https://github.com/unwired-dev/product/issues/1735) slices.
 
 An added file is **importing** until its bytes are stored. While it imports, its
-row says **Adding…** and offers **Cancel**. A file whose import was cancelled,
+row says **Adding…** and offers **Cancel**. On the Mac it says **Importing…**, and
+once native code reports how much of a file it has read, **Importing… 64%** with a
+progress bar under it, which VoiceOver reads with the row
+([#2992](https://github.com/unwired-dev/product/issues/2992)): the registration
+module reads a picked, dropped or received file in 1 MiB chunks and sends
+`draftImportProgress` (`{ id, fraction }`) at each whole percent; pasted image
+bytes report none. A file whose import was cancelled,
 interrupted by quitting or relaunch, could not be read or saved, is too large or,
 for a received attachment, couldn’t be downloaded stays listed as **Not added**
 with the reason. On iPhone and iPad the composer warns that files not added are not
@@ -1101,7 +1109,14 @@ a long press on Send opens its menu, whose **Remind Me to Send…** ("Keep it as
 draft and remind me") offers, in the device's time zone (`mobileReminderTimes`),
 **This Evening** at 18:00 while that is still ahead, **Tomorrow Morning** at
 8:00, and **Next Week** on the first Monday after tomorrow at 8:00. iPhone also
-offers **This Weekend**, Saturday at 9:00, from Sunday to Thursday. They appear
+offers **This Weekend**, Saturday at 9:00, from Sunday to Thursday, and both end
+with **Choose Date and Time…**
+([#2979](https://github.com/unwired-dev/product/issues/2979)). It shows the
+system's calendar and time in the same sheet or popover, with Back to the times,
+starting at the Draft's reminder or else at Tomorrow Morning. Days before today
+can't be chosen; a time that has passed reads "That time has passed. Choose a
+later time." and leaves **Set Reminder** dimmed, which checks the time again when
+pressed, or on Return, and stores the instant with the device's time zone. They appear
 as a sheet on iPhone, where a row sets the reminder, and as a popover from Send
 on iPad, where Tomorrow Morning starts selected and **Set Reminder** sets the
 selected choice. Their last line names the zone in full and its city, such as
@@ -1146,7 +1161,9 @@ made elsewhere; a device that stays offline can still post a reminder another
 device changed or removed meanwhile. Its content and the device's Show Sender and
 Subject level are described in
 [New Mail Notifications](new-mail-notifications.md#send-reminder-notifications).
-A tap only opens the app until a later #2833 slice opens the Draft.
+A tap opens the Draft in its Mail Profile and changes nothing
+([#3036](https://github.com/unwired-dev/product/issues/3036)); New Mail
+Notifications describes how.
 
 ## Verification
 

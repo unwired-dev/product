@@ -55,9 +55,10 @@ recommendation and the decision it supports. Facts link to their evidence;
 - **Semantic differences** from the current composer
   ([Semantic mismatches](../draft-editor-evaluation.md#semantic-mismatches)): the
   page drops alignment, color, background and fonts
-  ([#2884](https://github.com/unwired-dev/product/issues/2884) restores them), has
-  no Slash Command Menu on Mac (iPhone and iPad have it since
-  [#2952](https://github.com/unwired-dev/product/issues/2952)), shows Inline Images at thumbnail size
+  ([#2884](https://github.com/unwired-dev/product/issues/2884) restores them), had
+  no Slash Command Menu (iPhone and iPad have it since
+  [#2952](https://github.com/unwired-dev/product/issues/2952), Mac since
+  [#3010](https://github.com/unwired-dev/product/issues/3010)), shows Inline Images at thumbnail size
   ([#2786](https://github.com/unwired-dev/product/issues/2786)), and adds Tiptap's
   extra keyboard shortcuts and **Attach Instead** and **Show Inline**.
 - **Licensing.** Tiptap, ProseMirror and esbuild are MIT and need no paid service
@@ -190,8 +191,11 @@ release limit:
    ([review note](https://github.com/unwired-dev/product/issues/822#issuecomment-6114571758)),
    and the current composer's interactions the page lacks. The Slash Command
    Menu is met on iPhone and iPad Simulators by
-   [#2952](https://github.com/unwired-dev/product/issues/2952); the Mac menu,
-   startup and physical devices remain. Typing and formatting feedback in Mac
+   [#2952](https://github.com/unwired-dev/product/issues/2952) and on Mac by
+   [#3010](https://github.com/unwired-dev/product/issues/3010), whose Insert and
+   Writing tools wait on the Mac composer having them
+   ([#2791](https://github.com/unwired-dev/product/issues/2791)); startup and
+   physical devices remain. Typing and formatting feedback in Mac
    `Testing` builds is measured by
    [#2962](https://github.com/unwired-dev/product/issues/2962): the page's p95
    to edit was 17.1 ms from key press for typing and 21.9 ms from button release

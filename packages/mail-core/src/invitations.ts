@@ -719,15 +719,22 @@ const folded = (line: string) => {
 const stamp = (at: number) =>
   new Date(at).toISOString().replaceAll(/[-:]|\.\d{3}/gu, '');
 
-// The iTIP REPLY for `choice`: the invitation's UID, SEQUENCE and RECURRENCE-ID, its organizer, and
-// the owning mailbox's own attendee line with the chosen participation status.
+// A timed meeting is named in UTC, which needs no VTIMEZONE beside it.
+const timeLine = (name: string, { at, allDay }: InvitationTime) =>
+  allDay
+    ? `${name};VALUE=DATE:${stamp(at).slice(0, 8)}`
+    : `${name}:${stamp(at)}`;
+
+// The iTIP REPLY for `choice`: the invitation's UID, SEQUENCE, RECURRENCE-ID and times, its
+// organizer, and the owning mailbox's own attendee line with the chosen participation status.
+// Exchange turns a reply sent without DTSTART into an empty part (#3024).
 export function invitationReply(
   invitation: Invitation,
   choice: InvitationChoice,
   at: number,
 ) {
   const { attendee, organizer, summary } = invitation.lines;
-  const { start, recurrence } = invitation.details;
+  const { start, end, recurrence } = invitation.details;
   const answered: Line = {
     ...attendee,
     parameters: [
@@ -745,15 +752,12 @@ export function invitationReply(
     'BEGIN:VEVENT',
     `UID:${invitation.uid}`,
     `SEQUENCE:${invitation.sequence.toString()}`,
-    // A timed meeting is named by its original start in UTC, which needs no VTIMEZONE beside it.
     ...(recurrence === undefined
       ? []
-      : [
-          start.allDay
-            ? `RECURRENCE-ID;VALUE=DATE:${stamp(recurrence).slice(0, 8)}`
-            : `RECURRENCE-ID:${stamp(recurrence)}`,
-        ]),
+      : [timeLine('RECURRENCE-ID', { at: recurrence, allDay: start.allDay })]),
     `DTSTAMP:${stamp(at)}`,
+    timeLine('DTSTART', start),
+    ...(end === undefined ? [] : [timeLine('DTEND', end)]),
     written(organizer),
     written(answered),
     ...(summary === undefined ? [] : [written(summary)]),

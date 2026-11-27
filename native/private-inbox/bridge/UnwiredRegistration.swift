@@ -112,7 +112,7 @@ import os
 }
 
 @objc(UnwiredRegistration)
-final class UnwiredRegistration: NSObject {
+final class UnwiredRegistration: RCTEventEmitter {
   private static let logger = Logger(
     subsystem: Bundle.main.bundleIdentifier ?? "dev.unwired.mail", category: "registration")
   @MainActor private static let operations = RegistrationOperationGate()
@@ -128,6 +128,13 @@ final class UnwiredRegistration: NSObject {
   static let recoveryKeyExports = FileManager.default.temporaryDirectory
     .appendingPathComponent("RecoveryKeyExports", isDirectory: true)
 
+  // React Native runs this module's methods here, so it counts listeners here; events are sent
+  // here too.
+  private let queue = DispatchQueue(label: "dev.unwired.registration")
+  override var methodQueue: DispatchQueue! { queue }
+  // Whether JavaScript listens for events; read and written on `queue`.
+  private var listening = false
+
   override init() {
     super.init()
     try? FileManager.default.removeItem(at: Self.recoveryKeyExports)
@@ -138,6 +145,7 @@ final class UnwiredRegistration: NSObject {
     #if UNWIRED_REGISTRATION_MOCK
       let store = try syntheticRegistrationStore(mailCache: try await Self.launchMailCache())
       SyntheticDraftSaveFailure.observe()
+      SyntheticDraftImportHold.observe()
       store.stopErrorReporting = { try ErrorReportingRuntime.shared.disableForAccountRemoval() }
       store.withdrawNotifications = { UnwiredNotifications.withdraw($0) }
       Self.sharedStore = store
@@ -811,14 +819,19 @@ final class UnwiredRegistration: NSObject {
 }
 
 extension UnwiredRegistration {
-  @objc static func requiresMainQueueSetup() -> Bool { true }
+  override static func requiresMainQueueSetup() -> Bool { true }
+
+  // A running Draft import's progress, `{ id, fraction }`, while JavaScript listens.
+  override func supportedEvents() -> [String]! { ["draftImportProgress"] }
+  override func startObserving() { listening = true }
+  override func stopObserving() { listening = false }
 
   private static var microsoftClientID: String {
     Bundle.main.object(forInfoDictionaryKey: "UnwiredMicrosoftClientID") as? String ?? ""
   }
 
   // Hosts offer Microsoft mail only when this build can authorize it.
-  @objc func constantsToExport() -> [AnyHashable: Any]! {
+  override func constantsToExport() -> [AnyHashable: Any]! {
     #if UNWIRED_REGISTRATION_MOCK
       ["microsoftMail": true]
     #else
@@ -1267,7 +1280,7 @@ extension UnwiredRegistration {
     }
   }
 
-  // `change` names a Microsoft message and exactly one of `read` or `folder`.
+  // `change` names a Microsoft message and exactly one of `read`, `folder` or `categories`.
   @objc(graphModify:mailbox:resolver:rejecter:)
   func graphModify(
     _ change: [String: Any], mailbox scope: [String: Any],
@@ -1278,11 +1291,13 @@ extension UnwiredRegistration {
       let (connection, address, generation) = try Self.scope(scope)
       guard let message = change["message"] as? String,
         change["read"] == nil || change["read"] is Bool,
-        change["folder"] == nil || change["folder"] is String
+        change["folder"] == nil || change["folder"] is String,
+        change["categories"] == nil || change["categories"] is [String]
       else { throw RegistrationError.unavailable }
       return try await $0.graphModify(
         message: message, read: change["read"] as? Bool, folder: change["folder"] as? String,
-        connection: connection, address: address, generation: generation)
+        categories: change["categories"] as? [String], connection: connection, address: address,
+        generation: generation)
     }
   }
 
@@ -2019,7 +2034,15 @@ extension UnwiredRegistration {
     resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
   ) {
     mailbox("importDraftAsset", resolve, reject: reject) {
-      try await $0.importDraftAsset(owner: owner, id: id, source: source)
+      try await $0.importDraftAsset(owner: owner, id: id, source: source) { fraction in
+        #if UNWIRED_REGISTRATION_MOCK
+          defer { SyntheticDraftImportHold.wait() }
+        #endif
+        self.queue.async {
+          guard self.listening else { return }
+          self.sendEvent(withName: "draftImportProgress", body: ["id": id, "fraction": fraction])
+        }
+      }
     }
   }
 

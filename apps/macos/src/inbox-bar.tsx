@@ -10,6 +10,9 @@ import { spacing } from '@private-email/mail-core/theme';
 import {
   createContext,
   use,
+  useCallback,
+  useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   useSyncExternalStore,
@@ -250,10 +253,59 @@ export const createBarOffset = () => {
   };
 };
 
-// Shows the reader's toast with the bar's notices, or none.
+// Shows the reader's toast with the bar's notices for `owner`: taking the place, or, when `claim`
+// is false, only while `owner` still holds it; null clears it.
 export const ReaderToastContext = createContext<
-  ((toast: ReactNode) => void) | undefined
+  ((owner: object, toast: ReactNode, claim: boolean) => void) | undefined
 >(undefined);
+
+// The reader's toast and how to show one, for ReaderToastContext.
+export function useReaderToastPlace() {
+  const [place, setPlace] =
+    useState<Readonly<{ owner: object; toast: ReactNode }>>();
+  const show = useCallback(
+    (owner: object, toast: ReactNode, claim: boolean) => {
+      setPlace((current) =>
+        claim || current?.owner === owner ? { owner, toast } : current,
+      );
+    },
+    [],
+  );
+  return [place?.toast ?? null, show] as const;
+}
+
+// Shows `toast` as the reader's toast while it is `open`, and once more as it closes so it fades
+// out. It takes the place only as it opens or `shown` names another toast, so a later render never
+// replaces another toast shown since, and it clears only its own as it goes. Without a reader it
+// returns `toast` to place in line.
+export function useReaderToast(
+  toast: ReactNode,
+  open: boolean,
+  shown: object | string,
+) {
+  const showToast = use(ReaderToastContext);
+  const owner = useMemo(() => ({}), []);
+  // What it showed open last, if it is still open.
+  const showing = useRef<object | string>(undefined);
+  useLayoutEffect(() => {
+    const opened = open && toast !== null ? shown : undefined;
+    if (opened !== undefined || showing.current !== undefined) {
+      showToast?.(
+        owner,
+        toast,
+        opened !== undefined && opened !== showing.current,
+      );
+    }
+    showing.current = opened;
+  });
+  useLayoutEffect(
+    () => () => {
+      showToast?.(owner, null, false);
+    },
+    [showToast, owner],
+  );
+  return showToast === undefined ? toast : null;
+}
 
 // The floating glass bar over the panes: search on the mail saved on this device, and New Message.
 export function FloatingBar({

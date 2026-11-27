@@ -32,6 +32,7 @@ import {
   allMail,
   gmailArchive,
   GmailLabelSchema,
+  GmailVacationSchema,
   inInbox,
   inView,
   labelsOf,
@@ -145,6 +146,8 @@ const decodeModified = json(
 );
 
 const decodeCreatedLabel = json(GmailLabelSchema);
+
+const decodeVacation = json(GmailVacationSchema);
 
 const mailbox = /^\s*(?:"?(?<name>[^"<]*?)"?\s*)?<(?<address>[^<>]+)>\s*$/u;
 
@@ -999,5 +1002,7 @@ export function createGmailReader(
       ),
     message: (scope: MailboxScope, id: string) =>
       metadata(scope, id, true).pipe(Effect.map(([, message]) => message)),
+    vacation: (scope: MailboxScope) =>
+      gmail(scope)('settings/vacation', [], decodeVacation),
   } satisfies ProviderReader;
 }

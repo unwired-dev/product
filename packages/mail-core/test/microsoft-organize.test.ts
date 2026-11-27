@@ -1,3 +1,5 @@
+import * as Base64Url from 'effect/encoding/Base64Url';
+
 import type { GmailInboxState, GmailMessage } from '../src/inbox-store.ts';
 
 import { gmailAction, restoreAfter } from '../src/gmail-actions.ts';
@@ -45,6 +47,10 @@ const message = (inbox: Inbox, id: string): GmailMessage =>
 
 const ids = (inbox: Inbox) =>
   ready(inbox.getSnapshot()).messages.map(({ id }) => id);
+
+// An Outlook category's label: CATEGORY_ and its name in base64url.
+const categoryLabels = (names: readonly string[]) =>
+  names.map((name) => `CATEGORY_${Base64Url.encode(name)}`);
 
 const microsoftInbox = (graph: Graph) =>
   createInboxStore(graph.native, { provider: 'microsoft-graph' });
@@ -374,6 +380,231 @@ describe('organizing Microsoft mail through Graph', () => {
     expect(ready(inbox.getSnapshot()).pending).toBe(0);
     expect(graph.modifies).toStrictEqual([]);
     expect(message(inbox, target).labels).toStrictEqual(['INBOX', 'UNREAD']);
+  });
+
+  it('assigns and removes Outlook categories, keeping those changed in Outlook, through an outage and relaunch', async () => {
+    expect.hasAssertions();
+    const graph = createSyntheticGraph({ messages: 0 });
+    const target = graph.deliver({ categories: ['Planning'] });
+    const inbox = await opened(graph);
+    const [planning = '', finance = '', travel = '', ruzova = ''] =
+      categoryLabels(['Planning', 'Finance', 'Travel', 'Růžová']);
+    expect(message(inbox, target).labels).toStrictEqual([
+      'INBOX',
+      'UNREAD',
+      planning,
+    ]);
+
+    // Outlook adds Travel after the listing. Graph can't be reached: Finance shows at once and
+    // waits, saved on this device.
+    graph.categorize(target, ['Planning', 'Travel']);
+    graph.failModify({ code: 'unavailable' });
+    await inbox.organize(message(inbox, target), gmailAction.label(finance));
+    expect(message(inbox, target).labels).toContain(finance);
+    expect(ready(inbox.getSnapshot())).toMatchObject({
+      sync: 'retry',
+      pending: 1,
+    });
+
+    // A relaunch sends it again, adding Finance only.
+    const relaunched = await opened(graph);
+    expect(ready(relaunched.getSnapshot()).pending).toBe(0);
+    expect(graph.categoriesOf(target)).toStrictEqual([
+      'Planning',
+      'Travel',
+      'Finance',
+    ]);
+    expect(message(relaunched, target).labels).toStrictEqual([
+      'INBOX',
+      'UNREAD',
+      planning,
+      travel,
+      finance,
+    ]);
+
+    // Removing Planning and adding a name outside ASCII keeps the rest and the folder.
+    await relaunched.organize(
+      message(relaunched, target),
+      gmailAction.unlabel(planning),
+    );
+    await relaunched.organize(
+      message(relaunched, target),
+      gmailAction.label(ruzova),
+    );
+    expect(graph.categoriesOf(target)).toStrictEqual([
+      'Travel',
+      'Finance',
+      'Růžová',
+    ]);
+    expect(graph.folderOf(target)).toBe('inbox');
+    expect(ids(relaunched)).toStrictEqual([target]);
+    expect(graph.modifies).toStrictEqual([
+      { message: target, categories: ['Planning', 'Travel', 'Finance'] },
+      { message: target, categories: ['Planning', 'Travel', 'Finance'] },
+      { message: target, categories: ['Travel', 'Finance'] },
+      { message: target, categories: ['Travel', 'Finance', 'Růžová'] },
+    ]);
+    // Folders stay apart from categories: Move to still offers only folders.
+    expect(ready(relaunched.getSnapshot()).labels).toStrictEqual([]);
+  });
+
+  it('leaves categories as Graph has them when a change is refused or the grant cannot organize mail', async () => {
+    expect.hasAssertions();
+    const graph = createSyntheticGraph({ messages: 0 });
+    const kept = graph.deliver({ categories: ['Travel'] });
+    const deleted = graph.deliver();
+    const inbox = await opened(graph);
+    const [travel = '', finance = ''] = categoryLabels(['Travel', 'Finance']);
+
+    // Graph refuses the change for good: the message shows its categories as Graph has them.
+    graph.failModify({ status: 400 });
+    await inbox.organize(message(inbox, kept), gmailAction.label(finance));
+    expect(ready(inbox.getSnapshot())).toMatchObject({
+      pending: 0,
+      notice: { kind: 'rejected' },
+    });
+    expect(message(inbox, kept).labels).toStrictEqual([
+      'INBOX',
+      'UNREAD',
+      travel,
+    ]);
+
+    // Deleted for good in Outlook meanwhile: nothing is written and it leaves the Inbox.
+    graph.purge(deleted);
+    await inbox.organize(message(inbox, deleted), gmailAction.label(finance));
+    expect(ids(inbox)).toStrictEqual([kept]);
+
+    // A connection authorized only to read mail keeps the change until Microsoft allows it.
+    graph.failModify({ status: 403 });
+    await inbox.organize(message(inbox, kept), gmailAction.unlabel(travel));
+    expect(ready(inbox.getSnapshot())).toMatchObject({
+      sync: 'authentication',
+      pending: 1,
+    });
+    expect(graph.categoriesOf(kept)).toStrictEqual(['Travel']);
+    const authorized = await opened(graph);
+    expect(ready(authorized.getSnapshot()).pending).toBe(0);
+    expect(graph.categoriesOf(kept)).toStrictEqual([]);
+    expect(message(authorized, kept).labels).toStrictEqual(['INBOX', 'UNREAD']);
+  });
+
+  it.each([
+    { reply: 'omits categories', fields: {} },
+    {
+      reply: 'is about another message',
+      fields: { id: 'AAMkOther=', categories: ['Other'] },
+    },
+  ])(
+    'writes no categories while the Graph read before the change $reply',
+    async ({ fields }) => {
+      expect.hasAssertions();
+      const graph = createSyntheticGraph({ messages: 0 });
+      const target = graph.deliver({ categories: ['Travel'] });
+      const inbox = await opened(graph);
+      const [finance = ''] = categoryLabels(['Finance']);
+      // The change's first Graph request reads the message's categories.
+      const read = vi.spyOn(graph.native, 'graphRequest');
+      read.mockResolvedValueOnce({
+        status: 200,
+        body: JSON.stringify({
+          id: target,
+          parentFolderId: 'AQMkFolder-inbox=',
+          isRead: false,
+          ...fields,
+        }),
+      });
+
+      await inbox.organize(message(inbox, target), gmailAction.label(finance));
+      expect(ready(inbox.getSnapshot())).toMatchObject({
+        pending: 1,
+        sync: 'retry',
+      });
+      expect(graph.modifies).toStrictEqual([]);
+      const relaunched = await opened(graph);
+      expect(ready(relaunched.getSnapshot()).pending).toBe(0);
+      expect(graph.categoriesOf(target)).toStrictEqual(['Travel', 'Finance']);
+    },
+  );
+
+  it("keeps a category named at Outlook's length limit through a relaunch and its removal", async () => {
+    expect.hasAssertions();
+    // 255 characters of three UTF-8 bytes each.
+    const longest = '分'.repeat(255);
+    const graph = createSyntheticGraph({ messages: 0 });
+    const target = graph.deliver({ categories: [longest, 'Travel'] });
+    // A name longer than Outlook allows gets no label.
+    const overlong = graph.deliver({ categories: ['x'.repeat(256)] });
+    await opened(graph);
+    const relaunched = await opened(graph);
+    const [label = '', travel = ''] = categoryLabels([longest, 'Travel']);
+    expect(message(relaunched, target).labels).toStrictEqual([
+      'INBOX',
+      'UNREAD',
+      label,
+      travel,
+    ]);
+    expect(message(relaunched, overlong).labels).toStrictEqual([
+      'INBOX',
+      'UNREAD',
+    ]);
+
+    await relaunched.organize(
+      message(relaunched, target),
+      gmailAction.unlabel(label),
+    );
+    expect(ready(relaunched.getSnapshot()).pending).toBe(0);
+    expect(graph.categoriesOf(target)).toStrictEqual(['Travel']);
+    expect(message(relaunched, target).labels).toStrictEqual([
+      'INBOX',
+      'UNREAD',
+      travel,
+    ]);
+  });
+
+  it('refuses a category change Outlook could not store without holding back later changes', async () => {
+    expect.hasAssertions();
+    const graph = createSyntheticGraph({ messages: 0 });
+    const target = graph.deliver({ categories: ['Travel', 'x'.repeat(256)] });
+    const inbox = await opened(graph);
+    const [travel = '', twoLines = ''] = categoryLabels([
+      'Travel',
+      'Two\nlines',
+    ]);
+
+    // A name no Outlook category can have is never queued.
+    await inbox.organize(message(inbox, target), gmailAction.label(twoLines));
+    expect(ready(inbox.getSnapshot())).not.toHaveProperty('notice');
+    // Graph reports a name longer than Outlook allows, so the list can't be written back: removing
+    // Travel is refused and the next change still goes through.
+    await inbox.organize(message(inbox, target), gmailAction.unlabel(travel));
+    await inbox.organize(message(inbox, target), gmailAction.read);
+    expect(ready(inbox.getSnapshot()).pending).toBe(0);
+    expect(graph.modifies).toStrictEqual([{ message: target, read: true }]);
+    expect(graph.categoriesOf(target)).toStrictEqual([
+      'Travel',
+      'x'.repeat(256),
+    ]);
+    expect(message(inbox, target).labels).toStrictEqual(['INBOX', travel]);
+  });
+
+  it('lists categories in search results and a delta round', async () => {
+    expect.hasAssertions();
+    const graph = createSyntheticGraph({ messages: 0 });
+    const target = graph.deliver({ subject: 'Quarterly plan' });
+    const inbox = await opened(graph);
+    const [finance = ''] = categoryLabels(['Finance']);
+
+    graph.categorize(target, ['Finance']);
+    await inbox.load();
+    expect(message(inbox, target).labels).toStrictEqual([
+      'INBOX',
+      'UNREAD',
+      finance,
+    ]);
+    const page = results(await inbox.searchGmail('Quarterly'));
+    expect(page.messages.map(({ labels }) => labels)).toStrictEqual([
+      ['INBOX', 'UNREAD', finance],
+    ]);
   });
 
   it.each([

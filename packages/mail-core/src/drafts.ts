@@ -1782,9 +1782,12 @@ export function createDrafts(
       base = drafts;
       synced = latest;
       outboxBase = stored;
-      // A message handed to Gmail before the app stopped has no known outcome.
+      // A message handed to Gmail before the app stopped has no known outcome, unless it is an
+      // unsubscribe request kept with the time it was confirmed, which the Outbox records.
       outbox = stored.map((entry) =>
-        entry.state === 'sending' ? { ...entry, state: 'unknown' } : entry,
+        entry.state === 'sending' && entry.unsubscribe?.sentAt === undefined
+          ? { ...entry, state: 'unknown' }
+          : entry,
       );
       sent = confirmed;
       cleanup = opened.document?.deliveryCleanup ?? [];
@@ -3205,6 +3208,8 @@ export function createDrafts(
     getSnapshot: () => state,
     // The Outbox of the open Product Account, oldest Send first.
     getOutbox: () => outbox,
+    // The latest sends confirmed for the open Product Account.
+    getSent: () => sent,
     getDeliveryCleanup: () =>
       cleanup.filter(({ id }) => {
         const entry = outbox.find((each) => each.id === id);
