@@ -652,8 +652,8 @@ app follows under the issue named:
   its 139 × 148 pt, centred, where the frames draw a 248 × 184 pt grid, and the
   time field the width its region needs. The popover sits AppKit's 14 pt below
   its anchor, where the frames draw 6 pt, and above Send in the Inbox window's
-  composer, whose Send sits at the window's bottom. On iPhone and iPad it waits
-  for #2979. The Mac offers
+  composer, whose Send sits at the window's bottom. iPhone and iPad offer it
+  (#2979). The Mac offers
   This Evening at 20:00 and Tomorrow Morning at 9:00, as
   M3 draws them; iPhone and iPad offer the times their frames draw (#2136). The
   Mac menu shows each time on the item's second line and the note

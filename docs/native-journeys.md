@@ -1042,7 +1042,11 @@ banner, **Change** and **Remove Reminder**
 line must name the device's time zone in full, such as "Times in Central European
 Standard Time (Prague)" ([#2147](https://github.com/unwired-dev/product/issues/2147)). The captures are
 named "Send menu", "Remind Me to Send sheet" or "popover" and "Draft with a Send
-Reminder". The journey fails later on iPhone
+Reminder". **Change** then opens **Choose Date and Time…**, whose system calendar
+starts at the stored reminder ("Choose Date and Time"); from 8:00, today's date
+shows the passed-time message with **Set Reminder** dimmed ("Choose Date and
+Time, time has passed"), and Return sets the day after tomorrow, which the
+banner names ([#2979](https://github.com/unwired-dev/product/issues/2979)). The journey fails later on iPhone
 ([#2587](https://github.com/unwired-dev/product/issues/2587)).
 
 ## iPhone and iPad Gmail pause journey
