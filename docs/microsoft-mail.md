@@ -755,7 +755,7 @@ mail content.
   least 9 seconds after **Send**, which had gone 16 seconds after it; the message
   appeared once in **Sent Items** and arrived in the Inbox. In the reader beside the
   list, the photo showed in the body and the PDF was listed below it with Graph's listed
-  size, 933 bytes. **Download** saved it with its name, the 603 bytes sent and the same
+  size, 933 bytes. **Download** saved it with its name, at 603 bytes, with the original's
   SHA-256 prefix, and **Open** showed it in Quick Look. After a relaunch the
   photo still showed and the PDF was listed with **Download**, as a relaunch deletes the
   files an earlier process downloaded; it downloaded again with the same size and prefix. An
