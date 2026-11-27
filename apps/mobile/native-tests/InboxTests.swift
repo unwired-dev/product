@@ -1677,6 +1677,8 @@ final class InboxTests: XCTestCase {
     let tomorrow = labelled("Tomorrow Morning, ")
     XCTAssertTrue(tomorrow.waitForExistence(timeout: 15))
     XCTAssertTrue(labelled("Keeps this message in Drafts").exists)
+    // #3001: the times every platform offers; This Evening and This Weekend depend on the clock.
+    XCTAssertTrue(labelled("Next Week, ").exists)
     // #2147: the zone line names the zone in full, as the frames do, where Hermes formats it.
     // The line names the zone as it is at the selected Tomorrow Morning, 8:00.
     let zone = TimeZone.current

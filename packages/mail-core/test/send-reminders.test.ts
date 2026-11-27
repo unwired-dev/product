@@ -16,7 +16,6 @@ import {
   followReminderNotifications,
   reminderCity,
   reminderDay,
-  mobileReminderTimes,
   reminderTimes,
 } from '@private-email/mail-core/send-reminders';
 import * as Schema from 'effect/Schema';
@@ -930,26 +929,28 @@ describe('due Send Reminder notifications', () => {
 });
 
 describe('reminder menu times', () => {
-  it('offers this evening at 20:00 only while it is ahead, and tomorrow at 9:00 across a clock change', () => {
+  it('offers this evening at 18:00 only while it is ahead, and tomorrow at 8:00 across a clock change', () => {
     expect.hasAssertions();
     // Saturday 24 October 2026, 10:00 in Prague; summer time ends that night.
     const morning = Date.UTC(2026, 9, 24, 8);
     expect(reminderTimes(morning, 'Europe/Prague')).toStrictEqual([
-      { time: 'thisEvening', dueAt: Date.UTC(2026, 9, 24, 18) },
-      { time: 'tomorrowMorning', dueAt: Date.UTC(2026, 9, 25, 8) },
+      { time: 'thisEvening', dueAt: Date.UTC(2026, 9, 24, 16) },
+      { time: 'tomorrowMorning', dueAt: Date.UTC(2026, 9, 25, 7) },
+      { time: 'nextWeek', dueAt: Date.UTC(2026, 9, 26, 7) },
     ]);
     const night = Date.UTC(2026, 9, 24, 18, 30);
     expect(reminderTimes(night, 'Europe/Prague')).toStrictEqual([
-      { time: 'tomorrowMorning', dueAt: Date.UTC(2026, 9, 25, 8) },
+      { time: 'tomorrowMorning', dueAt: Date.UTC(2026, 9, 25, 7) },
+      { time: 'nextWeek', dueAt: Date.UTC(2026, 9, 26, 7) },
     ]);
     expect(reminderTimes(morning, 'Mars/Olympus')).toStrictEqual([]);
   });
 
-  it('offers the iPhone and iPad times, This Weekend on iPhone only from Sunday to Thursday', () => {
+  it('offers This Weekend from Sunday to Thursday and Next Week after tomorrow', () => {
     expect.hasAssertions();
     // Monday 12 October 2026, noon in Prague.
     const monday = Date.UTC(2026, 9, 12, 10);
-    expect(mobileReminderTimes(monday, 'Europe/Prague', true)).toStrictEqual([
+    expect(reminderTimes(monday, 'Europe/Prague')).toStrictEqual([
       { time: 'thisEvening', dueAt: Date.UTC(2026, 9, 12, 16) },
       { time: 'tomorrowMorning', dueAt: Date.UTC(2026, 9, 13, 6) },
       { time: 'thisWeekend', dueAt: Date.UTC(2026, 9, 17, 7) },
@@ -957,7 +958,7 @@ describe('reminder menu times', () => {
     ]);
     // Sunday 25 October 2026, 10:00 in Prague, after summer time ended: Next Week skips tomorrow.
     const sunday = Date.UTC(2026, 9, 25, 9);
-    expect(mobileReminderTimes(sunday, 'Europe/Prague', true)).toStrictEqual([
+    expect(reminderTimes(sunday, 'Europe/Prague')).toStrictEqual([
       { time: 'thisEvening', dueAt: Date.UTC(2026, 9, 25, 17) },
       { time: 'tomorrowMorning', dueAt: Date.UTC(2026, 9, 26, 7) },
       { time: 'thisWeekend', dueAt: Date.UTC(2026, 9, 31, 8) },
@@ -965,17 +966,10 @@ describe('reminder menu times', () => {
     ]);
     // Friday 13 November 2026, 19:30 in Prague: the evening has passed and the weekend is next.
     const friday = Date.UTC(2026, 10, 13, 18, 30);
-    const fridayTimes = [
+    expect(reminderTimes(friday, 'Europe/Prague')).toStrictEqual([
       { time: 'tomorrowMorning', dueAt: Date.UTC(2026, 10, 14, 7) },
       { time: 'nextWeek', dueAt: Date.UTC(2026, 10, 16, 7) },
-    ];
-    expect(
-      [true, false].map((weekend) =>
-        mobileReminderTimes(friday, 'Europe/Prague', weekend),
-      ),
-    ).toStrictEqual([fridayTimes, fridayTimes]);
-    expect(mobileReminderTimes(monday, 'Europe/Prague', false)).toHaveLength(3);
-    expect(mobileReminderTimes(monday, 'Mars/Olympus', true)).toStrictEqual([]);
+    ]);
   });
 
   it('reads the same times where the engine splits the time zone offset into parts, as Hermes does', () => {
@@ -990,8 +984,9 @@ describe('reminder menu times', () => {
       // Friday 13 November 2026, 14:28 in Prague.
       const afternoon = Date.UTC(2026, 10, 13, 13, 28);
       expect(reminderTimes(afternoon, 'Europe/Prague')).toStrictEqual([
-        { time: 'thisEvening', dueAt: Date.UTC(2026, 10, 13, 19) },
-        { time: 'tomorrowMorning', dueAt: Date.UTC(2026, 10, 14, 8) },
+        { time: 'thisEvening', dueAt: Date.UTC(2026, 10, 13, 17) },
+        { time: 'tomorrowMorning', dueAt: Date.UTC(2026, 10, 14, 7) },
+        { time: 'nextWeek', dueAt: Date.UTC(2026, 10, 16, 7) },
       ]);
       expect(reminderDay(keys, Date.UTC(2026, 10, 12, 23, 30))).toBe(0);
     } finally {

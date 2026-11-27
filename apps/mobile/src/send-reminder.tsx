@@ -25,9 +25,9 @@ import {
   tint,
 } from '@expo/ui/swift-ui/modifiers';
 import {
-  mobileReminderTimes,
   reminderCity,
   reminderDay,
+  reminderTimes,
 } from '@private-email/mail-core/send-reminders';
 import { radius, spacing } from '@private-email/mail-core/theme';
 import { useEffect, useState } from 'react';
@@ -282,7 +282,7 @@ function ReminderChoices({
     return {
       opened: at,
       timeZone: zone,
-      times: mobileReminderTimes(at, zone, !popover),
+      times: reminderTimes(at, zone),
     };
   });
   const tomorrow = times.find(({ time }) => time === 'tomorrowMorning')?.dueAt;

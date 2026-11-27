@@ -653,10 +653,7 @@ app follows under the issue named:
   time field the width its region needs. The popover sits AppKit's 14 pt below
   its anchor, where the frames draw 6 pt, and above Send in the Inbox window's
   composer, whose Send sits at the window's bottom. iPhone and iPad offer it
-  (#2979). The Mac offers
-  This Evening at 20:00 and Tomorrow Morning at 9:00, as
-  M3 draws them; iPhone and iPad offer the times their frames draw (#2136). The
-  Mac menu shows each time on the item's second line and the note
+  (#2979). The Mac menu shows each time on the item's second line and the note
   as a dimmed item on one line, as AppKit draws them, where M3 draws the time
   trailing and the note wrapped in small type. Until #658 schedules
   notifications, no device reminds the person yet.

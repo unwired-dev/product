@@ -3781,14 +3781,14 @@ describe('composing Drafts', () => {
 
   it('sets, changes and removes a Draft’s Send Reminder from the Send menu without sending it', async () => {
     expect.hasAssertions();
-    // Noon today, so the menu offers This Evening and Tomorrow Morning whenever the test runs.
-    const noon = new Date();
-    noon.setHours(12, 0, 0, 0);
+    // Noon on a Monday, so the menu offers every time.
+    const noon = new Date(2026, 9, 12, 12);
     const clock = jest.spyOn(Date, 'now').mockReturnValue(noon.getTime());
     try {
       const { timeZone } = Intl.DateTimeFormat().resolvedOptions();
-      const times = reminderTimes(Date.now(), timeZone);
-      const tomorrow = times.at(-1);
+      const tomorrow = reminderTimes(Date.now(), timeZone).find(
+        ({ time }) => time === 'tomorrowMorning',
+      );
       ok(tomorrow);
       const composed = await composeWithTemplates((draft) => ({
         ...draft,
@@ -3808,6 +3808,8 @@ describe('composing Drafts', () => {
           items: [
             { title: 'This Evening' },
             { title: 'Tomorrow Morning' },
+            { title: 'This Weekend' },
+            { title: 'Next Week' },
             { title: 'Choose Date and Time…' },
           ],
         },
@@ -3895,7 +3897,9 @@ describe('composing Drafts', () => {
     const clock = jest.spyOn(Date, 'now').mockReturnValue(noon.getTime());
     try {
       const { timeZone } = Intl.DateTimeFormat().resolvedOptions();
-      const tomorrow = reminderTimes(Date.now(), timeZone).at(-1);
+      const tomorrow = reminderTimes(Date.now(), timeZone).find(
+        ({ time }) => time === 'tomorrowMorning',
+      );
       ok(tomorrow);
       const { reminders, id } = await composeWithTemplates((draft) => ({
         ...draft,
