@@ -17,7 +17,8 @@ import { windowHost } from './settings-window-client.ts';
 import { SettingsGroup, SettingsRow, SettingsRowButton } from './settings.tsx';
 import { textStyles, usePalette } from './theme.ts';
 
-// The M2 frames' Standard sheet: 24pt inside, 12pt between its parts, the buttons 6pt lower.
+// The M2 frames' Standard sheet: 24pt inside, 12pt between its parts, the buttons 6pt lower;
+// a long domain's Block wraps below Cancel rather than pushing it off the sheet.
 const styles = StyleSheet.create({
   sheet: { gap: spacing.m, padding: spacing.xxl },
   title: textStyles.title3Emphasized,
@@ -26,6 +27,7 @@ const styles = StyleSheet.create({
   failedTitle: { fontWeight: '600' },
   actions: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     justifyContent: 'flex-end',
     gap: spacing.s,
     paddingTop: 6,

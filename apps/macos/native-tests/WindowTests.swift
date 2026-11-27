@@ -3775,13 +3775,23 @@ final class WindowTests: XCTestCase {
     // The sender's label repeats on its inner text, so it is clicked by position.
     let sender = window.staticTexts["Sender 001, sender001@\(domain)"].firstMatch
     XCTAssertTrue(sender.waitForExistence(timeout: 15))
-    sender.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).rightClick()
-    XCTAssertTrue(app.menuItems["Block Domain…"].waitForExistence(timeout: 5))
-    app.menuItems["Block Domain…"].click()
+    func openSheet() {
+      sender.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).rightClick()
+      XCTAssertTrue(app.menuItems["Block Domain…"].waitForExistence(timeout: 5))
+      app.menuItems["Block Domain…"].click()
+    }
+    openSheet()
     let sheet = window.sheets.firstMatch
     XCTAssertTrue(sheet.waitForExistence(timeout: 10))
+    // Escape cancels, blocking nothing.
+    app.typeKey(.escape, modifierFlags: [])
+    XCTAssertTrue(sheet.waitForNonExistence(timeout: 10))
+    openSheet()
+    XCTAssertTrue(sheet.waitForExistence(timeout: 10))
+    // Block waits for the Contacts read.
     let block = sheet.buttons["Block \(domain)"]
-    XCTAssertTrue(block.waitForExistence(timeout: 10))
+    expectation(for: NSPredicate(format: "enabled == true"), evaluatedWith: block)
+    waitForExpectations(timeout: 10)
     attach(window, "Block Domain sheet")
     block.click()
     XCTAssertTrue(sheet.waitForNonExistence(timeout: 10))

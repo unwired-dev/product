@@ -432,7 +432,7 @@ attachments. It sets Light; `testBlockSenderDark` runs it in Dark.
 
 `testBlockDomain` uses the same build and sign-in
 ([#2817](https://github.com/unwired-dev/product/issues/2817)). From the same
-sender's menu it chooses **Block Domain…**; the sheet offers
+sender's menu it chooses **Block Domain…**; Escape closes the sheet, and reopened it offers
 `Block example.invalid`, which blocks the domain with its subdomains. After a
 relaunch, Settings › Blocked Senders lists `example.invalid` as `With subdomains`, and selecting
 it and choosing − leaves **No Blocked Senders**. The sheet and the listed
