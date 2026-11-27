@@ -112,7 +112,15 @@ describe("reading a Gmail mailbox's Out of Office", () => {
     inbox.forget();
     resolve(answer({ enableAutoReply: true }));
     await expect(reading).resolves.toBeUndefined();
-    expect(requests).toHaveLength(1);
+    // A refusal that arrives after the Inbox closed is dropped too.
+    await inbox.load();
+    const refused = Promise.withResolvers<unknown>();
+    answers.push(refused.promise);
+    const refusing = inbox.outOfOffice();
+    inbox.forget();
+    refused.resolve(answer({}, 404));
+    await expect(refusing).resolves.toBeUndefined();
+    expect(requests).toHaveLength(2);
 
     const graph = createSyntheticGraph();
     const microsoft = createInboxStore(graph.native, {

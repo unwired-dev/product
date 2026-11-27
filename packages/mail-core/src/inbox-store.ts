@@ -4388,16 +4388,18 @@ export function createInboxStore(
       const label = 'Gmail Out of Office could not be read:';
       return runLogged(
         read(scope).pipe(
-          Effect.map((vacation) =>
-            owner === reading && state.kind === 'ready'
-              ? ({ kind: 'found', vacation } as const)
-              : undefined,
-          ),
+          Effect.map((vacation): OutOfOfficeRead | undefined => ({
+            kind: 'found',
+            vacation,
+          })),
           Effect.catchTags({
             SyncFailure: (failure) => searchFailed(failure, reading, label),
             GmailNotFound: () => Effect.succeed(searchUnavailable('failed')),
             GmailInvalidPage: () => Effect.succeed(searchUnavailable('failed')),
           }),
+          Effect.map((result) =>
+            owner === reading && state.kind === 'ready' ? result : undefined,
+          ),
         ),
       );
     },
