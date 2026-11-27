@@ -3413,9 +3413,7 @@ describe('mac windows over a connected Gmail mailbox', () => {
       const pending = new Promise<typeof appleContacts.addresses>((resolve) => {
         finish = resolve;
       });
-      const reading = jest
-        .spyOn(unwiredContacts, 'addresses')
-        .mockReturnValueOnce(pending);
+      jest.spyOn(unwiredContacts, 'addresses').mockReturnValueOnce(pending);
       await act(async () => {
         chooseSheetButton('Try Again');
       });
@@ -3425,7 +3423,6 @@ describe('mac windows over a connected Gmail mailbox', () => {
       await act(async () => {
         finish(appleContacts.addresses);
       });
-      reading.mockRestore();
       await expect(
         sheet.findByRole('switch', { name: 'Contacts at this domain' }),
       ).resolves.toBeVisible();
@@ -3434,6 +3431,7 @@ describe('mac windows over a connected Gmail mailbox', () => {
       ).toBeEnabled();
       expect(blockDomainSheet()).not.toBeNull();
     } finally {
+      jest.restoreAllMocks();
       Object.assign(appleContacts, {
         granted: false,
         unreadable: false,
