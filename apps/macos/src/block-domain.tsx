@@ -25,6 +25,8 @@ const styles = StyleSheet.create({
   from: textStyles.body,
   failed: textStyles.subheadline,
   failedTitle: { fontWeight: '600' },
+  // Fills the strip the group hides above its first cell, so the first choice's rule shows.
+  choicesTop: { height: StyleSheet.hairlineWidth },
   actions: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -155,7 +157,8 @@ export function BlockDomainSheet({
             })}
       </Label>
       <SettingsGroup>
-        {choices.map(({ value, label }) => (
+        <View style={styles.choicesTop} />
+        {choices.map(({ value, label }, index) => (
           <SettingsRowButton
             key={label}
             accessibilityRole="radio"
@@ -165,10 +168,10 @@ export function BlockDomainSheet({
             onPress={() => {
               setSubdomains(value);
             }}>
-            {/* One question, so no hairline parts its choices. */}
+            {/* The frame rules the top of the choices, but no hairline parts them. */}
             <SettingsRow
               title={label}
-              separated={false}>
+              separated={index === 0}>
               {subdomains === value ? (
                 <SFSymbol
                   name="checkmark"
