@@ -675,9 +675,12 @@ mail content.
   `METHOD:REPLY` with the invitation's UID, the Outlook.com attendee with
   `PARTSTAT=TENTATIVE`, and the meeting's start, which Exchange rewrote in a named time
   zone. **Sign Out of This Device** returned the app to Welcome. With the Simulator
-  deleted, `simulator-credentials.zsh scan`, run on each path, found no password, one-time
-  code seed or Recovery Key in `~/.agent-device`, `~/Library/Logs`, T3 Code's device
-  directory, the shell history or the scratch files. Limitations: Microsoft's one-time
+  deleted, `simulator-credentials.zsh scan`, run on each path, found no password or
+  Recovery Key in `~/.agent-device`, `~/Library/Logs`, T3 Code's device directory, the
+  shell history, the scratch files, the repository's `artifacts/expo-bootstrap` directory
+  with this run's DerivedData or this run's session transcripts. The six-digit one-time
+  code the scan also looked for matched once, inside an unchanged test vector of a Swift
+  package checkout, and no longer matched once the code had changed. Limitations: Microsoft's one-time
   sign-in code was typed, as it expires within minutes. **Decline**, a cancelled,
   someone-else's or ambiguous invitation, a refused or unconfirmed response and **Check
   Again** were not run on the live mailbox; the synthetic Graph mailbox tests cover a
