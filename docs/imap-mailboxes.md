@@ -2324,6 +2324,26 @@ password manager by running
   Status closes with the capsule, so the final count was not on screen. Completion is inferred
   from the total of 1,501, the capsule fading and the relaunch downloading nothing; the
   final downloaded count is unverified.
+- **2026-11-27, clean rescan after credential entry through the pasteboard
+  ([#2685](https://github.com/unwired-dev/product/issues/2685)).** This completes the
+  2026-11-22 record of #2685 once the copies earlier runs left were removed
+  ([#2688](https://github.com/unwired-dev/product/issues/2688)). Operator: agent, with
+  the values read at run time from the approved password manager. No Simulator run was
+  repeated. The scan of step 5 above looked for the certification Product Account's
+  Google password and Recovery Key, the iCloud Mail app-specific password, the Seznam
+  Email mail-client password and the Outlook.com password. It covered the whole of
+  `~/.agent-device`, `~/Library/Logs`, Xcode's DerivedData, every Simulator device, the
+  shell history, the temporary directories with the operators' scratch files, the agents'
+  session transcripts and state, T3 Code's data directory, state and logs, and the
+  `artifacts` of every checkout of the repository on this Mac. Result: pass. No file held
+  any of these values. Limitations: other tasks deleted four Simulators and three
+  checkouts during the scan, so those were not scanned. The scan ran from 10:05 to 20:00
+  UTC while other tasks wrote to the same places. For 103 checkouts' `artifacts`, the
+  script did not finish on this loaded Mac. Their result bundles were decoded by an
+  equivalent one-process zstd search (299 bundles, 109,883 blobs, no decode error), and
+  93 of them got the plain search with ripgrep over every file. Both tools found a
+  planted control value first. A text scan cannot see a credential in a screenshot
+  ([#3053](https://github.com/unwired-dev/product/issues/3053)).
 
 Real iCloud Mail and Seznam Email organizing, IDLE and Sent filing qualification, through
 the app on both hosts, remains required before release
