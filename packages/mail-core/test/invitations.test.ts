@@ -340,7 +340,7 @@ describe('meeting invitations', () => {
 
     expect(offer.details.recurrence).toBe(Date.UTC(2026, 10, 13));
     expect(invitationReply(offer, 'accepted', 0)).toContain(
-      'SEQUENCE:2\r\nRECURRENCE-ID;VALUE=DATE:20261113\r\nDTSTAMP:',
+      'SEQUENCE:2\r\nRECURRENCE-ID;VALUE=DATE:20261113\r\nDTSTAMP:19700101T000000Z\r\nDTSTART;VALUE=DATE:20261113\r\nORGANIZER',
     );
   });
 
