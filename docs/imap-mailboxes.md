@@ -844,7 +844,7 @@ password manager by running
 2. Open the edit menu and press **Paste**: in Google's sign-in sheet, long-press the
    field; in the app, tap the focused field again. The keyboard's own Paste key pastes
    nothing into the app's fields. On iPad, scroll **Recovery Key** clear of the software
-   keyboard before taking step 4's snapshot
+   keyboard and take step 4's snapshot before the copy
    ([#2743](https://github.com/unwired-dev/product/issues/2743)).
 3. `simulator-credentials.zsh clear <udid>` empties the pasteboard at once.
 4. When the field shows its text, as **Recovery Key** does, nothing may read the screen
