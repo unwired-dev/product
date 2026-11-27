@@ -518,6 +518,8 @@ final class WindowTests: XCTestCase {
           .firstMatch.exists
       }
       XCTAssertTrue(offered("Tomorrow Morning"), app.menuItems.debugDescription)
+      // The time trails the title and is spoken with it.
+      XCTAssertTrue(app.menuItems.matching(NSPredicate(format: "label BEGINSWITH %@", "Tomorrow Morning, ")).firstMatch.exists)
       XCTAssertTrue(offered("Next Week"))
       XCTAssertEqual(offered("This Weekend"), (1...5).contains(Calendar.current.component(.weekday, from: Date())))
       if menu != nil { attach(XCUIScreen.main.screenshot(), "Reminder menu") }

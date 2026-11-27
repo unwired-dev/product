@@ -1030,7 +1030,7 @@ static NSMenu *UnwiredMenuOf(NSString *title, NSArray<NSDictionary *> *sections,
   for (NSDictionary *section in sections) {
     for (NSDictionary *item in section[@"items"]) {
       NSString *detail = item[@"detail"];
-      if ([item[@"disabled"] boolValue]) continue;
+      if ([item[@"disabled"] boolValue] && detail.length == 0) continue;
       CGFloat width = [item[@"title"] sizeWithAttributes:measure].width;
       if (detail.length > 0) {
         details = YES;
