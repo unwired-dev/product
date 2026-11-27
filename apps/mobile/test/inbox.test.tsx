@@ -2274,8 +2274,8 @@ describe('connected Gmail Inbox', () => {
     expect(
       within(
         screen.getByRole('button', { name: 'Move to INBOX / Receipts' }),
-      ).getByText('INBOX / Receipts', { includeHiddenElements: true }),
-    ).toBeOnTheScreen();
+      ).getByText('INBOX / Receipts'),
+    ).toBeVisible();
     await fireEvent(screen.getByTestId('move-sheet'), 'accessibilityEscape');
     expect(gmail.labelsOf(oliver)).toStrictEqual(['INBOX', 'STARRED', travel]);
 
@@ -3167,37 +3167,36 @@ describe('connected Gmail Inbox', () => {
     expect(
       within(
         screen.getByRole('button', { name: 'Move to Travel / Lisbon' }),
-      ).getByText('Lisbon', { includeHiddenElements: true }),
-    ).toBeOnTheScreen();
+      ).getByText('Lisbon'),
+    ).toBeVisible();
     // A slash in Graph's display name does not create another level of nesting.
     expect(
       within(
         screen.getByRole('button', { name: 'Move to Travel / 2026' }),
-      ).getByText('Travel / 2026', { includeHiddenElements: true }),
-    ).toBeOnTheScreen();
+      ).getByText('Travel / 2026'),
+    ).toBeVisible();
     expect(
       within(
         screen.getByRole('button', { name: 'Move to Travel / 2026 / Porto' }),
-      ).getByText('Porto', { includeHiddenElements: true }),
-    ).toBeOnTheScreen();
+      ).getByText('Porto'),
+    ).toBeVisible();
     // A folder inside the Inbox nests beneath the Inbox row, whatever Graph calls the Inbox.
     expect(
       within(
         screen.getByRole('button', { name: 'Move to Inbox / Receipts' }),
-      ).getByText('Receipts', { includeHiddenElements: true }),
-    ).toBeOnTheScreen();
+      ).getByText('Receipts'),
+    ).toBeVisible();
     // A custom Graph folder named INBOX is not the well-known Inbox, nor are its children.
     expect(
       within(screen.getByRole('button', { name: 'Move to INBOX' })).getByText(
         'INBOX',
-        { includeHiddenElements: true },
       ),
-    ).toBeOnTheScreen();
+    ).toBeVisible();
     expect(
       within(
         screen.getByRole('button', { name: 'Move to INBOX / Taxes' }),
-      ).getByText('Taxes', { includeHiddenElements: true }),
-    ).toBeOnTheScreen();
+      ).getByText('Taxes'),
+    ).toBeVisible();
     const sheet = within(screen.getByTestId('move-sheet'));
     // Equal display names must not attach a custom folder's child to the system Inbox.
     const rows = sheet.getAllByRole('button');

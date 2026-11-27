@@ -1224,8 +1224,8 @@ describe('product registration', () => {
     expect(
       within(
         sheet.getByRole('button', { name: 'Move to Clients / Acme' }),
-      ).getByText('Acme', { includeHiddenElements: true }),
-    ).toBeOnTheScreen();
+      ).getByText('Acme'),
+    ).toBeVisible();
     await act(async () => {
       await fireEvent.changeText(sheet.getByLabelText('Search'), 'acme');
     });
@@ -1234,8 +1234,8 @@ describe('product registration', () => {
     expect(
       within(
         sheet.getByRole('button', { name: 'Move to Clients / Acme' }),
-      ).getByText('Clients / Acme', { includeHiddenElements: true }),
-    ).toBeOnTheScreen();
+      ).getByText('Clients / Acme'),
+    ).toBeVisible();
     await act(async () => {
       await fireEvent.changeText(sheet.getByLabelText('Search'), 'proj');
     });
