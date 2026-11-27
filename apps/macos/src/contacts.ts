@@ -20,7 +20,7 @@ type ContactsModule = TurboModule & {
 // `ask`, they are read the first time `reading` is true, requesting Contacts access then; without
 // it, only contacts already readable are read, each time `reading` turns true or `attempt` changes
 // while it is, so access granted meanwhile counts. Until access is granted there are none; `failed` tells that
-// reading them failed, and `settled` that a read finished. They stay in memory on this device,
+// reading them failed, and `settled` that the read of this `attempt` finished. They stay in memory on this device,
 // never saved or synchronized.
 export function useContactAddresses(
   reading: boolean,
@@ -34,8 +34,8 @@ export function useContactAddresses(
   const [read, setRead] = useState<{
     addresses: readonly ContactAddress[];
     failed: boolean;
-    settled: boolean;
-  }>({ addresses: [], failed: false, settled: false });
+    attempt?: number;
+  }>({ addresses: [], failed: false });
   const asked = useRef(false);
   useEffect(() => {
     if (!reading || (ask && asked.current)) {
@@ -50,14 +50,18 @@ export function useContactAddresses(
               'UnwiredContacts',
             ).addresses(ask),
           failed: false,
-          settled: true,
+          attempt,
         });
       } catch {
         // Unreadable contacts leave recent correspondents as the only suggestions.
-        setRead({ addresses: [], failed: true, settled: true });
+        setRead({ addresses: [], failed: true, attempt });
       }
     })();
-    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- Each attempt reads again.
   }, [reading, ask, attempt]);
-  return read;
+  // A new attempt is pending until its own read finishes.
+  return {
+    addresses: read.addresses,
+    failed: read.failed,
+    settled: read.attempt === attempt,
+  };
 }

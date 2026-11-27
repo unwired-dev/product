@@ -79,7 +79,7 @@ import {
   sheetsShown,
   unwiredAlert,
 } from './native-alert.ts';
-import { appleContacts } from './native-contacts.ts';
+import { appleContacts, unwiredContacts } from './native-contacts.ts';
 import {
   chooseMenuItem,
   chooseSubmenuItem,
@@ -3405,13 +3405,33 @@ describe('mac windows over a connected Gmail mailbox', () => {
         cancel: 2,
         destructive: 1,
       });
+      // Block waits for the new read, so the failed one exempts no one meanwhile.
       appleContacts.unreadable = false;
+      let finish: (addresses: typeof appleContacts.addresses) => void = () =>
+        undefined;
+      // oxlint-disable-next-line promise/avoid-new -- Hold the read until the test finishes it.
+      const pending = new Promise<typeof appleContacts.addresses>((resolve) => {
+        finish = resolve;
+      });
+      const reading = jest
+        .spyOn(unwiredContacts, 'addresses')
+        .mockReturnValueOnce(pending);
       await act(async () => {
         chooseSheetButton('Try Again');
       });
+      expect(
+        sheet.getByRole('button', { name: 'Block mail.nw-deals.com' }),
+      ).toBeDisabled();
+      await act(async () => {
+        finish(appleContacts.addresses);
+      });
+      reading.mockRestore();
       await expect(
         sheet.findByRole('switch', { name: 'Contacts at this domain' }),
       ).resolves.toBeVisible();
+      expect(
+        sheet.getByRole('button', { name: 'Block mail.nw-deals.com' }),
+      ).toBeEnabled();
       expect(blockDomainSheet()).not.toBeNull();
     } finally {
       Object.assign(appleContacts, {

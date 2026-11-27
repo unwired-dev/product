@@ -3775,12 +3775,19 @@ final class WindowTests: XCTestCase {
     // The sender's label repeats on its inner text, so it is clicked by position.
     let sender = window.staticTexts["Sender 001, sender001@\(domain)"].firstMatch
     XCTAssertTrue(sender.waitForExistence(timeout: 15))
-    func openSheet() {
+    func openSheet(capturing: Bool = false) {
       sender.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).rightClick()
       XCTAssertTrue(app.menuItems["Block Domain…"].waitForExistence(timeout: 5))
+      if capturing {
+        // The menu is outside the window, so the screen is captured.
+        let menu = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        menu.name = "Sender menu with Block Domain… (\(appearance))"
+        menu.lifetime = .keepAlways
+        add(menu)
+      }
       app.menuItems["Block Domain…"].click()
     }
-    openSheet()
+    openSheet(capturing: true)
     let sheet = window.sheets.firstMatch
     XCTAssertTrue(sheet.waitForExistence(timeout: 10))
     // Escape cancels, blocking nothing.

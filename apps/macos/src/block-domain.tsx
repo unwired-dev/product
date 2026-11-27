@@ -82,6 +82,12 @@ export function BlockDomainSheet({
         ? t('blockedSenders.ruleKeeps')
         : t('blockedSenders.ruleKeepsParent', { parent });
   }
+  // A domain longer than 24 characters, even of the widest letters, could push Block past the
+  // sheet or widen its alert, so the heading or alert title alone names it then.
+  const action =
+    domain.length > 24
+      ? t('blockedSenders.blockDomainAction', { context: 'short' })
+      : t('blockedSenders.blockDomainAction', { domain });
   const close = () => {
     windowHost()?.closeSheet(window);
   };
@@ -108,11 +114,7 @@ export function BlockDomainSheet({
     const asked = askInSheet(anchor.current, {
       title: t('blockedSenders.blockDomainUnexempted', { domain }),
       detail: t('blockedSenders.blockDomainUnexemptedDetail', scope),
-      buttons: [
-        t('common.retry'),
-        t('blockedSenders.blockDomainAction', { domain }),
-        t('common.cancel'),
-      ],
+      buttons: [t('common.retry'), action, t('common.cancel')],
       cancel: 2,
       destructive: 1,
     });
@@ -163,7 +165,10 @@ export function BlockDomainSheet({
             onPress={() => {
               setSubdomains(value);
             }}>
-            <SettingsRow title={label}>
+            {/* One question, so no hairline parts its choices. */}
+            <SettingsRow
+              title={label}
+              separated={false}>
               {subdomains === value ? (
                 <SFSymbol
                   name="checkmark"
@@ -238,13 +243,7 @@ export function BlockDomainSheet({
           onPress={close}
         />
         <Button
-          // A domain longer than 24 characters, even of the widest letters, could push Block past the
-          // sheet, so the heading alone names it then.
-          label={
-            domain.length > 24
-              ? t('blockedSenders.blockDomainAction', { context: 'short' })
-              : t('blockedSenders.blockDomainAction', { domain })
-          }
+          label={action}
           disabled={saving || !read.settled}
           onPress={() => {
             void (read.failed ? confirmUnexempted() : block());
