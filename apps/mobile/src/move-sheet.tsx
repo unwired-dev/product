@@ -291,6 +291,9 @@ function SheetRow({
     dense && styles.panelRow,
     { paddingLeft: inset + indent * depth },
   ];
+  // A text size changed while the picker is open keeps the hosted row's old height; a fresh
+  // host measures the row again.
+  const { fontScale } = useWindowDimensions();
   if (disabled) {
     return (
       <View
@@ -305,7 +308,9 @@ function SheetRow({
     );
   }
   return (
-    <Host matchContents={{ vertical: true }}>
+    <Host
+      key={fontScale}
+      matchContents={{ vertical: true }}>
       <SwiftUIButton
         onPress={onPress}
         modifiers={[buttonStyle('plain'), spokenLabel(label)]}>

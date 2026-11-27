@@ -24,6 +24,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -931,10 +932,15 @@ export function SettingsActionRow({
   readonly onPress: () => void;
   readonly children: ReactElement;
 }) {
+  // A text size changed while Settings is open keeps the hosted row's old height; a fresh host
+  // measures the row again.
+  const { fontScale } = useWindowDimensions();
   return (
     <View>
       <Hairline />
-      <Host matchContents={{ vertical: true }}>
+      <Host
+        key={fontScale}
+        matchContents={{ vertical: true }}>
         <SwiftUIButton
           onPress={onPress}
           modifiers={[
