@@ -238,7 +238,8 @@ the Draft and the Product Account that owns it. A tap that launches the app wait
 for this launch's Drafts to open. A Draft no longer listed, another Product
 Account's, or one whose connection is gone or unavailable opens nothing; the app
 still comes forward. The tap sends, queues and changes nothing, the reminder
-included.
+included. A notification delivered before this change names no Draft, so its tap
+only brings the app forward.
 
 ## Diagnostics
 
