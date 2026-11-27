@@ -990,13 +990,19 @@ function Connection({
       ? connectionStatus(t, mailbox, now)
       : limitStatus(t, limit, { time: format, popover });
   // Try Again stays unavailable until the time Gmail named.
+  // The row action wraps within half the row, so the title stays beside it at large text sizes.
+  const [row, setRow] = useState<number>();
   const waiting =
     limit?.until !== undefined && now < Date.parse(limit.until)
       ? limit.until
       : undefined;
   return (
     <View style={styles.connection}>
-      <View style={styles.connectionTitle}>
+      <View
+        onLayout={({ nativeEvent }) => {
+          setRow(nativeEvent.layout.width);
+        }}
+        style={styles.connectionTitle}>
         {attention ? (
           <SFSymbol
             name={
@@ -1014,6 +1020,7 @@ function Connection({
         {action === undefined ? null : (
           <DetailsButton
             label={action.name}
+            maxWidth={row === undefined ? undefined : row / 2}
             onPress={() => {
               (authorize ? onAuthorize : onTryAgain)?.();
             }}
@@ -1081,12 +1088,15 @@ function DetailsButton({
   label,
   disabled = false,
   onPress,
+  maxWidth,
   style,
   children,
 }: {
   readonly label: string;
   readonly disabled?: boolean;
   readonly onPress: () => void;
+  // The label's widest, when the row bounds it.
+  readonly maxWidth?: number | undefined;
   readonly style: Parameters<typeof Host>[0]['style'];
   readonly children: ReactNode;
 }) {
@@ -1104,7 +1114,7 @@ function DetailsButton({
         <RNHostView matchContents>
           <View
             accessibilityElementsHidden
-            style={styles.target}>
+            style={[styles.target, { maxWidth }]}>
             {children}
           </View>
         </RNHostView>
