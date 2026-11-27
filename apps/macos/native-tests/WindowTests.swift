@@ -511,9 +511,14 @@ final class WindowTests: XCTestCase {
       }
       let item = app.menuItems["Choose Date and Time…"]
       XCTAssertTrue(item.waitForExistence(timeout: 5))
-      // #3001: the times every platform offers; This Evening and This Weekend depend on the clock.
-      XCTAssertTrue(app.menuItems["Tomorrow Morning"].exists)
-      XCTAssertTrue(app.menuItems["Next Week"].exists)
+      // #3001: the times every platform offers, each titled with its time; This Evening depends on
+      // the clock, and This Weekend is offered from Sunday to Thursday.
+      func offered(_ title: String) -> Bool {
+        app.menuItems.matching(NSPredicate(format: "label BEGINSWITH %@", "\(title), ")).firstMatch.exists
+      }
+      XCTAssertTrue(offered("Tomorrow Morning"))
+      XCTAssertTrue(offered("Next Week"))
+      XCTAssertEqual(offered("This Weekend"), (1...5).contains(Calendar.current.component(.weekday, from: Date())))
       if menu != nil { attach(XCUIScreen.main.screenshot(), "Reminder menu") }
       item.click()
       XCTAssertTrue(set.waitForExistence(timeout: 10))
