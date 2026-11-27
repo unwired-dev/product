@@ -2346,21 +2346,23 @@ password manager by running
   DerivedData, CoreSimulator's directory, the temporary directories with the operator's
   scratch files, this checkout's `artifacts`, the agents' session transcripts, T3 Code's
   data directory with its state and logs, and `~/Library/Caches`, and in the whole shell
-  history. No file held any of them. Limitations: of the 33,078 files listed, 11,741 still
-  existed when the scan began, and 83 of those were gone by its end, so the scan
-  reported a read error for its last batch; the rest had been deleted before. The run
-  predates the snapshot rule of step 1 above: accessibility snapshots ran while the
-  keyboard could offer a pasted value, but neither the driver's working directory nor
-  `~/.agent-device` held a screenshot afterwards. After pasting the Recovery Key, a
-  clearing tap made at the field's old coordinates landed on a mailbox button once the
-  screen had changed; its sheet was dismissed. A text scan cannot see a credential in a
-  screenshot
-  ([#3053](https://github.com/unwired-dev/product/issues/3053)). Earlier that day, once
-  the copies earlier runs left were removed
-  ([#2688](https://github.com/unwired-dev/product/issues/2688)), a scan of the whole Mac
-  for these values and the Outlook.com password found none in what it completed: 41 of
-  45 Simulators, the plain search of 91 of 93 checkouts' `artifacts`, and a one-process
-  zstd search of their 299 result bundles in place of the script's.
+  history, then in each result bundle written since then, as a bundle. No file held any of
+  them. This run's runner bundle was still being written when the files were listed, so its
+  plain files, among them the runner's session log, were scanned; the runner later replaced
+  it. Limitations: of the 33,078 files listed, 11,741 still existed when the scan began; the
+  rest had been deleted. Its last batch reported a read error, so its files were scanned
+  again one at a time: 4 had been deleted, and the other 737 held none of the values.
+  The run predates the snapshot rule of step 1 above: accessibility snapshots ran while the
+  keyboard could offer a pasted value; afterwards the driver's working directory was empty and
+  `~/.agent-device` held no image written since the run began. After pasting the Recovery
+  Key, a clearing tap made at the field's old coordinates landed on a mailbox button once
+  the screen had changed; its sheet was dismissed. A text scan cannot see a credential in a
+  screenshot ([#3053](https://github.com/unwired-dev/product/issues/3053)). Earlier that
+  day, once the copies earlier runs left were removed
+  ([#2688](https://github.com/unwired-dev/product/issues/2688)), a partial rescan of the Mac
+  for these values and the Outlook.com password found none in what it completed: 41 of 45
+  Simulators, a plain search with ripgrep of 91 of 93 checkouts' `artifacts`, and a
+  separate one-process zstd search of their 299 result bundles in place of the script's.
 
 Real iCloud Mail and Seznam Email organizing, IDLE and Sent filing qualification, through
 the app on both hosts, remains required before release
