@@ -438,14 +438,21 @@ function SettingsPage({
   const [destination, setDestination] = useState<SettingsDestination>(
     () => request?.destination ?? 'account',
   );
+  // The request whose mailbox password entry Email Accounts opens, until the person moves on.
+  const [repair, setRepair] = useState(request);
   // A later request names its destination; one without keeps the person's place.
   const [followed, setFollowed] = useState(request);
   if (followed !== request) {
     setFollowed(request);
+    setRepair(request);
     if (request?.destination !== undefined) {
       setDestination(request.destination);
     }
   }
+  const navigate = (next: typeof destination) => {
+    setRepair(undefined);
+    setDestination(next);
+  };
   const { copy, actions, identity } = screen;
   if (snapshot.kind === 'signed-out' || identity === undefined) {
     return null;
@@ -462,7 +469,7 @@ function SettingsPage({
       <SettingsWindow
         account={name}
         destination={destination}
-        onDestination={setDestination}
+        onDestination={navigate}
         accessory={
           <>
             {busy ? (
@@ -519,7 +526,7 @@ function SettingsPage({
         {destination === 'language' ? <LanguageSettings /> : null}
         <ErrorReportingDestination
           destination={destination}
-          onDestination={setDestination}
+          onDestination={navigate}
         />
         {actions.settings ? (
           <AccountSettings
@@ -527,7 +534,7 @@ function SettingsPage({
             button={button}
             destination={destination}
             microsoft={microsoft}
-            request={request}
+            request={repair}
             screen={screen}
             store={store}
           />

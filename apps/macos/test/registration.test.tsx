@@ -970,6 +970,13 @@ describe('product registration', () => {
       );
     });
     expect(settingsWindow().getByRole('button', repair)).toBeVisible();
+    // Moving to another page and back leaves it closed.
+    for (const name of ['Language', 'Email Accounts']) {
+      await act(async () => {
+        await fireEvent.press(settingsWindow().getByRole('button', { name }));
+      });
+    }
+    expect(settingsWindow().getByRole('button', repair)).toBeVisible();
     await request();
     expect(
       settingsWindow().getByRole('header', { name: 'iCloud Mail' }),

@@ -40,11 +40,7 @@ import { AccountContext } from '../src/registration-gate.tsx';
 const account = 'synthetic-product-account';
 const mara = { id: 'connection-mara', address: 'mara.novak@icloud.com' };
 const { icloud } = imapProviders;
-// The mailbox's state; a password its mail server refused leaves it waiting for authorization.
-const server: { state: 'connected' | 'authorization' } = {
-  state: 'connected',
-};
-const snapshotOf = (): RegistrationSnapshot => ({
+const snapshot: RegistrationSnapshot = {
   kind: 'connected',
   productAccountId: account,
   signInProvider: 'google',
@@ -52,14 +48,14 @@ const snapshotOf = (): RegistrationSnapshot => ({
     {
       ...mara,
       provider: 'imap',
-      state: server.state,
+      state: 'connected',
       imap: { host: icloud.host, port: icloud.port, username: 'mara.novak' },
       smtp: { ...icloud.smtp, username: mara.address },
     },
   ]),
-});
+};
 const registration = {
-  getSnapshot: () => ({ snapshot: snapshotOf(), busy: false, failed: false }),
+  getSnapshot: () => ({ snapshot, busy: false, failed: false }),
   resume: () => Promise.resolve(),
   subscribe: () => () => undefined,
 };
@@ -149,7 +145,7 @@ async function device(summaries: readonly string[]) {
     return (
       <AccountContext
         value={{
-          mailboxes: mailboxesOf(snapshotOf()),
+          mailboxes: mailboxesOf(snapshot),
           openAccount: (...request) => {
             opened.push(request);
           },
@@ -229,7 +225,6 @@ describe('imap invitation responses on iPhone and iPad', () => {
       ],
     });
     clock.now = Date.UTC(2026, 10, 2, 9, 52);
-    server.state = 'connected';
     jest.setSystemTime(clock.now);
   });
   // oxlint-disable-next-line vitest/no-hooks -- Every journey runs on the same controlled clock.
@@ -380,7 +375,7 @@ describe('imap invitation responses on iPhone and iPad', () => {
     try {
       await press('Accept');
       // The mail server refused the password while the response waited.
-      server.state = 'authorization';
+      mail.imap.smtp.failure = 'smtp-refused';
       await mail.deliver();
       expect(mail.imap.smtp.accepted).toStrictEqual([]);
       expect(

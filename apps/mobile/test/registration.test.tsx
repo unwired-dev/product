@@ -832,11 +832,9 @@ describe('product registration', () => {
         opener.open?.();
       });
     };
-    await expect(
-      screen.findByRole('button', {
-        name: 'Inbox. In alex@icloud.example.invalid',
-      }),
-    ).resolves.toBeVisible();
+    await screen.findByRole('button', {
+      name: 'Inbox. In alex@icloud.example.invalid',
+    });
     // Email Accounts opens with that mailbox's entry.
     await request();
     expect(screen.getByRole('header', { name: 'iCloud Mail' })).toBeVisible();
@@ -845,6 +843,10 @@ describe('product registration', () => {
     await act(async () => {
       await fireEvent.press(screen.getByRole('button', { name: 'Cancel' }));
     });
+    expect(screen.getByRole('button', repair)).toBeVisible();
+    // Moving to another page and back leaves it closed.
+    await backToSettings();
+    await openSettings('Email Accounts');
     expect(screen.getByRole('button', repair)).toBeVisible();
     await request();
     expect(screen.getByRole('header', { name: 'iCloud Mail' })).toBeVisible();

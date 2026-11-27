@@ -498,14 +498,21 @@ function SettingsPage({
     }
     return settingsColumns ? 'account' : undefined;
   });
+  // The request whose mailbox password entry Email Accounts opens, until the person moves on.
+  const [repair, setRepair] = useState(request);
   // A later request names its destination; one without keeps the person's place.
   const [followed, setFollowed] = useState(request);
   if (followed !== request) {
     setFollowed(request);
+    setRepair(request);
     if (request?.destination !== undefined) {
       setDestination(request.destination);
     }
   }
+  const navigate = (next: typeof destination) => {
+    setRepair(undefined);
+    setDestination(next);
+  };
   const { destination: selectedDestination, detail } =
     reportingDetail(destination);
   const [editing, setEditing] = useState<SettingsDestination>();
@@ -524,7 +531,7 @@ function SettingsPage({
         account={name}
         privateSync={snapshot.privateSync === 'ready'}
         destination={selectedDestination}
-        onDestination={setDestination}
+        onDestination={navigate}
         detail={detail}
         edit={edit}
         navigation={{ onBack, onInbox, disabled: busy }}
@@ -575,7 +582,7 @@ function SettingsPage({
         ) : null}
         <ErrorReportingDestination
           destination={selectedDestination}
-          onDestination={setDestination}
+          onDestination={navigate}
         />
         {edit === undefined ? null : (
           <BlockedSenderSettings
@@ -589,7 +596,7 @@ function SettingsPage({
             button={button}
             destination={selectedDestination}
             microsoft={microsoft}
-            request={request}
+            request={repair}
             screen={screen}
             store={store}
           />
