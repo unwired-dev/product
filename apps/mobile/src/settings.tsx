@@ -59,6 +59,9 @@ export const SettingsScroll = createContext<
   RefObject<ScrollViewInstance | null> | undefined
 >(undefined);
 
+// Whether a row draws its own hairline; an action row draws it outside its button.
+const RowHairline = createContext(true);
+
 export type SettingsDestination =
   | 'account'
   | 'mailboxes'
@@ -925,9 +928,6 @@ export function AccountCard({
     </View>
   );
 }
-
-// Whether a row draws its own hairline; an action row draws it outside its button.
-const RowHairline = createContext(true);
 
 // A row that runs one action: the system button, with the row as its label and its spoken name.
 // The button dims the row while it is disabled, to half strength; the frames draw a disabled row
