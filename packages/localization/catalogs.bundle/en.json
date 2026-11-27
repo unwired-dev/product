@@ -770,6 +770,8 @@
     "invitedMoreThanTwice": "You’re invited at {{count}} of your addresses. This copy responds only for {{address}}.",
     "inOutbox": "In the Outbox",
     "waitingDetail": "Your {{choice}} response is queued. Undo is available.",
+    "undoRefused": "Couldn’t undo your response",
+    "undoRefusedDetail": "Your {{choice}} response is still in the Outbox. Choose Try Again to undo it.",
     "queuedDetail": "Waiting to send your {{choice}} response from {{address}}.",
     "sending": "Sending your response…",
     "sendingDetail": "{{choice}}, from {{address}}.",
@@ -1518,6 +1520,7 @@
     "invitation": {
       "response": "Invitation response · {{choice}}",
       "waiting": "Undo available. Waiting to send.",
+      "undoRefused": "Couldn’t undo. Still waiting to send.",
       "sending": "Sending your response…",
       "refused": "Not sent. The mail server refused this response.",
       "unknown": "Delivery unknown. The mail server hasn’t confirmed this response.",
