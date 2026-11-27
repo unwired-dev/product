@@ -1280,7 +1280,7 @@ extension UnwiredRegistration {
     }
   }
 
-  // `change` names a Microsoft message and exactly one of `read` or `folder`.
+  // `change` names a Microsoft message and exactly one of `read`, `folder` or `categories`.
   @objc(graphModify:mailbox:resolver:rejecter:)
   func graphModify(
     _ change: [String: Any], mailbox scope: [String: Any],
@@ -1291,11 +1291,13 @@ extension UnwiredRegistration {
       let (connection, address, generation) = try Self.scope(scope)
       guard let message = change["message"] as? String,
         change["read"] == nil || change["read"] is Bool,
-        change["folder"] == nil || change["folder"] is String
+        change["folder"] == nil || change["folder"] is String,
+        change["categories"] == nil || change["categories"] is [String]
       else { throw RegistrationError.unavailable }
       return try await $0.graphModify(
         message: message, read: change["read"] as? Bool, folder: change["folder"] as? String,
-        connection: connection, address: address, generation: generation)
+        categories: change["categories"] as? [String], connection: connection, address: address,
+        generation: generation)
     }
   }
 

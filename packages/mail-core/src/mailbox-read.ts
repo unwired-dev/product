@@ -68,9 +68,9 @@ export interface NativeGraphMailbox {
       signal?: Readonly<AbortSignal>;
     }>,
   ) => Promise<unknown>;
-  // Applies one change to one of the signed-in person's own messages: its read state, or a move
-  // to a well-known folder name or a folder ID. Native code writes the request, so only these
-  // values cross. Resolves `{ status, body }`, the body Graph's view of the message afterwards.
+  // Applies one change to one of the signed-in person's own messages: its read state, its whole
+  // list of Outlook categories, or a move to a well-known folder name or a folder ID. Native code
+  // writes the request, so only these values cross. Resolves `{ status, body }`, the body Graph's view of the message afterwards.
   readonly graphModify: (
     change: Readonly<{ message: string } & GraphChange>,
     mailbox: Readonly<{ address: string; generation: string }>,
