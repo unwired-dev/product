@@ -212,10 +212,12 @@ extension RegistrationStore {
 
   // Copies an asset's bytes into Draft storage for `owner`: a picked or dropped file, pasted
   // `data:` bytes, or a Downloaded Attachment of a current mailbox generation. The Draft keeps
-  // only the bytes, never the mailbox they came from.
-  func importDraftAsset(owner: String, id: String, source: [String: Any]) async throws
-    -> [String: Any]
-  {
+  // only the bytes, never the mailbox they came from. A file's read reports its fraction to
+  // `progress` at each whole percent; `data:` bytes report none.
+  func importDraftAsset(
+    owner: String, id: String, source: [String: Any],
+    progress: @escaping @Sendable (Double) -> Void = { _ in }
+  ) async throws -> [String: Any] {
     let kind = source["kind"] as? String
     var file: URL?
     var data: String?
@@ -242,7 +244,9 @@ extension RegistrationStore {
     guard file != nil || data != nil else { throw RegistrationError.unavailable }
     let (_, imported) = try await draftWork { [file, data] store, current in
       guard owner == current else { throw PrivateInboxError.mailboxInvalidated }
-      let bytes = try file.map(Self.draftFileBytes) ?? Self.draftDataBytes(data ?? "")
+      let bytes =
+        try file.map { try Self.draftFileBytes($0, progress: progress) }
+        ?? Self.draftDataBytes(data ?? "")
       return try store.importDraftAsset(owner: owner, id: id, bytes: bytes)
     }
     // A failed import keeps a picked copy for Try Again; JavaScript discards it, or launch does.
@@ -250,17 +254,33 @@ extension RegistrationStore {
     return ["owner": owner, "size": imported.size, "digest": imported.digest]
   }
 
-  nonisolated private static func draftFileBytes(_ url: URL) throws -> Data {
+  // Reads a file in bounded chunks, so its import can report progress.
+  nonisolated private static func draftFileBytes(_ url: URL, progress: (Double) -> Void) throws
+    -> Data
+  {
     // A file the person dropped or chose stays readable while this process holds its grant.
     let scoped = url.startAccessingSecurityScopedResource()
     defer { if scoped { url.stopAccessingSecurityScopedResource() } }
     let values = try url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey])
     guard values.isRegularFile == true else { throw PrivateInboxError.unavailable }
-    guard (values.fileSize ?? 0) <= PrivateInboxStore.draftAssetLimit else {
-      throw PrivateInboxError.tooLarge
+    let size = values.fileSize ?? 0
+    guard size <= PrivateInboxStore.draftAssetLimit else { throw PrivateInboxError.tooLarge }
+    let handle = try FileHandle(forReadingFrom: url)
+    defer { try? handle.close() }
+    var bytes = Data(capacity: size)
+    var reported = -1
+    while let next = try handle.read(upToCount: 1 << 20), !next.isEmpty {
+      bytes.append(next)
+      guard bytes.count <= PrivateInboxStore.draftAssetLimit else {
+        throw PrivateInboxError.tooLarge
+      }
+      // A file that grew while it was read reports no more than all of it.
+      let percent = size > 0 ? min(100, bytes.count * 100 / size) : 0
+      if percent > reported {
+        reported = percent
+        progress(Double(percent) / 100)
+      }
     }
-    let bytes = try Data(contentsOf: url)
-    guard bytes.count <= PrivateInboxStore.draftAssetLimit else { throw PrivateInboxError.tooLarge }
     return bytes
   }
 

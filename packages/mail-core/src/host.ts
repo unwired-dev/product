@@ -599,7 +599,7 @@ export function createHost(
     },
   );
 
-  // One-click unsubscribe requests, each recorded encrypted on this device once sent.
+  // Unsubscribe requests, each recorded encrypted on this device once sent.
   const unsubscribe = createUnsubscribe(
     {
       requestUnsubscribe: (url) => native().requestUnsubscribe(url),
@@ -619,6 +619,7 @@ export function createHost(
     claims: {
       claimDraftDelivery: (owner, id) => native().claimDraftDelivery(owner, id),
     },
+    requests: unsubscribe,
   });
   // The host's application lifecycle grants execution; constructing stores grants none.
   outbox.pause();

@@ -20,6 +20,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from '@testing-library/react-native';
 
 import { MailAssistanceProfileContext } from '../src/mail-assistance-lifetime.ts';
@@ -73,6 +74,14 @@ const choose = async (
     select({ nativeEvent: { id: item.id } });
   });
 };
+// The scrolling area holding `element`.
+function scrollOf(
+  element: ReturnType<typeof screen.getByText> | null,
+): ReturnType<typeof screen.getByText> | null {
+  return element === null || element.type === 'RCTScrollView'
+    ? element
+    : scrollOf(element.parent);
+}
 const saveBlocked =
   'This Draft could not be saved, so it stays open. Try again, or discard it.';
 // Reopens a saved Draft while its native import is pending, then completes it before an exit.
@@ -816,6 +825,179 @@ describe('the Tiptap evaluation composer', () => {
     },
   );
 
+  it('opens the Slash Command Menu from the page’s report and sets a block as one page edit', async () => {
+    expect.hasAssertions();
+    injectedScripts.length = 0;
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    await render(<App drafts={createDrafts(storage.native, registration)} />);
+    await press('New Message');
+    const { report, revision } = simulatedPage();
+    const sent = (command: Command) => commandScript(command);
+    await report({});
+    const paragraph = (text: string) => ({
+      kind: 'paragraph' as const,
+      spans: [{ text }].filter((span) => span.text !== ''),
+    });
+    const lines = (text: string): SemanticDocument => {
+      const [first = '', ...rest] = text.split('\n');
+      return [paragraph(first), ...rest.map(paragraph)];
+    };
+    const caret = { top: 30, bottom: 52, left: 16 };
+    // The page reports each typed character with the caret after it, and the /'s line.
+    const typeEach = async (before: string, typed: string) => {
+      for (let end = 1; end <= typed.length; end += 1) {
+        const text = before + typed.slice(0, end);
+        await report({
+          document: lines(text),
+          selection: { start: text.length, end: text.length },
+          caret,
+        });
+      }
+    };
+    const page = () => screen.getByTestId('message-webview');
+    const key = async (name: string) => {
+      await act(async () => {
+        await fireEvent(page(), 'message', {
+          nativeEvent: { data: JSON.stringify({ type: 'key', key: name }) },
+        });
+      });
+    };
+    const menu = () => screen.queryByLabelText('Slash commands');
+    const rows = (options: Readonly<{ selected?: boolean }> = {}) => {
+      const shown = menu();
+      ok(shown !== null, 'Expected the Slash Command Menu');
+      return within(shown)
+        .queryAllByRole('button', options)
+        .map(({ props }) => props.accessibilityLabel);
+    };
+
+    // A / first in a block opens the Basic Blocks, as in the current composer, 7pt right of the /
+    // and 3pt under its line, and the page hands the menu its keys.
+    await fireEvent(screen.getByTestId('draft-page'), 'layout', {
+      nativeEvent: { layout: { x: 0, y: 40, width: 500, height: 400 } },
+    });
+    const scroll = scrollOf(page());
+    ok(scroll !== null, 'Expected the composer’s scrolling area');
+    await fireEvent(scroll, 'layout', {
+      nativeEvent: { layout: { x: 0, y: 0, width: 500, height: 600 } },
+    });
+    await typeEach('', 'Hi\n/');
+    expect(rows()).toStrictEqual([
+      'Text',
+      'Heading 1, #',
+      'Heading 2, ##',
+      'Heading 3, ###',
+      'Bulleted List, -',
+      'Numbered List, 1.',
+      'Quote, >',
+      'Code Block, ```',
+    ]);
+    expect(menu()).toHaveStyle({ left: 23, top: 95, height: 258 });
+    expect(lastCommand()).toBe(sent({ type: 'menu', open: true }));
+    // Over the line when only there is room there.
+    await fireEvent(scroll, 'layout', {
+      nativeEvent: { layout: { x: 0, y: 0, width: 500, height: 150 } },
+    });
+    expect(menu()).toHaveStyle({ top: 40 + 30 - 62 - 3, height: 62 });
+
+    // Typing filters it; Down Arrow moves the highlight and Return chooses it, removing the query
+    // and setting the block as one replacement of the reported revision.
+    await typeEach('Hi\n/', 'he');
+    expect(rows()).toStrictEqual([
+      'Heading 1, #',
+      'Heading 2, ##',
+      'Heading 3, ###',
+    ]);
+    await key('ArrowDown');
+    expect(rows({ selected: true })).toStrictEqual(['Heading 2, ##']);
+    await key('Enter');
+    expect(injectedScripts.slice(-2)).toStrictEqual([
+      sent({
+        type: 'replace',
+        revision: revision(),
+        document: [paragraph('Hi'), { kind: 'heading2', spans: [] }],
+        selection: { start: 3, end: 3 },
+      }),
+      sent({ type: 'menu', open: false }),
+    ]);
+    expect(menu()).toBeNull();
+
+    // Escape closes it, keeping the text, and typing on does not reopen it; so do an empty result,
+    // moving the caret and deleting the /.
+    await typeEach('', 'Hi\n/');
+    await key('Escape');
+    expect(menu()).toBeNull();
+    await typeEach('Hi\n/', 'he');
+    expect(menu()).toBeNull();
+    await typeEach('', 'Hi\n/x');
+    expect(menu()).toBeNull();
+    await typeEach('', 'Hi\n/he');
+    expect(menu()).not.toBeNull();
+    await report({ selection: { start: 5, end: 5 }, caret });
+    expect(menu()).toBeNull();
+    await typeEach('', 'Hi\n/');
+    await report({ document: lines('Hi\n'), selection: { start: 3, end: 3 } });
+    expect(menu()).toBeNull();
+
+    // A click chooses a block too; the Undo that restores the / does not reopen the menu.
+    await typeEach('', 'Hi\n/');
+    await press('Quote, >');
+    expect(injectedScripts.at(-2)).toBe(
+      sent({
+        type: 'replace',
+        revision: revision(),
+        document: [paragraph('Hi'), { kind: 'quote', spans: [] }],
+        selection: { start: 3, end: 3 },
+      }),
+    );
+    await report({
+      document: [paragraph('Hi'), { kind: 'quote', spans: [] }],
+      selection: { start: 3, end: 3 },
+      replaced: revision(),
+    });
+    await report({
+      document: lines('Hi\n/'),
+      selection: { start: 4, end: 4 },
+      caret,
+      restored: true,
+    });
+    expect(menu()).toBeNull();
+
+    // Reports and keys can arrive before the host renders: leaving the body, which the page
+    // reports as Escape, right after a / closes the menu, and Down Arrow right after filtering moves
+    // through the filtered blocks.
+    const edit = (at: number, text: string) => ({
+      type: 'update',
+      revision: revision() + at,
+      document: lines(text),
+      selection: { start: text.length, end: text.length },
+      caret,
+      kind: 'paragraph',
+      marks: [],
+      undo: true,
+      redo: false,
+    });
+    const batched = async (...messages: readonly object[]) => {
+      const { onMessage } = page().props;
+      await act(async () => {
+        messages.forEach((message) => {
+          onMessage({ nativeEvent: { data: JSON.stringify(message) } });
+        });
+      });
+    };
+    await batched(edit(1, 'Hi\n'));
+    await batched(edit(2, 'Hi\n/'), { type: 'key', key: 'Escape' });
+    expect(menu()).toBeNull();
+    await batched(edit(3, 'Hi\n'));
+    await batched(edit(4, 'Hi\n/'));
+    expect(menu()).not.toBeNull();
+    await batched(edit(5, 'Hi\n/h'), edit(6, 'Hi\n/he'), {
+      type: 'key',
+      key: 'ArrowDown',
+    });
+    expect(rows({ selected: true })).toStrictEqual(['Heading 2, ##']);
+  });
+
   it('suggests a reply in a reply Draft and replaces the whole authored body', async () => {
     expect.hasAssertions();
     injectedScripts.length = 0;
@@ -913,7 +1095,7 @@ describe('the Tiptap evaluation composer', () => {
       document: body({ text: 'Hi ' }, { text: '￼', image: chart }),
       attachments: [],
     });
-    await screen.findByLabelText('chart.png, Adding…');
+    await screen.findByLabelText('chart.png, Importing…');
     // Typing while the import completes keeps the edit, and the page's older copy of the asset
     // cannot undo its completion.
     await report({

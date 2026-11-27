@@ -527,9 +527,13 @@ function ImapMessageActions({
   const mailbox = useMailbox();
   const anchor = useRef<View>(null);
   const pinFor = usePinFor(anchor);
-  const unsubscribe = useUnsubscribeMenu(inbox, id);
   const message = useSyncExternalStore(inbox.subscribe, () =>
     inbox.message(id),
+  );
+  const unsubscribe = useUnsubscribeMenu(
+    inbox,
+    id,
+    message === undefined ? undefined : new Date(message.receivedAt).getTime(),
   );
   if (state.kind !== 'ready' || !('imap' in state) || message === undefined) {
     return null;
@@ -597,6 +601,17 @@ function ImapMessageActions({
   );
 }
 
+// When the message `id` the reader shows arrived, once the Inbox knows it.
+const receivedOf = (state: ReturnType<typeof useInbox>, id: string) => {
+  const message =
+    state.kind === 'ready' && 'sync' in state
+      ? listedMessage(state, id)
+      : undefined;
+  return message === undefined
+    ? undefined
+    : new Date(message.receivedAt).getTime();
+};
+
 // The reader's Gmail and Microsoft actions. A message that leaves the view it was chosen in, the
 // Inbox or another Gmail view, closes the reader.
 function GmailMessageActions({
@@ -619,7 +634,7 @@ function GmailMessageActions({
   const provider = mailbox?.provider ?? 'gmail';
   const anchor = useRef<View>(null);
   const pinFor = usePinFor(anchor);
-  const unsubscribe = useUnsubscribeMenu(store, id);
+  const unsubscribe = useUnsubscribeMenu(store, id, receivedOf(state, id));
   // The message New Label… last opened Labels for, and how often it was chosen.
   const [labelling, setLabelling] =
     useState<Readonly<{ message: GmailMessage; opening: number }>>();

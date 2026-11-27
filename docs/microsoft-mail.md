@@ -191,6 +191,21 @@ order, exactly as for [Gmail](gmail-inbox.md):
   the Inbox shows the message as Microsoft has it;
 - each change goes only to the connection that showed the message.
 
+Mail-core also keeps each Microsoft message's Outlook categories, which Outlook
+stores on the message apart from its folder
+([#3019](https://github.com/unwired-dev/product/issues/3019), part of
+[#1684](https://github.com/unwired-dev/product/issues/1684)). Listing, delta rounds,
+search and organizing read them back, and a category change uses the same queue
+as the changes above. Assigning or removing a category first reads the message's
+categories as Microsoft has them now, then writes them back with only that
+category added or removed. So a category another Outlook client changed before
+that read stays as that client left it; a change made between the read and the
+write can be overwritten. A change whose list Outlook could not store, such as
+one with a name over 255 characters, is refused and the categories stay as
+Microsoft has them. The write uses the existing `Mail.ReadWrite` grant.
+The hosts don't offer categories yet: the approved Categories panel, the category
+list in Settings and its `MailboxSettings` consent are later #1684 slices.
+
 Online search covers every folder of each Microsoft mailbox beside Gmail's.
 Microsoft orders its results by sent time and returns up to 1,000 matches; the
 Inbox lists all returned results newest first.
@@ -653,6 +668,44 @@ mail content.
   contacts access sheet, answered **Don’t Allow**. Mac, iPad organizing, search,
   attachments, renewal and revocation, and uncertain outcomes were not run and stay on
   #637.
+- **2026-11-26, iPad organize and search
+  ([#3017](https://github.com/unwired-dev/product/issues/3017)).** Target, operator and
+  toolchain as on 2026-11-25, on a new iPad Pro 11-inch (M5) Simulator on iOS 27.0.
+  Build: a new Release build from the app source of
+  `209dfa939362fb67e8fef90f7f21a38af90302f4`. Result: partial: organize and search passed,
+  and credential handling is unverified (see the limitations). A fresh Google Product
+  Sign-In with the Recovery Key, then **Microsoft 365 and Outlook**, connected the
+  personal mailbox with every address, password and the Recovery Key entered through the
+  [Simulator pasteboard](imap-mailboxes.md#certification-runs-through-the-app); Microsoft
+  reused the account's earlier grant without asking for consent. **Mark as Unread** and
+  **Mark as Read** from the row's menu showed at once and survived a relaunch. In the
+  reader with the sidebar hidden, **Folders** › **Conversation History** took a message
+  out of the Inbox and **Conversation History** listed it. **Delete** there moved it to
+  **Deleted Items**, whose row menu's **Move to Inbox** brought it back. Moved again, it
+  returned with **Undo**, and the row menu's **Archive** then moved it to **Archive**.
+  After each step and a relaunch, the message had left the list it was moved from and was
+  listed in the other. A search for a word from the subjects listed 12 messages under
+  **Top Results**, each saying **Saved on this device** or **Downloads from the mail
+  server when opened**. **Search Mail Servers** then listed real messages under **From
+  mail servers**, including **Sent Items** copies this device had never listed, with
+  **More from Mail Servers**. A search with no match showed **No Results**, said that no
+  saved mail in the mailbox matched, and after **Search Mail Servers** that the mail
+  servers found none. **Sign Out of This Device** returned the app to Welcome. With the
+  Simulator deleted, `simulator-credentials.zsh scan`, run on each path, found no password
+  or Recovery Key in `~/.agent-device`, `~/Library/Logs`, T3 Code's device directory, the
+  shell history, the temporary directory, the repository's `artifacts` directory with this
+  run's DerivedData, the scratch files or this run's session transcripts; some files in
+  the temporary directory could not be read. Limitations: Microsoft's one-time sign-in
+  code was typed, as it expires within minutes. The first three codes entered were
+  refused: the mailbox that receives them opened their conversation at its oldest unread
+  message, so expired codes were read; the code read from the newest message was accepted.
+  Once, after a switch to that mailbox, Microsoft's sheet restarted at its first page.
+  When the accessibility snapshot could not read the sheet, the device driver saved a
+  screenshot on its own three times, against the pasteboard procedure; two, which may have
+  shown a pasted address, were deleted unopened, and the one opened showed Microsoft's
+  first page with no keyboard. The scan reads text, not these images, so it cannot show
+  that no password or Recovery Key was captured. Mac, iPad attachments, renewal and
+  revocation, and uncertain outcomes were not run and stay on #637.
 - **2026-11-27, iPhone meeting invitation response
   ([#2703](https://github.com/unwired-dev/product/issues/2703)).** Target, operator and
   toolchain as on 2026-11-18, on a new iPhone 18 Pro Simulator. Build: a new Release build

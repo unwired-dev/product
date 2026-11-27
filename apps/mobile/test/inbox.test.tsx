@@ -2972,6 +2972,7 @@ describe('connected Gmail Inbox', () => {
       unsubscribe: {
         sentRequest: () => Promise.resolve(undefined),
         request,
+        record: () => Promise.resolve(true),
       },
     });
     const press = async (name: string) => {
@@ -3061,6 +3062,7 @@ describe('connected Gmail Inbox', () => {
       unsubscribe: {
         sentRequest,
         request: () => Promise.resolve('failed'),
+        record: () => Promise.resolve(true),
       },
     });
     const press = async (name: string) => {

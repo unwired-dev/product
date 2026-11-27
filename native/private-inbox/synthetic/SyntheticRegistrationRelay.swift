@@ -3,6 +3,7 @@
   import CoreFoundation
   import Foundation
   import React
+  import Synchronization
 
   // Compiled only for an externally selected registration Mock Mail Session. The real vault asks
   // JavaScript at each provider and backend seam, and the synthetic TypeScript layers answer as
@@ -165,6 +166,28 @@
 
     static func check() throws {
       if failing { throw RegistrationError.unavailable }
+    }
+  }
+
+  // A Draft import waits after each chunk it reads from the external capture's
+  // `.draft-imports-hold` notification until its `.draft-imports-release`, so the Attachment Chip
+  // can be shown part-read (#2992).
+  enum SyntheticDraftImportHold {
+    private static let holding = Mutex(false)
+
+    @MainActor static func observe() {
+      guard let bundle = Bundle.main.bundleIdentifier else { return }
+      let center = CFNotificationCenterGetDarwinNotifyCenter()
+      CFNotificationCenterAddObserver(
+        center, nil, { _, _, _, _, _ in SyntheticDraftImportHold.holding.withLock { $0 = true } },
+        (bundle + ".draft-imports-hold") as CFString, nil, .deliverImmediately)
+      CFNotificationCenterAddObserver(
+        center, nil, { _, _, _, _, _ in SyntheticDraftImportHold.holding.withLock { $0 = false } },
+        (bundle + ".draft-imports-release") as CFString, nil, .deliverImmediately)
+    }
+
+    static func wait() {
+      while holding.withLock({ $0 }) { Thread.sleep(forTimeInterval: 0.05) }
     }
   }
 

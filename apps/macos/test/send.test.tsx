@@ -671,7 +671,7 @@ describe('sending a Draft', () => {
         { uri: 'file:///plan.pdf', name: 'plan.pdf', type: 'application/pdf' },
       ]);
       await press('Attach Files…');
-      await screen.findByLabelText('plan.pdf, Adding…');
+      await screen.findByLabelText('plan.pdf, Importing…');
       // The reason above the body names the file, and VoiceOver reads it as Send's help.
       const waiting =
         '“plan.pdf” is still importing. Wait for it, or remove it, to send.';
@@ -734,7 +734,7 @@ describe('sending a Draft', () => {
         },
       ]);
       await press('Attach Files…');
-      await screen.findByLabelText('terms.pdf, Adding…');
+      await screen.findByLabelText('terms.pdf, Importing…');
       expect(sendMenuItem('sendNow')).toMatchObject({
         title: 'Send Now — waiting for terms.pdf',
         subtitle: undefined,
@@ -807,7 +807,7 @@ describe('sending a Draft', () => {
         name: 'keys.pkpass',
         type: 'application/vnd.apple.pkpass',
       });
-      await screen.findByLabelText('keys.pkpass, Adding…');
+      await screen.findByLabelText('keys.pkpass, Importing…');
       expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled();
       await press('Cancel adding keys.pkpass');
       await act(async () => {
