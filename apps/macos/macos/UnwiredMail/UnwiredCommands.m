@@ -81,6 +81,7 @@ NSString *UnwiredGuardedWindow(void)
 - (void)openComposerForDraft:(NSString *)draft profile:(NSString *)profile origin:(NSString *)origin;
 - (void)openWindowWithProfile:(NSString *)profile draft:(NSString *)draft;
 - (void)openFolderChoiceInWindow:(NSString *)identifier connection:(NSString *)connection profile:(NSString *)profile;
+- (void)openBlockDomainInWindow:(NSString *)identifier sender:(NSDictionary *)sender;
 - (void)fitSheet:(NSString *)identifier height:(double)height;
 - (void)closeSheet:(NSString *)identifier;
 @end
@@ -258,13 +259,19 @@ RCT_EXPORT_METHOD(openFolderChoice:(NSString *)identifier connection:(NSString *
   [(id<UnwiredComposerWindows>)NSApp.delegate openFolderChoiceInWindow:identifier connection:connection profile:profile];
 }
 
+// Block Domain… opens the sender's domain block sheet on the Inbox window.
+RCT_EXPORT_METHOD(openBlockDomain:(NSString *)identifier sender:(NSDictionary *)sender)
+{
+  [(id<UnwiredComposerWindows>)NSApp.delegate openBlockDomainInWindow:identifier sender:sender];
+}
+
 // The sheet takes its content's height, and shows once it first has one.
 RCT_EXPORT_METHOD(fitSheet:(NSString *)identifier height:(double)height)
 {
   [(id<UnwiredComposerWindows>)NSApp.delegate fitSheet:identifier height:height];
 }
 
-// Cancel, a finished Save, or a connection that no longer offers the choice ends the sheet.
+// A sheet's Cancel, its finished action, or a choice no longer offered ends it.
 RCT_EXPORT_METHOD(closeSheet:(NSString *)identifier)
 {
   [(id<UnwiredComposerWindows>)NSApp.delegate closeSheet:identifier];

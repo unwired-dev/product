@@ -3,13 +3,14 @@ import Foundation
 // Microsoft own-mailbox access, including native-only preparation and attachment uploads.
 extension RegistrationStore {
   // Only reads of the signed-in person's own mail reach a Microsoft credential: its folders, their
-  // own folders, messages and delta rounds, its messages, their search, MIME and attachments. The
-  // path is checked decoded, so an encoded separator cannot add a segment.
+  // own folders, messages and delta rounds, its messages, their search, MIME and attachments, and
+  // its automatic replies, the one mailbox setting. The path is checked decoded, so an encoded
+  // separator cannot add a segment.
   static func graphURL(_ value: String) throws -> URL {
     guard let url = URL(string: value), url.scheme == "https", url.host == "graph.microsoft.com",
       url.port == nil, url.user == nil, url.password == nil, url.fragment == nil,
       url.path.range(
-        of: #"^/v1\.0/me/(mail[Ff]olders((/[\w=-]+|\('[\w=-]+'\))(/messages(/delta|/[\w=-]+)?|/childFolders)?)?|messages(/[\w=-]+(/\$value|/attachments(/[\w=-]+)?)?)?)$"#,
+        of: #"^/v1\.0/me/(mail[Ff]olders((/[\w=-]+|\('[\w=-]+'\))(/messages(/delta|/[\w=-]+)?|/childFolders)?)?|messages(/[\w=-]+(/\$value|/attachments(/[\w=-]+)?)?)?|mailboxSettings/automaticRepliesSetting)$"#,
         options: .regularExpression) != nil
     else { throw RegistrationError.unavailable }
     return url
@@ -24,22 +25,33 @@ extension RegistrationStore {
       generation: expected)
   }
 
-  // The one Microsoft write: one message's read state, or its move to a well-known folder or a
-  // folder ID. This file writes the request, so only identifiers and the read state cross from
-  // TypeScript.
+  // The one Microsoft write: one message's read state, its Outlook categories, or its move to a
+  // well-known folder or a folder ID. This file writes the request, so only identifiers, the read
+  // state and category names cross from TypeScript.
   func graphModify(
-    message: String, read: Bool?, folder: String?, connection: String, address: String,
-    generation: String
+    message: String, read: Bool?, folder: String?, categories: [String]? = nil,
+    connection: String, address: String, generation: String
   ) async throws -> [String: Any] {
     func valid(_ value: String) -> Bool {
       value.range(of: #"^[\w=-]{1,512}$"#, options: .regularExpression) != nil
     }
-    guard valid(message), (read == nil) != (folder == nil), folder.map(valid) ?? true,
+    // An Outlook category name: one line of at most 255 characters. Format characters such as
+    // the emoji joiner stay allowed.
+    func name(_ value: String) -> Bool {
+      !value.isEmpty && value.count <= 255
+        && !value.unicodeScalars.contains {
+          [.control, .lineSeparator, .paragraphSeparator].contains($0.properties.generalCategory)
+        }
+    }
+    guard valid(message), [read != nil, folder != nil, categories != nil].filter({ $0 }).count == 1,
+      folder.map(valid) ?? true, categories?.allSatisfy(name) ?? true,
       let url = URL(
         string: "https://graph.microsoft.com/v1.0/me/messages/\(message)"
           + (folder == nil ? "" : "/move"))
     else { throw RegistrationError.unavailable }
-    let body: [String: Any] = folder.map { ["destinationId": $0] } ?? ["isRead": read ?? false]
+    let body: [String: Any] =
+      folder.map { ["destinationId": $0] } ?? categories.map { ["categories": $0] }
+      ?? ["isRead": read ?? false]
     return try await graphCall(
       url: url, method: folder == nil ? "PATCH" : "POST",
       body: try JSONSerialization.data(withJSONObject: body), connection: connection,

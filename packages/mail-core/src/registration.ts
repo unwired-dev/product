@@ -749,8 +749,26 @@ export function createRegistration(
       provider: MailGrantProvider = 'gmail',
       chooseAccount = false,
     ) => execute(request(native.addMailbox(provider, chooseAccount))),
-    authorizeMailbox: (connection: string) =>
-      execute(request(native.authorizeMailbox(connection))),
+    // Resolves true only once the connection's sign-in completed and the account is connected, not
+    // when it was cancelled or failed.
+    authorizeMailbox: async (connection: string) => {
+      let authorized = false;
+      await execute(
+        request(native.authorizeMailbox(connection)).pipe(
+          Effect.map((snapshot) => {
+            authorized =
+              snapshot.kind === 'connected' &&
+              mailboxesOf(snapshot).some(
+                (mailbox) =>
+                  mailbox.id === connection &&
+                  mailbox.state !== 'authorization',
+              );
+            return snapshot;
+          }),
+        ),
+      );
+      return authorized;
+    },
     connectImap: (setup: ImapSetup) =>
       execute(
         request(native.connectImap(setup)),

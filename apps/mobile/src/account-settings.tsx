@@ -48,7 +48,6 @@ import {
   ActivityIndicator,
   AppState,
   Platform,
-  Pressable,
   Text,
   TextInput,
   View,
@@ -77,6 +76,7 @@ import { RemoteContentSettings } from './remote-content.tsx';
 import { SettingsScroll } from './settings.tsx';
 import {
   settingsColumns,
+  SettingsActionRow,
   SettingsBlock,
   SettingsGroup,
   SettingsRow,
@@ -222,23 +222,16 @@ function ActionRow({
   readonly disabled: boolean;
   readonly onPress: () => void;
 }) {
-  const colors = usePalette();
   return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={label}
-      accessibilityState={{ disabled }}
+    <SettingsActionRow
+      label={label}
       disabled={disabled}
-      onPress={onPress}
-      style={({ pressed }) =>
-        pressed && { backgroundColor: colors.accentSelectionSubtle }
-      }>
+      onPress={onPress}>
       <SettingsRow
         title={title}
         titleTone={tone}
-        disabled={disabled}
       />
-    </Pressable>
+    </SettingsActionRow>
   );
 }
 
@@ -442,7 +435,9 @@ function Mailboxes({
                       address: mailbox.address,
                       provider,
                     }),
-                    () => store.authorizeMailbox(mailbox.id),
+                    async () => {
+                      await store.authorizeMailbox(mailbox.id);
+                    },
                     { title: t('settings.signIn') },
                   )
                 : null}
@@ -579,7 +574,7 @@ function useCardButton(store: Registration) {
   const { busy } = useSyncExternalStore(store.subscribe, store.getSnapshot);
   return function cardButton(
     label: string,
-    action: () => Promise<void>,
+    action: () => Promise<unknown>,
     fill?: 'accent' | 'destructive',
   ) {
     return (

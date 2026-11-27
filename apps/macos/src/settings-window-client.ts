@@ -3,6 +3,16 @@ import type { TurboModule, processColor } from 'react-native';
 import * as Schema from 'effect/Schema';
 import { NativeEventEmitter, TurboModuleRegistry } from 'react-native';
 
+// The sender Block Domain… offers to block and the Mail Profile of the window it opens on.
+export type DomainSender = Readonly<{
+  // The sender's name as the message shows it, empty when it has none.
+  sender: string;
+  address: string;
+  // The address's exact domain, as `offeredDomain` gives it.
+  domain: string;
+  profile: string;
+}>;
+
 interface SettingsHost extends TurboModule {
   readonly addListener: (eventName: string) => void;
   readonly removeListeners: (count: number) => void;
@@ -39,6 +49,8 @@ interface WindowHost extends TurboModule {
     connection: string,
     profile: string,
   ) => void;
+  // Opens Block Domain… for a sender's address as a sheet on the Inbox window.
+  readonly openBlockDomain: (window: string, sender: DomainSender) => void;
   // Sizes a sheet to its content's height, and ends it.
   readonly fitSheet: (sheet: string, height: number) => void;
   readonly closeSheet: (sheet: string) => void;

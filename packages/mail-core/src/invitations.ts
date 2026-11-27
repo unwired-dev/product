@@ -719,15 +719,22 @@ const folded = (line: string) => {
 const stamp = (at: number) =>
   new Date(at).toISOString().replaceAll(/[-:]|\.\d{3}/gu, '');
 
-// The iTIP REPLY for `choice`: the invitation's UID, SEQUENCE and RECURRENCE-ID, its organizer, and
-// the owning mailbox's own attendee line with the chosen participation status.
+// A timed meeting is named in UTC, which needs no VTIMEZONE beside it.
+const timeLine = (name: string, { at, allDay }: InvitationTime) =>
+  allDay
+    ? `${name};VALUE=DATE:${stamp(at).slice(0, 8)}`
+    : `${name}:${stamp(at)}`;
+
+// The iTIP REPLY for `choice`: the invitation's UID, SEQUENCE, RECURRENCE-ID and times, its
+// organizer, and the owning mailbox's own attendee line with the chosen participation status.
+// Exchange turns a reply sent without DTSTART into an empty part (#3024).
 export function invitationReply(
   invitation: Invitation,
   choice: InvitationChoice,
   at: number,
 ) {
   const { attendee, organizer, summary } = invitation.lines;
-  const { start, recurrence } = invitation.details;
+  const { start, end, recurrence } = invitation.details;
   const answered: Line = {
     ...attendee,
     parameters: [
@@ -745,15 +752,12 @@ export function invitationReply(
     'BEGIN:VEVENT',
     `UID:${invitation.uid}`,
     `SEQUENCE:${invitation.sequence.toString()}`,
-    // A timed meeting is named by its original start in UTC, which needs no VTIMEZONE beside it.
     ...(recurrence === undefined
       ? []
-      : [
-          start.allDay
-            ? `RECURRENCE-ID;VALUE=DATE:${stamp(recurrence).slice(0, 8)}`
-            : `RECURRENCE-ID:${stamp(recurrence)}`,
-        ]),
+      : [timeLine('RECURRENCE-ID', { at: recurrence, allDay: start.allDay })]),
     `DTSTAMP:${stamp(at)}`,
+    timeLine('DTSTART', start),
+    ...(end === undefined ? [] : [timeLine('DTEND', end)]),
     written(organizer),
     written(answered),
     ...(summary === undefined ? [] : [written(summary)]),
@@ -775,6 +779,8 @@ export type ResponseState =
   | Readonly<{
       kind:
         | 'waiting'
+        // Still waiting in the Outbox after storage refused to take it back.
+        | 'undo-refused'
         | 'queued'
         | 'sending'
         | 'refused'
@@ -838,6 +844,7 @@ const answerable = (
   again: boolean,
 ) =>
   current.kind !== 'waiting' &&
+  current.kind !== 'undo-refused' &&
   current.kind !== 'queued' &&
   current.kind !== 'sending' &&
   current.kind !== 'older' &&
@@ -1273,13 +1280,16 @@ type ResponseOutbox = Pick<
 const entryState = ({
   state,
   check,
+  undo,
   problem,
   message,
   invitation,
 }: OutboxSnapshotEntry): ResponseState => {
   const choice = invitation?.choice ?? 'accepted';
   switch (state) {
-    case 'waiting':
+    case 'waiting': {
+      return { kind: undo === 'refused' ? 'undo-refused' : state, choice };
+    }
     case 'queued':
     case 'sending': {
       return { kind: state, choice };
@@ -1481,7 +1491,7 @@ function createImapInvitationResponses(
     respond: (invitation: Invitation, choice: InvitationChoice, t: Translate) =>
       serially(() => admit(invitation, choice, t)),
     // Takes a response back during the Undo Send Window, restoring the earlier state; a choice
-    // still being admitted is taken back once it is.
+    // still being admitted is taken back once it is. Try Again after storage refused it asks again.
     undo: async (invitation: Invitation) => {
       if (entryOf(invitation)?.state !== 'waiting') {
         await serially(() => Promise.resolve());
@@ -1787,6 +1797,12 @@ const statuses: {
     icon: 'clock',
     title: t('invitation.inOutbox'),
     detail: t('invitation.waitingDetail', { choice: choiceOf(t, state) }),
+  }),
+  'undo-refused': (state, { t }) => ({
+    icon: 'exclamationmark.triangle.fill',
+    tone: 'statusWarning',
+    title: t('invitation.undoRefused'),
+    detail: t('invitation.undoRefusedDetail', { choice: choiceOf(t, state) }),
   }),
   queued: (state, { t, address }) => ({
     icon: 'clock',

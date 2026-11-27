@@ -554,6 +554,8 @@ export function SettingsRow({
   disabled = false,
   subtitle,
   subtitleTone,
+  subtitleLines,
+  separated = true,
   children,
 }: {
   readonly icon?: string | ReactElement;
@@ -563,12 +565,16 @@ export function SettingsRow({
   readonly subtitle?: string | undefined;
   // A subtitle reporting a problem takes the warning color.
   readonly subtitleTone?: 'warning' | undefined;
+  // At most this many subtitle lines, such as a long list in a sheet sized to its content.
+  readonly subtitleLines?: number;
+  // Without a hairline above, such as between the choices of one question.
+  readonly separated?: boolean;
   readonly children?: ReactNode;
 }) {
   const colors = usePalette();
   return (
     <View style={styles.row}>
-      <Hairline />
+      {separated ? <Hairline /> : null}
       {typeof icon === 'string' ? (
         <SFSymbol
           name={icon}
@@ -603,7 +609,8 @@ export function SettingsRow({
                     ? colors.statusWarning
                     : colors.textSecondary,
               },
-            ]}>
+            ]}
+            numberOfLines={subtitleLines}>
             {subtitle}
           </Label>
         )}

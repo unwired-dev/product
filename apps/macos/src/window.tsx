@@ -29,8 +29,10 @@ import {
 
 import type { OpenDraft, Recovered, ReturnTo } from './composer.tsx';
 import type { Selection } from './inbox.tsx';
+import type { DomainSender } from './settings-window-client.ts';
 import type { MailboxView } from './sidebar.tsx';
 
+import { BlockDomainSheet } from './block-domain.tsx';
 import { CategorizationSpike } from './categorization-spike.ts';
 import {
   CommandBar,
@@ -802,6 +804,31 @@ export function FolderChoiceWindowRoot({
           />
         </ProfileScope>
       </InboxProvider>
+    </RegistrationGate>
+  );
+}
+
+// Block Domain…'s sheet on an Inbox window; it ends rather than showing account pages once no
+// Inbox can open.
+export function BlockDomainWindowRoot({
+  window,
+  sender,
+  ...gate
+}: Omit<Parameters<typeof RegistrationGate>[0], 'children' | 'onClose'> & {
+  readonly window: string;
+  readonly sender: DomainSender;
+}) {
+  const close = useCallback(() => {
+    windowHost()?.closeSheet(window);
+  }, [window]);
+  return (
+    <RegistrationGate
+      {...gate}
+      onClose={close}>
+      <BlockDomainSheet
+        window={window}
+        sender={sender}
+      />
     </RegistrationGate>
   );
 }

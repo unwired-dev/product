@@ -215,6 +215,7 @@ final class InboxTests: XCTestCase {
     rowan.tap()
     XCTAssertTrue(header("rowan@example.invalid", in: app).waitForExistence(timeout: 10))
     blockSenderJourney(app)
+    blockDomainJourney(app)
     blockedSendersJourney(app)
     pinJourney(app)
     // The opened body arrives from Gmail as text; its image is not loaded.
@@ -562,6 +563,24 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(sender.exists)
   }
 
+  // #2816: the sender's menu offers Block Domain… under Block Sender…; its sheet offers the exact
+  // domain with its subdomains, and Block stores it and closes the sheet.
+  private func blockDomainJourney(_ app: XCUIApplication) {
+    let sender = header("rowan@example.invalid", in: app)
+    sender.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).press(forDuration: 1.2)
+    let item = app.buttons["Block Domain…"]
+    XCTAssertTrue(item.waitForExistence(timeout: 10))
+    attachScreen("Sender menu with Block Domain", of: app, to: self)
+    item.tap()
+    let title = app.staticTexts["Block example.invalid"]
+    XCTAssertTrue(title.waitForExistence(timeout: 10))
+    XCTAssertTrue(text("Blocks @example.invalid and every subdomain", in: app).exists)
+    attachScreen("Block Domain sheet", of: app, to: self)
+    app.buttons["Block example.invalid"].tap()
+    XCTAssertTrue(title.waitForNonExistence(timeout: 10))
+    XCTAssertTrue(sender.exists)
+  }
+
   // #2343: Pin pins the open message's Thread from the toolbar's last group on iPad and from the
   // Reply sheet on iPhone. The row keeps its marker after a relaunch, and the reopened reader's
   // Unpin removes it.
@@ -604,8 +623,8 @@ final class InboxTests: XCTestCase {
     }
   }
 
-  // #2166: Settings › Blocked Senders lists the address; Edit switches the list's edit mode, and a
-  // swipe's Delete unblocks it, then the journey reopens the message.
+  // #2166 and #2816: Settings › Blocked Senders lists the domain, then the address; Edit switches
+  // the list's edit mode, and a swipe's Delete unblocks each, then the journey reopens the message.
   private func blockedSendersJourney(_ app: XCUIApplication) {
     openAccount(app)
     openSettings("Blocked Senders", in: app)
@@ -628,10 +647,19 @@ final class InboxTests: XCTestCase {
     add(editing)
     done.tap()
     XCTAssertTrue(app.buttons["Edit"].firstMatch.waitForExistence(timeout: 5))
-    row.swipeLeft()
-    let delete = app.buttons["Delete"].firstMatch
-    XCTAssertTrue(delete.waitForExistence(timeout: 5))
-    delete.tap()
+    // Domains come before Addresses; a swipe's Delete unblocks each.
+    let domain = app.cells.containing(NSPredicate(format: "label == %@", "example.invalid"))
+      .firstMatch
+    XCTAssertTrue(domain.exists)
+    XCTAssertTrue(text("With subdomains", in: app).exists)
+    XCTAssertLessThan(domain.frame.minY, row.frame.minY)
+    for unblocked in [domain, row] {
+      unblocked.swipeLeft()
+      let delete = app.buttons["Delete"].firstMatch
+      XCTAssertTrue(delete.waitForExistence(timeout: 5))
+      delete.tap()
+      XCTAssertTrue(unblocked.waitForNonExistence(timeout: 10))
+    }
     XCTAssertTrue(
       text("No Blocked Senders. Block one from the sender’s name in a message.", in: app)
         .waitForExistence(timeout: 15))
@@ -1707,6 +1735,48 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(app.buttons["Remove Reminder"].exists)
     XCTAssertTrue(app.otherElements["composer-overlay"].exists, "Setting a reminder closed the composer")
     capture("Draft with a Send Reminder")
+
+    // #2979: Change, then Choose Date and Time…, shows the system calendar from the stored
+    // reminder. Today at 8:00 has passed later in the day, so Set Reminder waits; tomorrow sets it.
+    app.buttons["Change"].tap()
+    let choose = app.buttons["Choose Date and Time…"]
+    XCTAssertTrue(choose.waitForExistence(timeout: 15))
+    choose.tap()
+    let picker = app.datePickers.firstMatch
+    XCTAssertTrue(picker.waitForExistence(timeout: 15))
+    XCTAssertTrue(app.buttons["Back"].exists)
+    capture("Choose Date and Time")
+    // Day labels follow the device's date order: "Thursday 26 November" or "Thursday, November 26".
+    let day = { (date: Date) in
+      let format = Date.FormatStyle().month(.wide).day()
+      return picker.descendants(matching: .any).matching(NSPredicate(
+        format: "label ENDSWITH %@ OR label ENDSWITH %@",
+        date.formatted(format.locale(Locale(identifier: "en_US"))),
+        " " + date.formatted(format.locale(Locale(identifier: "en_GB")))
+      )).firstMatch
+    }
+    let set = app.buttons["Set Reminder"]
+    // The calendar shows tomorrow's month, so today is in it except on a month's last day.
+    if calendar.component(.hour, from: Date()) >= 8,
+      calendar.isDate(Date(), equalTo: morning, toGranularity: .month)
+    {
+      day(Date()).tap()
+      XCTAssertTrue(labelled("That time has passed.").waitForExistence(timeout: 10))
+      XCTAssertFalse(set.isEnabled)
+      capture("Choose Date and Time, time has passed")
+    }
+    // The day after the stored reminder, so setting it changes the banner; Return sets it.
+    let later = calendar.date(byAdding: .day, value: 1, to: morning) ?? morning
+    if !calendar.isDate(later, equalTo: morning, toGranularity: .month) {
+      picker.buttons["Next Month"].tap()
+    }
+    day(later).tap()
+    XCTAssertTrue(set.waitForExistence(timeout: 10))
+    waitUntil { set.isEnabled }
+    // The simulator delivers "\n" as a Return press; XCUIKeyboardKey.return ("\r") never arrives.
+    app.typeKey("\n", modifierFlags: [])
+    XCTAssertTrue(labelled("Reminder for \(later.formatted(.dateTime.weekday(.abbreviated).locale(Locale(identifier: "en"))))").waitForExistence(timeout: 15))
+    XCTAssertFalse(picker.exists)
   }
 
   // Linking verifies both identities; the Gmail grant never becomes a sign-in method.

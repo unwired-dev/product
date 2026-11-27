@@ -11,6 +11,41 @@ The [mobile bootstrap](../expo-client.md) now uses Expo 57.0.25, React Native
 are available on the development host. The maintainer's earlier native-validation
 deferral still applies to unavailable release checks. Mac host evidence follows.
 
+## Mac Gmail Labels with a Gmail test account, 2026-11-27
+
+[#2796](https://github.com/unwired-dev/product/issues/2796), the last slice of
+[#1058](https://github.com/unwired-dev/product/issues/1058), takes the Gmail
+**Labels ›** submenu and **New Label…** captures that the Mock Mail pass below
+deferred, with an attested [Gmail test account](../gmail-provider-test-tenant.md).
+It ran a development-signed Release build of `3e852e6c7` (React Native macOS,
+development Convex deployment, no Mock Mail Session), Xcode 27.2 (`27B52`) and
+macOS 27.2.1 (`26B131`) on the Mac mini M4 (`Mac16,10`), driven through the
+accessibility API.
+
+- Setup: Google Product Sign-In with Gmail test account 2 and the Recovery Key
+  unlocked the certification Product Account. **Gmail** on Connect your mail then
+  reached Google's unverified-app notice and consent, now that
+  [#2643](https://github.com/unwired-dev/product/issues/2643) lists the test
+  accounts as test users, and the Inbox synchronized.
+- Light (System appearance on a Light desktop): in the reader of a Google
+  notice, **More** opens the system menu with **Labels**. With no labels of its
+  own, the account's submenu holds only **New Label…**, which opens **Labels**
+  in a popover below the toolbar's last group: the Gmail account, the focused
+  name field, the nesting note, **Cancel**, and **Apply**, unavailable until a
+  name is typed. A typed name adds **Create “QA 2796”** (_Created in Gmail, then
+  applied_). **Apply** created the label in Gmail and applied it: the sidebar
+  listed it, the reader header read _Labels: QA 2796_ and the notice
+  _Label added_, and the submenu then listed **QA 2796**, checked, above a
+  separator and **New Label…**.
+- Dark (Settings › Appearance › Dark): the submenu with the checked label, and
+  **New Label…** empty and with a typed name, which shows **Create “QA 2796 b”**
+  and the existing label under **Matching labels**. **Cancel** closed it without
+  a change, and choosing the checked label removed it (_Label removed_).
+
+The captures are in the pull request, with the account address redacted. The
+message was marked unread again, the label was deleted in Gmail, and the Mac was
+signed out; a scan of the run's locations found no copy of the Recovery Key.
+
 ## iPhone reader More on mail without Reply, 2026-11-26
 
 [#2942](https://github.com/unwired-dev/product/issues/2942), a slice of
@@ -495,8 +530,8 @@ temporary capture journey that was not committed.
   Motion is on.
 
 Deferred: the same Labels submenu and New Label… with an attested Gmail test
-account stay on #2796 for a protected run. The Profile Switcher's focused
-state (#1265) stays deferred while
+account stayed on #2796 for a protected run, taken on 2026-11-27 (above). The
+Profile Switcher's focused state (#1265) stays deferred while
 [#849](https://github.com/unwired-dev/product/issues/849) keeps keyboard focus
 from reaching it. VoiceOver, Full Keyboard Access and real provider transport
 are not qualified by this pass. `mise exec -- pnpm verify:bundle` passed: it

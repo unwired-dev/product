@@ -172,9 +172,23 @@ export const OutboxEntrySchema = Schema.Struct({
   // The Invitation Response the message carries. Its Draft never existed in the Drafts, so it never
   // returns to them, and the response is recorded in its mailbox once the server accepts it.
   invitation: Schema.optionalKey(InvitationAnswerSchema),
-  // A confirmed `mailto:` unsubscribe request. Its Draft never existed in the Drafts either, so it
-  // never returns to them.
-  unsubscribe: Schema.optionalKey(Schema.Literal(true)),
+  // A confirmed `mailto:` unsubscribe request: the Product Account and Mail Profile it is recorded
+  // for once it is sent, the list it leaves, the message that offered it and the unknown requests
+  // it tries again, which it is never sent after; whether a later retry of it was confirmed, so it
+  // no longer stands for its list; and when the provider confirmed it while its record waits for
+  // storage. Its Draft never existed in the Drafts either, so it never returns to them.
+  unsubscribe: Schema.optionalKey(
+    Schema.Struct({
+      account: Schema.NonEmptyString,
+      profile: Schema.NonEmptyString,
+      list: Schema.String,
+      identity: Schema.optionalKey(Schema.NonEmptyString),
+      message: Schema.String,
+      retries: Schema.optionalKey(Schema.Array(Schema.NonEmptyString)),
+      answered: Schema.optionalKey(Schema.Literal(true)),
+      sentAt: Schema.optionalKey(Schema.Finite),
+    }),
+  ),
 });
 export type OutboxEntry = typeof OutboxEntrySchema.Type;
 

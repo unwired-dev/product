@@ -34,8 +34,8 @@ separately.
 - Choosing a response sends one iCalendar `METHOD:REPLY` from the invited
   address to the organizer, in the invitation's Gmail thread, as a reply to the
   invitation message, with the invitation's subject prefixed `Re:` so Gmail keeps
-  it in that conversation. The reply carries the event's UID, SEQUENCE and organizer,
-  and the attendee line with only its participation status changed. A second
+  it in that conversation. The reply carries the event's UID, SEQUENCE, start, end when it
+  has one, and organizer, and the attendee line with only its participation status changed. A second
   press while sending, or the same choice after Gmail confirmed it, sends
   nothing. Choosing another response sends that one.
 - After Gmail confirms, the card says **Accepted**, **Tentatively accepted** or
@@ -157,6 +157,9 @@ through the Gmail journey above, sent directly through the owning connection.
 - A choice sends one `METHOD:REPLY` through Graph's `sendMail` with a Message-ID
   made from its MIME boundary. **Check Again** looks for that Message-ID in Sent
   Items, which Microsoft fills only after accepting the message.
+- Exchange delivers a reply that names no meeting start with an empty calendar
+  part, so the organizer's calendar never learns the answer; every reply names the
+  meeting's start, and its end when the invitation gives one ([#3024](https://github.com/unwired-dev/product/issues/3024)).
 - The card names an Outlook.com, Hotmail, Live or MSN address's provider
   **Outlook.com** and any other Microsoft address's **Microsoft 365**, as in
   **{address} · Outlook.com** and **Outlook.com confirmed it sent your
@@ -188,7 +191,9 @@ iPad.
 - A choice builds the same `METHOD:REPLY` reply as for Gmail, with a Message-ID,
   and admits it to the [Outbox](outbox.md) from the invited mailbox's own
   connection. It is never a Draft. It waits out the Undo Send Window
-  (`waiting`); **Undo** removes it and restores the earlier state. After the
+  (`waiting`); **Undo** removes it and restores the earlier state. When storage
+  refuses Undo, the Outbox marks the waiting response (`undo-refused`) until it
+  leaves the waiting state or a later Undo succeeds. After the
   window it waits until it can be handed off (`queued`), then is claimed and
   submitted to SMTP once, and its copy is filed in Sent, as for any IMAP message.
 - When the mail server accepts it, the choice and time are recorded in the
@@ -214,6 +219,12 @@ mail server** for a reviewed provider, **The mail server** for any other.
   Outbox** · _Your {choice} response is queued. Undo is available._, with
   **Undo** and **View in Outbox**; while it is sending the status shows progress
   and **View in Outbox** stays. The choices are unavailable meanwhile.
+- When storage refuses Undo, the card shows an amber warning triangle and reads
+  **Couldn’t undo your response** · _Your {choice} response is still in the
+  Outbox. Choose Try Again to undo it._ **Try Again** replaces **Undo** and asks
+  again; **View in Outbox** stays and the choices stay unavailable. The notice
+  clears when the response leaves the waiting state. There is no toast
+  ([#2462](https://github.com/unwired-dev/product/issues/2462)).
 - **Accepted** (or the other choice) names the mail server's acceptance time and
   checks the chosen button; another choice changes it. **Not sent** says the mail
   server refused the response and leaves every choice. **Delivery unknown** offers
@@ -234,7 +245,9 @@ mail server** for a reviewed provider, **The mail server** for any other.
   the message to that list. There the response has its own row:
   the meeting's title, **Invitation response · {choice}**, its status and time,
   with **Undo** while it waits, **Check Again** when delivery is unknown and
-  **Open Invitation**, which opens the invitation message. It has no **Edit**.
+  **Open Invitation**, which opens the invitation message. After a refused Undo
+  it reads _Couldn’t undo. Still waiting to send._ with the amber triangle, and
+  **Try Again** replaces **Undo**. It has no **Edit**.
   On iPhone and iPad its actions are capsules under its words, as the frames
   draw them.
 
@@ -286,6 +299,7 @@ mail server** for a reviewed provider, **The mail server** for any other.
   `apps/mobile/test/imap-invitation.test.tsx` drive the Mac, and the iPhone and
   iPad, card and Outbox row for a sending iCloud Mail mailbox through the
   synthetic IMAP and SMTP servers: Undo and **View in Outbox** during the window,
+  a refused Undo with **Try Again** on the card and the row,
   an accepted, a refused and an unconfirmed response, each row's actions with
   **Open Invitation**, and **View in Outbox** ending a search.
 - `apps/macos/test/invitation.test.tsx` and `apps/mobile/test/invitation.test.tsx`

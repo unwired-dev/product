@@ -1,8 +1,9 @@
 import type { ReactElement, ReactNode, RefObject } from 'react';
 import type { ScrollViewInstance } from 'react-native';
 
-import { Host, Button as SwiftUIButton } from '@expo/ui/swift-ui';
+import { Host, RNHostView, Button as SwiftUIButton } from '@expo/ui/swift-ui';
 import {
+  accessibilityLabel as spokenLabel,
   buttonBorderShape,
   buttonStyle,
   controlSize,
@@ -16,7 +17,7 @@ import {
   spacing,
   typography,
 } from '@private-email/mail-core/theme';
-import { createContext, Fragment, useRef } from 'react';
+import { createContext, Fragment, use, useRef } from 'react';
 import {
   Platform,
   Pressable,
@@ -224,6 +225,7 @@ const styles = StyleSheet.create({
     paddingTop: spacing.m,
     paddingHorizontal: rowInset,
   },
+  actionRowDisabled: { opacity: 0.9 },
   cells: { marginTop: -StyleSheet.hairlineWidth },
   group: {
     overflow: 'hidden',
@@ -912,6 +914,49 @@ export function AccountCard({
   );
 }
 
+// Whether a row draws its own hairline; an action row draws it outside its button.
+const RowHairline = createContext(true);
+
+// A row that runs one action: the system button, with the row as its label and its spoken name.
+// The button dims the row while it is disabled, to half strength; the frames draw a disabled row
+// at 45%, so the row adds 90%. The hairline stays outside the button, at full strength.
+export function SettingsActionRow({
+  label,
+  disabled,
+  onPress,
+  children,
+}: {
+  readonly label: string;
+  readonly disabled: boolean;
+  readonly onPress: () => void;
+  readonly children: ReactElement;
+}) {
+  return (
+    <View>
+      <Hairline />
+      <Host matchContents={{ vertical: true }}>
+        <SwiftUIButton
+          onPress={onPress}
+          modifiers={[
+            buttonStyle('plain'),
+            inactive(disabled),
+            spokenLabel(label),
+          ]}>
+          <RNHostView matchContents={{ vertical: true }}>
+            <RowHairline value={false}>
+              <View
+                accessibilityElementsHidden
+                style={disabled && styles.actionRowDisabled}>
+                {children}
+              </View>
+            </RowHairline>
+          </RNHostView>
+        </SwiftUIButton>
+      </Host>
+    </View>
+  );
+}
+
 // A titled group of rows with hairlines between them and an optional explanation below.
 export function SettingsGroup({
   title,
@@ -973,6 +1018,9 @@ export function SettingsGroup({
 // The hairline above a group cell; the group hides the first one.
 function Hairline() {
   const colors = usePalette();
+  if (!use(RowHairline)) {
+    return null;
+  }
   return (
     <View style={[styles.separator, { backgroundColor: colors.separator }]} />
   );

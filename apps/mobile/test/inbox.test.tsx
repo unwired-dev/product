@@ -2972,6 +2972,7 @@ describe('connected Gmail Inbox', () => {
       unsubscribe: {
         sentRequest: () => Promise.resolve(undefined),
         request,
+        record: () => Promise.resolve(true),
       },
     });
     const press = async (name: string) => {
@@ -3061,6 +3062,7 @@ describe('connected Gmail Inbox', () => {
       unsubscribe: {
         sentRequest,
         request: () => Promise.resolve('failed'),
+        record: () => Promise.resolve(true),
       },
     });
     const press = async (name: string) => {
@@ -4476,8 +4478,8 @@ describe('context menus', () => {
       'spam',
     ]);
 
-    // The open message's header offers its reader's actions; its sender offers Copy Address
-    // and Block Sender….
+    // The open message's header offers its reader's actions; its sender offers Copy Address,
+    // Block Sender… and Block Domain….
     await fireEvent.press(row());
     await screen.findByRole('button', { name: 'Folders' });
     const sender = contextMenuOf(screen.getByText('oliver@example.invalid'));
@@ -4486,7 +4488,7 @@ describe('context menus', () => {
       sender: menuSections(sender),
       message: menuSections(message),
     }).toStrictEqual({
-      sender: [['Copy Address'], ['Block Sender…']],
+      sender: [['Copy Address'], ['Block Sender…', 'Block Domain…']],
       message: [
         ['Mark as Unread', 'Pin'],
         [['Move to…', ['Travel']], 'Delete'],

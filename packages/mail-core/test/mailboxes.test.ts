@@ -721,8 +721,14 @@ describe('mailbox connections and the unified Inbox', () => {
       ready(mailbox(mailboxes.getSnapshot(), other).state).messages,
     ).toHaveLength(1);
 
+    // A cancelled sign-in says so and leaves Alex closed.
+    synthetic.google.outcome = 'cancelled';
+    await expect(registration.authorizeMailbox(alex)).resolves.toBe(false);
+    expect(mailboxes.getSnapshot().map(({ id }) => id)).toStrictEqual([other]);
+    synthetic.google.outcome = undefined;
+
     // Authorizing Alex again reopens its Inbox, which synchronizes on its own.
-    await registration.authorizeMailbox(alex);
+    await expect(registration.authorizeMailbox(alex)).resolves.toBe(true);
     expect(mailboxes.getSnapshot().map(({ id }) => id)).toStrictEqual([
       alex,
       other,
@@ -948,7 +954,11 @@ describe('mailbox connections and the unified Inbox', () => {
       gmail.fail({ status: 401 });
       await mailboxes.load();
       expect(ready(inbox.getSnapshot()).sync).toBe('authentication');
-      await registration.authorizeMailbox(alex);
+      // Cancelling the only mailbox's sign-in is not an authorization.
+      synthetic.google.outcome = 'cancelled';
+      await expect(registration.authorizeMailbox(alex)).resolves.toBe(false);
+      synthetic.google.outcome = undefined;
+      await expect(registration.authorizeMailbox(alex)).resolves.toBe(true);
       await mailboxes.load();
       expect(ready(mailbox(mailboxes.getSnapshot(), alex).state).sync).toBe(
         'current',

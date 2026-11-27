@@ -172,6 +172,9 @@ it.
   [Invitation Response](invitation-responses.md#imap) has its own row: the
   meeting, the choice and where it stands, with Undo, Check Again and Open
   Invitation but no Edit; on iPhone and iPad they are capsules under its words.
+  When storage refuses its Undo, the row reads _Couldn’t undo. Still waiting to
+  send._ with an amber triangle and **Try Again** in place of Undo while it
+  still waits.
 - VoiceOver announces each change of where a message stands, and each answer to
   **Check Again** that leaves delivery unknown, once however many Mac windows show
   it. It hears them whichever list the window shows. In the composer, a refused Send, a Draft that could not be saved on Close or Discard, and the

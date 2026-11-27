@@ -5,9 +5,13 @@ import type {
 import type { RegistrationSnapshot } from '@private-email/mail-core/registration';
 
 import {
+  addressesAtDomain,
   blockedAddress,
   blockedDomain,
   createBlockedSenders,
+  offeredDomain,
+  parentDomain,
+  shownDomain,
 } from '@private-email/mail-core/blocked-senders';
 import * as Option from 'effect/Option';
 import * as Schema from 'effect/Schema';
@@ -912,6 +916,65 @@ describe('blocked domains', () => {
       '',
     ]) {
       expect(blockedDomain(refused)).toBeUndefined();
+    }
+  });
+
+  it("offer a sender's exact domain alone, never its parent or a display name's", () => {
+    expect.hasAssertions();
+    expect(offeredDomain('offers@mail.nw-deals.com')).toBe('mail.nw-deals.com');
+    expect(offeredDomain(' Offers@NW-Deals.com ')).toBe('nw-deals.com');
+    expect(offeredDomain('eva@xn--pple-43d.com')).toBe('xn--pple-43d.com');
+    for (const refused of [
+      // A display name naming another domain, a list, an internationalized name not in its ASCII
+      // form, a folded lookalike and a host without a top-level label.
+      'northwind.io <offers@mail.nw-deals.com>',
+      'offers@mail.nw-deals.com, eva@nw-deals.com',
+      'eva@\u0430pple.com',
+      'eva@\u212Aey.example',
+      'root@localhost',
+    ]) {
+      expect(offeredDomain(refused)).toBeUndefined();
+    }
+    expect(parentDomain('mail.nw-deals.com')).toBe('nw-deals.com');
+    expect(parentDomain('nw-deals.com')).toBeUndefined();
+  });
+
+  it('exempt the contacts a block of the domain would take', () => {
+    expect.hasAssertions();
+    const contacts = [
+      'Eva@mail.nw-deals.com',
+      'eva@mail.nw-deals.com',
+      'ops@eu.mail.nw-deals.com',
+      'ceo@nw-deals.com',
+      'sam@northwind.io',
+      'kim@mail.nw-deals.com.evil.io',
+      'Kai <kai@mail.nw-deals.com>',
+      'kai@\u212Aey.mail.nw-deals.com',
+    ];
+    expect(
+      addressesAtDomain('mail.nw-deals.com', true, contacts),
+    ).toStrictEqual(['eva@mail.nw-deals.com', 'ops@eu.mail.nw-deals.com']);
+    expect(
+      addressesAtDomain('mail.nw-deals.com', false, contacts),
+    ).toStrictEqual(['eva@mail.nw-deals.com']);
+  });
+
+  it('show an internationalized domain with its real characters', () => {
+    expect.hasAssertions();
+    expect(shownDomain('xn--pple-43d.com')).toStrictEqual({
+      shown: '\u0430pple.com',
+      character: '\u0430',
+      script: 'cyrillic',
+    });
+    expect(shownDomain('mail.xn--mnchen-3ya.de')).toStrictEqual({
+      shown: 'mail.m\u00FCnchen.de',
+      character: '\u00FC',
+      script: undefined,
+    });
+    expect(shownDomain('xn--mxail5aa.example')?.script).toBe('greek');
+    // A right-to-left override, which would reorder the text around it, shows the ASCII name.
+    for (const plain of ['nw-deals.com', 'xn--99.com', 'xn--apple-pz3b.com']) {
+      expect(shownDomain(plain)).toBeUndefined();
     }
   });
 

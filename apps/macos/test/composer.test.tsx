@@ -7142,10 +7142,22 @@ describe('adding files and images to a Draft', () => {
     storage.holdImports();
     await press('Try Again to add notes.txt');
     await expect(
-      screen.findByLabelText('notes.txt, Adding…'),
+      screen.findByLabelText('notes.txt, Importing…'),
     ).resolves.toBeOnTheScreen();
     expect(screen.getByLabelText('Cancel adding notes.txt')).toBeOnTheScreen();
     expect(screen.queryByLabelText('Try Again to add notes.txt')).toBeNull();
+    // Native code reports the fraction it has read; another import's report changes nothing.
+    const [id] = drafts.getImports();
+    await act(async () => {
+      DeviceEventEmitter.emit('draftImportProgress', { id, fraction: 0.64 });
+      DeviceEventEmitter.emit('draftImportProgress', {
+        id: 'another-import',
+        fraction: 0.9,
+      });
+    });
+    expect(
+      screen.getByLabelText('notes.txt, Importing… 64%'),
+    ).toBeOnTheScreen();
     // Named above the body even while To says why Send is unavailable.
     expect(
       screen.getByLabelText(
@@ -7638,7 +7650,7 @@ describe('adding files and images to a Draft', () => {
       { uri: 'file:///chart.png', name: 'chart.png', type: 'image/png' },
     ]);
     await press('Insert Image…');
-    await screen.findByLabelText('chart.png, Adding…');
+    await screen.findByLabelText('chart.png, Importing…');
     await fireEvent.changeText(screen.getByLabelText('Message body'), '');
     await act(async () => {
       storage.releaseImports();

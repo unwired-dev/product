@@ -164,7 +164,7 @@ export function useOutboxActions(onOpen: (id: string) => Promise<void>) {
       }
     })();
   };
-  // An Invitation Response, which was never a Draft, only leaves the Outbox.
+  // An Invitation Response or unsubscribe request, which was never a Draft, only leaves the Outbox.
   const undoResponse = (entry: OutboxSnapshotEntry) => {
     dismiss();
     void outbox.undo(entry.id, 'waiting');
@@ -287,25 +287,39 @@ const responseSymbols = {
   failed: ['exclamationmark.triangle.fill', 'statusDestructive'],
   unknown: ['info.circle', 'statusWarning'],
 } as const satisfies Record<OutboxSnapshotEntry['state'], readonly string[]>;
+// A waiting response storage refused to take back.
+const undoRefusedSymbol = [
+  'exclamationmark.triangle.fill',
+  'statusWarning',
+] as const;
 
-// An Invitation Response's row: the meeting, the choice and where it stands, with Undo while it
-// waits, Check Again when its delivery is unknown, and Open Invitation. It has no Edit, since it
-// was never a Draft.
+// An Invitation Response's or unsubscribe request's row: the meeting and the choice, or the
+// request's recipient, and where it stands, with Undo while it waits (Try Again once storage refused
+// it), Check Again when its delivery is unknown, and Open Invitation. It has no Edit, since it was
+// never a Draft.
 function ResponseRow({
   entry,
   actions,
   onOpenInvitation,
+  provider,
 }: {
   readonly entry: OutboxSnapshotEntry;
   readonly actions: OutboxActions;
   readonly onOpenInvitation: (() => void) | undefined;
+  // The sending connection's provider, which an unsubscribe request's status names.
+  readonly provider: Parameters<typeof outboxCopy>[2];
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
   const formats = useMessageDateFormats();
   const { subject, recipients } = summaryOf(t, entry);
-  const { status, unconfirmed } = outboxCopy(t, entry, 'imap');
-  const [symbol, tone] = responseSymbols[entry.state];
+  const { status, unconfirmed } = outboxCopy(
+    t,
+    entry,
+    entry.unsubscribe === undefined ? 'imap' : provider,
+  );
+  const [symbol, tone] =
+    entry.undo === 'refused' ? undoRefusedSymbol : responseSymbols[entry.state];
   const time = formats.time.format(entry.draft.updatedAt);
   return (
     <View style={[styles.response, { borderBottomColor: colors.separator }]}>
@@ -354,7 +368,9 @@ function ResponseRow({
       <View style={styles.responseActions}>
         {entry.state === 'waiting' ? (
           <Button
-            label={t('outbox.undo')}
+            label={t(
+              entry.undo === 'refused' ? 'outbox.tryAgain' : 'outbox.undo',
+            )}
             onPress={() => {
               actions.undoResponse(entry);
             }}
@@ -399,12 +415,13 @@ export function OutboxRow({
   const provider = use(AccountContext)?.mailboxes.find(
     ({ id }) => id === entry.draft.connection,
   )?.provider;
-  if (entry.invitation !== undefined) {
+  if (entry.invitation !== undefined || entry.unsubscribe !== undefined) {
     return (
       <ResponseRow
         entry={entry}
         actions={actions}
         onOpenInvitation={onOpenInvitation}
+        provider={provider}
       />
     );
   }

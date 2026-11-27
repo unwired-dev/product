@@ -100,7 +100,7 @@ export const AccountContext = createContext<
         onInbox?: () => void,
         scope?: Readonly<{ profile?: string; mailbox?: string }>,
       ) => void;
-      authorizeMailbox: (connection: string) => Promise<void>;
+      authorizeMailbox: (connection: string) => Promise<unknown>;
       refreshInbox: (load: () => Promise<void>) => Promise<void>;
       // The signed-in Product Account, whose Mail Profiles a window's choices belong to.
       account: string;

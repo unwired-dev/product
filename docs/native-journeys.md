@@ -430,6 +430,15 @@ Blocked Senders then lists the address as `0 since`, and selecting it and choosi
 − leaves **No Blocked Senders**. The sheet and both Settings states are kept as
 attachments. It sets Light; `testBlockSenderDark` runs it in Dark.
 
+`testBlockDomain` uses the same build and sign-in
+([#2817](https://github.com/unwired-dev/product/issues/2817)). From the same
+sender's menu it chooses **Block Domain…**; Escape closes the sheet, and reopened it offers
+`Block example.invalid`, which blocks the domain with its subdomains. After a
+relaunch, Settings › Blocked Senders lists `example.invalid` as `With subdomains`, and selecting
+it and choosing − leaves **No Blocked Senders**. A screen capture of the open
+menu, the sheet and the listed Settings are kept as attachments. It sets Light; `testBlockDomainDark` runs it in
+Dark.
+
 `testSendNow` uses the same build and sign-in
 ([#2594](https://github.com/unwired-dev/product/issues/2594)). It writes a New
 Message to `jordan@example.invalid`, opens Send's menu with a right click and
@@ -474,15 +483,20 @@ On iPhone and iPad, the default Gmail registration journey
 ([#2166](https://github.com/unwired-dev/product/issues/2166)) long-presses the
 open message's sender, chooses **Block Sender…**, and confirms
 `Block rowan@example.invalid?` in the system alert. Settings › Blocked Senders
-then lists the address as `0 since`; **Edit** switches to **Done** and back, and
-a swipe's **Delete** leaves **No Blocked Senders**. Closing Settings returns to
+then lists the address as `0 since`. The journey then chooses **Block Domain…**
+from the same menu ([#2816](https://github.com/unwired-dev/product/issues/2816)),
+whose sheet `Block example.invalid` offers the domain with its subdomains, and
+blocks it. Settings › Blocked Senders lists the domain, **With subdomains**,
+above the address; **Edit** switches to **Done** and back, and a swipe's
+**Delete** on each leaves **No Blocked Senders**. Closing Settings returns to
 the open message on iPad; iPhone reopens it from the Inbox. iPad opens Settings
 through the Command Palette, as it does again after the relaunch
 ([#989](https://github.com/unwired-dev/product/issues/989)). The tap that
 closes an open menu goes to the link in the rendered body on iPad, and on iPhone
 to the dimmed top half above the Labels sheet
 ([#2781](https://github.com/unwired-dev/product/issues/2781)). The
-alert, the list and its edit mode are kept as attachments.
+alert, the sender menu, the Block Domain sheet, the list and its edit mode are
+kept as attachments.
 
 Back in that message, the journey chooses **Pin**
 ([#2343](https://github.com/unwired-dev/product/issues/2343)): from the
@@ -720,6 +734,19 @@ under it. Typing `he` leaves the three headings; Down Arrow and Return set
 Heading 2, which the **Text style** pop-up shows, and remove the query. After
 typing, two Command-Z take back the typing and then restore `/he` as a
 paragraph. The open and filtered menus are kept as attachments.
+
+`testDraftEditorSlashCommandMenu` and its `Dark` variant run the same menu in the
+Draft editor page ([#3010](https://github.com/unwired-dev/product/issues/3010)) on
+the `registration-draft-editor` `Testing` build that the
+[Draft editor evaluation](draft-editor-evaluation.md#run-the-evaluation) describes.
+After signing in, a New Message body gets `Hi`, a new line and `/`, which opens
+the Basic Blocks under the `/` and right of it. Typing `he` leaves the three
+headings; Down Arrow and Return set Heading 2, which the **Text style** pop-up
+shows, and remove the query. After typing, two Command-Z take back the typing and
+then restore `/he` as a paragraph without opening the menu. A `/` on the next line
+opens it again, Escape closes it, and typing on keeps it closed. The captures
+"Draft editor page Slash Command Menu", "… filtered" and "Heading 2 from the Draft
+editor page Slash Command Menu" are named with the appearance.
 
 ## Mac list indent journey
 
@@ -1029,7 +1056,11 @@ banner, **Change** and **Remove Reminder**
 line must name the device's time zone in full, such as "Times in Central European
 Standard Time (Prague)" ([#2147](https://github.com/unwired-dev/product/issues/2147)). The captures are
 named "Send menu", "Remind Me to Send sheet" or "popover" and "Draft with a Send
-Reminder". The journey fails later on iPhone
+Reminder". **Change** then opens **Choose Date and Time…**, whose system calendar
+starts at the stored reminder ("Choose Date and Time"); from 8:00, today's date
+shows the passed-time message with **Set Reminder** dimmed ("Choose Date and
+Time, time has passed"), and Return sets the day after tomorrow, which the
+banner names ([#2979](https://github.com/unwired-dev/product/issues/2979)). The journey fails later on iPhone
 ([#2587](https://github.com/unwired-dev/product/issues/2587)).
 
 ## iPhone and iPad Gmail pause journey

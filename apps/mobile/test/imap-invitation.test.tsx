@@ -171,6 +171,7 @@ async function device(summaries: readonly string[]) {
     ids,
     inbox: mailbox.inbox,
     outbox,
+    storage,
     deliver,
     opened,
     Providers,
@@ -312,6 +313,56 @@ describe('imap invitation responses on iPhone and iPad', () => {
       expect(
         screen.getByRole('button', { name: 'View in Outbox' }),
       ).toBeOnTheScreen();
+    } finally {
+      await app.unmount();
+      mail.outbox.dispose();
+    }
+  });
+
+  it('says when storage refused Undo, and Try Again takes the response back', async () => {
+    expect.hasAssertions();
+    const mail = await device(['Q4 roadmap review']);
+    const [id = ''] = mail.ids;
+    const app = await render(
+      <mail.Providers>
+        <ShowOutboxContext value={() => undefined}>
+          <ImapMessageBody
+            inbox={mail.inbox}
+            id={id}
+            connection={mara.id}
+          />
+        </ShowOutboxContext>
+      </mail.Providers>,
+    );
+    try {
+      await press('Accept');
+      mail.storage.failNextCommit('locked');
+      await press('Undo');
+      expect(screen.getByText('Couldn’t undo your response')).toBeOnTheScreen();
+      expect(
+        screen.getByText(
+          'Your Accept response is still in the Outbox. Choose Try Again to undo it.',
+        ),
+      ).toBeOnTheScreen();
+      expect(screen.queryByRole('button', { name: 'Undo' })).toBeNull();
+      expect(screen.getByRole('button', { name: 'Maybe' })).toBeDisabled();
+      expect(
+        screen.getByRole('button', { name: 'View in Outbox' }),
+      ).toBeOnTheScreen();
+
+      await press('Try Again');
+      expect(mail.outbox.getSnapshot()).toStrictEqual([]);
+      expect(screen.queryByText('Couldn’t undo your response')).toBeNull();
+      expect(screen.getByRole('button', { name: 'Accept' })).toBeEnabled();
+
+      // The notice clears once the response stops waiting.
+      await press('Decline');
+      mail.storage.failNextCommit('locked');
+      await press('Undo');
+      expect(screen.getByText('Couldn’t undo your response')).toBeOnTheScreen();
+      await mail.deliver();
+      expect(screen.queryByText('Couldn’t undo your response')).toBeNull();
+      expect(screen.getByText('Declined')).toBeOnTheScreen();
     } finally {
       await app.unmount();
       mail.outbox.dispose();
@@ -482,8 +533,16 @@ describe('imap invitation responses on iPhone and iPad', () => {
       });
       expect(opened).toStrictEqual([{ mailbox: mara.id, id: roadmap }]);
 
-      // Undo removes the waiting response without a Draft.
+      // A refused Undo keeps the row waiting, and Try Again takes Undo's place.
+      mail.storage.failNextCommit('locked');
       await press('Undo');
+      expect(
+        screen.getByText('Couldn’t undo. Still waiting to send.'),
+      ).toBeOnTheScreen();
+      expect(screen.queryByRole('button', { name: 'Undo' })).toBeNull();
+
+      // Try Again removes the waiting response without a Draft.
+      await press('Try Again');
       expect(screen.queryByText('Invitation response · Decline')).toBeNull();
       expect(mail.outbox.getSnapshot()).toHaveLength(1);
 

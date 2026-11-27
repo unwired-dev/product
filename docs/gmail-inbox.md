@@ -291,6 +291,24 @@ mailbox, or every mailbox under **All Inboxes**. The API search excludes spam an
 Native code passes the query as one percent-encoded `q` value, encoding `+` as well,
 so `from:a+b@example.com` keeps its plus sign.
 
+## Out of Office
+
+[#3039](https://github.com/unwired-dev/product/issues/3039), the first slice of
+[#1697](https://github.com/unwired-dev/product/issues/1697), reads a Gmail mailbox's vacation
+responder, Gmail's name for Out of Office. No screen shows it yet.
+
+- **Grant.** The read uses the mailbox's existing `gmail.modify` grant, as the owner decided on
+  26 November 2026. Saving a change will ask for `gmail.settings.basic` separately.
+- **Read.** The open Inbox's `outOfOffice()` asks Gmail for `settings/vacation`, the only
+  settings resource native code lets a Gmail read reach. The answer is decoded as Gmail stores
+  it: whether it is on, the subject, the plain-text and HTML message, the contacts-only and
+  domain-only restrictions, and the start and end times in milliseconds since the epoch. A field
+  Gmail leaves out stays out. Nothing is cached.
+- **Failures.** A malformed answer, no connection or a provider failure answers unavailable, as
+  a [search](#searching-gmail-online) does. A refused grant also asks for Gmail again, as a reader
+  does. An answer for an Inbox that closed meanwhile is dropped, and a Microsoft mailbox reads
+  nothing.
+
 ## Behavior
 
 The Inbox lists **Durable Message Metadata** for Gmail's `INBOX` label: sender,
@@ -628,7 +646,7 @@ and, outside Trash and Spam, **Delete** (to Trash), placed last on every platfor
 Move to Spam stays a row accessibility action and a reader action outside those views. The
 open message's header lists Reply, Reply All and Forward, its read state,
 **Pin** or **Unpin**, **Move to Inbox** in Trash and Spam, **Move to…** with the same destinations as
-the reader's Move to, and **Delete** outside Trash and Spam; its sender offers **Copy Address** and, for one plain address, **Block Sender…** ([#2166](https://github.com/unwired-dev/product/issues/2166)). VoiceOver reads the header's
+the reader's Move to, and **Delete** outside Trash and Spam; its sender offers **Copy Address** and, for one plain address, **Block Sender…** ([#2166](https://github.com/unwired-dev/product/issues/2166)) and **Block Domain…**, which offers that address's exact domain ([#2816](https://github.com/unwired-dev/product/issues/2816)). VoiceOver reads the header's
 sender details as one element that offers the same actions
 ([#2484](https://github.com/unwired-dev/product/issues/2484)). A link in the reader's link list
 offers **Open Link**, which asks for the same confirmation, and **Copy Link**. A

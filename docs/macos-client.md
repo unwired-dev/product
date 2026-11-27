@@ -84,6 +84,10 @@ Trash choice in an AppKit sheet on that Inbox or Settings window: the host gives
 surface (`UnwiredFolderChoice`), sizes it to that content and ends it on Cancel
 (Escape), a successful Save (Return), once the connection no longer needs the
 choice, or when its parent window closes, including before the sheet appears.
+Block Domain… in a reader's sender menu opens its 400pt sheet on the Inbox window the
+same way, with its own React surface (`UnwiredBlockDomain`); it ends on Cancel
+(Escape) or once the domain is blocked
+([#2817](https://github.com/unwired-dev/product/issues/2817)).
 React Native macOS 0.83.0's `Modal` is iOS-only, so React content cannot be
 presented as a window sheet; remove the host sheet when `Modal` presents one on macOS.
 Sign In's **Sign in with Apple** is AppKit's `ASAuthorizationAppleIDButton` through

@@ -7,8 +7,11 @@ import type { MailProvider } from './registration-snapshot.ts';
 
 // Gmail organizes mail with labels: Inbox, Trash, Spam, read state and stars are system labels
 // that one message modify request adds or removes. Microsoft mail uses the same actions on its
-// folders, whose IDs are URL-safe base64; native Gmail code accepts only Gmail's label IDs.
-const LabelId = Schema.String.check(Schema.isPattern(/^[\w=-]{1,512}$/u));
+// folders, whose IDs are URL-safe base64; native Gmail code accepts only Gmail's label IDs. An
+// Outlook category's label is its name of at most 255 characters in unpadded base64url.
+const LabelId = Schema.String.check(
+  Schema.isPattern(/^(?:[\w=-]{1,512}|CATEGORY_[\w-]{1,1020})$/u),
+);
 
 export const GmailActionSchema = Schema.Struct({
   kind: Schema.Literals([
@@ -318,3 +321,21 @@ export const quickActions = (
       label: t(`gmailActions.label.${action.kind}`),
       action,
     }));
+
+// Gmail's vacation responder, the mailbox's Out of Office, as Gmail stores it: a field Gmail
+// leaves out is off or empty, and times are milliseconds since the epoch.
+export const GmailVacationSchema = Schema.Struct({
+  enableAutoReply: Schema.optionalKey(Schema.Boolean),
+  responseSubject: Schema.optionalKey(Schema.String),
+  responseBodyPlainText: Schema.optionalKey(Schema.String),
+  responseBodyHtml: Schema.optionalKey(Schema.String),
+  restrictToContacts: Schema.optionalKey(Schema.Boolean),
+  restrictToDomain: Schema.optionalKey(Schema.Boolean),
+  startTime: Schema.optionalKey(
+    Schema.String.check(Schema.isPattern(/^\d{1,15}$/u)),
+  ),
+  endTime: Schema.optionalKey(
+    Schema.String.check(Schema.isPattern(/^\d{1,15}$/u)),
+  ),
+});
+export type GmailVacation = typeof GmailVacationSchema.Type;

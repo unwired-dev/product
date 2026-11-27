@@ -56,17 +56,21 @@ final class UnwiredNotifications: NSObject, UNUserNotificationCenterDelegate, Se
   func userNotificationCenter(
     _ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse
   ) async {
-    #if os(macOS)
-      // A Send Reminder routes nowhere yet: its tap brings an Inbox window forward, or opens one
-      // after a launch that started without a window.
-      if response.notification.request.identifier.hasPrefix("send-reminder."),
-        response.actionIdentifier == UNNotificationDefaultActionIdentifier
-      {
-        await NotificationTaps.shared.show()
-        return
-      }
-    #endif
     let info = response.notification.request.content.userInfo
+    // A Send Reminder's tap opens its Draft through JavaScript. On the Mac it also brings an Inbox
+    // window forward, or opens one after a launch that started without a window.
+    if response.notification.request.identifier.hasPrefix("send-reminder.") {
+      guard response.actionIdentifier == UNNotificationDefaultActionIdentifier else { return }
+      #if os(macOS)
+        await NotificationTaps.shared.show()
+      #endif
+      guard let account = info["account"] as? String, !account.isEmpty,
+        let draft = info["draft"] as? String, !draft.isEmpty
+      else { return }
+      await NotificationActions.shared.perform(
+        ["action": "open-reminder", "account": account, "draft": draft])
+      return
+    }
     guard let account = info["account"] as? String, !account.isEmpty,
       let epoch = info["epoch"] as? String, !epoch.isEmpty,
       let connection = info["connection"] as? String, !connection.isEmpty,
@@ -522,7 +526,7 @@ extension UnwiredRegistration {
   // Makes this device's Send Reminder notifications, pending or delivered, exactly
   // `notifications` while `owner` holds Drafts here: every other is withdrawn first, then each one
   // still ahead is scheduled for its due instant, replacing one under its identifier. A reminder
-  // offers no action and nothing that sends its Draft. Rejects when one could not be scheduled, so
+  // offers no action and nothing that sends its Draft; its tap opens the Draft. Rejects when one could not be scheduled, so
   // JavaScript tries again. Runs in the registration operation gate, so a sign-out's withdrawal is
   // never followed by a stale schedule.
   @objc(scheduleReminderNotifications:notifications:resolver:rejecter:)
@@ -544,6 +548,7 @@ extension UnwiredRegistration {
           let title = notification["title"] as? String,
           let body = notification["body"] as? String,
           let profile = notification["profile"] as? String, !profile.isEmpty,
+          let draft = notification["draft"] as? String, !draft.isEmpty,
           let dueAt = notification["dueAt"] as? Double,
           let shown = notification["previews"] as? Bool, !shown || previews
         else { continue }
@@ -552,6 +557,8 @@ extension UnwiredRegistration {
         content.body = body
         content.sound = .default
         content.threadIdentifier = profile
+        // Its tap opens the Draft for this account only.
+        content.userInfo = ["account": owner, "draft": draft]
         wanted.append((id, content, Date(timeIntervalSince1970: dueAt / 1000)))
       }
       let kept = Set(wanted.map { $0.id })
