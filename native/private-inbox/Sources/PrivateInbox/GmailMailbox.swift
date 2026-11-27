@@ -87,7 +87,8 @@ extension RegistrationStore {
   static func gmailURL(path: String, query: [URLQueryItem]) throws -> URL {
     guard
       path.range(
-        of: "^(profile|history|labels|messages(/[0-9A-Za-z]+(/attachments/[0-9A-Za-z_-]+)?)?)$",
+        of: "^(profile|history|labels|settings/vacation|"
+          + "messages(/[0-9A-Za-z]+(/attachments/[0-9A-Za-z_-]+)?)?)$",
         options: .regularExpression) != nil,
       var components = URLComponents(
         string: "https://gmail.googleapis.com/gmail/v1/users/me/" + path)

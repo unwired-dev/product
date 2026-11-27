@@ -1,0 +1,126 @@
+import { createInboxStore } from '../src/inbox-store.ts';
+import { createSyntheticGmail } from '../src/testing/gmail-mailbox.ts';
+import { createSyntheticGraph } from '../src/testing/graph-mailbox.ts';
+
+// Gmail's vacation responder, read with the existing Gmail grant (#3039).
+const vacationInbox = () => {
+  const gmail = createSyntheticGmail();
+  const answers: unknown[] = [];
+  const requests: unknown[] = [];
+  const inbox = createInboxStore({
+    ...gmail.native,
+    gmailRequest: (path, query, owner) => {
+      if (path !== 'settings/vacation') {
+        return gmail.native.gmailRequest(path, query, owner);
+      }
+      requests.push(query);
+      const answer = answers.shift();
+      // oxlint-disable-next-line vitest/no-conditional-in-test -- A rejection stands for a request that failed on this device.
+      return answer instanceof Error
+        ? Promise.reject(answer)
+        : Promise.resolve(answer);
+    },
+  });
+  return { gmail, inbox, answers, requests };
+};
+
+const answer = (body: unknown, status = 200) => ({
+  status,
+  body: JSON.stringify(body),
+});
+
+describe("reading a Gmail mailbox's Out of Office", () => {
+  it('reads the vacation responder as Gmail stores it, on or off', async () => {
+    expect.hasAssertions();
+    const { inbox, answers, requests } = vacationInbox();
+    await inbox.load();
+    const on = {
+      enableAutoReply: true,
+      responseSubject: 'Away until Nov 30',
+      responseBodyPlainText: 'Thanks for your note.',
+      responseBodyHtml: '<p>Thanks for your note.</p>',
+      restrictToContacts: false,
+      restrictToDomain: true,
+      startTime: '1795392000000',
+      endTime: '1795824000000',
+    };
+    answers.push(answer(on), answer({ enableAutoReply: false }), answer({}));
+
+    await expect(inbox.outOfOffice()).resolves.toStrictEqual({
+      kind: 'found',
+      vacation: on,
+    });
+    // Gmail leaves out what is off or empty, and nothing is filled in for it.
+    await expect(inbox.outOfOffice()).resolves.toStrictEqual({
+      kind: 'found',
+      vacation: { enableAutoReply: false },
+    });
+    await expect(inbox.outOfOffice()).resolves.toStrictEqual({
+      kind: 'found',
+      vacation: {},
+    });
+    expect(requests).toStrictEqual([[], [], []]);
+  });
+
+  it('says why Gmail could not answer, and a refused grant asks for Gmail again', async () => {
+    expect.hasAssertions();
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const { inbox, answers } = vacationInbox();
+    await inbox.load();
+    answers.push(
+      answer({ enableAutoReply: 'yes' }),
+      answer({ startTime: 'tomorrow' }),
+      answer({}, 503),
+      new Error('The request never left this device.'),
+      answer({}, 404),
+      answer({}, 500),
+    );
+    for (const reason of [
+      'offline',
+      'offline',
+      'offline',
+      'offline',
+      'failed',
+      'offline',
+    ]) {
+      // oxlint-disable-next-line no-await-in-loop -- Each answer is read in turn.
+      await expect(inbox.outOfOffice()).resolves.toStrictEqual({
+        kind: 'unavailable',
+        reason,
+      });
+    }
+    expect(inbox.getSnapshot()).toMatchObject({ sync: 'current' });
+
+    answers.push(answer({}, 401));
+    await expect(inbox.outOfOffice()).resolves.toStrictEqual({
+      kind: 'unavailable',
+      reason: 'authentication',
+    });
+    expect(inbox.getSnapshot()).toMatchObject({ sync: 'authentication' });
+  });
+
+  it('reads nothing before the Inbox opens, after it closes or for Microsoft mail', async () => {
+    expect.hasAssertions();
+    const { inbox, answers, requests } = vacationInbox();
+    await expect(inbox.outOfOffice()).resolves.toBeUndefined();
+    expect(requests).toHaveLength(0);
+
+    await inbox.load();
+    const { promise, resolve } = Promise.withResolvers<unknown>();
+    answers.push(promise);
+    const reading = inbox.outOfOffice();
+    // The Inbox closes while the read is under way. Native code refuses an answer for a mailbox
+    // replaced meanwhile, as it does for search.
+    inbox.forget();
+    resolve(answer({ enableAutoReply: true }));
+    await expect(reading).resolves.toBeUndefined();
+    expect(requests).toHaveLength(1);
+
+    const graph = createSyntheticGraph();
+    const microsoft = createInboxStore(graph.native, {
+      provider: 'microsoft-graph',
+    });
+    await microsoft.load();
+    await expect(microsoft.outOfOffice()).resolves.toBeUndefined();
+  });
+});
