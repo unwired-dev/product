@@ -382,7 +382,7 @@ export function BlockDomainSheet({
                   { height: Math.min(707, height - 70) - 14 },
                 ])
               : presentationSizing('fitted'),
-            // The iPhone panel's 20pt padding is its whole bottom inset, as the frames draw it.
+            // The iPhone panel's 14pt bottom padding is its whole bottom inset, as the frames draw it.
             ...(compact
               ? [ignoreSafeArea({ regions: 'container', edges: 'bottom' })]
               : []),
