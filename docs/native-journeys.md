@@ -451,8 +451,10 @@ being added is covered by Jest.
 `testSendReminderChooseDateAndTime` uses the same build and sign-in
 ([#2980](https://github.com/unwired-dev/product/issues/2980)). It writes a New
 Message's subject, opens Send's menu with a right click and chooses **Remind Me to
-Send… › Choose Date and Time…**. The popover opens above Send with the time field
-at 09:00, and Escape closes it. **Expand** moves the Draft to its own window,
+Send… › Choose Date and Time…**, after checking that the menu lists **Tomorrow
+Morning**, **Next Week**, and **This Weekend** from Sunday to Thursday
+([#3001](https://github.com/unwired-dev/product/issues/3001)). The popover opens
+above Send with the time field at 08:00, and Escape closes it. **Expand** moves the Draft to its own window,
 where the popover opens below the toolbar's Send and inside the window, and
 Return sets the reminder, which the banner shows for tomorrow. The banner's
 **Change › Choose Date and Time…**
@@ -1049,7 +1051,8 @@ UNWIRED_APPEARANCE=light mise exec -- pnpm --filter @private-email/mobile test:n
 ```
 
 Before the Work Profile's new message is sent, a long press on Send opens the Send
-menu, **Remind Me to Send…** sets **Tomorrow Morning** from the iPhone sheet or with
+menu, **Remind Me to Send…** lists **Next Week**, and **This Weekend** from Sunday to Thursday,
+([#3001](https://github.com/unwired-dev/product/issues/3001)) and sets **Tomorrow Morning** from the iPhone sheet or with
 the iPad popover's **Set Reminder**, and the composer stays open with the Draft's
 banner, **Change** and **Remove Reminder**
 ([#2144](https://github.com/unwired-dev/product/issues/2144)). The choices' last

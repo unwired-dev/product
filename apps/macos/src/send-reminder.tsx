@@ -109,7 +109,7 @@ function useReminderMenu(
               ({ time: choice, dueAt }) => ({
                 key: choice,
                 title: t(`drafts.reminder.${choice}`),
-                subtitle:
+                detail:
                   choice === 'thisEvening'
                     ? t('drafts.reminder.todayAt', { time: time(dueAt) })
                     : t('drafts.reminder.dayAt', {
@@ -173,7 +173,9 @@ function ReminderPicker({
   const [value, setValue] = useState(
     () =>
       reminder?.dueAt ??
-      reminderTimes(Date.now(), timeZone).at(-1)?.dueAt ??
+      reminderTimes(Date.now(), timeZone).find(
+        ({ time }) => time === 'tomorrowMorning',
+      )?.dueAt ??
       Date.now(),
   );
   // When Set Reminder last found the time passed, so it says so before the minute turns.
