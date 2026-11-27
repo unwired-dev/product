@@ -291,6 +291,24 @@ mailbox, or every mailbox under **All Inboxes**. The API search excludes spam an
 Native code passes the query as one percent-encoded `q` value, encoding `+` as well,
 so `from:a+b@example.com` keeps its plus sign.
 
+## Out of Office
+
+[#3039](https://github.com/unwired-dev/product/issues/3039), the first slice of
+[#1697](https://github.com/unwired-dev/product/issues/1697), reads a Gmail mailbox's vacation
+responder, Gmail's name for Out of Office. No screen shows it yet.
+
+- **Grant.** The read uses the mailbox's existing `gmail.modify` grant, as the owner decided on
+  26 November 2026. Saving a change will ask for `gmail.settings.basic` separately.
+- **Read.** The open Inbox's `outOfOffice()` asks Gmail for `settings/vacation`, the only
+  settings resource native code lets a Gmail read reach. The answer is decoded as Gmail stores
+  it: whether it is on, the subject, the plain-text and HTML message, the contacts-only and
+  domain-only restrictions, and the start and end times in milliseconds since the epoch. A field
+  Gmail leaves out stays out. Nothing is cached.
+- **Failures.** A malformed answer, no connection or a provider failure answers unavailable, as
+  a [search](#searching-gmail-online) does. A refused grant also asks for Gmail again, as a reader
+  does. An answer for an Inbox that closed meanwhile is dropped, and a Microsoft mailbox reads
+  nothing.
+
 ## Behavior
 
 The Inbox lists **Durable Message Metadata** for Gmail's `INBOX` label: sender,

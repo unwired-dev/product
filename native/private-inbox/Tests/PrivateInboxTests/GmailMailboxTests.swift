@@ -1052,6 +1052,21 @@ extension PrivateInboxTests {
       !FileManager.default.fileExists(atPath: directory.appendingPathComponent("mailboxes").path))
   }
 
+  // Of Gmail's settings, reads reach only the vacation responder (#3039).
+  @Test @MainActor func gmailReadsReachOnlyTheVacationSetting() throws {
+    #expect(
+      try RegistrationStore.gmailURL(path: "settings/vacation", query: []).absoluteString
+        == "https://gmail.googleapis.com/gmail/v1/users/me/settings/vacation")
+    for path in [
+      "settings", "settings/filters", "settings/vacation/x", "settings/forwardingAddresses",
+      "settings/vacation?alt=media",
+    ] {
+      #expect(throws: RegistrationError.unavailable) {
+        _ = try RegistrationStore.gmailURL(path: path, query: [])
+      }
+    }
+  }
+
   // A usage limit on the grant's profile probe keeps the saved Inbox open, as a 429 does; only a
   // refusal asks for Gmail again (#2502).
   @Test @MainActor func profileProbeTreatsUsageLimitsAsTransient() throws {

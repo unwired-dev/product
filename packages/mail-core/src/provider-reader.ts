@@ -1,7 +1,11 @@
 import type * as Effect from 'effect/Effect';
 import type * as Option from 'effect/Option';
 
-import type { GmailAction, GmailLabel } from './gmail-actions.ts';
+import type {
+  GmailAction,
+  GmailLabel,
+  GmailVacation,
+} from './gmail-actions.ts';
 import type {
   GmailMessage,
   MailboxDocument,
@@ -171,4 +175,8 @@ export interface ProviderReader {
     scope: MailboxScope,
     id: string,
   ) => Effect.Effect<GmailMessage | undefined, SyncFailure | GmailInvalidPage>;
+  // The mailbox's Out of Office as the provider stores it, when the provider offers one.
+  readonly vacation?: (
+    scope: MailboxScope,
+  ) => Effect.Effect<GmailVacation, ReadFailure>;
 }
