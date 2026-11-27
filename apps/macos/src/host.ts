@@ -14,7 +14,11 @@ interface RegistrationModule
     TurboModule,
     NativeHostModule,
     NativeMailAssistance,
-    NativePreferences {}
+    NativePreferences {
+  // Events: `draftImportProgress`, `{ id, fraction }`, while a Draft asset's file is read.
+  readonly addListener: (eventName: string) => void;
+  readonly removeListeners: (count: number) => void;
+}
 
 interface ReportingModule extends TurboModule, NativeErrorReporting {
   readonly getConstants: () => Readonly<{ initialState?: unknown }>;

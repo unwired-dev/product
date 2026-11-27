@@ -1095,7 +1095,7 @@ describe('the Tiptap evaluation composer', () => {
       document: body({ text: 'Hi ' }, { text: '￼', image: chart }),
       attachments: [],
     });
-    await screen.findByLabelText('chart.png, Adding…');
+    await screen.findByLabelText('chart.png, Importing…');
     // Typing while the import completes keeps the edit, and the page's older copy of the asset
     // cannot undo its completion.
     await report({

@@ -1,6 +1,7 @@
 import CoreGraphics
 import Foundation
 import ImageIO
+import Synchronization
 import Testing
 import UniformTypeIdentifiers
 
@@ -137,6 +138,29 @@ struct DraftTests {
       try? DeviceKeychain(service: service + ".database").remove("encryption-key")
       try? FileManager.default.removeItem(at: directory)
     }
+  }
+
+  // A picked file is read in 1 MiB chunks, reporting its fraction at each whole percent until all
+  // of it is read; pasted `data:` bytes report none.
+  @Test @MainActor func importingAFileReportsItsProgress() async throws {
+    let session = AssetSession()
+    defer { session.remove() }
+    let owner = try await session.owner()
+    let picked = try session.picked("scan.pdf")
+    try Data(count: 5 << 19).write(to: picked)
+    let reported = Mutex<[Double]>([])
+    let imported = try await session.store.importDraftAsset(
+      owner: owner, id: "scan00001", source: ["kind": "file", "uri": picked.absoluteString]
+    ) { fraction in reported.withLock { $0.append(fraction) } }
+    #expect(imported["size"] as? Int == 5 << 19)
+    #expect(reported.withLock { $0 } == [0.4, 0.8, 1])
+
+    let pasted = Mutex<[Double]>([])
+    _ = try await session.store.importDraftAsset(
+      owner: owner, id: "paste0001",
+      source: ["kind": "data", "uri": "data:image/png;base64,\(session.bytes.base64EncodedString())"]
+    ) { fraction in pasted.withLock { $0.append(fraction) } }
+    #expect(pasted.withLock { $0 }.isEmpty)
   }
 
   // Draft assets are sealed to their Product Account and identifier, verified by digest when read,

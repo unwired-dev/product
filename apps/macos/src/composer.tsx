@@ -184,6 +184,7 @@ import {
   useOutcomeAnnouncement,
 } from './design.tsx';
 import { DraftAssistance, DroppedAssistance } from './draft-assistance.tsx';
+import { native } from './host.ts';
 import { useLocalization } from './localization.ts';
 import {
   MailAssistanceProfileContext,
@@ -205,6 +206,7 @@ import { AssistanceContext } from './message-summary.tsx';
 import { AccountContext } from './registration-gate.tsx';
 import { ReminderBanner, SendMenu } from './send-reminder.tsx';
 import { windowHost } from './settings-window-client.ts';
+import { ProgressBar } from './sync-status.tsx';
 import { textStyles, usePalette } from './theme.ts';
 import {
   DraftTranslation,
@@ -305,6 +307,8 @@ const styles = StyleSheet.create({
   // The warning glyph sits 4 pt from its reason, as in the #2991 frames.
   assetWarningRow: { gap: 3 },
   assetStatus: { ...textStyles.subheadline, flexShrink: 1 },
+  // R2 of #2992: a 120 pt bar 2 pt under the status.
+  assetProgress: { width: 120, marginTop: 2 },
   // The small indicator's 20 pt box fits the 14 pt status line, so a checking chip keeps its height.
   assetChecking: { marginVertical: -3 },
   thumbnail: { width: 28, height: 28, borderRadius: radius.control },
@@ -1335,11 +1339,14 @@ const assetStatus = (
   {
     asset,
     running,
+    progress,
     checking,
     preview,
   }: Readonly<{
     asset: Asset;
     running: boolean;
+    // The fraction of a running import read so far, once native code reports it.
+    progress: number | undefined;
     checking: boolean;
     preview: AssetPreview | undefined;
   }>,
@@ -1361,11 +1368,14 @@ const assetStatus = (
     return size(asset.size);
   }
   if (asset.state === 'importing') {
-    return t(
-      running
-        ? 'drafts.assets.status.adding'
-        : 'drafts.assets.status.interrupted',
-    );
+    if (!running) {
+      return t('drafts.assets.status.interrupted');
+    }
+    return progress === undefined
+      ? t('drafts.assets.status.importing')
+      : t('drafts.assets.status.importingProgress', {
+          percent: Math.round(progress * 100),
+        });
   }
   if (asset.state === 'cancelled') {
     return t('drafts.assets.status.cancelled');
@@ -1544,12 +1554,15 @@ function AssetStatus({
   preview,
   failed,
   status,
+  progress,
 }: Readonly<{
   checking: boolean;
   preview: AssetPreview | undefined;
   // A file that wasn't added shows its reason as a warning.
   failed: boolean;
   status: string;
+  // A running import's fraction, drawn as a bar under the status.
+  progress: number | undefined;
 }>) {
   const colors = usePalette();
   let statusColor =
@@ -1559,7 +1572,7 @@ function AssetStatus({
   if (failed) {
     statusColor = colors.statusWarning;
   }
-  return (
+  const row = (
     <View
       style={[styles.assetStatusRow, failed ? styles.assetWarningRow : null]}>
       {checking ? (
@@ -1587,6 +1600,17 @@ function AssetStatus({
         {status}
       </Text>
     </View>
+  );
+  return progress === undefined ? (
+    row
+  ) : (
+    <>
+      {row}
+      <ProgressBar
+        percent={progress * 100}
+        style={[styles.assetProgress, { backgroundColor: colors.fillQuiet }]}
+      />
+    </>
   );
 }
 
@@ -1716,6 +1740,30 @@ const assetMenu = (
   };
 };
 
+// A running import's fraction read so far, as native code reports it; undefined before its first
+// report, such as for pasted bytes, which report none.
+function useImportProgress(id: string, running: boolean) {
+  const [progress, setProgress] = useState<number>();
+  useEffect(() => {
+    if (!running) {
+      return undefined;
+    }
+    const subscription = new NativeEventEmitter(native()).addListener(
+      'draftImportProgress',
+      (event: { readonly id: string; readonly fraction: number }) => {
+        if (event.id === id) {
+          setProgress(event.fraction);
+        }
+      },
+    );
+    return () => {
+      subscription.remove();
+      setProgress(undefined);
+    };
+  }, [id, running]);
+  return running ? progress : undefined;
+}
+
 function AssetRow({
   asset,
   editable,
@@ -1755,6 +1803,7 @@ function AssetRow({
     [settings.locale],
   );
   const { preview, retry, checking } = usePreview(asset, inline, check);
+  const progress = useImportProgress(asset.id, running);
   const uri = inline && preview?.kind === 'ready' ? preview.uri : undefined;
   useEffect(() => {
     if (inline) {
@@ -1764,6 +1813,7 @@ function AssetRow({
   const status = assetStatus(t, (bytes) => fileSize(t, sizeFormat, bytes), {
     asset,
     running,
+    progress,
     checking,
     preview,
   });
@@ -1823,6 +1873,7 @@ function AssetRow({
           preview={preview}
           failed={asset.state === 'failed'}
           status={status}
+          progress={progress}
         />
       </View>
       {preview?.kind === 'locked' || preview?.kind === 'incomplete' ? (

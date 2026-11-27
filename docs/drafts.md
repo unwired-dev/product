@@ -732,7 +732,13 @@ size caption and drawing the image in the body with corner handles come in later
 [#1735](https://github.com/unwired-dev/product/issues/1735) slices.
 
 An added file is **importing** until its bytes are stored. While it imports, its
-row says **Adding…** and offers **Cancel**. A file whose import was cancelled,
+row says **Adding…** and offers **Cancel**. On the Mac it says **Importing…**, and
+once native code reports how much of a file it has read, **Importing… 64%** with a
+progress bar under it, which VoiceOver reads with the row
+([#2992](https://github.com/unwired-dev/product/issues/2992)): the registration
+module reads a picked, dropped or received file in 1 MiB chunks and sends
+`draftImportProgress` (`{ id, fraction }`) at each whole percent; pasted image
+bytes report none. A file whose import was cancelled,
 interrupted by quitting or relaunch, could not be read or saved, is too large or,
 for a received attachment, couldn’t be downloaded stays listed as **Not added**
 with the reason. On iPhone and iPad the composer warns that files not added are not

@@ -1453,6 +1453,8 @@
       "status": {
         "checking": "Checking…",
         "adding": "Adding…",
+        "importing": "Importing…",
+        "importingProgress": "Importing… {{percent, number}}%",
         "interrupted": "Not added: adding was interrupted",
         "cancelled": "Not added: cancelled",
         "tooLarge": "Not added: too large for Drafts on this device",
