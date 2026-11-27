@@ -290,8 +290,9 @@ an Outlook draft instead
   alone is over 3 MB, and keeps the Draft open.
 
 Drafts saved from MIME, upload sessions and a refused large message passed against real Graph
-on iPhone in the [2026-11-23 run](#protected-outlookcom-runs); on Mac and iPad they
-remain a release check in [#637](https://github.com/unwired-dev/product/issues/637).
+on iPhone in the [2026-11-23 run](#protected-outlookcom-runs) and on iPad in the
+2026-11-27 run; on Mac they remain a release check in
+[#637](https://github.com/unwired-dev/product/issues/637).
 
 ## Credentials
 
@@ -803,3 +804,43 @@ mail content.
   the message left after the 10-second window. The scan reads text, not the driver's
   screenshot, so it cannot show that no password or Recovery Key was captured. Mac, iPad attachments of 3 MB or more,
   renewal and revocation, and uncertain outcomes were not run and stay on #637.
+- **2026-11-27, iPad attachments of 3 MB or more
+  ([#3059](https://github.com/unwired-dev/product/issues/3059)).** Target, operator and
+  toolchain as on 2026-11-25, on a new iPad Pro 11-inch (M5) Simulator on iOS 27.0, with
+  Xcode 27.2 on macOS 27.2.1. Build: a new Release build from the app source of
+  `33ede47df2ab9b8abefa9d947170026ad84a8c4f`. Result: partial: the attachment and refusal
+  checks passed, and **Drafts** in Outlook on the web was not checked (see the
+  limitations). A fresh Google Product Sign-In with the Recovery Key, then **Microsoft 365
+  and Outlook**, connected the personal mailbox with every address, password and the
+  Recovery Key entered through the
+  [Simulator pasteboard](imap-mailboxes.md#certification-runs-through-the-app). A new
+  message to the mailbox's own address with one 10,000,000-byte file from **Attach File**
+  was still in the **Outbox** with **Undo** 11 seconds after **Send**; the app then saved
+  the Outlook draft, the file went up through an upload session in three ranges, the last
+  answered 201, and the send was answered 202 17 seconds after **Send**. The message
+  appeared once in **Sent Items** and arrived once in the Inbox. In the reader beside the
+  list, **Download** saved the file under its own name with 10,000,000 bytes and the
+  original's SHA-256 prefix, and after a relaunch it was still listed with **Download**. A
+  second message with two 24,000,000-byte files uploaded both through upload sessions;
+  Microsoft answered the send with status 400, the app's next request was answered 204,
+  and the Outbox showed **Not sent. Microsoft refused this message.** with **Edit**, never
+  **Delivery unknown**. Twelve minutes later neither **Sent Items** nor the Inbox listed
+  it, and **Edit** returned it to the composer with its recipient, subject, text and both
+  files. **Sign Out of This Device** returned the app to Welcome. Nothing read the screen
+  while a password or the Recovery Key was in a field. The one screenshot the operator took
+  after a password had been copied showed Microsoft's empty password page with no software
+  keyboard, after a probe value had replaced the password on the pasteboard; the device
+  driver took none of its own. With the Simulator deleted,
+  `simulator-credentials.zsh scan`, run on each path, found no password or Recovery Key in
+  `~/.agent-device`, `~/Library/Logs`, T3 Code's device directory, the shell history, the
+  temporary directory, the scratch files or this run's session transcripts; this run's
+  DerivedData, built before any credential was entered, was deleted unscanned. Limitations:
+  Microsoft's one-time sign-in code was typed, one digit per field, as it expires within
+  minutes. Outlook on the web in the Simulator's Safari did not accept a paste from the
+  Simulator pasteboard into Microsoft's sign-in page, so the driver typed the mailbox
+  address there; Microsoft then answered **We couldn't send the code** twice, and the
+  agent stopped. So **Drafts** was not checked after either message: that the 204 answer
+  deleted the refused message's Outlook draft is inferred, not observed, and the check stays
+  on #637. The body of the 400 answer was not recorded, so the run shows that Microsoft
+  refused the message, not why. Mac, renewal and revocation, and uncertain outcomes were not
+  run and stay on #637.
