@@ -6,6 +6,8 @@ import { spacing } from '@private-email/mail-core/theme';
 import { use, useLayoutEffect, useRef, useState } from 'react';
 import { StyleSheet, Switch, View } from 'react-native';
 
+import type { DomainSender } from './settings-window-client.ts';
+
 import { BlockedSendersContext } from './blocked-senders.tsx';
 import { useContactAddresses } from './contacts.ts';
 import { Button, SFSymbol } from './design.tsx';
@@ -29,16 +31,6 @@ const styles = StyleSheet.create({
     paddingTop: 6,
   },
 });
-
-// The sender Block Domain… offers to block and the Mail Profile of the window it opens on.
-export type DomainSender = Readonly<{
-  // The sender's name as the message shows it, empty when it has none.
-  sender: string;
-  address: string;
-  // The address's exact domain, as `offeredDomain` gives it.
-  domain: string;
-  profile: string;
-}>;
 
 // The Block Domain sheet's content, in its own React root: the domain with its subdomains or
 // alone, the rule that choice makes, Contacts at this domain as an exemption when the person has

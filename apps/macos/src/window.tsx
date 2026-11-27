@@ -27,9 +27,9 @@ import {
   View,
 } from 'react-native';
 
-import type { DomainSender } from './block-domain.tsx';
 import type { OpenDraft, Recovered, ReturnTo } from './composer.tsx';
 import type { Selection } from './inbox.tsx';
+import type { DomainSender } from './settings-window-client.ts';
 import type { MailboxView } from './sidebar.tsx';
 
 import { BlockDomainSheet } from './block-domain.tsx';

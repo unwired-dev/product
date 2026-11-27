@@ -3738,6 +3738,67 @@ final class WindowTests: XCTestCase {
     attach(settings, "Settings › Blocked Senders empty")
   }
 
+  // #2817: the reader's sender menu blocks the sender's exact domain from its sheet, and Settings ›
+  // Blocked Senders lists it under Domains until − unblocks it, in each appearance.
+  func testBlockDomain() throws {
+    try blockDomain(appearance: "Light")
+  }
+
+  func testBlockDomainDark() throws {
+    try blockDomain(appearance: "Dark")
+  }
+
+  private func blockDomain(appearance: String) throws {
+    continueAfterFailure = false
+    let environment = ProcessInfo.processInfo.environment
+    XCTAssertEqual(environment["UNWIRED_TEST_SCENARIO"], "registration-performance")
+    let app = XCUIApplication(url: URL(fileURLWithPath: try XCTUnwrap(environment["UNWIRED_APP_PATH"])))
+    app.launchArguments += [
+      "-ApplePersistenceIgnoreState", "YES", "-interfaceLanguage", "en",
+      "-UnwiredAppearance", appearance.lowercased(),
+    ]
+    app.launch()
+    addTeardownBlock { if app.state != .notRunning { app.terminate() } }
+    let window = app.windows["Inbox 1"]
+    performanceSetup(app, window: window)
+    let settings = app.windows["settings-window"]
+    let domain = "example.invalid"
+    func attach(_ element: XCUIElement, _ name: String) {
+      let attachment = XCTAttachment(screenshot: element.screenshot())
+      attachment.name = "\(name) (\(appearance))"
+      attachment.lifetime = .keepAlways
+      add(attachment)
+    }
+
+    window.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Gmail update 001")).firstMatch
+      .click()
+    // The sender's label repeats on its inner text, so it is clicked by position.
+    let sender = window.staticTexts["Sender 001, sender001@\(domain)"].firstMatch
+    XCTAssertTrue(sender.waitForExistence(timeout: 15))
+    sender.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).rightClick()
+    XCTAssertTrue(app.menuItems["Block Domain…"].waitForExistence(timeout: 5))
+    app.menuItems["Block Domain…"].click()
+    let sheet = window.sheets.firstMatch
+    XCTAssertTrue(sheet.waitForExistence(timeout: 10))
+    let block = sheet.buttons["Block \(domain)"]
+    XCTAssertTrue(block.waitForExistence(timeout: 10))
+    attach(window, "Block Domain sheet")
+    block.click()
+    XCTAssertTrue(sheet.waitForNonExistence(timeout: 10))
+
+    app.typeKey(",", modifierFlags: .command)
+    XCTAssertTrue(settings.waitForExistence(timeout: 15))
+    settings.buttons["Blocked Senders"].click()
+    let row = settings.buttons[domain]
+    XCTAssertTrue(row.waitForExistence(timeout: 15))
+    XCTAssertTrue(text("With subdomains", in: settings).exists)
+    row.click()
+    attach(settings, "Settings › Blocked Senders with a domain")
+    settings.buttons["Unblock"].click()
+    XCTAssertTrue(row.waitForNonExistence(timeout: 10))
+    XCTAssertTrue(text("No Blocked Senders.", in: settings).waitForExistence(timeout: 10))
+  }
+
   // #2280: the reader's Pin pins the message's Thread, and its row shows the pinned marker until
   // Unpin.
   func testPinThread() throws {

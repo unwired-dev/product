@@ -430,6 +430,15 @@ Blocked Senders then lists the address as `0 since`, and selecting it and choosi
 − leaves **No Blocked Senders**. The sheet and both Settings states are kept as
 attachments. It sets Light; `testBlockSenderDark` runs it in Dark.
 
+`testBlockDomain` uses the same build and sign-in
+([#2817](https://github.com/unwired-dev/product/issues/2817)). From the same
+sender's menu it chooses **Block Domain…**; the sheet offers
+`Block example.invalid`, which blocks the domain with its subdomains. Settings ›
+Blocked Senders then lists `example.invalid` as `With subdomains`, and selecting
+it and choosing − leaves **No Blocked Senders**. The sheet and the listed
+Settings are kept as attachments. It sets Light; `testBlockDomainDark` runs it in
+Dark.
+
 `testSendNow` uses the same build and sign-in
 ([#2594](https://github.com/unwired-dev/product/issues/2594)). It writes a New
 Message to `jordan@example.invalid`, opens Send's menu with a right click and

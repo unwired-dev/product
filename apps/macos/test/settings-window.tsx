@@ -4,8 +4,8 @@ import { act, screen, within } from '@testing-library/react-native';
 import { useSyncExternalStore } from 'react';
 import { DeviceEventEmitter, TurboModuleRegistry, View } from 'react-native';
 
-import type { DomainSender } from '../src/block-domain.tsx';
 import type { InboxProvider } from '../src/mailbox.tsx';
+import type { DomainSender } from '../src/settings-window-client.ts';
 
 import {
   BlockDomainWindowRoot,
