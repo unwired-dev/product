@@ -16,7 +16,7 @@ import {
   spacing,
   typography,
 } from '@private-email/mail-core/theme';
-import { Fragment } from 'react';
+import { createContext, Fragment, use } from 'react';
 import {
   Platform,
   Pressable,
@@ -906,7 +906,7 @@ export function AccountCard({
 }
 
 // A row that runs one action: the system button, with the row as its label and its spoken name.
-// The button dims the row while it is disabled.
+// The button dims the row while it is disabled; the hairline stays outside it, at full strength.
 export function SettingsActionRow({
   label,
   disabled,
@@ -919,19 +919,24 @@ export function SettingsActionRow({
   readonly children: ReactElement;
 }) {
   return (
-    <Host matchContents={{ vertical: true }}>
-      <SwiftUIButton
-        onPress={onPress}
-        modifiers={[
-          buttonStyle('plain'),
-          inactive(disabled),
-          spokenLabel(label),
-        ]}>
-        <RNHostView matchContents={{ vertical: true }}>
-          <View accessibilityElementsHidden>{children}</View>
-        </RNHostView>
-      </SwiftUIButton>
-    </Host>
+    <View>
+      <Hairline />
+      <Host matchContents={{ vertical: true }}>
+        <SwiftUIButton
+          onPress={onPress}
+          modifiers={[
+            buttonStyle('plain'),
+            inactive(disabled),
+            spokenLabel(label),
+          ]}>
+          <RNHostView matchContents={{ vertical: true }}>
+            <RowHairline value={false}>
+              <View accessibilityElementsHidden>{children}</View>
+            </RowHairline>
+          </RNHostView>
+        </SwiftUIButton>
+      </Host>
+    </View>
   );
 }
 
@@ -993,6 +998,9 @@ export function SettingsGroup({
   );
 }
 
+// Whether a row draws its own hairline; an action row draws it outside its button.
+const RowHairline = createContext(true);
+
 // The hairline above a group cell; the group hides the first one.
 function Hairline() {
   const colors = usePalette();
@@ -1048,7 +1056,7 @@ export function SettingsRow({
         large && styles.rowStacked,
         minHeight === undefined ? null : { minHeight },
       ]}>
-      <Hairline />
+      {use(RowHairline) ? <Hairline /> : null}
       {typeof icon === 'string' ? (
         <View
           style={[
