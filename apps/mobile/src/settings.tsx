@@ -1,4 +1,5 @@
 import type { ReactElement, ReactNode } from 'react';
+import type { StyleProp, ViewStyle } from 'react-native';
 
 import {
   Host,
@@ -324,7 +325,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   pushButton: { alignSelf: 'flex-start' },
-  pushButtonWrapping: { width: '100%' },
+  // Beside a busy indicator the button shrinks to the room left.
+  pushButtonWrapping: { width: '100%', flexShrink: 1 },
+  pushButtonColumn: { gap: spacing.s },
   // The row's wrapping controls drop a child's negative top margin; a column keeps it.
   pushButtonHost: { marginVertical: -pushButtonSlop },
 });
@@ -1020,6 +1023,10 @@ function Hairline() {
   );
 }
 
+// Push buttons beside other controls keep their own width; elsewhere a push button takes its
+// column's width so a long title wraps.
+const InlinePushButtons = createContext(false);
+
 // A row: an optional SF Symbol or icon view, the title and its subtitle, then its trailing controls.
 export function SettingsRow({
   icon,
@@ -1144,7 +1151,7 @@ export function SettingsRow({
       )}
       {children === undefined ? null : (
         <View style={[styles.trailing, large && styles.trailingStacked]}>
-          {children}
+          <InlinePushButtons value={!large}>{children}</InlinePushButtons>
         </View>
       )}
     </View>
@@ -1279,6 +1286,22 @@ export function settingsButton(busy: boolean): SettingsButton {
   };
 }
 
+// Push buttons side by side; larger text stacks them.
+export function PushButtonRow({
+  style,
+  children,
+}: {
+  readonly style: StyleProp<ViewStyle>;
+  readonly children: ReactNode;
+}) {
+  const large = useLargeText();
+  return (
+    <View style={large ? styles.pushButtonColumn : style}>
+      <InlinePushButtons value={!large}>{children}</InlinePushButtons>
+    </View>
+  );
+}
+
 // A system button drawn as the frames' push button: a primary label on the quiet fill with the
 // control corners, or a destructive label without a fill, aligned with the row's text. The
 // bordered style would draw a darker capsule.
@@ -1296,8 +1319,7 @@ function PushButton({
   readonly onPress: () => void;
 }) {
   const colors = usePalette();
-  // Larger text stacks Settings rows; the button then takes the row's width so its title wraps.
-  const large = useLargeText();
+  const wrapping = !use(InlinePushButtons);
   const shape = shapes.roundedRectangle({
     cornerRadius: settingsColumns
       ? radius.control * ipadListScale
@@ -1305,10 +1327,10 @@ function PushButton({
   });
   const side = settingsColumns ? spacing.m * ipadListScale : 14;
   return (
-    <View style={large ? styles.pushButtonWrapping : styles.pushButton}>
+    <View style={wrapping ? styles.pushButtonWrapping : styles.pushButton}>
       <Host
-        key={large ? 'wrapping' : 'ideal'}
-        matchContents={large ? { vertical: true } : true}
+        key={wrapping ? 'wrapping' : 'ideal'}
+        matchContents={wrapping ? { vertical: true } : true}
         style={styles.pushButtonHost}>
         <SwiftUIButton
           role={tone ?? 'default'}
@@ -1317,7 +1339,7 @@ function PushButton({
             buttonStyle('plain'),
             inactive(busy),
             spokenLabel(label),
-            ...(large
+            ...(wrapping
               ? [frame({ maxWidth: Infinity, alignment: 'leading' })]
               : []),
           ]}>

@@ -629,7 +629,11 @@ Two frame sizes differ from the device on purpose. Here the system wins:
   components such as Sidebar Item, Message Row, Settings Row, Category Chip and
   Sheet as 1.15× instances, whose text draws at 14.95pt, 12.65pt or 11.5pt. The
   app rounds each size to a whole point, as [Typography](#typography) lists
-  ([#2650](https://github.com/unwired-dev/product/issues/2650)).
+  ([#2650](https://github.com/unwired-dev/product/issues/2650)). Those
+  instances also set SF Pro's letter spacing to 0, where the system applies the
+  font's own tracking, so a label on the device runs a few points narrower,
+  about 5pt across Delete Unwired Account…
+  ([#3045](https://github.com/unwired-dev/product/issues/3045)).
 
 These frames show a decision the app has not built yet. The frame wins, and the
 app follows under the issue named:

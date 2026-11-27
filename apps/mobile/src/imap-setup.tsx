@@ -29,6 +29,7 @@ import { AnnouncedAlert, SFSymbol } from './design.tsx';
 import { useLocalization } from './localization.ts';
 import { ProviderList, ProviderRow } from './onboarding.tsx';
 import { registrationStyles as styles } from './registration-styles.ts';
+import { PushButtonRow } from './settings.tsx';
 import { textStyles, usePalette } from './theme.ts';
 
 const providers = [
@@ -380,7 +381,7 @@ export function ImapForm({
         review={setup}
         failure={imapFailure}
       />
-      <View style={formStyles.actions}>
+      <PushButtonRow style={formStyles.actions}>
         {button(t('imap.cancel'), async () => {
           forgetPassword();
           onCancel();
@@ -394,7 +395,7 @@ export function ImapForm({
                 onConnected?.();
               }
             })}
-      </View>
+      </PushButtonRow>
     </View>
   );
 }

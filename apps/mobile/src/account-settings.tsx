@@ -73,6 +73,7 @@ import { registrationStyles as styles } from './registration-styles.ts';
 import { native } from './registration.ts';
 import { RemoteContentSettings } from './remote-content.tsx';
 import {
+  PushButtonRow,
   settingsColumns,
   SettingsActionRow,
   SettingsBlock,
@@ -132,48 +133,50 @@ function RemoveConfirmation({
           </View>
         </View>
       )}
-      <View style={styles.inline}>
-        {removing ? (
-          <ActivityIndicator
-            size="small"
-            color={colors.textSecondary}
-          />
-        ) : null}
-        {button(
-          removing
-            ? t('mailboxes.removing')
-            : t('mailboxes.remove', { address }),
-          async () => {
-            setFailed(undefined);
-            setRemoving(true);
-            const failure = await remove();
-            setRemoving(false);
-            if (failure === undefined) {
-              onClose();
-              return;
-            }
-            const message = t(
-              failure === 'unconfirmed'
-                ? 'mailboxes.removeUnconfirmed'
-                : 'mailboxes.removeFailed',
-              failure === 'offline'
-                ? { address, context: device }
-                : { address },
-            );
-            setFailed(message);
-            AccessibilityInfo.announceForAccessibility(message);
-          },
-          // iPhone's row has room for Remove and Cancel only without the address.
-          {
-            tone: 'destructive',
-            ...(device === 'iphone' &&
-              !removing && { title: t('settings.remove') }),
-          },
-        )}
+      <PushButtonRow style={styles.inline}>
+        <View style={styles.inline}>
+          {removing ? (
+            <ActivityIndicator
+              size="small"
+              color={colors.textSecondary}
+            />
+          ) : null}
+          {button(
+            removing
+              ? t('mailboxes.removing')
+              : t('mailboxes.remove', { address }),
+            async () => {
+              setFailed(undefined);
+              setRemoving(true);
+              const failure = await remove();
+              setRemoving(false);
+              if (failure === undefined) {
+                onClose();
+                return;
+              }
+              const message = t(
+                failure === 'unconfirmed'
+                  ? 'mailboxes.removeUnconfirmed'
+                  : 'mailboxes.removeFailed',
+                failure === 'offline'
+                  ? { address, context: device }
+                  : { address },
+              );
+              setFailed(message);
+              AccessibilityInfo.announceForAccessibility(message);
+            },
+            // iPhone's row has room for Remove and Cancel only without the address.
+            {
+              tone: 'destructive',
+              ...(device === 'iphone' &&
+                !removing && { title: t('settings.remove') }),
+            },
+          )}
+        </View>
         {button(t('mailboxes.cancel'), async () => {
           onClose();
         })}
-      </View>
+      </PushButtonRow>
     </>
   );
 }
