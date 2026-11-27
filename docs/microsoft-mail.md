@@ -210,6 +210,29 @@ Online search covers every folder of each Microsoft mailbox beside Gmail's.
 Microsoft orders its results by sent time and returns up to 1,000 matches; the
 Inbox lists all returned results newest first.
 
+## Out of Office
+
+[#3050](https://github.com/unwired-dev/product/issues/3050), the first slice of
+[#1698](https://github.com/unwired-dev/product/issues/1698), reads a Microsoft
+mailbox's automatic replies, Outlook's name for Out of Office. No screen shows it yet.
+
+- **Grant.** The read needs delegated `MailboxSettings.Read` or `MailboxSettings.ReadWrite`,
+  which the sign-in does not ask for. The owner decided on 26 November 2026 that Microsoft is asked for it only
+  when the person opens the feature, and for `MailboxSettings.ReadWrite` only on an
+  explicit edit; both are later slices. A refresh keeps a settings scope that the
+  connection was granted.
+- **Read.** The open Inbox's `outOfOffice()` asks Graph for
+  `/me/mailboxSettings/automaticRepliesSetting`, the only mailbox setting native code
+  lets a Graph read reach. The answer is decoded as Graph stores it: the status
+  (`disabled`, `alwaysEnabled` or `scheduled`), the external audience, the internal and
+  external messages, and the scheduled start and end, each with the time zone Graph
+  names, in any letter case Graph uses. A field Graph leaves out stays out. Nothing is cached.
+- **Failures.** Before the Inbox opens it reads nothing. A malformed answer or a provider
+  failure answers unavailable, as a [search](#organizing-and-searching) does. A 403 answers unavailable
+  with the reason `permission` and leaves the Inbox as it is, because mail still works
+  without the settings grant; any other refused token asks for Microsoft again, as every
+  read does. An answer for an Inbox that closed meanwhile is dropped.
+
 ## Sending
 
 The composer offers Microsoft mailboxes as senders beside Gmail mailboxes and
@@ -267,8 +290,10 @@ an Outlook draft instead
   alone is over 3 MB, and keeps the Draft open.
 
 Drafts saved from MIME, upload sessions and a refused large message passed against real Graph
-on iPhone in the [2026-11-23 run](#protected-outlookcom-runs); on Mac and iPad they
-remain a release check in [#637](https://github.com/unwired-dev/product/issues/637).
+on iPhone in the [2026-11-23 run](#protected-outlookcom-runs) and on iPad in the
+2026-11-27 run, where Outlook's **Drafts** folder was not checked; on Mac, and **Drafts**
+on iPad, they remain a release check in
+[#637](https://github.com/unwired-dev/product/issues/637).
 
 ## Credentials
 
@@ -739,3 +764,85 @@ mail content.
   Again** were not run on the live mailbox; the synthetic Graph mailbox tests cover a
   lost response found again in Sent Items, and the other states share the Gmail tests.
   Mac and iPad were not run.
+- **2026-11-27, iPad attachments
+  ([#3049](https://github.com/unwired-dev/product/issues/3049)).** Target, operator and
+  toolchain as on 2026-11-25, on a new iPad Pro 11-inch (M5) Simulator on iOS 27.0.
+  Build: a new Release build from the app source of
+  `f37589913f36101ccfe8f52d81329280108d6209`. Result: partial: the attachment checks
+  passed, the Undo Send window remains unverified, and credential handling is unverified
+  (see the limitations). A fresh Google Product
+  Sign-In with the Recovery Key, then **Microsoft 365 and Outlook**, connected the
+  personal mailbox with every address, password and the Recovery Key entered through the
+  [Simulator pasteboard](imap-mailboxes.md#certification-runs-through-the-app); Microsoft
+  reused the account's earlier grant without asking for consent. A new message to the
+  mailbox's own address with a 603-byte PDF from **Attach File** and a photo from
+  **Insert Image** placed after its text showed an **Outbox** row in the sidebar for at
+  least 9 seconds after **Send**, which had gone 16 seconds after it; the message
+  appeared once in **Sent Items** and arrived in the Inbox. In the reader beside the
+  list, the photo showed in the body and the PDF was listed below it with Graph's listed
+  size, 933 bytes. **Download** saved it with its name, at 603 bytes, with the original's
+  SHA-256 prefix, and **Open** showed it in Quick Look. After a relaunch the
+  photo still showed and the PDF was listed with **Download**, as a relaunch deletes the
+  files an earlier process downloaded; it downloaded again with the same size and prefix. An
+  earlier message from the same run carried the PDF and the same photo from **Attach
+  Photo**, which adds a photo as a file: it arrived with both listed as attachments,
+  which is the documented behavior. **Sign Out of This Device** returned the app to
+  Welcome. Nothing read the screen while the **Recovery Key** field held the key, and no
+  screenshot the operator took showed the software keyboard after a pasted value. Once,
+  when the accessibility snapshot failed, the device driver saved a screenshot on its own
+  into the repository checkout while the composer's keyboard was shown, shortly after the
+  mailbox address had been pasted and about nine minutes after the last password; it was
+  deleted unopened
+  ([#3053](https://github.com/unwired-dev/product/issues/3053)). With
+  the Simulator deleted, `simulator-credentials.zsh scan`, run on each path, found no
+  password or Recovery Key in `~/.agent-device`, `~/Library/Logs`, T3 Code's device
+  directory, the shell history, the temporary directory, the repository's `artifacts`
+  directory with this run's DerivedData, the scratch files or this run's session
+  transcripts. Limitations: Microsoft's one-time sign-in code was typed, as it expires
+  within minutes; the first entry typed no digit, and the same code typed again after
+  focusing the first digit field was accepted. The **Outbox** row was seen 9 seconds
+  after **Send** and was gone 16 seconds after it, so the observations do not show that
+  the message left after the 10-second window. The scan reads text, not the driver's
+  screenshot, so it cannot show that no password or Recovery Key was captured. Mac, iPad attachments of 3 MB or more,
+  renewal and revocation, and uncertain outcomes were not run and stay on #637.
+- **2026-11-27, iPad attachments of 3 MB or more
+  ([#3059](https://github.com/unwired-dev/product/issues/3059)).** Target, operator and
+  toolchain as on 2026-11-25, on a new iPad Pro 11-inch (M5) Simulator on iOS 27.0, with
+  Xcode 27.2 on macOS 27.2.1. Build: a new Release build from the app source of
+  `33ede47df2ab9b8abefa9d947170026ad84a8c4f`. Result: partial: the attachment and refusal
+  checks passed; **Drafts** in Outlook on the web was not checked, and credential handling
+  is verified only for passwords and the Recovery Key in the paths scanned (see the
+  limitations). A fresh Google Product Sign-In with the Recovery Key, then **Microsoft 365
+  and Outlook**, connected the personal mailbox with every address, password and the
+  Recovery Key entered through the
+  [Simulator pasteboard](imap-mailboxes.md#certification-runs-through-the-app). A new
+  message to the mailbox's own address with one 10,000,000-byte file from **Attach File**
+  was still in the **Outbox** with **Undo** 11 seconds after **Send**; the app then saved
+  the Outlook draft, the file went up through an upload session in three ranges, the last
+  answered 201, and the send was answered 202 17 seconds after **Send**. The message
+  appeared once in **Sent Items** and arrived once in the Inbox. In the reader beside the
+  list, **Download** saved the file under its own name with 10,000,000 bytes and the
+  original's SHA-256 prefix, and after a relaunch it was still listed with **Download**. A
+  second message with two 24,000,000-byte files uploaded both through upload sessions;
+  Microsoft answered the send with status 400, the app's next request was answered 204,
+  and the Outbox showed **Not sent. Microsoft refused this message.** with **Edit**, never
+  **Delivery unknown**. Twelve minutes later neither **Sent Items** nor the Inbox listed
+  it, and **Edit** returned it to the composer with its recipient, subject, text and both
+  files. **Sign Out of This Device** returned the app to Welcome. Nothing read the screen
+  while a password or the Recovery Key was in a field. The one screenshot the operator took
+  after a password had been copied showed Microsoft's empty password page with no software
+  keyboard, after a probe value had replaced the password on the pasteboard; the device
+  driver took none of its own. With the Simulator deleted,
+  `simulator-credentials.zsh scan`, run on each path, found no password or Recovery Key in
+  `~/.agent-device`, `~/Library/Logs`, T3 Code's device directory, the shell history, the
+  temporary directory, the scratch files or this run's session transcripts; this run's
+  DerivedData, built before any credential was entered, was deleted unscanned. Limitations:
+  Microsoft's one-time sign-in code was typed, one digit per field, as it expires within
+  minutes. Outlook on the web in the Simulator's Safari did not accept a paste from the
+  Simulator pasteboard into Microsoft's sign-in page, so the driver typed the mailbox
+  address there; Microsoft then answered **We couldn't send the code** twice, and the
+  agent stopped. So **Drafts** was not checked after either message: that the 204 answer
+  deleted the refused message's Outlook draft is inferred, not observed, and the check stays
+  on #637. The body of the 400 answer was not recorded, so the run shows that Microsoft
+  refused the message, not why. Mac, renewal and revocation, and uncertain outcomes were not
+  run and stay on #637.

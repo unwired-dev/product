@@ -4,6 +4,7 @@ import * as Base64Url from 'effect/encoding/Base64Url';
 import * as Option from 'effect/Option';
 import * as Result from 'effect/Result';
 import * as Schema from 'effect/Schema';
+import * as SchemaTransformation from 'effect/SchemaTransformation';
 
 import type { GmailAction } from './gmail-actions.ts';
 import type { GmailPart } from './message-body.ts';
@@ -49,6 +50,9 @@ export const graphPlacement = (id: string) =>
   `${graphRoot}/me/messages/${id}?$select=id,parentFolderId,isRead,categories`;
 
 // A well-known folder's own ID, which a message's parentFolderId names.
+// The mailbox's automatic replies, Outlook's Out of Office, which `MailboxSettings.Read` reads.
+export const graphAutomaticReplies = `${graphRoot}/me/mailboxSettings/automaticRepliesSetting`;
+
 export const graphWellKnownFolder = (name: WellKnownFolder) =>
   `${graphRoot}/me/mailFolders/${name}?$select=id`;
 
@@ -351,6 +355,48 @@ const GraphPlacementSchema = Schema.Struct({
 // A message after a change, or as organizing reads it back.
 export const decodeGraphPlacement = json(GraphPlacementSchema);
 export const decodeGraphFolder = json(Schema.Struct({ id: GraphId }));
+
+// Graph's date and time in the time zone it names; nothing is converted.
+const GraphZonedTime = Schema.Struct({
+  dateTime: Schema.String.check(
+    Schema.isPattern(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,7})?$/u),
+    // A real calendar date and clock time: read as UTC, it must come back unchanged.
+    Schema.makeFilter((value) =>
+      Option.exists(
+        DateTime.make(`${value.slice(0, 19)}Z`),
+        (time) => DateTime.formatIso(time).slice(0, 19) === value.slice(0, 19),
+      ),
+    ),
+  ),
+  timeZone: Schema.String,
+});
+// One of Graph's enumeration values, in any letter case, as the documented spelling.
+const graphEnum = <const L extends readonly [string, ...string[]]>(values: L) =>
+  Schema.String.pipe(
+    Schema.decodeTo(
+      Schema.Literals(values),
+      SchemaTransformation.transform({
+        decode: (value) =>
+          (values.find(
+            (known) => known.toLowerCase() === value.toLowerCase(),
+          ) ?? value) as L[number],
+        encode: (value) => value,
+      }),
+    ),
+  );
+// Automatic replies as Graph stores them: a field Graph leaves out stays out.
+const GraphAutomaticRepliesSchema = Schema.Struct({
+  status: graphEnum(['disabled', 'alwaysEnabled', 'scheduled']),
+  externalAudience: Schema.optionalKey(
+    graphEnum(['none', 'contactsOnly', 'all']),
+  ),
+  internalReplyMessage: Schema.optionalKey(Schema.String),
+  externalReplyMessage: Schema.optionalKey(Schema.String),
+  scheduledStartDateTime: Schema.optionalKey(GraphZonedTime),
+  scheduledEndDateTime: Schema.optionalKey(GraphZonedTime),
+});
+export type GraphAutomaticReplies = typeof GraphAutomaticRepliesSchema.Type;
+export const decodeGraphAutomaticReplies = json(GraphAutomaticRepliesSchema);
 export const decodeGraphTotal = json(
   Schema.Struct({
     totalItemCount: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),

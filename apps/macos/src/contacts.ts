@@ -18,16 +18,23 @@ type ContactsModule = TurboModule & {
 
 // Every email address of the Apple Contacts this app may read, under the contact's name. With
 // `ask`, they are read the first time `reading` is true, requesting Contacts access then; without
-// it, only contacts already readable are read, each time `reading` turns true, so access granted
-// meanwhile counts. Until access is granted there are none; `failed` tells that
-// reading them failed. They stay in memory on this device, never saved or synchronized.
+// it, only contacts already readable are read, each time `reading` turns true or `attempt` changes
+// while it is, so access granted meanwhile counts. Until access is granted there are none; `failed` tells that
+// reading them failed, and `settled` that the read of this `attempt` finished. They stay in memory on this device,
+// never saved or synchronized.
 export function useContactAddresses(
   reading: boolean,
   ask = true,
-): Readonly<{ addresses: readonly ContactAddress[]; failed: boolean }> {
+  attempt = 0,
+): Readonly<{
+  addresses: readonly ContactAddress[];
+  failed: boolean;
+  settled: boolean;
+}> {
   const [read, setRead] = useState<{
     addresses: readonly ContactAddress[];
     failed: boolean;
+    attempt?: number;
   }>({ addresses: [], failed: false });
   const asked = useRef(false);
   useEffect(() => {
@@ -43,12 +50,18 @@ export function useContactAddresses(
               'UnwiredContacts',
             ).addresses(ask),
           failed: false,
+          attempt,
         });
       } catch {
         // Unreadable contacts leave recent correspondents as the only suggestions.
-        setRead({ addresses: [], failed: true });
+        setRead({ addresses: [], failed: true, attempt });
       }
     })();
-  }, [reading, ask]);
-  return read;
+  }, [reading, ask, attempt]);
+  // A new attempt is pending until its own read finishes.
+  return {
+    addresses: read.addresses,
+    failed: read.failed,
+    settled: read.attempt === attempt,
+  };
 }

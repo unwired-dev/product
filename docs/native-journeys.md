@@ -430,6 +430,15 @@ Blocked Senders then lists the address as `0 since`, and selecting it and choosi
 − leaves **No Blocked Senders**. The sheet and both Settings states are kept as
 attachments. It sets Light; `testBlockSenderDark` runs it in Dark.
 
+`testBlockDomain` uses the same build and sign-in
+([#2817](https://github.com/unwired-dev/product/issues/2817)). From the same
+sender's menu it chooses **Block Domain…**; Escape closes the sheet, and reopened it offers
+`Block example.invalid`, which blocks the domain with its subdomains. After a
+relaunch, Settings › Blocked Senders lists `example.invalid` as `With subdomains`, and selecting
+it and choosing − leaves **No Blocked Senders**. A screen capture of the open
+menu, the sheet and the listed Settings are kept as attachments. It sets Light; `testBlockDomainDark` runs it in
+Dark.
+
 `testSendNow` uses the same build and sign-in
 ([#2594](https://github.com/unwired-dev/product/issues/2594)). It writes a New
 Message to `jordan@example.invalid`, opens Send's menu with a right click and
@@ -442,8 +451,10 @@ being added is covered by Jest.
 `testSendReminderChooseDateAndTime` uses the same build and sign-in
 ([#2980](https://github.com/unwired-dev/product/issues/2980)). It writes a New
 Message's subject, opens Send's menu with a right click and chooses **Remind Me to
-Send… › Choose Date and Time…**. The popover opens above Send with the time field
-at 09:00, and Escape closes it. **Expand** moves the Draft to its own window,
+Send… › Choose Date and Time…**, after checking that the menu lists **Tomorrow
+Morning**, **Next Week**, and **This Weekend** from Sunday to Thursday
+([#3001](https://github.com/unwired-dev/product/issues/3001)). The popover opens
+above Send with the time field at 08:00, and Escape closes it. **Expand** moves the Draft to its own window,
 where the popover opens below the toolbar's Send and inside the window, and
 Return sets the reminder, which the banner shows for tomorrow. The banner's
 **Change › Choose Date and Time…**
@@ -474,15 +485,20 @@ On iPhone and iPad, the default Gmail registration journey
 ([#2166](https://github.com/unwired-dev/product/issues/2166)) long-presses the
 open message's sender, chooses **Block Sender…**, and confirms
 `Block rowan@example.invalid?` in the system alert. Settings › Blocked Senders
-then lists the address as `0 since`; **Edit** switches to **Done** and back, and
-a swipe's **Delete** leaves **No Blocked Senders**. Closing Settings returns to
+then lists the address as `0 since`. The journey then chooses **Block Domain…**
+from the same menu ([#2816](https://github.com/unwired-dev/product/issues/2816)),
+whose sheet `Block example.invalid` offers the domain with its subdomains, and
+blocks it. Settings › Blocked Senders lists the domain, **With subdomains**,
+above the address; **Edit** switches to **Done** and back, and a swipe's
+**Delete** on each leaves **No Blocked Senders**. Closing Settings returns to
 the open message on iPad; iPhone reopens it from the Inbox. iPad opens Settings
 through the Command Palette, as it does again after the relaunch
 ([#989](https://github.com/unwired-dev/product/issues/989)). The tap that
 closes an open menu goes to the link in the rendered body on iPad, and on iPhone
 to the dimmed top half above the Labels sheet
 ([#2781](https://github.com/unwired-dev/product/issues/2781)). The
-alert, the list and its edit mode are kept as attachments.
+alert, the sender menu, the Block Domain sheet, the list and its edit mode are
+kept as attachments.
 
 Back in that message, the journey chooses **Pin**
 ([#2343](https://github.com/unwired-dev/product/issues/2343)): from the
@@ -1035,7 +1051,8 @@ UNWIRED_APPEARANCE=light mise exec -- pnpm --filter @private-email/mobile test:n
 ```
 
 Before the Work Profile's new message is sent, a long press on Send opens the Send
-menu, **Remind Me to Send…** sets **Tomorrow Morning** from the iPhone sheet or with
+menu, **Remind Me to Send…** lists **Next Week**, and **This Weekend** from Sunday to Thursday,
+([#3001](https://github.com/unwired-dev/product/issues/3001)) and sets **Tomorrow Morning** from the iPhone sheet or with
 the iPad popover's **Set Reminder**, and the composer stays open with the Draft's
 banner, **Change** and **Remove Reminder**
 ([#2144](https://github.com/unwired-dev/product/issues/2144)). The choices' last

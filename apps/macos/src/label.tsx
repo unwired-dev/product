@@ -24,7 +24,7 @@ export function Label({
   readonly accessibilityRole?: 'alert' | 'header' | 'text';
   readonly accessibilityLiveRegion?: 'polite' | undefined;
   readonly style: StyleProp<TextStyle>;
-  readonly numberOfLines?: number;
+  readonly numberOfLines?: number | undefined;
 }) {
   const { alignSelf, textAlign } = StyleSheet.flatten(style);
   return (

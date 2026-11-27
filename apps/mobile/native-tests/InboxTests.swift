@@ -215,6 +215,7 @@ final class InboxTests: XCTestCase {
     rowan.tap()
     XCTAssertTrue(header("rowan@example.invalid", in: app).waitForExistence(timeout: 10))
     blockSenderJourney(app)
+    blockDomainJourney(app)
     blockedSendersJourney(app)
     pinJourney(app)
     // The opened body arrives from Gmail as text; its image is not loaded.
@@ -562,6 +563,24 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(sender.exists)
   }
 
+  // #2816: the sender's menu offers Block Domain… under Block Sender…; its sheet offers the exact
+  // domain with its subdomains, and Block stores it and closes the sheet.
+  private func blockDomainJourney(_ app: XCUIApplication) {
+    let sender = header("rowan@example.invalid", in: app)
+    sender.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).press(forDuration: 1.2)
+    let item = app.buttons["Block Domain…"]
+    XCTAssertTrue(item.waitForExistence(timeout: 10))
+    attachScreen("Sender menu with Block Domain", of: app, to: self)
+    item.tap()
+    let title = app.staticTexts["Block example.invalid"]
+    XCTAssertTrue(title.waitForExistence(timeout: 10))
+    XCTAssertTrue(text("Blocks @example.invalid and every subdomain", in: app).exists)
+    attachScreen("Block Domain sheet", of: app, to: self)
+    app.buttons["Block example.invalid"].tap()
+    XCTAssertTrue(title.waitForNonExistence(timeout: 10))
+    XCTAssertTrue(sender.exists)
+  }
+
   // #2343: Pin pins the open message's Thread from the toolbar's last group on iPad and from the
   // Reply sheet on iPhone. The row keeps its marker after a relaunch, and the reopened reader's
   // Unpin removes it.
@@ -604,8 +623,8 @@ final class InboxTests: XCTestCase {
     }
   }
 
-  // #2166: Settings › Blocked Senders lists the address; Edit switches the list's edit mode, and a
-  // swipe's Delete unblocks it, then the journey reopens the message.
+  // #2166 and #2816: Settings › Blocked Senders lists the domain, then the address; Edit switches
+  // the list's edit mode, and a swipe's Delete unblocks each, then the journey reopens the message.
   private func blockedSendersJourney(_ app: XCUIApplication) {
     openAccount(app)
     openSettings("Blocked Senders", in: app)
@@ -628,10 +647,19 @@ final class InboxTests: XCTestCase {
     add(editing)
     done.tap()
     XCTAssertTrue(app.buttons["Edit"].firstMatch.waitForExistence(timeout: 5))
-    row.swipeLeft()
-    let delete = app.buttons["Delete"].firstMatch
-    XCTAssertTrue(delete.waitForExistence(timeout: 5))
-    delete.tap()
+    // Domains come before Addresses; a swipe's Delete unblocks each.
+    let domain = app.cells.containing(NSPredicate(format: "label == %@", "example.invalid"))
+      .firstMatch
+    XCTAssertTrue(domain.exists)
+    XCTAssertTrue(text("With subdomains", in: app).exists)
+    XCTAssertLessThan(domain.frame.minY, row.frame.minY)
+    for unblocked in [domain, row] {
+      unblocked.swipeLeft()
+      let delete = app.buttons["Delete"].firstMatch
+      XCTAssertTrue(delete.waitForExistence(timeout: 5))
+      delete.tap()
+      XCTAssertTrue(unblocked.waitForNonExistence(timeout: 10))
+    }
     XCTAssertTrue(
       text("No Blocked Senders. Block one from the sender’s name in a message.", in: app)
         .waitForExistence(timeout: 15))
@@ -1677,6 +1705,11 @@ final class InboxTests: XCTestCase {
     let tomorrow = labelled("Tomorrow Morning, ")
     XCTAssertTrue(tomorrow.waitForExistence(timeout: 15))
     XCTAssertTrue(labelled("Keeps this message in Drafts").exists)
+    // #3001: the times every platform offers; This Evening depends on the clock, and This Weekend
+    // is offered from Sunday to Thursday.
+    XCTAssertTrue(labelled("Next Week, ").exists)
+    XCTAssertEqual(
+      labelled("This Weekend, ").exists, (1...5).contains(Calendar.current.component(.weekday, from: Date())))
     // #2147: the zone line names the zone in full, as the frames do, where Hermes formats it.
     // The line names the zone as it is at the selected Tomorrow Morning, 8:00.
     let zone = TimeZone.current

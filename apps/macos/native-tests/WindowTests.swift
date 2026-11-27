@@ -511,16 +511,28 @@ final class WindowTests: XCTestCase {
       }
       let item = app.menuItems["Choose Date and Time…"]
       XCTAssertTrue(item.waitForExistence(timeout: 5))
+      // #3001: the times every platform offers, each titled with its time; This Evening depends on
+      // the clock, and This Weekend is offered from Sunday to Thursday.
+      func offered(_ title: String) -> Bool {
+        app.menuItems.matching(NSPredicate(format: "label BEGINSWITH %@ OR title BEGINSWITH %@", title, title))
+          .firstMatch.exists
+      }
+      XCTAssertTrue(offered("Tomorrow Morning"), app.menuItems.debugDescription)
+      // The time trails the title and is spoken with it.
+      XCTAssertTrue(app.menuItems.matching(NSPredicate(format: "label BEGINSWITH %@", "Tomorrow Morning, ")).firstMatch.exists)
+      XCTAssertTrue(offered("Next Week"))
+      XCTAssertEqual(offered("This Weekend"), (1...5).contains(Calendar.current.component(.weekday, from: Date())))
+      if menu != nil { attach(XCUIScreen.main.screenshot(), "Reminder menu") }
       item.click()
       XCTAssertTrue(set.waitForExistence(timeout: 10))
     }
 
-    // From Send it starts tomorrow at 9:00. In the inline composer Send sits at the window's bottom,
+    // From Send it starts tomorrow at 8:00. In the inline composer Send sits at the window's bottom,
     // so the popover opens above it; Escape closes it without a reminder.
     let clocks = Calendar.current
     let today = clocks.startOfDay(for: Date())
     let tomorrow = try XCTUnwrap(
-      clocks.date(bySettingHour: 9, minute: 0, second: 0, of: clocks.date(byAdding: .day, value: 1, to: today)!))
+      clocks.date(bySettingHour: 8, minute: 0, second: 0, of: clocks.date(byAdding: .day, value: 1, to: today)!))
     // XCUITest passes the field's date only as its description, such as "2026-11-27 08:00:00 +0000".
     func shows(_ date: Date) -> Bool { String(describing: time.value ?? "").contains(date.description) }
     let inlineSend = window.buttons["Send"].firstMatch
@@ -549,7 +561,7 @@ final class WindowTests: XCTestCase {
     attach(popover.screenshot(), "Choose Date and Time popover")
     composer.typeKey(.return, modifierFlags: [])
     XCTAssertTrue(set.waitForNonExistence(timeout: 10))
-    // The banner's clock follows the host's locale; Change below checks the stored 9:00.
+    // The banner's clock follows the host's locale; Change below checks the stored 8:00.
     let banner = text("Reminder for tomorrow,", in: composer)
     XCTAssertTrue(banner.waitForExistence(timeout: 10))
 
@@ -561,8 +573,8 @@ final class WindowTests: XCTestCase {
     let passed = text("That time has passed. Choose a later time.", in: popover)
     XCTAssertFalse(passed.exists)
     app.typeKey(.leftArrow, modifierFlags: [])
-    let todayAtNine = try XCTUnwrap(clocks.date(bySettingHour: 9, minute: 0, second: 0, of: today))
-    waitUntil { shows(todayAtNine) }
+    let todayAtEight = try XCTUnwrap(clocks.date(bySettingHour: 8, minute: 0, second: 0, of: today))
+    waitUntil { shows(todayAtEight) }
     time.coordinate(withNormalizedOffset: CGVector(dx: 0.15, dy: 0.5)).click()
     for _ in 0..<24 where !passed.exists {
       app.typeKey(.downArrow, modifierFlags: [])
@@ -3736,6 +3748,88 @@ final class WindowTests: XCTestCase {
     XCTAssertTrue(row.waitForNonExistence(timeout: 10))
     XCTAssertTrue(text("No Blocked Senders.", in: settings).waitForExistence(timeout: 10))
     attach(settings, "Settings › Blocked Senders empty")
+  }
+
+  // #2817: the reader's sender menu blocks the sender's exact domain from its sheet, and Settings ›
+  // Blocked Senders lists it under Domains until − unblocks it, in each appearance.
+  func testBlockDomain() throws {
+    try blockDomain(appearance: "Light")
+  }
+
+  func testBlockDomainDark() throws {
+    try blockDomain(appearance: "Dark")
+  }
+
+  private func blockDomain(appearance: String) throws {
+    continueAfterFailure = false
+    let environment = ProcessInfo.processInfo.environment
+    XCTAssertEqual(environment["UNWIRED_TEST_SCENARIO"], "registration-performance")
+    let app = XCUIApplication(url: URL(fileURLWithPath: try XCTUnwrap(environment["UNWIRED_APP_PATH"])))
+    app.launchArguments += [
+      "-ApplePersistenceIgnoreState", "YES", "-interfaceLanguage", "en",
+      "-UnwiredAppearance", appearance.lowercased(),
+    ]
+    app.launch()
+    addTeardownBlock { if app.state != .notRunning { app.terminate() } }
+    let window = app.windows["Inbox 1"]
+    performanceSetup(app, window: window)
+    let settings = app.windows["settings-window"]
+    let domain = "example.invalid"
+    func attach(_ element: XCUIElement, _ name: String) {
+      let attachment = XCTAttachment(screenshot: element.screenshot())
+      attachment.name = "\(name) (\(appearance))"
+      attachment.lifetime = .keepAlways
+      add(attachment)
+    }
+
+    window.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Gmail update 001")).firstMatch
+      .click()
+    // The sender's label repeats on its inner text, so it is clicked by position.
+    let sender = window.staticTexts["Sender 001, sender001@\(domain)"].firstMatch
+    XCTAssertTrue(sender.waitForExistence(timeout: 15))
+    func openSheet(capturing: Bool = false) {
+      sender.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).rightClick()
+      XCTAssertTrue(app.menuItems["Block Domain…"].waitForExistence(timeout: 5))
+      if capturing {
+        // The menu is outside the window, so the screen is captured.
+        let menu = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        menu.name = "Sender menu with Block Domain… (\(appearance))"
+        menu.lifetime = .keepAlways
+        add(menu)
+      }
+      app.menuItems["Block Domain…"].click()
+    }
+    openSheet(capturing: true)
+    let sheet = window.sheets.firstMatch
+    XCTAssertTrue(sheet.waitForExistence(timeout: 10))
+    // Escape cancels, blocking nothing.
+    app.typeKey(.escape, modifierFlags: [])
+    XCTAssertTrue(sheet.waitForNonExistence(timeout: 10))
+    openSheet()
+    XCTAssertTrue(sheet.waitForExistence(timeout: 10))
+    // Block waits for the Contacts read.
+    let block = sheet.buttons["Block \(domain)"]
+    expectation(for: NSPredicate(format: "enabled == true"), evaluatedWith: block)
+    waitForExpectations(timeout: 10)
+    attach(window, "Block Domain sheet")
+    block.click()
+    XCTAssertTrue(sheet.waitForNonExistence(timeout: 10))
+
+    // The Blocked Domain is stored on this device, so Settings lists it after a relaunch.
+    app.terminate()
+    app.launch()
+    XCTAssertTrue(window.waitForExistence(timeout: 60))
+    app.typeKey(",", modifierFlags: .command)
+    XCTAssertTrue(settings.waitForExistence(timeout: 15))
+    settings.buttons["Blocked Senders"].click()
+    let row = settings.buttons[domain]
+    XCTAssertTrue(row.waitForExistence(timeout: 15))
+    XCTAssertTrue(text("With subdomains", in: settings).exists)
+    row.click()
+    attach(settings, "Settings › Blocked Senders with a domain")
+    settings.buttons["Unblock"].click()
+    XCTAssertTrue(row.waitForNonExistence(timeout: 10))
+    XCTAssertTrue(text("No Blocked Senders.", in: settings).waitForExistence(timeout: 10))
   }
 
   // #2280: the reader's Pin pins the message's Thread, and its row shows the pinned marker until

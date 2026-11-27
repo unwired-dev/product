@@ -1,5 +1,5 @@
-import type { ReactElement, ReactNode } from 'react';
-import type { StyleProp, ViewStyle } from 'react-native';
+import type { ReactElement, ReactNode, RefObject } from 'react';
+import type { ScrollViewInstance, StyleProp, ViewStyle } from 'react-native';
 
 import {
   Host,
@@ -29,7 +29,7 @@ import {
   spacing,
   typography,
 } from '@private-email/mail-core/theme';
-import { createContext, Fragment, use, useState } from 'react';
+import { createContext, Fragment, use, useRef, useState } from 'react';
 import {
   Platform,
   Pressable,
@@ -54,6 +54,11 @@ import { useLocalization } from './localization.ts';
 import { textStyles, useLargeText, usePalette } from './theme.ts';
 
 // Settings destinations this client supports; the others follow their owning issues.
+// The Settings content's scroll view, which a request scrolls to what it reveals.
+export const SettingsScroll = createContext<
+  RefObject<ScrollViewInstance | null> | undefined
+>(undefined);
+
 export type SettingsDestination =
   | 'account'
   | 'mailboxes'
@@ -239,6 +244,7 @@ const styles = StyleSheet.create({
     paddingTop: spacing.m,
     paddingHorizontal: rowInset,
   },
+  actionRowDisabled: { opacity: 0.9 },
   cells: { marginTop: -StyleSheet.hairlineWidth },
   group: {
     overflow: 'hidden',
@@ -555,13 +561,15 @@ export function SettingsWorkspace({
   const { t } = useLocalization();
   const insets = useSafeAreaInsets();
   const header = usePaletteHeader();
+  const scroll = useRef<ScrollViewInstance>(null);
   const content =
     edit === undefined ? (
       // A control beside a field, such as the signature's Bold, acts on the first tap.
       <ScrollView
+        ref={scroll}
         contentContainerStyle={styles.content}
         keyboardShouldPersistTaps="handled">
-        {children}
+        <SettingsScroll value={scroll}>{children}</SettingsScroll>
       </ScrollView>
     ) : (
       <View style={styles.page}>{children}</View>
@@ -925,7 +933,8 @@ export function AccountCard({
 const RowHairline = createContext(true);
 
 // A row that runs one action: the system button, with the row as its label and its spoken name.
-// The button dims the row while it is disabled; the hairline stays outside it, at full strength.
+// The button dims the row while it is disabled, to half strength; the frames draw a disabled row
+// at 45%, so the row adds 90%. The hairline stays outside the button, at full strength.
 export function SettingsActionRow({
   label,
   disabled,
@@ -950,7 +959,11 @@ export function SettingsActionRow({
           ]}>
           <RNHostView matchContents={{ vertical: true }}>
             <RowHairline value={false}>
-              <View accessibilityElementsHidden>{children}</View>
+              <View
+                accessibilityElementsHidden
+                style={disabled && styles.actionRowDisabled}>
+                {children}
+              </View>
             </RowHairline>
           </RNHostView>
         </SwiftUIButton>

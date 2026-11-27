@@ -85,6 +85,7 @@ Graphite neutrals with a single warm seal.
 | On Apple button   | `apple/on-button`          | Text and the Apple logo on the Apple button                          |
 | Primary text      | `text/primary`             | Mirrors macOS Labels/Primary                                         |
 | Secondary text    | `text/secondary`           | Previews, timestamps, captions, section headers                      |
+| Detail text       | `textDetail` (code only)   | iPhone and iPad Settings Row second line: 60% black or white         |
 | Content surface   | `surface/content`          | Message list and reading pane                                        |
 | Sidebar surface   | `surface/sidebar`          | Opaque stand-in for the sidebar material                             |
 | Panel surface     | `surface/panel`            | iPad floating sidebar panels, as the frames' glass reads             |
@@ -657,13 +658,7 @@ app follows under the issue named:
   time field the width its region needs. The popover sits AppKit's 14 pt below
   its anchor, where the frames draw 6 pt, and above Send in the Inbox window's
   composer, whose Send sits at the window's bottom. iPhone and iPad offer it
-  (#2979). The Mac offers
-  This Evening at 20:00 and Tomorrow Morning at 9:00, as
-  M3 draws them; iPhone and iPad offer the times their frames draw (#2136). The
-  Mac menu shows each time on the item's second line and the note
-  as a dimmed item on one line, as AppKit draws them, where M3 draws the time
-  trailing and the note wrapped in small type. Until #658 schedules
-  notifications, no device reminds the person yet.
+  (#2979).
 - **Mail Views:** the row of Mail View chips in the Inbox list waits for #2131.
 - **Reader More menu:** on iPad More lists Move to Spam after Mark as Unread
   (#2662), and the iPhone Reply sheet lists it; in Spam it reads Not Spam. The

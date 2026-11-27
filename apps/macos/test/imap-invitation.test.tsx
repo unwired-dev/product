@@ -131,12 +131,16 @@ async function device(summaries: readonly string[]) {
       await outbox.process();
     });
   };
+  // What each Settings request opened.
+  const opened: unknown[] = [];
   function Providers({ children }: { readonly children: React.ReactNode }) {
     return (
       <AccountContext
         value={{
           mailboxes: mailboxesOf(snapshot),
-          openAccount: () => undefined,
+          openAccount: (...request) => {
+            opened.push(request);
+          },
           authorizeMailbox: () => Promise.resolve(),
           refreshInbox: (load) => load(),
           account,
@@ -161,6 +165,7 @@ async function device(summaries: readonly string[]) {
     outbox,
     storage,
     deliver,
+    opened,
     Providers,
   };
 }
@@ -389,6 +394,46 @@ describe('imap invitation responses on the Mac', () => {
       expect(
         screen.getByRole('button', { name: 'View in Outbox' }),
       ).toBeOnTheScreen();
+    } finally {
+      await app.unmount();
+      mail.outbox.dispose();
+    }
+  });
+
+  it('offers Mailbox Settings when the mail server refused the sign-in', async () => {
+    expect.hasAssertions();
+    const mail = await device(['Q4 roadmap review']);
+    const [id = ''] = mail.ids;
+    const app = await render(
+      <mail.Providers>
+        <ShowOutboxContext value={() => undefined}>
+          <MessageBody
+            inbox={mail.inbox}
+            id={id}
+            connection={mara.id}
+          />
+        </ShowOutboxContext>
+      </mail.Providers>,
+    );
+    try {
+      await press('Accept');
+      // The mail server refused the password while the response waited.
+      mail.imap.smtp.failure = 'smtp-refused';
+      await mail.deliver();
+      expect(mail.imap.smtp.accepted).toStrictEqual([]);
+      expect(
+        screen.getByText('iCloud needs you to sign in again'),
+      ).toBeOnTheScreen();
+      expect(
+        screen.getByText(
+          `${mara.address} can’t send responses until you sign in. Nothing has been sent.`,
+        ),
+      ).toBeOnTheScreen();
+      for (const name of ['Accept', 'Maybe', 'Decline']) {
+        expect(screen.getByRole('button', { name })).toBeEnabled();
+      }
+      await press('Mailbox Settings…');
+      expect(mail.opened).toStrictEqual([['mailboxes', mara.id]]);
     } finally {
       await app.unmount();
       mail.outbox.dispose();

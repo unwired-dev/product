@@ -258,7 +258,7 @@ function Banner({
     update(key, (each) => ({ ...each, asking: false }));
   };
   const { outcome, sending = false } = entry;
-  const [blocking] = block.items(message.address, mailbox.id, message.id);
+  const [blocking] = block.items(message, mailbox.id, message.id);
   const shown = summary(outcome);
   const busy = sending || entry.checked !== true;
   return (

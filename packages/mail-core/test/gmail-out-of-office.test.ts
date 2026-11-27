@@ -1,6 +1,5 @@
 import { createInboxStore } from '@private-email/mail-core/inbox-store';
 import { createSyntheticGmail } from '@private-email/mail-core/testing/gmail-mailbox';
-import { createSyntheticGraph } from '@private-email/mail-core/testing/graph-mailbox';
 
 // Gmail's vacation responder, read with the existing Gmail grant (#3039).
 const vacationInbox = () => {
@@ -97,18 +96,11 @@ describe("reading a Gmail mailbox's Out of Office", () => {
     expect(inbox.getSnapshot()).toMatchObject({ sync: 'authentication' });
   });
 
-  it('reads nothing before the Inbox opens or for Microsoft mail', async () => {
+  it('reads nothing before the Inbox opens', async () => {
     expect.hasAssertions();
     const { inbox, requests } = vacationInbox();
     await expect(inbox.outOfOffice()).resolves.toBeUndefined();
     expect(requests).toHaveLength(0);
-
-    const graph = createSyntheticGraph();
-    const microsoft = createInboxStore(graph.native, {
-      provider: 'microsoft-graph',
-    });
-    await microsoft.load();
-    await expect(microsoft.outOfOffice()).resolves.toBeUndefined();
   });
 
   it('drops an answer or a refusal that arrives after the Inbox closed', async () => {

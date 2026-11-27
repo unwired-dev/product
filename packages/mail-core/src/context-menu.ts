@@ -21,6 +21,8 @@ export type MenuItem = Readonly<{
   // A second line beneath the title, and a checkmark for the chosen item.
   subtitle?: string;
   checked?: boolean;
+  // On the Mac, a value such as a time trailing the title on its line, in a right-aligned column.
+  detail?: string;
   // An action shown but unavailable now, and a spoken name fuller than its title.
   disabled?: boolean;
   accessibilityLabel?: string;
@@ -48,6 +50,7 @@ export type NativeMenuItem = Readonly<{
   destructive?: boolean | undefined;
   subtitle?: string | undefined;
   checked?: boolean | undefined;
+  detail?: string | undefined;
   disabled?: boolean | undefined;
   accessibilityLabel?: string | undefined;
   monogram?: Monogram | undefined;
@@ -66,6 +69,7 @@ export const menuState = (sections: readonly MenuSection[]) => {
         symbolColor,
         subtitle,
         checked,
+        detail,
         disabled,
         accessibilityLabel,
         monogram,
@@ -78,6 +82,7 @@ export const menuState = (sections: readonly MenuSection[]) => {
         destructive,
         subtitle,
         checked,
+        ...(detail === undefined ? {} : { detail }),
         disabled,
         accessibilityLabel,
         monogram,

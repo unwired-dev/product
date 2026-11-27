@@ -1072,12 +1072,15 @@ Profile's reminder is never replaced or removed.
 
 On the Mac ([#2123](https://github.com/unwired-dev/product/issues/2123)) a right
 click on Send opens the Send menu, whose **Remind Me to Send…** opens the
-reminder menu from Send: **This Evening** at 20:00 while that is still ahead and
-**Tomorrow Morning** at 9:00, in the Mac's time zone (`reminderTimes`). Choosing
+reminder menu from Send with the times every platform offers
+([#3001](https://github.com/unwired-dev/product/issues/3001)), in the device's time
+zone (`reminderTimes`): **This Evening** at 18:00 while that is still ahead,
+**Tomorrow Morning** at 8:00, **This Weekend** on Saturday at 9:00 from Sunday to
+Thursday, and **Next Week** on the first Monday after tomorrow at 8:00. Choosing
 one saves the Draft as Save does, keeps the composer open and stores the
 reminder for the Draft's Mail Profile; a failed save or write is reported and
 stores nothing. The composer shows a stored reminder in a banner ("Reminder for
-tomorrow, 09:00 (Prague)") with **Change** and **Remove Reminder**. Sending,
+tomorrow, 08:00 (Prague)") with **Change** and **Remove Reminder**. Sending,
 discarding or closing an empty Draft from the composer removes the reminder of
 the Draft it sent or removed, whichever window set it; a conflicting copy sent
 from a stale window leaves the original's reminder alone, and so does a stale
@@ -1094,7 +1097,7 @@ above Send in the Inbox window's composer, whose Send sits at the window's botto
 **Remind Me to Send**, AppKit's calendar, **Time** with AppKit's time field and
 stepper, the zone line ("Times in Central European Standard Time (Prague)"), then
 **Cancel** and **Set Reminder**. It starts at the stored reminder, otherwise
-tomorrow at Tomorrow Morning's 9:00, in the Mac's current time zone; a time a
+tomorrow at Tomorrow Morning's 8:00, in the Mac's current time zone; a time a
 daylight-saving change skips moves forward by the skipped hour. The calendar dims
 days before today. A time that has passed shows "That time has passed. Choose a
 later time.", which VoiceOver announces and reads as the time field's hint, and
@@ -1106,12 +1109,8 @@ journey covers it on the Mac host.
 
 On iPhone and iPad ([#2136](https://github.com/unwired-dev/product/issues/2136))
 a long press on Send opens its menu, whose **Remind Me to Send…** ("Keep it as a
-draft and remind me") offers, in the device's time zone (`mobileReminderTimes`),
-**This Evening** at 18:00 while that is still ahead, **Tomorrow Morning** at
-8:00, and **Next Week** on the first Monday after tomorrow at 8:00. iPhone also
-offers **This Weekend**, Saturday at 9:00, from Sunday to Thursday, and both end
-with **Choose Date and Time…**
-([#2979](https://github.com/unwired-dev/product/issues/2979)). It shows the
+draft and remind me") offers the same times as the Mac and ends with **Choose
+Date and Time…** ([#2979](https://github.com/unwired-dev/product/issues/2979)). It shows the
 system's calendar and time in the same sheet or popover, with Back to the times,
 starting at the Draft's reminder or else at Tomorrow Morning. Days before today
 can't be chosen; a time that has passed reads "That time has passed. Choose a

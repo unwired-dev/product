@@ -5,8 +5,13 @@ import { useSyncExternalStore } from 'react';
 import { DeviceEventEmitter, TurboModuleRegistry, View } from 'react-native';
 
 import type { InboxProvider } from '../src/mailbox.tsx';
+import type { DomainSender } from '../src/settings-window-client.ts';
 
-import { FolderChoiceWindowRoot, SettingsWindowRoot } from '../src/window.tsx';
+import {
+  BlockDomainWindowRoot,
+  FolderChoiceWindowRoot,
+  SettingsWindowRoot,
+} from '../src/window.tsx';
 
 // AppKit's Settings window beside the Inbox windows: UnwiredCommands' openSettings shows its React
 // surface, and closeSettings or its close button removes it.
@@ -27,6 +32,9 @@ const inboxes: Array<{ profile: string; draft: string }> = [];
 const sidebarToggles: string[] = [];
 // The Choose Folders… sheet AppKit shows on an Inbox window or the Settings window.
 let sheet: { window: string; connection: string; profile: string } | undefined =
+  undefined;
+// The Block Domain… sheet AppKit shows on an Inbox window.
+let blockSheet: { window: string; sender: DomainSender } | undefined =
   undefined;
 const listeners = new Set<() => void>();
 const show = (next: boolean) => {
@@ -91,10 +99,20 @@ const host = {
       show(shown);
     }
   },
+  openBlockDomain: (window: string, sender: DomainSender) => {
+    if (blockSheet === undefined) {
+      blockSheet = { window: `${window}-block-domain`, sender };
+      show(shown);
+    }
+  },
   fitSheet: () => undefined,
   closeSheet: (window: string) => {
     if (sheet?.window === window) {
       sheet = undefined;
+      show(shown);
+    }
+    if (blockSheet?.window === window) {
+      blockSheet = undefined;
       show(shown);
     }
   },
@@ -121,6 +139,7 @@ afterEach(() => {
   inboxes.length = 0;
   sidebarToggles.length = 0;
   sheet = undefined;
+  blockSheet = undefined;
 });
 
 const subscribe = (listener: () => void) => {
@@ -141,7 +160,7 @@ const noMailboxes: NonNullable<
 };
 
 // The app's windows: the given Inbox window, the Settings window while it is open, and the
-// Choose Folders… sheet over `mailboxes` while AppKit shows it.
+// Choose Folders… sheet over `mailboxes` and the Block Domain… sheet while AppKit shows them.
 export function MacWindows({
   children,
   mailboxes,
@@ -152,6 +171,7 @@ export function MacWindows({
 }) {
   const open = useSyncExternalStore(subscribe, () => shown);
   const choice = useSyncExternalStore(subscribe, () => sheet);
+  const blocking = useSyncExternalStore(subscribe, () => blockSheet);
   return (
     <>
       {children}
@@ -174,9 +194,24 @@ export function MacWindows({
           />
         </View>
       )}
+      {blocking === undefined ? null : (
+        <View testID="block-domain-sheet">
+          <BlockDomainWindowRoot
+            {...gate}
+            window={blocking.window}
+            sender={blocking.sender}
+          />
+        </View>
+      )}
     </>
   );
 }
+
+// The Block Domain… sheet and the window AppKit shows it on, or null while none is shown.
+export const blockDomainSheet = () =>
+  screen.queryByTestId('block-domain-sheet');
+export const blockDomainParent = () =>
+  blockSheet?.window.slice(0, -'-block-domain'.length);
 
 export const folderChoiceSheet = () =>
   within(screen.getByTestId('folder-choice-sheet'));

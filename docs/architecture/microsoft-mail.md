@@ -54,8 +54,10 @@ Native Graph requests validate the connection, generation and process verificati
 before renewal and after suspension. Gmail refuses Microsoft grants and vice versa.
 
 The Graph URL allowlist admits only HTTPS `graph.microsoft.com/v1.0/me` message,
-attachment, own-folder and mailbox search paths; no shared/delegated `/users` path is
-accepted. Continuations support documented `mailFolders`/`mailfolders`, slash and
+attachment, own-folder and mailbox search paths, and the one setting
+`mailboxSettings/automaticRepliesSetting`; no shared/delegated `/users` path is
+accepted. A refresh also asks for a granted `MailboxSettings.Read` or
+`MailboxSettings.ReadWrite`, so the settings read keeps its grant. Continuations support documented `mailFolders`/`mailfolders`, slash and
 quoted folder IDs. Responses use the existing ephemeral, redirect-refusing,
 bounded `GmailTransport`, and carry `Prefer: IdType="ImmutableId"` and page size 50.
 Credentials never cross the bridge; only status/body do.

@@ -9,6 +9,7 @@ import { keepGmailFresh } from './src/freshness.ts';
 import { followNotificationActions, start } from './src/registration.ts';
 import { windowHost } from './src/settings-window-client.ts';
 import {
+  BlockDomainWindowRoot,
   ComposerWindowRoot,
   FolderChoiceWindowRoot,
   InboxWindow,
@@ -21,6 +22,10 @@ AppRegistry.registerComponent('UnwiredComposer', () => ComposerWindowRoot);
 AppRegistry.registerComponent(
   'UnwiredFolderChoice',
   () => FolderChoiceWindowRoot,
+);
+AppRegistry.registerComponent(
+  'UnwiredBlockDomain',
+  () => BlockDomainWindowRoot,
 );
 // Every window's gate shows the Registration and remote content settings the host restores once
 // here.

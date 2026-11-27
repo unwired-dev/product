@@ -52,6 +52,7 @@ import {
   AppState,
   DeviceEventEmitter,
   Pressable,
+  ScrollView,
   Text,
   TurboModuleRegistry,
   View,
@@ -907,6 +908,92 @@ describe('product registration', () => {
       screen.getByText(
         "iCloud Mail requires an app-specific password, which you create in your account's security settings. Your usual password does not work.",
       ),
+    ).toBeVisible();
+  });
+
+  it("opens a named IMAP mailbox's password entry in Email Accounts (#2463)", async () => {
+    /* oxlint-disable vitest/max-expects -- One journey checks the form, its scroll and Settings navigation. */
+    /* oxlint-disable typescript/no-unsafe-type-assertion -- Untyped React Native native-method stubs. */
+    expect.hasAssertions();
+    const imap = createSyntheticImap({
+      address: 'alex@icloud.example.invalid',
+    });
+    const account = await signedIn();
+    const connection = await connectImap(account, {
+      address: 'alex@icloud.example.invalid',
+      host: 'imap.mail.me.com',
+      username: 'alex@icloud.example.invalid',
+    });
+    const store = createRegistration(account.synthetic.vault);
+    const connections = createMailboxes(
+      syntheticConnections({}, { [connection]: imap.native }),
+      store,
+    );
+    await render(
+      <MacWindows store={store}>
+        <RegistrationGate
+          store={started(store)}
+          preview={false}>
+          <InboxProvider
+            mailboxes={{
+              ...connections,
+              getSnapshot: connections.getConnections,
+            }}>
+            <Shell
+              onSelect={() => undefined}
+              selected={undefined}
+            />
+          </InboxProvider>
+        </RegistrationGate>
+      </MacWindows>,
+    );
+    const repair = {
+      name: 'Enter the Password for alex@icloud.example.invalid Again',
+    };
+    // The form sits 640 points down the Settings content; the request scrolls to it.
+    const scrolled = jest
+      .spyOn(ScrollView.prototype, 'scrollTo')
+      .mockReturnValue(undefined);
+    jest.spyOn(View.prototype as never, 'measureLayout').mockImplementation(((
+      _relative: unknown,
+      success: (...values: number[]) => void,
+    ) => {
+      success(0, 640, 320, 400);
+    }) as never);
+    const request = async () => {
+      await act(async () => {
+        openSettings(
+          'account-synthetic-product-subject',
+          'mailboxes',
+          connection,
+        );
+      });
+    };
+    // From another destination, Email Accounts opens with that mailbox's entry.
+    await openAccount();
+    await request();
+    expect(scrolled).toHaveBeenCalledWith({ y: 640 });
+    expect(
+      settingsWindow().getByRole('header', { name: 'iCloud Mail' }),
+    ).toBeVisible();
+    expect(settingsWindow().queryByRole('button', repair)).toBeNull();
+    // Once closed, another request opens it again in the open Email Accounts.
+    await act(async () => {
+      await fireEvent.press(
+        settingsWindow().getByRole('button', { name: 'Cancel' }),
+      );
+    });
+    expect(settingsWindow().getByRole('button', repair)).toBeVisible();
+    // Moving to another page and back leaves it closed.
+    for (const name of ['Language', 'Email Accounts']) {
+      await act(async () => {
+        await fireEvent.press(settingsWindow().getByRole('button', { name }));
+      });
+    }
+    expect(settingsWindow().getByRole('button', repair)).toBeVisible();
+    await request();
+    expect(
+      settingsWindow().getByRole('header', { name: 'iCloud Mail' }),
     ).toBeVisible();
   });
 
@@ -2117,6 +2204,107 @@ describe('product registration', () => {
         'No Blocked Senders. Block one from the sender’s name in a message.',
       ),
     ).resolves.toBeVisible();
+  });
+
+  it('lists the Profile’s Blocked Domains in Settings before its addresses, with their choices, and unblocks the selected one', async () => {
+    expect.hasAssertions();
+    const { synthetic, setup } = await signedIn();
+    await setup.addMailbox();
+    const store = createRegistration(synthetic.vault);
+    await store.restoreOnce();
+    // Blocked Sender storage on this device, which always accepts a write.
+    const saved = { revision: 0, document: null as string | null };
+    const blocked = createBlockedSenders(
+      {
+        openBlockedSenders: () =>
+          Promise.resolve({
+            owner: ownerOf(store.getSnapshot().snapshot),
+            ...saved,
+          }),
+        commitBlockedSenders: (owner, revision, document) => {
+          Object.assign(saved, { revision: revision + 1, document });
+          return Promise.resolve({ owner, revision: saved.revision });
+        },
+      },
+      store,
+    );
+    await blocked.block(defaultProfile, 'offers@growthleads.io');
+    await blocked.blockDomain(defaultProfile, 'mail.nw-deals.com', {
+      subdomains: true,
+      exempt: ['eva@mail.nw-deals.com'],
+    });
+    const later = jest.spyOn(Date, 'now').mockReturnValue(Date.now() + 1000);
+    await blocked.blockDomain(defaultProfile, 'xn--pple-43d.com', {
+      subdomains: false,
+      exempt: [],
+    });
+    later.mockRestore();
+    const mailboxes = gmailMailboxes(store, {
+      [alex]: { native: createSyntheticGmail({ messages: 1 }).native },
+    });
+    await render(
+      <BlockedSendersContext value={blocked}>
+        <MacWindows store={store}>
+          <CommandPaletteProvider windowId="account">
+            <RegistrationGate
+              store={started(store)}
+              preview={false}>
+              <InboxProvider mailboxes={mailboxes}>
+                <Shell
+                  onSelect={() => undefined}
+                  selected={undefined}
+                />
+              </InboxProvider>
+            </RegistrationGate>
+          </CommandPaletteProvider>
+        </MacWindows>
+      </BlockedSendersContext>,
+    );
+    await openAccount();
+    await settings('Blocked Senders');
+    const nwDeals = await settingsWindow().findByRole('button', {
+      name: 'mail.nw-deals.com',
+    });
+    // Domains come first, newest first, each with its choices or the characters it shows.
+    expect({
+      groups: settingsWindow()
+        .getAllByText(/^(?:Domains|Addresses)$/u)
+        .map((title) => title.props.children),
+      rows: settingsWindow()
+        .getAllByRole('button', { name: /\./u })
+        .map((row) => row.props.accessibilityLabel),
+      exempt: settingsWindow().getByText('With subdomains · 1 exemption').props
+        .children,
+      shown: settingsWindow().getAllByText(/^Shown as /u).length,
+    }).toStrictEqual({
+      groups: ['Domains', 'Addresses'],
+      rows: ['xn--pple-43d.com', 'mail.nw-deals.com', 'offers@growthleads.io'],
+      exempt: 'With subdomains · 1 exemption',
+      shown: 1,
+    });
+    // The Domains group's − unblocks the selected domain and leaves the address blocked.
+    const [unblockDomain, unblockAddress] = settingsWindow().getAllByRole(
+      'button',
+      { name: 'Unblock' },
+    );
+    assert.ok(unblockDomain);
+    assert.ok(unblockAddress);
+    await fireEvent.press(nwDeals);
+    expect(unblockAddress).toBeDisabled();
+    await act(async () => {
+      await fireEvent.press(unblockDomain);
+    });
+    await waitFor(() => {
+      expect(
+        settingsWindow().queryByRole('button', { name: 'mail.nw-deals.com' }),
+      ).toBeNull();
+    });
+    await expect(blocked.blockedDomains(defaultProfile)).resolves.toMatchObject(
+      [{ domain: 'xn--pple-43d.com' }],
+    );
+    await expect(blocked.blockedSenders(defaultProfile)).resolves.toMatchObject(
+      [{ address: 'offers@growthleads.io' }],
+    );
   });
 
   it('brings the open Settings window to a requested destination and opens afresh after closing', async () => {

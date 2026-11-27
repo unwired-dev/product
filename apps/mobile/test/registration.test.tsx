@@ -36,14 +36,17 @@ import {
   waitFor,
   within,
 } from '@testing-library/react-native';
-import { useContext, useMemo, useState } from 'react';
+import { useContext, useEffect, useMemo, useState } from 'react';
 import {
   AccessibilityInfo,
+  Alert,
   AppState,
   Pressable,
+  ScrollView,
   Text,
   TextInput,
   TurboModuleRegistry,
+  View,
 } from 'react-native';
 
 import type { Selection } from '../src/inbox.tsx';
@@ -59,6 +62,7 @@ import { MessageDetail } from '../src/message-detail.tsx';
 import { NotificationsContext } from '../src/notification-settings.tsx';
 import { AccountContext, RegistrationGate } from '../src/registration-gate.tsx';
 import { Mailboxes } from '../src/sidebar.tsx';
+import { appleContacts, Contact } from './contacts.ts';
 import { started } from './started.ts';
 
 // oxlint-disable-next-line vitest/prefer-import-in-mock -- Jest requires a module name, not a dynamic import.
@@ -777,6 +781,95 @@ describe('product registration', () => {
         "iCloud Mail requires an app-specific password, which you create in your account's security settings. Your usual password does not work.",
       ),
     ).toBeVisible();
+  });
+
+  it("opens a named IMAP mailbox's password entry in Email Accounts (#2463)", async () => {
+    /* oxlint-disable vitest/max-expects -- One journey checks the form, its scroll and Settings navigation. */
+    /* oxlint-disable typescript/no-unsafe-type-assertion -- Untyped React Native native-method stubs. */
+    expect.hasAssertions();
+    const imap = createSyntheticImap({
+      address: 'alex@icloud.example.invalid',
+    });
+    const { synthetic, setup } = await signedIn();
+    const connection = await connectImap(setup, {
+      address: 'alex@icloud.example.invalid',
+      host: 'imap.mail.me.com',
+      username: 'alex@icloud.example.invalid',
+    });
+    await confirmRecoveryKey(setup);
+    const store = createRegistration(synthetic.relaunch());
+    const connections = createMailboxes(
+      syntheticConnections({}, { [connection]: imap.native }),
+      store,
+    );
+    // What the invitation card's Mailbox Settings… asks for.
+    const opener: { open?: () => void } = {};
+    function MailboxSettings() {
+      const account = useContext(AccountContext);
+      useEffect(() => {
+        opener.open = () => {
+          account?.openAccount('mailboxes', undefined, { mailbox: connection });
+        };
+      });
+      return null;
+    }
+    await render(
+      <RegistrationGate
+        store={started(store)}
+        preview={false}>
+        <InboxProvider
+          mailboxes={{
+            ...connections,
+            getSnapshot: connections.getConnections,
+          }}>
+          <Shell
+            onSelect={() => undefined}
+            selected={undefined}
+          />
+          <MailboxSettings />
+        </InboxProvider>
+      </RegistrationGate>,
+    );
+    const repair = {
+      name: 'Enter the Password for alex@icloud.example.invalid Again',
+    };
+    // The form sits 640 points down the Settings content; the request scrolls to it.
+    const scrolled = jest
+      .spyOn(ScrollView.prototype, 'scrollTo')
+      .mockReturnValue(undefined);
+    jest.spyOn(View.prototype as never, 'measureLayout').mockImplementation(((
+      _relative: unknown,
+      success: (...values: number[]) => void,
+    ) => {
+      success(0, 640, 320, 400);
+    }) as never);
+    jest
+      .spyOn(ScrollView.prototype as never, 'getInnerViewRef')
+      .mockReturnValue({} as never);
+    const request = async () => {
+      await act(async () => {
+        opener.open?.();
+      });
+    };
+    await screen.findByRole('button', {
+      name: 'Inbox. In alex@icloud.example.invalid',
+    });
+    // Email Accounts opens with that mailbox's entry, scrolled to it.
+    await request();
+    expect(scrolled).toHaveBeenCalledWith({ y: 640 });
+    expect(screen.getByRole('header', { name: 'iCloud Mail' })).toBeVisible();
+    expect(screen.queryByRole('button', repair)).toBeNull();
+    // Once closed, another request opens it again in the open Email Accounts.
+    await act(async () => {
+      await fireEvent.press(screen.getByRole('button', { name: 'Cancel' }));
+    });
+    expect(screen.getByRole('button', repair)).toBeVisible();
+    // Moving to another page and back leaves it closed.
+    await backToSettings();
+    await openSettings('Email Accounts');
+    expect(screen.getByRole('button', repair)).toBeVisible();
+    await request();
+    expect(screen.getByRole('header', { name: 'iCloud Mail' })).toBeVisible();
   });
 
   it('keeps a failed folder warning on its exact sidebar row through navigation and recovery, and retires removed folders', async () => {
@@ -3705,7 +3798,7 @@ describe('product registration', () => {
       group: screen.getByText('Primary Profile').props.children,
       detail: screen.getByText(/^Blocked .+ · 0 since$/u).props.children,
       footer: screen.getByText(
-        'This iPhone moves new mail from these addresses to Trash. Unblock to get new mail in the Inbox again; mail already in Trash stays there.',
+        'Blocked mail goes to Trash on every device that can change these mailboxes. Unblock to get new mail in the Inbox again; mail already in Trash stays there.',
       ),
     }).toStrictEqual({
       group: 'Primary Profile',
@@ -3738,6 +3831,307 @@ describe('product registration', () => {
         'No Blocked Senders. Block one from the sender’s name in a message.',
       ),
     ).resolves.toBeVisible();
+  });
+  /* oxlint-enable vitest/max-expects */
+
+  /* oxlint-disable vitest/max-expects -- One journey blocks a domain, lists it and unblocks it. */
+  it('blocks the sender’s exact domain from the sender menu’s sheet, exempting contacts there, and unblocks it in Settings', async () => {
+    expect.hasAssertions();
+    const { synthetic } = await connectedAccount();
+    const store = createRegistration(synthetic.relaunch());
+    await store.restoreOnce();
+    // Blocked Sender storage on this device, which refuses the first block.
+    const saved = { revision: 0, document: null as string | null };
+    const locked = Object.assign(new Error('locked'), { code: 'locked' });
+    const commit = (owner: string, revision: number, document: string) => {
+      Object.assign(saved, { revision: revision + 1, document });
+      return Promise.resolve({ owner, revision: saved.revision });
+    };
+    const blocked = createBlockedSenders(
+      {
+        openBlockedSenders: () =>
+          Promise.resolve({
+            owner: ownerOf(store.getSnapshot().snapshot),
+            ...saved,
+          }),
+        commitBlockedSenders: jest.fn(commit).mockRejectedValueOnce(locked),
+      },
+      store,
+    );
+    // Contacts already readable: one at a subdomain of the sender's domain, one at its parent.
+    Object.assign(appleContacts, {
+      granted: true,
+      contacts: [
+        {
+          id: 'eva',
+          fullName: 'Eva',
+          emails: [
+            { id: 'work', address: 'Eva@eu.mail.example.invalid' },
+            { id: 'home', address: 'eva@example.invalid' },
+          ],
+        },
+      ],
+    });
+    const notSaved = jest.spyOn(Alert, 'alert').mockReturnValue(undefined);
+    const { requests } = appleContacts;
+    const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
+    gmail.deliver({
+      from: 'Oliver Park <oliver@mail.example.invalid>',
+      subject: 'Saturday, by the river?',
+    });
+    const mailboxes = gmailMailboxes(store, {
+      [alex]: { native: gmail.native },
+    });
+    function Reading() {
+      const [selected, setSelected] = useState<Selection>();
+      return (
+        <InboxProvider mailboxes={mailboxes}>
+          <Shell
+            onSelect={setSelected}
+            selected={selected}
+          />
+          <MessageDetail
+            id={selected?.id}
+            mailbox={selected?.mailbox}
+          />
+        </InboxProvider>
+      );
+    }
+    try {
+      await render(
+        <BlockedSendersContext value={blocked}>
+          <RegistrationGate
+            store={started(store)}
+            preview={false}>
+            <Reading />
+          </RegistrationGate>
+        </BlockedSendersContext>,
+      );
+      const press = async (name: string) => {
+        await act(async () => {
+          await fireEvent.press(await screen.findByRole('button', { name }));
+        });
+      };
+      await act(async () => {
+        await fireEvent.press(
+          await screen.findByRole('button', {
+            name: /Oliver Park\. Saturday/u,
+          }),
+        );
+      });
+      const sender = await screen.findByText('oliver@mail.example.invalid');
+      const title = 'Block mail.example.invalid';
+      const sheet = async () => {
+        await chooseFromMenu(sender, 'Block Domain…');
+        return screen.findByRole('header', { name: title });
+      };
+      await sheet();
+      const choice = (name: string) => screen.getByRole('radio', { name });
+      expect({
+        from: screen.getByText(
+          'From “Oliver Park” <oliver@mail.example.invalid>',
+        ),
+        subdomains: choice('mail.example.invalid and its subdomains').props
+          .accessibilityState.checked,
+        rule: screen.getByText(
+          'Blocks @mail.example.invalid and every subdomain',
+        ),
+        keeps: screen.getByText(
+          'Doesn’t block example.invalid, other domains or names that look alike',
+        ),
+        // Only the contact address a block of the domain would take is offered.
+        exempt: screen.getByText('eva@eu.mail.example.invalid'),
+        exempting: screen.getByLabelText('Contacts at This Domain').props.value,
+      }).toStrictEqual({
+        from: expect.anything(),
+        subdomains: true,
+        rule: expect.anything(),
+        keeps: expect.anything(),
+        exempt: expect.anything(),
+        exempting: true,
+      });
+      // The domain alone leaves out the contact at its subdomain.
+      await act(async () => {
+        await fireEvent.press(choice('mail.example.invalid only'));
+      });
+      expect({
+        rule: screen.getByText('Blocks @mail.example.invalid only'),
+        keeps: screen.getByText(
+          'Doesn’t block its subdomains, other domains or names that look alike',
+        ),
+        exemptions: screen.queryByText('Contacts at This Domain'),
+      }).toStrictEqual({
+        rule: expect.anything(),
+        keeps: expect.anything(),
+        exemptions: null,
+      });
+      await press('Cancel');
+      expect(screen.queryByTestId('block-domain')).toBeNull();
+      await expect(
+        blocked.blockedDomains(defaultProfile),
+      ).resolves.toStrictEqual([]);
+      // Each opening starts from the frames' choices and reads Contacts again; Block waits for that
+      // read, so the exemption is not lost. A refused write says so and keeps the sheet.
+      const read = Promise.withResolvers<typeof appleContacts.contacts>();
+      const slow = jest
+        .spyOn(Contact, 'getAllDetails')
+        .mockReturnValueOnce(read.promise);
+      await sheet();
+      expect(screen.getByRole('button', { name: title })).toBeDisabled();
+      await act(async () => {
+        read.resolve(appleContacts.contacts);
+      });
+      expect(screen.getByRole('button', { name: title })).toBeEnabled();
+      slow.mockRestore();
+      // A read that fails after Cancel, or in the same update, says nothing over the reader.
+      await press('Cancel');
+      const announce = jest.spyOn(
+        AccessibilityInfo,
+        'announceForAccessibility',
+      );
+      const late = Promise.withResolvers<typeof appleContacts.contacts>();
+      const closed = jest
+        .spyOn(Contact, 'getAllDetails')
+        .mockReturnValueOnce(late.promise);
+      await sheet();
+      await act(async () => {
+        const cancelling = fireEvent.press(
+          screen.getByRole('button', { name: 'Cancel' }),
+        );
+        late.reject(new Error('unreadable'));
+        await cancelling;
+      });
+      expect(announce).not.toHaveBeenCalled();
+      closed.mockRestore();
+      // Unreadable Contacts can exempt no one: the sheet says so for the chosen scope, and Block asks
+      // before blocking without them. Blocking anyway exempts no one; a refused write says so and
+      // keeps the sheet.
+      const unreadable = () =>
+        jest
+          .spyOn(Contact, 'getAllDetails')
+          .mockRejectedValueOnce(new Error('unreadable'));
+      const warning =
+        'Contacts couldn’t be read, so new mail from your contacts at mail.example.invalid and its subdomains would go to Trash too. To read them again, choose Block, then Try Again.';
+      const confirm = async (button: number) => {
+        await press(title);
+        await act(async () => {
+          notSaved.mock.lastCall?.[2]?.[button]?.onPress?.();
+        });
+      };
+      let failing = unreadable();
+      await sheet();
+      await expect(screen.findByText(warning)).resolves.toBeVisible();
+      expect(announce).toHaveBeenLastCalledWith(warning);
+      failing.mockRestore();
+      // Cancel is the confirmation's second button.
+      await confirm(1);
+      expect(notSaved).toHaveBeenLastCalledWith(
+        'Block mail.example.invalid without exempting contacts?',
+        'Contacts couldn’t be read, so new mail from your contacts at mail.example.invalid and its subdomains will go to Trash too.',
+        expect.anything(),
+      );
+      await act(async () => {
+        await fireEvent.press(choice('mail.example.invalid only'));
+      });
+      expect(
+        screen.getByText(
+          'Contacts couldn’t be read, so new mail from your contacts at mail.example.invalid would go to Trash too. To read them again, choose Block, then Try Again.',
+        ),
+      ).toBeVisible();
+      await confirm(2);
+      expect(notSaved).toHaveBeenCalledWith(
+        'Block mail.example.invalid without exempting contacts?',
+        'Contacts couldn’t be read, so new mail from your contacts at mail.example.invalid will go to Trash too.',
+        [
+          expect.objectContaining({ text: 'Try Again' }),
+          expect.objectContaining({ text: 'Cancel', style: 'cancel' }),
+          expect.objectContaining({ text: title, style: 'destructive' }),
+        ],
+      );
+      await waitFor(() => {
+        expect(notSaved).toHaveBeenLastCalledWith(
+          'mail.example.invalid couldn’t be blocked',
+          'The change wasn’t saved on this device. Try again.',
+        );
+      });
+      expect(screen.getByTestId('block-domain')).toBeVisible();
+      await confirm(2);
+      await waitFor(() => {
+        expect(screen.queryByTestId('block-domain')).toBeNull();
+      });
+      await expect(
+        blocked.blockedDomains(defaultProfile),
+      ).resolves.toMatchObject([
+        { domain: 'mail.example.invalid', subdomains: false, exempt: [] },
+      ]);
+      // Try Again reads Contacts again and keeps the chosen scope.
+      failing = unreadable();
+      await sheet();
+      await expect(screen.findByText(warning)).resolves.toBeVisible();
+      failing.mockRestore();
+      await act(async () => {
+        await fireEvent.press(choice('mail.example.invalid only'));
+      });
+      await confirm(0);
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: title })).toBeEnabled();
+      });
+      expect({
+        only: choice('mail.example.invalid only').props.accessibilityState
+          .checked,
+        warning: screen.queryByText(/Contacts couldn’t be read/u),
+      }).toStrictEqual({ only: true, warning: null });
+      await act(async () => {
+        await fireEvent.press(
+          choice('mail.example.invalid and its subdomains'),
+        );
+      });
+      expect(screen.getByLabelText('Contacts at This Domain')).toBeVisible();
+      await press(title);
+      await waitFor(() => {
+        expect(screen.queryByTestId('block-domain')).toBeNull();
+      });
+      await expect(
+        blocked.blockedDomains(defaultProfile),
+      ).resolves.toMatchObject([
+        {
+          domain: 'mail.example.invalid',
+          subdomains: true,
+          exempt: ['eva@eu.mail.example.invalid'],
+        },
+      ]);
+      // Blocking never asks for Contacts access, and leaves the open message in place.
+      expect(appleContacts.requests).toBe(requests);
+      expect(sender).toBeVisible();
+
+      await openAccount();
+      await openSettings('Blocked Senders');
+      const row = await screen.findByText('mail.example.invalid');
+      expect({
+        group: screen.getByText('Primary Profile').props.children,
+        domains: screen.getByText('Domains').props.children,
+        detail: screen.getByText('With subdomains · 1 exemption').props
+          .children,
+      }).toStrictEqual({
+        group: 'Primary Profile',
+        domains: 'Domains',
+        detail: 'With subdomains · 1 exemption',
+      });
+      // Unblocking moves nothing back.
+      await act(async () => {
+        await fireEvent(row, 'accessibilityAction', {
+          nativeEvent: { actionName: 'delete' },
+        });
+      });
+      await expect(
+        screen.findByText(
+          'No Blocked Senders. Block one from the sender’s name in a message.',
+        ),
+      ).resolves.toBeVisible();
+    } finally {
+      notSaved.mockRestore();
+      Object.assign(appleContacts, { granted: false, contacts: [] });
+    }
   });
   /* oxlint-enable vitest/max-expects */
 

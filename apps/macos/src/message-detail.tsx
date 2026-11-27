@@ -779,7 +779,7 @@ function MailboxMessage({
                         },
                         {
                           items: blockItems(
-                            message.address,
+                            message,
                             mailbox?.id ?? '',
                             message.id,
                           ),
