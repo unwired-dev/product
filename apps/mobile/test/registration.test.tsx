@@ -782,6 +782,8 @@ describe('product registration', () => {
   });
 
   it("opens a named IMAP mailbox's password entry in Email Accounts (#2463)", async () => {
+    /* oxlint-disable vitest/max-expects -- One journey checks the form, its scroll and Settings navigation. */
+    /* oxlint-disable typescript/no-unsafe-type-assertion -- Untyped React Native native-method stubs. */
     expect.hasAssertions();
     const imap = createSyntheticImap({
       address: 'alex@icloud.example.invalid',
