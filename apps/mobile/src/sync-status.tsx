@@ -935,7 +935,7 @@ const actionOf = (
   t: Translate,
   mailbox: InboxMailbox,
   canAuthorize: boolean,
-): Readonly<{ label: string; name?: string }> | undefined => {
+): Readonly<{ label: string; name: string }> | undefined => {
   if (!refused(mailbox.state)) {
     // A paused connection offers Try Again below its status instead.
     return failed(mailbox.state) && limitOf(mailbox.state) === undefined
@@ -1013,7 +1013,7 @@ function Connection({
         </Text>
         {action === undefined ? null : (
           <DetailsButton
-            label={action.name ?? action.label}
+            label={action.name}
             onPress={() => {
               (authorize ? onAuthorize : onTryAgain)?.();
             }}
@@ -1058,7 +1058,6 @@ function Connection({
                       waiting === undefined
                         ? colors.accentOnFill
                         : colors.textSecondary,
-                    opacity: waiting === undefined ? 1 : 0.5,
                   },
                 ]}>
                 {t('syncStatus.tryAgain')}
@@ -1076,7 +1075,8 @@ function Connection({
   );
 }
 
-// A button in the details: the system button, with its text or fill as its label.
+// A button in the details: the system button, with its text or fill as its label. While disabled,
+// the system dims the whole label to half strength.
 function DetailsButton({
   label,
   disabled = false,
