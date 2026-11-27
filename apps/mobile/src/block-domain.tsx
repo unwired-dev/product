@@ -58,7 +58,8 @@ const metric = (iphone: number, mac: number) =>
 // 48pt capsules. iPhone rows use the iOS type and are at least 52pt (56pt with a switch); iPad's
 // centred 400pt sheet uses the iPad list type. iPad draws no divider between the choices.
 const styles = StyleSheet.create({
-  sheet: { flex: 1, gap: 10, padding: 20 },
+  // Block ends 22pt above the screen's foot, as the frame draws it under the floating sheet.
+  sheet: { flex: 1, gap: 10, padding: 20, paddingBottom: 14 },
   // The fitted form sheet adds 10pt above and below its content.
   panel: { width: 400, gap: 10, paddingHorizontal: 20, paddingVertical: 10 },
   content: { gap: 10 },
@@ -126,12 +127,17 @@ function SheetButton({
   readonly onPress: () => void;
 }) {
   const colors = usePalette();
+  const appearance = useAppearance();
   return (
     <Host matchContents={{ vertical: true }}>
       <SwiftUIButton
         modifiers={[
           buttonStyle('plain'),
-          background(colors.surfaceContent, shapes.capsule()),
+          // The Dark frames draw the capsules in the quiet fill on the panel.
+          background(
+            appearance === 'dark' ? colors.fillQuiet : colors.surfaceContent,
+            shapes.capsule(),
+          ),
           inactive(disabled),
         ]}
         onPress={onPress}>
@@ -201,6 +207,7 @@ function BlockDomainForm({
   };
   const primary = { color: colors.textPrimary };
   const secondary = { color: colors.textSecondary };
+  const detail = { color: colors.textDetail };
   const quiet = { backgroundColor: colors.fillQuiet };
   const choices = [
     { value: true, label: t('blockedSenders.withSubdomains', { domain }) },
@@ -251,6 +258,8 @@ function BlockDomainForm({
               {subdomains === value ? (
                 <SFSymbol
                   name="checkmark"
+                  // iPad's mark is the list type's, about 10pt of ink.
+                  size={compact ? 16 : 11}
                   color={colors.textSecondary}
                 />
               ) : null}
@@ -270,7 +279,7 @@ function BlockDomainForm({
                   ? t('blockedSenders.ruleSubdomains', { domain })
                   : t('blockedSenders.ruleOnly', { domain })}
               </Text>
-              <Text style={[styles.detail, secondary]}>{keeps}</Text>
+              <Text style={[styles.detail, detail]}>{keeps}</Text>
             </View>
           </View>
         </View>
@@ -287,7 +296,7 @@ function BlockDomainForm({
                   <Text style={[styles.body, primary]}>
                     {t('blockedSenders.exemptContacts')}
                   </Text>
-                  <Text style={[styles.detail, secondary]}>
+                  <Text style={[styles.detail, detail]}>
                     {contacts.join(', ')}
                   </Text>
                 </View>

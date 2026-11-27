@@ -64,6 +64,8 @@ export const palette = {
     appleOnButton: '#FFFFFF',
     textPrimary: 'rgba(0, 0, 0, 0.85)',
     textSecondary: '#4F4F54',
+    // A grouped row's second line, as the iPhone and iPad Settings Row draws it.
+    textDetail: 'rgba(0, 0, 0, 0.6)',
     surfaceContent: '#FFFFFF',
     surfaceSidebar: '#F3F2F5',
     // The iPad's floating sidebar panels, as the frames' glass reads over the content surface.
@@ -142,6 +144,7 @@ export const palette = {
     appleOnButton: '#000000',
     textPrimary: 'rgba(255, 255, 255, 0.85)',
     textSecondary: '#B0B0B5',
+    textDetail: 'rgba(255, 255, 255, 0.6)',
     surfaceContent: '#1E1E1E',
     surfaceSidebar: '#2A2A2C',
     surfacePanel: '#1A1A1A',

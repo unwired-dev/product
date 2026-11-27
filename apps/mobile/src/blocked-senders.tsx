@@ -201,8 +201,8 @@ function SectionHeader({
   return (
     <VStack
       alignment="leading"
-      // The frames set the Domains or Addresses ink 45pt below the name's on iPhone, 40pt on iPad.
-      spacing={device === 'ipad' ? 17 : 22}>
+      // The frames set the Domains or Addresses ink 45pt below the name's on iPhone, 42pt on iPad.
+      spacing={device === 'ipad' ? 20 : 22}>
       {profile === undefined ? null : (
         <Text
           modifiers={[
@@ -374,7 +374,7 @@ export function BlockedSenderSettings({
                             {t('blockedSenders.unblockFailed')}
                           </Text>
                         ) : (
-                          <Text modifiers={detail(colors.textSecondary)}>
+                          <Text modifiers={detail(colors.textDetail)}>
                             {domainDetail(t, block)}
                           </Text>
                         )}
@@ -418,7 +418,7 @@ export function BlockedSenderSettings({
                               {t('blockedSenders.unblockFailed')}
                             </Text>
                           ) : (
-                            <Text modifiers={detail(colors.textSecondary)}>
+                            <Text modifiers={detail(colors.textDetail)}>
                               {moved === 0
                                 ? t('blockedSenders.blockedNone', {
                                     date: blocked,
