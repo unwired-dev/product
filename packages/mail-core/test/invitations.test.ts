@@ -798,7 +798,7 @@ describe('meeting invitations', () => {
         'UID:roadmap-42@northwind.example',
         'SEQUENCE:2',
         'DTSTAMP:20261102T095200Z',
-        // Exchange empties a reply without them (#3024).
+        // With the times, Exchange keeps the reply's calendar part (#3024).
         'DTSTART:20261106T130000Z',
         'DTEND:20261106T140000Z',
         'ORGANIZER;CN="Fischer, Lena":mailto:lena@northwind.example',

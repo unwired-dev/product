@@ -159,7 +159,7 @@ through the Gmail journey above, sent directly through the owning connection.
   Items, which Microsoft fills only after accepting the message.
 - Exchange delivers a reply that names no meeting start with an empty calendar
   part, so the organizer's calendar never learns the answer; every reply names the
-  meeting's start and end ([#3024](https://github.com/unwired-dev/product/issues/3024)).
+  meeting's start, and its end when the invitation gives one ([#3024](https://github.com/unwired-dev/product/issues/3024)).
 - The card names an Outlook.com, Hotmail, Live or MSN address's provider
   **Outlook.com** and any other Microsoft address's **Microsoft 365**, as in
   **{address} · Outlook.com** and **Outlook.com confirmed it sent your
