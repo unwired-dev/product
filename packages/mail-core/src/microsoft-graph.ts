@@ -49,6 +49,9 @@ export const graphPlacement = (id: string) =>
   `${graphRoot}/me/messages/${id}?$select=id,parentFolderId,isRead,categories`;
 
 // A well-known folder's own ID, which a message's parentFolderId names.
+// The mailbox's automatic replies, Outlook's Out of Office, which `MailboxSettings.Read` reads.
+export const graphAutomaticReplies = `${graphRoot}/me/mailboxSettings/automaticRepliesSetting`;
+
 export const graphWellKnownFolder = (name: WellKnownFolder) =>
   `${graphRoot}/me/mailFolders/${name}?$select=id`;
 
@@ -351,6 +354,25 @@ const GraphPlacementSchema = Schema.Struct({
 // A message after a change, or as organizing reads it back.
 export const decodeGraphPlacement = json(GraphPlacementSchema);
 export const decodeGraphFolder = json(Schema.Struct({ id: GraphId }));
+
+// Graph's date and time with the time zone it is in; nothing is converted.
+const GraphZonedTime = Schema.Struct({
+  dateTime: Schema.String,
+  timeZone: Schema.String,
+});
+// Automatic replies as Graph stores them: a field Graph leaves out stays out.
+export const GraphAutomaticRepliesSchema = Schema.Struct({
+  status: Schema.Literals(['disabled', 'alwaysEnabled', 'scheduled']),
+  externalAudience: Schema.optionalKey(
+    Schema.Literals(['none', 'contactsOnly', 'all']),
+  ),
+  internalReplyMessage: Schema.optionalKey(Schema.String),
+  externalReplyMessage: Schema.optionalKey(Schema.String),
+  scheduledStartDateTime: Schema.optionalKey(GraphZonedTime),
+  scheduledEndDateTime: Schema.optionalKey(GraphZonedTime),
+});
+export type GraphAutomaticReplies = typeof GraphAutomaticRepliesSchema.Type;
+export const decodeGraphAutomaticReplies = json(GraphAutomaticRepliesSchema);
 export const decodeGraphTotal = json(
   Schema.Struct({
     totalItemCount: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),

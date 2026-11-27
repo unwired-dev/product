@@ -62,6 +62,7 @@ import {
 import { calendarPart, partText } from './message-body.ts';
 import {
   decodeGraphAttachments,
+  decodeGraphAutomaticReplies,
   decodeGraphCopies,
   decodeGraphDelta,
   decodeGraphFile,
@@ -97,6 +98,7 @@ import {
   graphSearch,
   graphSentCopies,
   graphUnavailableActions,
+  graphAutomaticReplies,
   graphWellKnownFolder,
   GraphFoldersLink,
   GraphInboxLink,
@@ -1234,6 +1236,8 @@ export function createGraphReader(
       preflight: ProviderPayload,
     ) => Effect.succeed(preflight),
     invitations: true,
+    automaticReplies: (scope: MailboxScope) =>
+      graphGet(scope)(graphAutomaticReplies, decodeGraphAutomaticReplies),
     labels,
     readLabels,
     modify,

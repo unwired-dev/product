@@ -210,6 +210,29 @@ Online search covers every folder of each Microsoft mailbox beside Gmail's.
 Microsoft orders its results by sent time and returns up to 1,000 matches; the
 Inbox lists all returned results newest first.
 
+## Out of Office
+
+[#3050](https://github.com/unwired-dev/product/issues/3050), the first slice of
+[#1698](https://github.com/unwired-dev/product/issues/1698), reads a Microsoft
+mailbox's automatic replies, Outlook's name for Out of Office. No screen shows it yet.
+
+- **Grant.** The read needs delegated `MailboxSettings.Read`, which the sign-in does not
+  ask for. The owner decided on 26 November 2026 that Microsoft is asked for it only
+  when the person opens the feature, and for `MailboxSettings.ReadWrite` only on an
+  explicit edit; both are later slices. A refresh keeps a settings scope that the
+  connection was granted.
+- **Read.** The open Inbox's `outOfOffice()` asks Graph for
+  `/me/mailboxSettings/automaticRepliesSetting`, the only mailbox setting native code
+  lets a Graph read reach. The answer is decoded as Graph stores it: the status
+  (`disabled`, `alwaysEnabled` or `scheduled`), the external audience, the internal and
+  external messages, and the scheduled start and end, each with the time zone Graph
+  names. A field Graph leaves out stays out. Nothing is cached.
+- **Failures.** A malformed answer, no connection or a provider failure answers
+  unavailable, as a [search](#organizing-and-searching) does. A 403 answers unavailable
+  with the reason `permission` and leaves the Inbox as it is, because mail still works
+  without the settings grant; any other refused token asks for Microsoft again, as every
+  read does. An answer for an Inbox that closed meanwhile is dropped.
+
 ## Sending
 
 The composer offers Microsoft mailboxes as senders beside Gmail mailboxes and
