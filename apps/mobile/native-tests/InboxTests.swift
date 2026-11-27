@@ -575,8 +575,6 @@ final class InboxTests: XCTestCase {
     let title = app.staticTexts["Block example.invalid"]
     XCTAssertTrue(title.waitForExistence(timeout: 10))
     XCTAssertTrue(text("Blocks @example.invalid and every subdomain", in: app).exists)
-    // iPhone's sheet springs into place; capture it once its Block button stops moving.
-    _ = settledFrame(of: app.buttons["Block example.invalid"])
     attachScreen("Block Domain sheet", of: app, to: self)
     app.buttons["Block example.invalid"].tap()
     XCTAssertTrue(title.waitForNonExistence(timeout: 10))
