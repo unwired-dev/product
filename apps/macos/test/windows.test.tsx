@@ -3320,9 +3320,10 @@ describe('mac windows over a connected Gmail mailbox', () => {
           name: 'mail.nw-deals.com and its subdomains',
         }),
       ).toBeChecked();
+      // Many contacts stay within three lines, so Block stays in the sheet.
       await expect(
         sheet.findByText('eva@mail.nw-deals.com'),
-      ).resolves.toBeVisible();
+      ).resolves.toHaveProp('numberOfLines', 3);
       // Cancel blocks nothing.
       await fireEvent.press(sheet.getByRole('button', { name: 'Cancel' }));
       expect(blockDomainSheet()).toBeNull();

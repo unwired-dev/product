@@ -207,7 +207,9 @@ export function BlockDomainSheet({
         <SettingsGroup title={t('blockedSenders.exemptions')}>
           <SettingsRow
             title={t('blockedSenders.exemptContacts', { context: 'mac' })}
-            subtitle={contacts.join(', ')}>
+            subtitle={contacts.join(', ')}
+            // Many contacts would grow the sheet past Block; VoiceOver still reads them all.
+            subtitleLines={3}>
             <Switch
               accessibilityLabel={t('blockedSenders.exemptContacts', {
                 context: 'mac',
