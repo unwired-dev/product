@@ -95,6 +95,13 @@ describe("reading a Microsoft mailbox's automatic replies", () => {
         status: 'scheduled',
         scheduledStartDateTime: { dateTime: 'tomorrow', timeZone: 'UTC' },
       }),
+      answer({
+        status: 'scheduled',
+        scheduledEndDateTime: {
+          dateTime: '2026-02-30T10:00:00',
+          timeZone: 'UTC',
+        },
+      }),
       answer({}, 503),
       new Error('The request never left this device.'),
       answer({}, 404),
@@ -102,6 +109,7 @@ describe("reading a Microsoft mailbox's automatic replies", () => {
       answer({}, 500),
     );
     for (const reason of [
+      'offline',
       'offline',
       'offline',
       'offline',

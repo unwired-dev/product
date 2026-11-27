@@ -360,6 +360,13 @@ export const decodeGraphFolder = json(Schema.Struct({ id: GraphId }));
 const GraphZonedTime = Schema.Struct({
   dateTime: Schema.String.check(
     Schema.isPattern(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,7})?$/u),
+    // A real calendar date and clock time: read as UTC, it must come back unchanged.
+    Schema.makeFilter((value) =>
+      Option.exists(
+        DateTime.make(`${value.slice(0, 19)}Z`),
+        (time) => DateTime.formatIso(time).slice(0, 19) === value.slice(0, 19),
+      ),
+    ),
   ),
   timeZone: Schema.String,
 });

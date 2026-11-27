@@ -216,8 +216,8 @@ Inbox lists all returned results newest first.
 [#1698](https://github.com/unwired-dev/product/issues/1698), reads a Microsoft
 mailbox's automatic replies, Outlook's name for Out of Office. No screen shows it yet.
 
-- **Grant.** The read needs delegated `MailboxSettings.Read`, which the sign-in does not
-  ask for. The owner decided on 26 November 2026 that Microsoft is asked for it only
+- **Grant.** The read needs delegated `MailboxSettings.Read` or `MailboxSettings.ReadWrite`,
+  which the sign-in does not ask for. The owner decided on 26 November 2026 that Microsoft is asked for it only
   when the person opens the feature, and for `MailboxSettings.ReadWrite` only on an
   explicit edit; both are later slices. A refresh keeps a settings scope that the
   connection was granted.
