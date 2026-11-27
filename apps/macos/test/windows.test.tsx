@@ -79,6 +79,7 @@ import {
   sheetsShown,
   unwiredAlert,
 } from './native-alert.ts';
+import { appleContacts } from './native-contacts.ts';
 import {
   chooseMenuItem,
   chooseSubmenuItem,
@@ -87,6 +88,8 @@ import {
   submenuItems,
 } from './native-menu.ts';
 import {
+  blockDomainParent,
+  blockDomainSheet,
   closedWindows,
   composerWindows,
   focusedWindows,
@@ -3005,7 +3008,7 @@ describe('mac windows over a connected Gmail mailbox', () => {
       const sender = contextMenuOf(window.getByText('oliver@example.invalid'));
       expect(menuSections(sender)).toStrictEqual([
         ['Copy Address'],
-        ['Block Sender…'],
+        ['Block Sender…', 'Block Domain…'],
       ]);
       await chooseFromMenu(sender, 'Copy Address');
       expect(copy).toHaveBeenCalledWith('oliver@example.invalid');
@@ -3203,6 +3206,188 @@ describe('mac windows over a connected Gmail mailbox', () => {
       // Blocking leaves the mail already here in place.
       expect(window.getByText('Oliver@Example.invalid')).toBeVisible();
     } finally {
+      await app.unmount();
+    }
+  });
+
+  it('blocks a sender’s exact domain for the Profile from the sender menu in a sheet with its choices', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
+    gmail.deliver({
+      from: 'Northwind Deals <Offers@Mail.NW-Deals.com>',
+      subject: '48-hour flash sale',
+    });
+    gmail.deliver({
+      from: 'Key Club <eva@\u212Aey.example>',
+      subject: 'Members only',
+    });
+    const { registration } = await connectedRegistration();
+    // Blocked Sender storage on this device, which refuses the first write and accepts the rest.
+    const saved = { revision: 0, document: null as string | null };
+    const commitBlockedSenders = jest
+      .fn<
+        Promise<{ owner: string; revision: number }>,
+        [string, number, string]
+      >()
+      .mockRejectedValueOnce(
+        Object.assign(new Error('locked'), { code: 'locked' }),
+      )
+      .mockImplementation((owner, revision, document) => {
+        Object.assign(saved, { revision: revision + 1, document });
+        return Promise.resolve({ owner, revision: saved.revision });
+      });
+    const blocked = createBlockedSenders(
+      {
+        openBlockedSenders: () =>
+          Promise.resolve({
+            owner: ownerOf(registration.getSnapshot().snapshot),
+            ...saved,
+          }),
+        commitBlockedSenders,
+      },
+      registration,
+    );
+    showMailboxes(
+      createMailboxes(
+        syntheticConnections({ [alex]: { native: gmail.native } }),
+        registration,
+      ),
+    );
+    // A readable contact at the domain, and one at its parent, which the block leaves alone.
+    Object.assign(appleContacts, {
+      granted: true,
+      addresses: [
+        { sender: 'Eva', address: 'Eva@mail.nw-deals.com' },
+        { sender: 'Ivan', address: 'ivan@nw-deals.com' },
+      ],
+    });
+    const app = await render(
+      <BlockedSendersContext value={blocked}>
+        <MacWindows store={registration}>
+          <RegistrationGate
+            store={started(registration)}
+            preview={false}>
+            <InboxWindow windowId="first" />
+          </RegistrationGate>
+        </MacWindows>
+      </BlockedSendersContext>,
+    );
+    try {
+      const window = within(await app.findByTestId('inbox-window-first'));
+      // A domain that arrived as a folded lookalike is offered Block Sender… alone.
+      await fireEvent.press(
+        await window.findByRole('button', { name: /Key Club/u }),
+      );
+      const lookalike = menuSections(
+        contextMenuOf(await window.findByText('eva@\u212Aey.example')),
+      ).flat();
+      expect(lookalike).toContain('Block Sender…');
+      expect(lookalike).not.toContain('Block Domain…');
+      await fireEvent.press(
+        await window.findByRole('button', { name: /Northwind Deals/u }),
+      );
+      const sender = contextMenuOf(
+        await window.findByText('Offers@Mail.NW-Deals.com'),
+      );
+      const open = async () => {
+        await chooseFromMenu(sender, 'Block Domain…');
+        const node = await waitFor(() => {
+          const found = blockDomainSheet();
+          ok(found);
+          return found;
+        });
+        return within(node);
+      };
+      // Block Domain… sits directly under Block Sender….
+      expect(menuSections(sender).flat().slice(-2)).toStrictEqual([
+        'Block Sender…',
+        'Block Domain…',
+      ]);
+      let sheet = await open();
+      expect(blockDomainParent()).toBe('inbox-window-first');
+      expect(
+        sheet.getByRole('header', { name: 'Block mail.nw-deals.com' }),
+      ).toBeVisible();
+      for (const text of [
+        'From “Northwind Deals” <offers@mail.nw-deals.com>',
+        'Blocks @mail.nw-deals.com and every subdomain',
+        'Doesn’t block nw-deals.com, other domains or names that look alike',
+      ]) {
+        expect(sheet.getByText(text)).toBeVisible();
+      }
+      expect(
+        sheet.getByRole('radio', {
+          name: 'mail.nw-deals.com and its subdomains',
+        }),
+      ).toBeChecked();
+      await expect(
+        sheet.findByText('eva@mail.nw-deals.com'),
+      ).resolves.toBeVisible();
+      // Cancel blocks nothing.
+      await fireEvent.press(sheet.getByRole('button', { name: 'Cancel' }));
+      expect(blockDomainSheet()).toBeNull();
+      await expect(
+        blocked.blockedDomains(defaultProfile),
+      ).resolves.toStrictEqual([]);
+      sheet = await open();
+      // Each opening starts from the frames' choices; “only” and no exemption are stored as chosen.
+      await fireEvent.press(
+        sheet.getByRole('radio', { name: 'mail.nw-deals.com only' }),
+      );
+      expect(sheet.getByText('Blocks @mail.nw-deals.com only')).toBeVisible();
+      await fireEvent(
+        await sheet.findByRole('switch', { name: 'Contacts at this domain' }),
+        'valueChange',
+        false,
+      );
+      const block = sheet.getByRole('button', {
+        name: 'Block mail.nw-deals.com',
+      });
+      await waitFor(() => {
+        expect(block).toBeEnabled();
+      });
+      // A refused write says so and keeps the sheet open.
+      await act(async () => {
+        await fireEvent.press(block);
+      });
+      await expect(
+        sheet.findByText('mail.nw-deals.com couldn’t be blocked'),
+      ).resolves.toBeVisible();
+      ok(blockDomainSheet());
+      await act(async () => {
+        await fireEvent.press(block);
+      });
+      await waitFor(() => {
+        expect(blockDomainSheet()).toBeNull();
+      });
+      await expect(
+        blocked.blockedDomains(defaultProfile),
+      ).resolves.toMatchObject([
+        { domain: 'mail.nw-deals.com', subdomains: false, exempt: [] },
+      ]);
+      // With the frames' choices, the contact at the domain is exempt.
+      sheet = await open();
+      await act(async () => {
+        await fireEvent.press(
+          sheet.getByRole('button', { name: 'Block mail.nw-deals.com' }),
+        );
+      });
+      await waitFor(() => {
+        expect(blockDomainSheet()).toBeNull();
+      });
+      await expect(
+        blocked.blockedDomains(defaultProfile),
+      ).resolves.toMatchObject([
+        {
+          domain: 'mail.nw-deals.com',
+          subdomains: true,
+          exempt: ['eva@mail.nw-deals.com'],
+        },
+      ]);
+      // Blocking leaves the mail already here in place.
+      expect(window.getByText('Offers@Mail.NW-Deals.com')).toBeVisible();
+    } finally {
+      Object.assign(appleContacts, { granted: false, addresses: [] });
       await app.unmount();
     }
   });

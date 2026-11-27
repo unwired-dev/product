@@ -3,6 +3,8 @@ import type { TurboModule, processColor } from 'react-native';
 import * as Schema from 'effect/Schema';
 import { NativeEventEmitter, TurboModuleRegistry } from 'react-native';
 
+import type { DomainSender } from './block-domain.tsx';
+
 interface SettingsHost extends TurboModule {
   readonly addListener: (eventName: string) => void;
   readonly removeListeners: (count: number) => void;
@@ -39,6 +41,8 @@ interface WindowHost extends TurboModule {
     connection: string,
     profile: string,
   ) => void;
+  // Opens Block Domain… for a sender's address as a sheet on the Inbox window.
+  readonly openBlockDomain: (window: string, sender: DomainSender) => void;
   // Sizes a sheet to its content's height, and ends it.
   readonly fitSheet: (sheet: string, height: number) => void;
   readonly closeSheet: (sheet: string) => void;

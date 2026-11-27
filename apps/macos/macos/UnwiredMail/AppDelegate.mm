@@ -296,18 +296,33 @@ extern "C" void UnwiredInstallComposerFormatting(void);
 }
 
 // Choose Folders… in an Inbox window's notice, or in Settings › Email Accounts, opens an IMAP
-// connection's Spam and Trash choice as a sheet on that window, in a React root of its own. React
-// Native macOS 0.83.0's Modal is iOS-only; remove these sheet methods when React Native macOS
-// presents a Modal as a sheet.
+// connection's Spam and Trash choice as a sheet on that window.
 - (void)openFolderChoiceInWindow:(NSString *)identifier connection:(NSString *)connection profile:(NSString *)profile
+{
+  [self openSheetInWindow:identifier name:@"folder-choice" width:480 module:@"UnwiredFolderChoice"
+      properties:@{@"connection": connection, @"profile": profile}];
+}
+
+// Block Domain… in a reader's sender menu opens the domain's block sheet on that Inbox window.
+- (void)openBlockDomainInWindow:(NSString *)identifier sender:(NSDictionary *)sender
+{
+  [self openSheetInWindow:identifier name:@"block-domain" width:400 module:@"UnwiredBlockDomain"
+      properties:@{@"sender": sender}];
+}
+
+// Opens `module` as a sheet on the window, in a React root of its own whose `window` property names
+// the sheet. It shows once `fitSheet` gives it a height. React Native macOS 0.83.0's Modal is
+// iOS-only; remove these sheet methods when React Native macOS presents a Modal as a sheet.
+- (void)openSheetInWindow:(NSString *)identifier name:(NSString *)name width:(CGFloat)width module:(NSString *)module
+    properties:(NSDictionary *)properties
 {
   NSWindow *window = [self.settingsWindow.window.identifier isEqualToString:identifier] ? self.settingsWindow.window : nil;
   for (NSWindowController *controller in self.inboxWindows) {
     if ([controller.window.identifier isEqualToString:identifier]) window = controller.window;
   }
-  NSString *sheetID = [identifier stringByAppendingString:@"-folder-choice"];
+  NSString *sheetID = [NSString stringWithFormat:@"%@-%@", identifier, name];
   if (window == nil || window.attachedSheet != nil || self.sheets[sheetID] != nil) return;
-  NSWindow *sheet = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 480, 240)
+  NSWindow *sheet = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, width, 240)
       styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskFullSizeContentView
       backing:NSBackingStoreBuffered defer:NO];
   sheet.identifier = sheetID;
@@ -315,8 +330,9 @@ extern "C" void UnwiredInstallComposerFormatting(void);
   sheet.restorable = NO;
   sheet.releasedWhenClosed = NO;
   sheet.autorecalculatesKeyViewLoop = YES;
-  NSView *rootView = [self.reactFactory.rootViewFactory viewWithModuleName:@"UnwiredFolderChoice"
-      initialProperties:@{@"window": sheetID, @"connection": connection, @"profile": profile}];
+  NSMutableDictionary *initial = [properties mutableCopy];
+  initial[@"window"] = sheetID;
+  NSView *rootView = [self.reactFactory.rootViewFactory viewWithModuleName:module initialProperties:initial];
   rootView.frame = sheet.contentView.bounds;
   NSViewController *content = [NSViewController new];
   content.view = rootView;
