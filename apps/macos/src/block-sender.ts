@@ -1,19 +1,26 @@
 import type { MenuItem } from '@private-email/mail-core/context-menu';
 
-import { blockedAddress } from '@private-email/mail-core/blocked-senders';
+import {
+  blockedAddress,
+  offeredDomain,
+} from '@private-email/mail-core/blocked-senders';
 import { profileName } from '@private-email/mail-core/profile-windows';
 import { use } from 'react';
 
 import { BlockedSendersContext } from './blocked-senders.tsx';
+import { useWindowIdentifier } from './command-palette.tsx';
 import { askInSheet, useConfirmation } from './design.tsx';
 import { useLocalization } from './localization.ts';
 import { useMailboxes, useProfile } from './mailbox.tsx';
 import { AccountContext } from './registration-gate.tsx';
+import { windowHost } from './settings-window-client.ts';
 
-// Block Sender… for a sender's menu: after the person confirms, blocks the sender's exact address
-// for the window's Mail Profile. `anchor` is the view the confirmation sheet attaches to.
+// Block Sender… and Block Domain… for a sender's menu. Block Sender…, after the person confirms,
+// blocks the sender's exact address for the window's Mail Profile; Block Domain… opens the sheet
+// that blocks the address's exact domain. `anchor` is the view the confirmation sheet attaches to.
 export function useBlockSender() {
   const store = use(BlockedSendersContext);
+  const window = useWindowIdentifier();
   const account = use(AccountContext);
   const profile = useProfile();
   const mailboxes = useMailboxes();
@@ -50,14 +57,16 @@ export function useBlockSender() {
       }).answer;
     }
   };
-  // The menu item for `sender` of the open message `message` of `connection`, none unless the
-  // sender is one plain address.
+  // The menu items for `from` of the open message `message` of `connection`: none unless its
+  // address is one plain address, and Block Domain… only when its domain is one a Blocked Domain
+  // matches.
   const items = (
-    sender: string,
+    from: Readonly<{ sender: string; address: string }>,
     connection: string,
     message: string,
   ): MenuItem[] => {
-    const address = blockedAddress(sender);
+    const address = blockedAddress(from.address);
+    const domain = offeredDomain(from.address);
     return address === undefined
       ? []
       : [
@@ -67,6 +76,23 @@ export function useBlockSender() {
             symbol: 'hand.raised.slash',
             run: () => block(address, `${connection}\n${message}`),
           },
+          ...(domain === undefined
+            ? []
+            : [
+                {
+                  key: `block-domain\n${domain}`,
+                  title: t('blockedSenders.blockDomain'),
+                  symbol: 'hand.raised.slash',
+                  run: () => {
+                    windowHost()?.openBlockDomain(window, {
+                      sender: from.sender,
+                      address,
+                      domain,
+                      profile,
+                    });
+                  },
+                },
+              ]),
         ];
   };
   return { anchor, items };

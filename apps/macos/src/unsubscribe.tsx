@@ -800,9 +800,11 @@ export function UnsubscribeBanner({
   }
   const primary = { color: colors.textPrimary };
   const { sending = false } = entry;
-  const block = items(sender.address, connection, id).find(
-    (item) => 'run' in item,
-  );
+  const block = items(
+    { sender: sender.name, address: sender.address },
+    connection,
+    id,
+  ).find((item) => 'run' in item);
   const { marker, summary } = wordsOf(t, {
     offer,
     outcome,

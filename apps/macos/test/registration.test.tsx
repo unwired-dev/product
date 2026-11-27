@@ -2119,6 +2119,107 @@ describe('product registration', () => {
     ).resolves.toBeVisible();
   });
 
+  it('lists the Profile’s Blocked Domains in Settings before its addresses, with their choices, and unblocks the selected one', async () => {
+    expect.hasAssertions();
+    const { synthetic, setup } = await signedIn();
+    await setup.addMailbox();
+    const store = createRegistration(synthetic.vault);
+    await store.restoreOnce();
+    // Blocked Sender storage on this device, which always accepts a write.
+    const saved = { revision: 0, document: null as string | null };
+    const blocked = createBlockedSenders(
+      {
+        openBlockedSenders: () =>
+          Promise.resolve({
+            owner: ownerOf(store.getSnapshot().snapshot),
+            ...saved,
+          }),
+        commitBlockedSenders: (owner, revision, document) => {
+          Object.assign(saved, { revision: revision + 1, document });
+          return Promise.resolve({ owner, revision: saved.revision });
+        },
+      },
+      store,
+    );
+    await blocked.block(defaultProfile, 'offers@growthleads.io');
+    await blocked.blockDomain(defaultProfile, 'mail.nw-deals.com', {
+      subdomains: true,
+      exempt: ['eva@mail.nw-deals.com'],
+    });
+    const later = jest.spyOn(Date, 'now').mockReturnValue(Date.now() + 1000);
+    await blocked.blockDomain(defaultProfile, 'xn--pple-43d.com', {
+      subdomains: false,
+      exempt: [],
+    });
+    later.mockRestore();
+    const mailboxes = gmailMailboxes(store, {
+      [alex]: { native: createSyntheticGmail({ messages: 1 }).native },
+    });
+    await render(
+      <BlockedSendersContext value={blocked}>
+        <MacWindows store={store}>
+          <CommandPaletteProvider windowId="account">
+            <RegistrationGate
+              store={started(store)}
+              preview={false}>
+              <InboxProvider mailboxes={mailboxes}>
+                <Shell
+                  onSelect={() => undefined}
+                  selected={undefined}
+                />
+              </InboxProvider>
+            </RegistrationGate>
+          </CommandPaletteProvider>
+        </MacWindows>
+      </BlockedSendersContext>,
+    );
+    await openAccount();
+    await settings('Blocked Senders');
+    const nwDeals = await settingsWindow().findByRole('button', {
+      name: 'mail.nw-deals.com',
+    });
+    // Domains come first, newest first, each with its choices or the characters it shows.
+    expect({
+      groups: settingsWindow()
+        .getAllByText(/^(?:Domains|Addresses)$/u)
+        .map((title) => title.props.children),
+      rows: settingsWindow()
+        .getAllByRole('button', { name: /\./u })
+        .map((row) => row.props.accessibilityLabel),
+      exempt: settingsWindow().getByText('With subdomains · 1 exemption').props
+        .children,
+      shown: settingsWindow().getAllByText(/^Shown as /u).length,
+    }).toStrictEqual({
+      groups: ['Domains', 'Addresses'],
+      rows: ['xn--pple-43d.com', 'mail.nw-deals.com', 'offers@growthleads.io'],
+      exempt: 'With subdomains · 1 exemption',
+      shown: 1,
+    });
+    // The Domains group's − unblocks the selected domain and leaves the address blocked.
+    const [unblockDomain, unblockAddress] = settingsWindow().getAllByRole(
+      'button',
+      { name: 'Unblock' },
+    );
+    assert.ok(unblockDomain);
+    assert.ok(unblockAddress);
+    await fireEvent.press(nwDeals);
+    expect(unblockAddress).toBeDisabled();
+    await act(async () => {
+      await fireEvent.press(unblockDomain);
+    });
+    await waitFor(() => {
+      expect(
+        settingsWindow().queryByRole('button', { name: 'mail.nw-deals.com' }),
+      ).toBeNull();
+    });
+    await expect(blocked.blockedDomains(defaultProfile)).resolves.toMatchObject(
+      [{ domain: 'xn--pple-43d.com' }],
+    );
+    await expect(blocked.blockedSenders(defaultProfile)).resolves.toMatchObject(
+      [{ address: 'offers@growthleads.io' }],
+    );
+  });
+
   it('brings the open Settings window to a requested destination and opens afresh after closing', async () => {
     expect.hasAssertions();
     const { synthetic, setup } = await signedIn();
