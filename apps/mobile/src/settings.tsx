@@ -1275,6 +1275,15 @@ export function SettingsBlock({ children }: { readonly children: ReactNode }) {
   );
 }
 
+// Push buttons one above another in a block, their hit areas apart.
+export function PushButtonColumn({
+  children,
+}: {
+  readonly children: ReactNode;
+}) {
+  return <View style={styles.pushButtonColumn}>{children}</View>;
+}
+
 // Settings push buttons; while registration is busy they are disabled.
 export function settingsButton(busy: boolean): SettingsButton {
   return function SettingsPushButton(label, action, options) {

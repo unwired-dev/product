@@ -76,6 +76,7 @@ import {
 import { RemoteContentContext } from './remote-content.tsx';
 import {
   AccountCard,
+  PushButtonColumn,
   SettingsBlock,
   SettingsGroup,
   SettingsWorkspace,
@@ -539,12 +540,16 @@ function SettingsPage({
                   {t('registration.setupFailed')}
                 </Text>
               ) : null}
-              {actions.signIn.map(({ offer, provider, label }) => (
-                <Fragment key={`${offer}-${provider}`}>
-                  {button(label, () => store.register(provider))}
-                </Fragment>
-              ))}
-              {actions.retry ? button(t('common.retry'), store.restore) : null}
+              <PushButtonColumn>
+                {actions.signIn.map(({ offer, provider, label }) => (
+                  <Fragment key={`${offer}-${provider}`}>
+                    {button(label, () => store.register(provider))}
+                  </Fragment>
+                ))}
+                {actions.retry
+                  ? button(t('common.retry'), store.restore)
+                  : null}
+              </PushButtonColumn>
             </SettingsBlock>
           </SettingsGroup>
         ) : null}

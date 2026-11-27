@@ -73,6 +73,7 @@ import { registrationStyles as styles } from './registration-styles.ts';
 import { native } from './registration.ts';
 import { RemoteContentSettings } from './remote-content.tsx';
 import {
+  PushButtonColumn,
   PushButtonRow,
   settingsColumns,
   SettingsActionRow,
@@ -1266,14 +1267,16 @@ export function AccountActions({
           <Text style={[styles.text, { color: colors.textPrimary }]}>
             {confirmation.description}
           </Text>
-          {button(confirmation.label, confirmation.action, {
-            tone: selected === 'deletion' ? 'destructive' : undefined,
-          })}
-          {pending === undefined
-            ? button(t('accountRemoval.cancel'), async () => {
-                setConfirming(undefined);
-              })
-            : null}
+          <PushButtonColumn>
+            {button(confirmation.label, confirmation.action, {
+              tone: selected === 'deletion' ? 'destructive' : undefined,
+            })}
+            {pending === undefined
+              ? button(t('accountRemoval.cancel'), async () => {
+                  setConfirming(undefined);
+                })
+              : null}
+          </PushButtonColumn>
         </SettingsBlock>
       )}
     </SettingsGroup>
