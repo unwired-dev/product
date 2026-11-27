@@ -12,18 +12,22 @@ import {
   tint,
 } from '@expo/ui/swift-ui/modifiers';
 import { folderSummary } from '@private-email/mail-core/mailboxes';
-import { Pressable } from 'react-native';
 
 import { SFSymbol } from './design.tsx';
 import { FolderChoice } from './folder-choice.tsx';
 import { useLocalization } from './localization.ts';
 import { useAllMailboxes } from './mailbox-state.ts';
-import { settingsColumns, SettingsGroup, SettingsRow } from './settings.tsx';
+import {
+  SettingsActionRow,
+  settingsColumns,
+  SettingsGroup,
+  SettingsRow,
+} from './settings.tsx';
 import { usePalette } from './theme.ts';
 
 // Each IMAP connection whose server leaves Spam or Trash unmarked, with the folders chosen for
-// them. iPad rows end in a native push button; iPhone rows open the sheet from the whole row,
-// a Pressable around the house row until Settings rows are native list rows (#1057).
+// them. iPad rows end in a native push button; iPhone rows open the sheet from the whole row, a
+// system button with the row as its label.
 export function SpamTrashFolders({
   mailboxes,
   store,
@@ -100,17 +104,12 @@ export function SpamTrashFolders({
                   </Host>,
                 )
               ) : (
-                <Pressable
-                  accessibilityLabel={mailbox.address}
-                  accessibilityHint={label}
-                  accessibilityRole="button"
-                  accessibilityValue={{ text: summary.subtitle }}
-                  onPress={open}
-                  style={({ pressed }) =>
-                    pressed && {
-                      backgroundColor: colors.accentSelectionSubtle,
-                    }
-                  }>
+                <SettingsActionRow
+                  label={mailbox.address}
+                  value={summary.subtitle}
+                  hint={label}
+                  disabled={false}
+                  onPress={open}>
                   {row(
                     <SFSymbol
                       name="chevron.right"
@@ -118,7 +117,7 @@ export function SpamTrashFolders({
                       color={colors.textSecondary}
                     />,
                   )}
-                </Pressable>
+                </SettingsActionRow>
               )
             }
           </FolderChoice>

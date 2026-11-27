@@ -8,7 +8,9 @@ import {
   Text as SwiftUIText,
 } from '@expo/ui/swift-ui';
 import {
+  accessibilityHint,
   accessibilityLabel as spokenLabel,
+  accessibilityValue,
   background,
   buttonBorderShape,
   buttonStyle,
@@ -932,16 +934,21 @@ export function AccountCard({
 // Whether a row draws its own hairline; an action row draws it outside its button.
 const RowHairline = createContext(true);
 
-// A row that runs one action: the system button, with the row as its label and its spoken name.
-// The button dims the row while it is disabled, to half strength; the frames draw a disabled row
-// at 45%, so the row adds 90%. The hairline stays outside the button, at full strength.
+// A row that runs one action: the system button, with the row as its label and its spoken name,
+// value and hint. The button dims the row while it is disabled, to half strength; the frames draw
+// a disabled row at 45%, so the row adds 90%. The hairline stays outside the button, at full
+// strength.
 export function SettingsActionRow({
   label,
+  value,
+  hint,
   disabled,
   onPress,
   children,
 }: {
   readonly label: string;
+  readonly value?: string | undefined;
+  readonly hint?: string | undefined;
   readonly disabled: boolean;
   readonly onPress: () => void;
   readonly children: ReactElement;
@@ -956,6 +963,8 @@ export function SettingsActionRow({
             buttonStyle('plain'),
             inactive(disabled),
             spokenLabel(label),
+            ...(value === undefined ? [] : [accessibilityValue(value)]),
+            ...(hint === undefined ? [] : [accessibilityHint(hint)]),
           ]}>
           <RNHostView matchContents={{ vertical: true }}>
             <RowHairline value={false}>
