@@ -46,9 +46,13 @@ const PageMessageSchema = Schema.fromJsonString(
       // The host's replacement computed from this revision made this edit.
       replaced: Schema.optionalKey(Offset),
       // The caret's line in the page's viewport, while that line starts with `/`, for the Slash
-      // Command Menu to hang from.
+      // Command Menu to hang from, and where its `/` starts.
       caret: Schema.optionalKey(
-        Schema.Struct({ top: Schema.Finite, bottom: Schema.Finite }),
+        Schema.Struct({
+          top: Schema.Finite,
+          bottom: Schema.Finite,
+          left: Schema.Finite,
+        }),
       ),
     }),
     Schema.Struct({ type: Schema.Literal('paste') }),

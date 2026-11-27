@@ -335,6 +335,8 @@ move the highlight, Return, Tab or a click sets the caret's block as the Text
 style pop-up does and removes the slash query as one Undo step, and Escape,
 deleting the `/`, moving the caret or leaving the body closes the menu. VoiceOver
 hears **Slash commands** as it opens and each highlighted row with its marker.
+The Mac Draft editor page opens the same menu
+([#3010](https://github.com/unwired-dev/product/issues/3010)).
 
 Each block can also be centered, right-aligned or justified; a block without an
 alignment is start-aligned, and a Draft holding any other alignment is not saved

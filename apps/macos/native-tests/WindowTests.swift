@@ -192,6 +192,91 @@ final class WindowTests: XCTestCase {
     XCTAssertFalse(window.buttons["Heading 1, #"].exists)
   }
 
+  // #3010: the Draft editor page opens the same Slash Command Menu under the /'s line; typing
+  // filters it, Down and Return set the block as one page edit, one Undo restores the typed query,
+  // and Escape closes the menu, keeping the text.
+  func testDraftEditorSlashCommandMenu() throws {
+    try draftEditorSlashCommandMenu(appearance: "Light")
+  }
+
+  func testDraftEditorSlashCommandMenuDark() throws {
+    try draftEditorSlashCommandMenu(appearance: "Dark")
+  }
+
+  private func draftEditorSlashCommandMenu(appearance: String) throws {
+    continueAfterFailure = false
+    let environment = ProcessInfo.processInfo.environment
+    XCTAssertEqual(environment["UNWIRED_TEST_SCENARIO"], "registration-draft-editor")
+    let app = XCUIApplication(
+      url: URL(fileURLWithPath: try XCTUnwrap(environment["UNWIRED_APP_PATH"])))
+    app.launchArguments += [
+      "-ApplePersistenceIgnoreState", "YES", "-interfaceLanguage", "en",
+      "-UnwiredAppearance", appearance.lowercased(),
+    ]
+    app.launch()
+    addTeardownBlock { if app.state != .notRunning { app.terminate() } }
+    let window = app.windows["Inbox 1"]
+    XCTAssertTrue(window.waitForExistence(timeout: 30))
+    draftEditorSignIn(window)
+    func attach(_ name: String) {
+      let attachment = XCTAttachment(screenshot: window.screenshot())
+      attachment.name = "\(name) (\(appearance))"
+      attachment.lifetime = .keepAlways
+      add(attachment)
+    }
+    window.buttons["New Message"].click()
+    let body = window.webViews.textViews["Message body"]
+    XCTAssertTrue(body.waitForExistence(timeout: 15))
+    // The toolbar appears once the page is ready and moves the page down; focus it after that.
+    XCTAssertTrue(window.buttons["Undo"].waitForExistence(timeout: 30))
+    let style = window.popUpButtons["Text style"]
+    body.click()
+    body.typeText("Hi")
+    app.typeKey(.return, modifierFlags: [])
+    app.typeText("/")
+    let slash = webText("/", in: window)
+    XCTAssertTrue(slash.waitForExistence(timeout: 10))
+    // The menu's rows are its accessible elements, each read with its Markdown marker, and it
+    // hangs under the /'s line, starting right of the /.
+    let text = window.buttons["Text"]
+    XCTAssertTrue(text.waitForExistence(timeout: 10))
+    XCTAssertTrue(window.buttons["Code Block, ```"].exists)
+    XCTAssertGreaterThanOrEqual(text.frame.minY, slash.frame.maxY)
+    XCTAssertGreaterThan(text.frame.minX, slash.frame.minX)
+    attach("Draft editor page Slash Command Menu")
+    app.typeText("he")
+    let second = window.buttons["Heading 2, ##"]
+    XCTAssertTrue(text.waitForNonExistence(timeout: 10))
+    XCTAssertTrue(second.exists)
+    attach("Draft editor page Slash Command Menu filtered")
+    // Down then Return sets Heading 2 and removes the query, keeping focus in the body.
+    app.typeKey(.downArrow, modifierFlags: [])
+    app.typeKey(.return, modifierFlags: [])
+    XCTAssertTrue(second.waitForNonExistence(timeout: 10))
+    XCTAssertTrue(webText("/he", in: window).waitForNonExistence(timeout: 10))
+    waitUntil { (style.value as? String) == "Heading 2" }
+    app.typeText("Plan")
+    XCTAssertTrue(webText("Plan", in: window).waitForExistence(timeout: 10))
+    attach("Heading 2 from the Draft editor page Slash Command Menu")
+    // Undo takes back the typing, then restores the query as typed, as a paragraph, without
+    // opening the menu.
+    app.typeKey("z", modifierFlags: .command)
+    XCTAssertTrue(webText("Plan", in: window).waitForNonExistence(timeout: 10))
+    app.typeKey("z", modifierFlags: .command)
+    XCTAssertTrue(webText("/he", in: window).waitForExistence(timeout: 10))
+    waitUntil { (style.value as? String) == "Body" }
+    XCTAssertFalse(window.buttons["Heading 1, #"].exists)
+    // Escape closes a menu typed again, keeping its text, and typing on does not reopen it.
+    app.typeKey(.return, modifierFlags: [])
+    app.typeText("/")
+    XCTAssertTrue(text.waitForExistence(timeout: 10))
+    app.typeKey(.escape, modifierFlags: [])
+    XCTAssertTrue(text.waitForNonExistence(timeout: 10))
+    app.typeText("h")
+    XCTAssertTrue(webText("/h", in: window).waitForExistence(timeout: 10))
+    XCTAssertFalse(window.buttons["Heading 1, #"].exists)
+  }
+
   // #2597: Outdent and Indent follow the list buttons; Format › Increase Indent (Command-]) and
   // Decrease Indent (Command-[) and Tab and Shift-Tab nest the item three levels deep, Indent
   // switches off at the third, and each change is one Undo step.
