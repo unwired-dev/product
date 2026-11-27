@@ -79,6 +79,7 @@ export function useContactAddresses(
         setRead({ addresses: [], failed: false, settled: false });
       }
     };
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- Each attempt reads again.
   }, [reading, ask, attempt]);
   return read;
 }
