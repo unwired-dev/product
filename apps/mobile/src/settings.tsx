@@ -258,11 +258,7 @@ const styles = StyleSheet.create({
   rowStacked: { flexDirection: 'column', alignItems: 'stretch' },
   rowTextStacked: { flex: 0 },
   // Stacked controls keep their own height beneath the text.
-  trailingStacked: {
-    justifyContent: 'flex-start',
-    marginVertical: 0,
-    gap: pushButtonGap,
-  },
+  trailingStacked: { justifyContent: 'flex-start', marginVertical: 0 },
   // A 24pt symbol slot puts the destinations' titles on the frames' x68 axis.
   destinationIcon: { width: 24, alignItems: 'center' },
   // iPad's two-line rows are 61.3pt, as the frames draw them.
@@ -274,7 +270,9 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     justifyContent: 'flex-end',
     alignItems: 'center',
-    gap: spacing.s,
+    columnGap: spacing.s,
+    // Wrapped push buttons keep their hit areas apart.
+    rowGap: pushButtonGap,
     flexShrink: 1,
     marginVertical: settingsColumns ? -rowPadding : 0,
   },
