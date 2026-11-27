@@ -31,6 +31,7 @@ import { SFSymbol } from './design.tsx';
 import { useLocalization } from './localization.ts';
 import { errorReporting } from './registration.ts';
 import {
+  SettingsActionRow,
   SettingsGroup,
   SettingsRow,
   SettingsWorkspace,
@@ -59,6 +60,7 @@ const styles = StyleSheet.create({
 });
 
 // A pending action stays disabled and shows the system activity indicator until it settles.
+// The system button dims the row while it is disabled.
 function ReportingAction({
   label,
   onPress,
@@ -74,39 +76,28 @@ function ReportingAction({
 }) {
   const colors = usePalette();
   return (
-    <Pressable
-      accessibilityLabel={label}
-      accessibilityRole="button"
-      accessibilityState={{ disabled: disabled || pending, busy: pending }}
+    <SettingsActionRow
+      label={label}
       disabled={disabled || pending}
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.action,
-        {
-          backgroundColor: pressed
-            ? colors.accentSelectionSubtle
-            : 'transparent',
-        },
-      ]}>
-      <Text
-        style={[
-          settingsColumns ? typography.ipadList.body : textStyles.body,
-          styles.label,
-          {
-            color: pending ? colors.accentInk : colors.textPrimary,
-            opacity: disabled || pending ? 0.4 : 1,
-          },
-          destructive && { color: colors.statusDestructive },
-        ]}>
-        {label}
-      </Text>
-      {pending ? (
-        <ActivityIndicator
-          size="small"
-          color={colors.textSecondary}
-        />
-      ) : null}
-    </Pressable>
+      onPress={onPress}>
+      <View style={styles.action}>
+        <Text
+          style={[
+            settingsColumns ? typography.ipadList.body : textStyles.body,
+            styles.label,
+            { color: pending ? colors.accentInk : colors.textPrimary },
+            destructive && { color: colors.statusDestructive },
+          ]}>
+          {label}
+        </Text>
+        {pending ? (
+          <ActivityIndicator
+            size="small"
+            color={colors.textSecondary}
+          />
+        ) : null}
+      </View>
+    </SettingsActionRow>
   );
 }
 
