@@ -1,5 +1,8 @@
+import type { ReactNode } from 'react';
+
 import { spacing } from '@private-email/mail-core/theme';
 import {
+  Fragment,
   use,
   useEffect,
   useLayoutEffect,
@@ -117,13 +120,16 @@ export function SaveFailedNotice({ shown }: { readonly shown: Shown }) {
 }
 
 // The toast for a saved copy, with Show to find it in Files, and on iPad for a failure too: above
-// the iPhone reader's toolbar at `bottom`, or with the window bar's notices on iPad.
+// the iPhone reader's toolbar at `bottom`, or with the window bar's notices on iPad. `other` is
+// another reader toast, such as an Unsubscribe request's Undo Send, shown in its place otherwise.
 export function SaveOutcomeToast({
   shown,
   bottom,
+  other = null,
 }: {
   readonly shown: Shown;
   readonly bottom: number;
+  readonly other?: ReactNode;
 }) {
   const { t } = useLocalization();
   const windowBar = use(WindowBarContext);
@@ -132,11 +138,12 @@ export function SaveOutcomeToast({
   if (shown !== undefined && shown !== said) {
     setSaid(shown);
   }
-  let toast = null;
+  let toast: ReactNode = null;
   if (said?.outcome.kind === 'saved') {
     const { copy } = said.outcome;
     toast = (
       <Toast
+        key="save"
         open={shown?.open === true}
         symbol="square.and.arrow.down"
         message={
@@ -156,6 +163,7 @@ export function SaveOutcomeToast({
     const { name, retry } = said.outcome;
     toast = (
       <Toast
+        key="save"
         open={shown?.open === true}
         symbol="exclamationmark.triangle.fill"
         message={t('attachment.saveFailed', { name })}
@@ -165,6 +173,11 @@ export function SaveOutcomeToast({
         onAction={retry}
       />
     );
+  }
+  // A save that shows no toast, or one that closed, gives the place to the other toast, which is
+  // never drawn with the save toast's words.
+  if (other !== null && (toast === null || shown?.open !== true)) {
+    toast = <Fragment key="other">{other}</Fragment>;
   }
   useLayoutEffect(() => {
     windowBar?.showReaderNotice(toast);
