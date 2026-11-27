@@ -36,7 +36,7 @@ import {
   waitFor,
   within,
 } from '@testing-library/react-native';
-import { useContext, useMemo, useState } from 'react';
+import { useContext, useEffect, useMemo, useState } from 'react';
 import {
   AccessibilityInfo,
   AppState,
@@ -800,9 +800,11 @@ describe('product registration', () => {
     const opener: { open?: () => void } = {};
     function MailboxSettings() {
       const account = useContext(AccountContext);
-      opener.open = () => {
-        account?.openAccount('mailboxes', undefined, { mailbox: connection });
-      };
+      useEffect(() => {
+        opener.open = () => {
+          account?.openAccount('mailboxes', undefined, { mailbox: connection });
+        };
+      });
       return null;
     }
     await render(

@@ -41,7 +41,9 @@ const account = 'synthetic-product-account';
 const mara = { id: 'connection-mara', address: 'mara.novak@icloud.com' };
 const { icloud } = imapProviders;
 // The mailbox's state; a password its mail server refused leaves it waiting for authorization.
-let mailboxState: 'connected' | 'authorization' = 'connected';
+const server: { state: 'connected' | 'authorization' } = {
+  state: 'connected',
+};
 const snapshotOf = (): RegistrationSnapshot => ({
   kind: 'connected',
   productAccountId: account,
@@ -50,7 +52,7 @@ const snapshotOf = (): RegistrationSnapshot => ({
     {
       ...mara,
       provider: 'imap',
-      state: mailboxState,
+      state: server.state,
       imap: { host: icloud.host, port: icloud.port, username: 'mara.novak' },
       smtp: { ...icloud.smtp, username: mara.address },
     },
@@ -227,7 +229,7 @@ describe('imap invitation responses on iPhone and iPad', () => {
       ],
     });
     clock.now = Date.UTC(2026, 10, 2, 9, 52);
-    mailboxState = 'connected';
+    server.state = 'connected';
     jest.setSystemTime(clock.now);
   });
   // oxlint-disable-next-line vitest/no-hooks -- Every journey runs on the same controlled clock.
@@ -378,7 +380,7 @@ describe('imap invitation responses on iPhone and iPad', () => {
     try {
       await press('Accept');
       // The mail server refused the password while the response waited.
-      mailboxState = 'authorization';
+      server.state = 'authorization';
       await mail.deliver();
       expect(mail.imap.smtp.accepted).toStrictEqual([]);
       expect(
