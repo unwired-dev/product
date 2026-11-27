@@ -18,6 +18,7 @@ import type {
   SyncFailure,
 } from './mailbox-read.ts';
 import type { GmailPart } from './message-body.ts';
+import type { GraphAutomaticReplies } from './microsoft-graph.ts';
 import type { DraftFile, OutgoingSend } from './outgoing-message.ts';
 
 export type ViewEntry = NonNullable<MailboxDocument['views']>[number];
@@ -175,6 +176,10 @@ export interface ProviderReader {
     scope: MailboxScope,
     id: string,
   ) => Effect.Effect<GmailMessage | undefined, SyncFailure | GmailInvalidPage>;
+  // The mailbox's automatic replies as Microsoft stores them, when the provider offers them.
+  readonly automaticReplies?: (
+    scope: MailboxScope,
+  ) => Effect.Effect<GraphAutomaticReplies, ReadFailure>;
   // The mailbox's Out of Office as the provider stores it, when the provider offers one.
   readonly vacation?: (
     scope: MailboxScope,

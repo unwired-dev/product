@@ -49,11 +49,15 @@ struct MicrosoftTokens: Codable {
   // Reading, organizing and sending mail.
   static let scopes = "offline_access User.Read Mail.ReadWrite Mail.Send"
   // A connection authorized before organizing or sending keeps working with its grant: a refresh
-  // may ask only for scopes already granted, and authorizing again asks for all of them.
+  // may ask only for scopes already granted, and authorizing again asks for all of them. A granted
+  // mailbox settings scope stays, so reading automatic replies survives a refresh.
   static func refreshScopes(_ granted: [String]) -> String {
     let has = { (scope: String) in granted.contains { $0.lowercased().hasSuffix(scope) } }
     return (["offline_access", "User.Read", has("mail.readwrite") ? "Mail.ReadWrite" : "Mail.Read"]
-      + (has("mail.send") ? ["Mail.Send"] : [])).joined(separator: " ")
+      + (has("mail.send") ? ["Mail.Send"] : [])
+      + (has("mailboxsettings.readwrite")
+        ? ["MailboxSettings.ReadWrite"] : has("mailboxsettings.read") ? ["MailboxSettings.Read"] : []))
+      .joined(separator: " ")
   }
   static let authority = URL(string: "https://login.microsoftonline.com/common/oauth2/v2.0")!
   static let graph = "https://graph.microsoft.com/v1.0"

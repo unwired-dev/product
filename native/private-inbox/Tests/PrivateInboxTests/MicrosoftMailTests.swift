@@ -416,6 +416,15 @@ extension PrivateInboxTests {
       GraphMailProvider.refreshScopes([
         "https://graph.microsoft.com/Mail.ReadWrite", "https://graph.microsoft.com/Mail.Send",
       ]) == GraphMailProvider.scopes)
+    // A granted mailbox settings scope stays on refresh; none is asked for without one (#3050).
+    #expect(
+      GraphMailProvider.refreshScopes([
+        "https://graph.microsoft.com/Mail.ReadWrite", "https://graph.microsoft.com/Mail.Send",
+        "https://graph.microsoft.com/MailboxSettings.Read",
+      ]) == GraphMailProvider.scopes + " MailboxSettings.Read")
+    #expect(
+      GraphMailProvider.refreshScopes(["Mail.Read", "MailboxSettings.ReadWrite", "MailboxSettings.Read"])
+        == "offline_access User.Read Mail.Read MailboxSettings.ReadWrite")
     let refreshed = try await provider.refresh(JSONEncoder().encode(expired))
     #expect(try JSONDecoder().decode(MicrosoftTokens.self, from: refreshed.credential).refreshToken == "synthetic-refresh")
     let requests = ControlledMicrosoftHTTP.probe.requests()
@@ -482,6 +491,24 @@ extension PrivateInboxTests {
       "/v1.0/me/messages?$search=%22plan%22&$top=20",
     ] {
       #expect(try RegistrationStore.graphURL("https://graph.microsoft.com" + path).host == "graph.microsoft.com")
+    }
+  }
+
+  // Of Outlook's mailbox settings, reads reach only the automatic replies (#3050).
+  @Test @MainActor func graphReadsReachOnlyTheAutomaticRepliesSetting() throws {
+    #expect(
+      try RegistrationStore.graphURL(
+        "https://graph.microsoft.com/v1.0/me/mailboxSettings/automaticRepliesSetting"
+      ).host == "graph.microsoft.com")
+    for path in [
+      "/v1.0/me/mailboxSettings", "/v1.0/me/mailboxSettings/timeZone",
+      "/v1.0/me/mailboxSettings/automaticRepliesSetting/x",
+      "/v1.0/me/mailboxSettings/automaticRepliesSetting%2Fx", "/v1.0/me/mailboxSettings/language",
+      "/v1.0/users/me/mailboxSettings/automaticRepliesSetting",
+    ] {
+      #expect(throws: RegistrationError.unavailable) {
+        _ = try RegistrationStore.graphURL("https://graph.microsoft.com" + path)
+      }
     }
   }
 
