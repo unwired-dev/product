@@ -109,7 +109,7 @@ function useReminderMenu(
               ({ time: choice, dueAt }) => ({
                 key: choice,
                 title: t(`drafts.reminder.${choice}`),
-                subtitle:
+                detail:
                   choice === 'thisEvening'
                     ? t('drafts.reminder.todayAt', { time: time(dueAt) })
                     : t('drafts.reminder.dayAt', {

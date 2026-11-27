@@ -653,9 +653,7 @@ app follows under the issue named:
   time field the width its region needs. The popover sits AppKit's 14 pt below
   its anchor, where the frames draw 6 pt, and above Send in the Inbox window's
   composer, whose Send sits at the window's bottom. iPhone and iPad offer it
-  (#2979). The Mac menu shows each time on the item's second line and the note
-  as a dimmed item on one line, as AppKit draws them, where M3 draws the time
-  trailing and the note wrapped in small type.
+  (#2979).
 - **Mail Views:** the row of Mail View chips in the Inbox list waits for #2131.
 - **Reader More menu:** on iPad More lists Move to Spam after Mark as Unread
   (#2662), and the iPhone Reply sheet lists it; in Spam it reads Not Spam. The

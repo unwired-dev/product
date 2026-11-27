@@ -1020,9 +1020,63 @@ static NSMenu *UnwiredMenuOf(NSString *title, NSArray<NSDictionary *> *sections,
 {
   NSMenu *menu = [[NSMenu alloc] initWithTitle:title];
   menu.autoenablesItems = NO;
+  // A `detail` trails its title on the same line, right-aligned at the widest item's edge; a
+  // disabled note wider than that wraps to it in small type.
+  NSFont *font = [NSFont menuFontOfSize:0];
+  NSFont *small = [NSFont menuFontOfSize:NSFont.smallSystemFontSize];
+  NSDictionary *measure = @{NSFontAttributeName: font};
+  CGFloat column = 0;
+  BOOL details = NO;
+  for (NSDictionary *section in sections) {
+    for (NSDictionary *item in section[@"items"]) {
+      NSString *detail = item[@"detail"];
+      if ([item[@"disabled"] boolValue]) continue;
+      CGFloat width = [item[@"title"] sizeWithAttributes:measure].width;
+      if (detail.length > 0) {
+        details = YES;
+        width += 24 + [detail sizeWithAttributes:measure].width;
+      }
+      column = MAX(column, width);
+    }
+  }
+  NSMutableParagraphStyle *paragraph = [NSMutableParagraphStyle new];
+  paragraph.tabStops = @[[[NSTextTab alloc] initWithTextAlignment:NSTextAlignmentRight location:column options:@{}]];
   for (NSDictionary *section in sections) {
     if (menu.numberOfItems > 0) [menu addItem:[NSMenuItem separatorItem]];
-    for (NSDictionary *item in section[@"items"]) [menu addItem:UnwiredMenuItem(item, target, destructiveColor)];
+    for (NSDictionary *item in section[@"items"]) {
+      NSMenuItem *menuItem = UnwiredMenuItem(item, target, destructiveColor);
+      NSString *detail = item[@"detail"];
+      if (detail.length > 0) {
+        NSMutableAttributedString *line = [[NSMutableAttributedString alloc]
+            initWithString:[item[@"title"] stringByAppendingString:@"\t"]
+                attributes:@{NSFontAttributeName: font, NSParagraphStyleAttributeName: paragraph}];
+        [line appendAttributedString:[[NSAttributedString alloc] initWithString:detail
+            attributes:@{NSFontAttributeName: font, NSParagraphStyleAttributeName: paragraph,
+                         NSForegroundColorAttributeName: NSColor.secondaryLabelColor}]];
+        menuItem.attributedTitle = line;
+        if (item[@"accessibilityLabel"] == nil) {
+          menuItem.accessibilityLabel = [NSString stringWithFormat:@"%@, %@", item[@"title"], detail];
+        }
+      } else if (details && [item[@"disabled"] boolValue]
+                 && [item[@"title"] sizeWithAttributes:measure].width > column) {
+        NSMutableString *note = [NSMutableString string];
+        NSString *line = @"";
+        for (NSString *word in [item[@"title"] componentsSeparatedByString:@" "]) {
+          NSString *longer = line.length == 0 ? word : [line stringByAppendingFormat:@" %@", word];
+          if (line.length > 0 && [longer sizeWithAttributes:@{NSFontAttributeName: small}].width > column) {
+            [note appendFormat:@"%@\n", line];
+            line = word;
+          } else {
+            line = longer;
+          }
+        }
+        [note appendString:line];
+        menuItem.attributedTitle = [[NSAttributedString alloc] initWithString:note
+            attributes:@{NSFontAttributeName: small, NSForegroundColorAttributeName: NSColor.secondaryLabelColor}];
+        menuItem.accessibilityLabel = item[@"accessibilityLabel"] ?: item[@"title"];
+      }
+      [menu addItem:menuItem];
+    }
   }
   return menu;
 }
