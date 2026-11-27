@@ -22,6 +22,7 @@ import {
 } from '@private-email/mail-core/theme';
 import { useLayoutEffect, useRef, useState } from 'react';
 import {
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -263,8 +264,10 @@ function SheetButton({
   );
 }
 
-// A row of the picker, indented by its depth: the system button, with the row as its label. A
-// folder that cannot be chosen is the row alone, as the system would dim the iPad popover's.
+// A row of the picker, indented by its depth: in the iPad popover the system button, with the row
+// as its label. A folder that cannot be chosen is the row alone, as the system would dim the
+// popover's. iPhone's sheet keeps a pressable row: a system button in the sheet's React Native
+// content fires at a sheet drag released early (#3077).
 function SheetRow({
   label,
   depth = 0,
@@ -283,6 +286,7 @@ function SheetRow({
   readonly onPress: () => void;
   readonly children: ReactNode;
 }) {
+  const colors = usePalette();
   const inset = dense
     ? styles.panelRow.paddingHorizontal
     : styles.row.paddingHorizontal;
@@ -305,6 +309,22 @@ function SheetRow({
         style={[row, !dense && styles.unavailable]}>
         {children}
       </View>
+    );
+  }
+  if (!dense) {
+    return (
+      <Pressable
+        accessibilityLabel={label}
+        accessibilityRole="button"
+        accessibilityState={{ selected: current }}
+        focusable
+        onPress={onPress}
+        style={({ pressed }) => [
+          row,
+          pressed && { backgroundColor: colors.accentSelectionSubtle },
+        ]}>
+        {children}
+      </Pressable>
     );
   }
   return (
