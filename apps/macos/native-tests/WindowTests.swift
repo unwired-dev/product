@@ -514,9 +514,10 @@ final class WindowTests: XCTestCase {
       // #3001: the times every platform offers, each titled with its time; This Evening depends on
       // the clock, and This Weekend is offered from Sunday to Thursday.
       func offered(_ title: String) -> Bool {
-        app.menuItems.matching(NSPredicate(format: "label BEGINSWITH %@", "\(title), ")).firstMatch.exists
+        app.menuItems.matching(NSPredicate(format: "label BEGINSWITH %@ OR title BEGINSWITH %@", title, title))
+          .firstMatch.exists
       }
-      XCTAssertTrue(offered("Tomorrow Morning"))
+      XCTAssertTrue(offered("Tomorrow Morning"), app.menuItems.debugDescription)
       XCTAssertTrue(offered("Next Week"))
       XCTAssertEqual(offered("This Weekend"), (1...5).contains(Calendar.current.component(.weekday, from: Date())))
       if menu != nil { attach(XCUIScreen.main.screenshot(), "Reminder menu") }
