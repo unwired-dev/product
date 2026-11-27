@@ -3807,7 +3807,11 @@ describe('composing Drafts', () => {
         {
           items: [
             { title: 'This Evening' },
-            { title: 'Tomorrow Morning' },
+            // The time trails the title on its line.
+            {
+              title: 'Tomorrow Morning',
+              detail: expect.stringMatching(/8:00/u),
+            },
             { title: 'This Weekend' },
             { title: 'Next Week' },
             { title: 'Choose Date and Time…' },
