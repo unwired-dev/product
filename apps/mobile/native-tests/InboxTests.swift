@@ -4677,8 +4677,8 @@ final class InboxTests: XCTestCase {
     _ = settledFrame(of: cancel)
     cancel.tap()
     XCTAssertTrue(name.waitForNonExistence(timeout: 10))
-    // #3073: Close is a system button and the folder rows pressable rows (#3077); neither swipe
-    // presses one.
+    // #3073: Back, Close and Cancel are system buttons and the folder rows pressable rows (#3077);
+    // no swipe presses one.
     let caption = app.staticTexts["Move this message to another folder."].firstMatch
     let openMove = {
       if caption.exists { return }
@@ -4686,11 +4686,18 @@ final class InboxTests: XCTestCase {
       app.buttons["Move to…"].tap()
     }
     swipes("Move sheet from Close", from: app.buttons["Close"], shown: caption, open: openMove)
+    swipes("Move sheet from Back", from: app.buttons["Back"], shown: caption, open: openMove)
     swipes(
       "Move sheet from a folder", from: app.buttons["Move to Travel"], shown: caption,
       open: openMove)
-    app.buttons["Close"].tap()
-    XCTAssertTrue(caption.waitForNonExistence(timeout: 5))
+    let accounts = app.staticTexts["Accounts"].firstMatch
+    swipes("Move sheet from Cancel", from: app.buttons["Cancel"], shown: accounts) {
+      if accounts.exists { return }
+      openMove()
+      app.buttons["Back"].tap()
+    }
+    app.buttons["Cancel"].tap()
+    XCTAssertTrue(accounts.waitForNonExistence(timeout: 5))
     let moved = "A Move sheet swipe moved the message"
     XCTAssertTrue(header("rowan@example.invalid", in: app).exists, moved)
     XCTAssertFalse(app.buttons["Undo"].exists, moved)
