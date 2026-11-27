@@ -942,7 +942,9 @@ export function SettingsActionRow({
             inactive(disabled),
             spokenLabel(label),
           ]}>
-          <RNHostView matchContents={{ vertical: true }}>
+          <RNHostView
+            boundedByHost
+            matchContents={{ vertical: true }}>
             <RowHairline value={false}>
               <View
                 accessibilityElementsHidden

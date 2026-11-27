@@ -309,7 +309,9 @@ function SheetRow({
       <SwiftUIButton
         onPress={onPress}
         modifiers={[buttonStyle('plain'), spokenLabel(label)]}>
-        <RNHostView matchContents={{ vertical: true }}>
+        <RNHostView
+          boundedByHost
+          matchContents={{ vertical: true }}>
           <View
             accessibilityElementsHidden
             style={row}>
