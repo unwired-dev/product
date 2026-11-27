@@ -354,6 +354,7 @@ jest.mock('@expo/ui/swift-ui/modifiers', () => ({
   shapes: {
     capsule: () => ({ type: 'capsule' }),
     rectangle: () => ({ type: 'rectangle' }),
+    roundedRectangle: (params) => ({ type: 'roundedRectangle', ...params }),
   },
   tag: (tag) => ({ $type: 'tag', tag }),
   tint: (tint) => ({ $type: 'tint', tint }),

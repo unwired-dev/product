@@ -12,4 +12,5 @@ starts tomorrow at 8:00; iPad gains This Weekend. Mail-core's `reminderTimes`
 returns these times and replaces `mobileReminderTimes`.
 The Mac reminder menu shows each time on its title's line, right-aligned, through
 the new menu item `detail`, and wraps its note in small type; the iPhone sheet
-shows its grabber and separates its rows.
+shows its grabber and separates its rows. The iPad popover's Cancel is primary text
+on the quiet fill.

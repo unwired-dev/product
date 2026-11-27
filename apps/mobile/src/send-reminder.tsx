@@ -12,17 +12,22 @@ import {
   Text as SwiftUIText,
 } from '@expo/ui/swift-ui';
 import {
+  background,
   buttonBorderShape,
   buttonStyle,
+  contentShape,
   controlSize,
   datePickerStyle,
   font,
+  foregroundStyle,
   frame,
   disabled as inactive,
   labelStyle,
   labelsHidden,
+  padding,
   presentationDetents,
   presentationDragIndicator,
+  shapes,
   tint,
 } from '@expo/ui/swift-ui/modifiers';
 import {
@@ -92,6 +97,31 @@ const formatAt = (
   at: number | undefined,
   options: Intl.DateTimeFormatOptions,
 ) => new Intl.DateTimeFormat(locale, options).format(at);
+
+// The popover's Cancel: primary text on the quiet fill, which the system's bordered style draws too
+// strong.
+function CancelButton({ onPress }: { readonly onPress: () => void }) {
+  const { t } = useLocalization();
+  const colors = usePalette();
+  const shape = shapes.roundedRectangle({ cornerRadius: radius.control });
+  return (
+    <Host matchContents>
+      <SwiftUIButton
+        onPress={onPress}
+        modifiers={[buttonStyle('plain'), background(colors.fillQuiet, shape)]}>
+        <SwiftUIText
+          modifiers={[
+            font({ textStyle: 'subheadline' }),
+            foregroundStyle(colors.textPrimary),
+            padding({ horizontal: 12, vertical: 7 }),
+            contentShape(shape),
+          ]}>
+          {t('common.cancel')}
+        </SwiftUIText>
+      </SwiftUIButton>
+    </Host>
+  );
+}
 
 // Choose Date and Time…: the system's calendar and time from `start`, in the device's time zone,
 // then the zone line and Set Reminder. Days before today can't be chosen, and Set Reminder waits
@@ -211,18 +241,7 @@ function ReminderDateTime({
       {zone(at)}
       {popover ? (
         <View style={styles.buttons}>
-          <Host matchContents>
-            <SwiftUIButton
-              label={t('common.cancel')}
-              onPress={onClose}
-              modifiers={[
-                buttonStyle('bordered'),
-                buttonBorderShape('roundedRectangle'),
-                font({ textStyle: 'subheadline' }),
-                tint(colors.textPrimary),
-              ]}
-            />
-          </Host>
+          <CancelButton onPress={onClose} />
           <Host matchContents>
             <SwiftUIButton
               onPress={set}
@@ -486,18 +505,7 @@ function ReminderChoices({
       {zone(selected)}
       {popover ? (
         <View style={styles.buttons}>
-          <Host matchContents>
-            <SwiftUIButton
-              label={t('common.cancel')}
-              onPress={onClose}
-              modifiers={[
-                buttonStyle('bordered'),
-                buttonBorderShape('roundedRectangle'),
-                font({ textStyle: 'subheadline' }),
-                tint(colors.textPrimary),
-              ]}
-            />
-          </Host>
+          <CancelButton onPress={onClose} />
           <Host matchContents>
             <SwiftUIButton
               label={t('drafts.reminder.set')}
