@@ -114,7 +114,7 @@ import { ReplySheet } from './reply-sheet.tsx';
 import { SidebarToggleContext } from './sidebar-toggle.tsx';
 import { textStyles, usePalette } from './theme.ts';
 import { MessageTranslation } from './translation.tsx';
-import { UnsubscribeBanner } from './unsubscribe.tsx';
+import { UnsubscribeBanner, useUnsubscribeToast } from './unsubscribe.tsx';
 
 // On iPhone the reader is a pushed screen with its own header and bottom toolbar, in every
 // orientation; on iPad the toolbar sits at the top like the Mac's.
@@ -1089,6 +1089,7 @@ function MailboxMessage({
     id,
     state.kind === 'ready' && message !== undefined,
   );
+  const unsubscribing = useUnsubscribeToast(id, message?.receivedAt);
   // A new message sends from the reader's mailbox when it can, otherwise as the Inbox's New
   // Message does in its Mail Profile.
   const mailboxes = account?.mailboxes ?? [];
@@ -1207,6 +1208,7 @@ function MailboxMessage({
               bottom={
                 insets.bottom + toolbarLift + scaledToolbarHeight + spacing.m
               }
+              other={unsubscribing}
             />
           </LinkConfirmationProvider>
         </SaveOutcomeContext>

@@ -1,3 +1,5 @@
+import type { ReactNode } from 'react';
+
 import { spacing } from '@private-email/mail-core/theme';
 import {
   use,
@@ -117,13 +119,16 @@ export function SaveFailedNotice({ shown }: { readonly shown: Shown }) {
 }
 
 // The toast for a saved copy, with Show to find it in Files, and on iPad for a failure too: above
-// the iPhone reader's toolbar at `bottom`, or with the window bar's notices on iPad.
+// the iPhone reader's toolbar at `bottom`, or with the window bar's notices on iPad. `other` is
+// another reader toast, such as an Unsubscribe request's Undo Send, shown in its place otherwise.
 export function SaveOutcomeToast({
   shown,
   bottom,
+  other = null,
 }: {
   readonly shown: Shown;
   readonly bottom: number;
+  readonly other?: ReactNode;
 }) {
   const { t } = useLocalization();
   const windowBar = use(WindowBarContext);
@@ -132,7 +137,7 @@ export function SaveOutcomeToast({
   if (shown !== undefined && shown !== said) {
     setSaid(shown);
   }
-  let toast = null;
+  let toast: ReactNode = null;
   if (said?.outcome.kind === 'saved') {
     const { copy } = said.outcome;
     toast = (
@@ -166,6 +171,7 @@ export function SaveOutcomeToast({
       />
     );
   }
+  toast ??= other;
   useLayoutEffect(() => {
     windowBar?.showReaderNotice(toast);
   });

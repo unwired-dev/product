@@ -11,7 +11,8 @@ sends a `mailto:` request through the Outbox.
 banner, confirmation and outcomes for one-click offers and
 [#2968](https://github.com/unwired-dev/product/issues/2968) its `mailto:` states,
 and [#2985](https://github.com/unwired-dev/product/issues/2985) the iPhone and iPad
-reader's one-click states, whose `mailto:` states follow in a later #654 slice, under
+reader's one-click states and [#3060](https://github.com/unwired-dev/product/issues/3060)
+their `mailto:` states, under
 [ADR 0044](adr/0044-isolate-standards-based-unsubscribe-actions.md).
 
 ## Finding the offer
@@ -256,16 +257,22 @@ the request waits for a Mac Undo Send shortcut.
 
 ## The iPhone and iPad reader
 
-A message with a one-click offer shows the Unsubscribe banner
+A message with a one-click or `mailto:` offer shows the Unsubscribe banner
 (`apps/mobile/src/unsubscribe.tsx`), above the message on iPhone and beneath
-its header on iPad, and the reader's More menu (⋯) adds **Unsubscribe…**; a
-`mailto:`-only message waits for a later slice, and the count line as on the Mac.
+its header on iPad, and the reader's More menu (⋯) adds **Unsubscribe…**; the
+count line waits as on the Mac.
 **Unsubscribe…**, from the banner or the menu, opens a system alert that names
-the list, the sender and the receiving address. **Cancel** sends nothing.
-**Unsubscribe** calls `unsubscribe.request` once, for the reader's Mail Profile,
-which owns the receiving connection. The banner then shows the outcomes above,
-with **Try Again**, the disabled buttons and each message's state keyed as on
-the Mac.
+the list, the sender and the receiving address, or for a `mailto:` offer the
+address it emails, the receiving address and that the email appears in Sent.
+**Cancel** sends nothing. **Unsubscribe** calls `unsubscribe.request` once, for
+the reader's Mail Profile, which owns the receiving connection, or admits a
+`mailto:` request through `outbox.unsubscribe`. The banner then shows the
+outcomes and `mailto:` states above, with **Try Again**, the disabled buttons
+and each message's state keyed as on the Mac. A connection that needs sign-in
+or receives only offers its repair in the banner, and the menu leaves
+**Unsubscribe…** out. The waiting request's Undo Send toast sits 12 pt above the
+iPhone toolbar, or with the window bar's notices on iPad, in the place a saved
+attachment's toast takes; a saved attachment's toast shows over it.
 
 ## Verification
 
@@ -310,6 +317,16 @@ failure, Try Again and the dated Sent state, which replaces a failure:
 
 ```sh
 mise exec -- pnpm --dir apps/mobile exec jest test/inbox.test.tsx -t 'Unsubscribe|asked to leave'
+```
+
+`apps/mobile/test/unsubscribe-mailto.test.tsx` opens a synthetic iCloud Mail
+message whose offer is `mailto:` in the iPhone reader, through the real Outbox,
+and covers the confirmation, the waiting banner and toast, the sent request in
+SMTP and the dated banner and its record, the toast's Undo, the needs-sign-in
+banner after the server refuses the request and the receive-only banner:
+
+```sh
+mise exec -- pnpm --dir apps/mobile exec jest test/unsubscribe-mailto.test.tsx
 ```
 
 The [iPhone and iPad Unsubscribe journey](native-journeys.md#iphone-and-ipad-unsubscribe-journey)
