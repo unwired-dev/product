@@ -1,10 +1,18 @@
 import type { ReactNode } from 'react';
 import type { StyleProp, ViewStyle } from 'react-native';
 
-import { BottomSheet, Group, Host, RNHostView } from '@expo/ui/swift-ui';
 import {
+  BottomSheet,
+  Group,
+  Host,
+  RNHostView,
+  Button as SwiftUIButton,
+} from '@expo/ui/swift-ui';
+import {
+  buttonStyle,
   presentationBackground,
   presentationDetents,
+  accessibilityLabel as spokenLabel,
 } from '@expo/ui/swift-ui/modifiers';
 import {
   ipadListScale,
@@ -14,7 +22,6 @@ import {
 } from '@private-email/mail-core/theme';
 import { useLayoutEffect, useRef, useState } from 'react';
 import {
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -226,38 +233,38 @@ const rowsFor = (
           depth: 0,
         }));
 
-// A round or pill control in the picker's header.
+// A round or pill control in the picker's header: the system button, with the control as its label.
 function SheetButton({
   label,
   style,
   onPress,
   children,
 }: {
-  readonly label?: string;
+  readonly label: string;
   readonly style: StyleProp<ViewStyle>;
   readonly onPress: () => void;
   readonly children: ReactNode;
 }) {
   const colors = usePalette();
   return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={label}
-      onPress={onPress}
-      style={({ pressed }) => [
-        style,
-        {
-          backgroundColor: pressed
-            ? colors.accentSelectionSubtle
-            : colors.fillQuiet,
-        },
-      ]}>
-      {children}
-    </Pressable>
+    <Host matchContents>
+      <SwiftUIButton
+        onPress={onPress}
+        modifiers={[buttonStyle('plain'), spokenLabel(label)]}>
+        <RNHostView matchContents>
+          <View
+            accessibilityElementsHidden
+            style={[style, { backgroundColor: colors.fillQuiet }]}>
+            {children}
+          </View>
+        </RNHostView>
+      </SwiftUIButton>
+    </Host>
   );
 }
 
-// A row of the picker, indented by its depth.
+// A row of the picker, indented by its depth: the system button, with the row as its label. A
+// folder that cannot be chosen is the row alone, as the system would dim the iPad popover's.
 function SheetRow({
   label,
   depth = 0,
@@ -276,32 +283,41 @@ function SheetRow({
   readonly onPress: () => void;
   readonly children: ReactNode;
 }) {
-  const colors = usePalette();
-  const row = dense ? [styles.row, styles.panelRow] : styles.row;
   const inset = dense
     ? styles.panelRow.paddingHorizontal
     : styles.row.paddingHorizontal;
-  return (
-    <Pressable
-      accessibilityLabel={label}
-      accessibilityRole="button"
-      accessibilityState={{ disabled, selected: current }}
-      disabled={disabled}
-      focusable
-      onPress={onPress}
-      style={({ pressed }) => [
-        row,
-        {
-          paddingLeft: inset + indent * depth,
-          backgroundColor: pressed
-            ? colors.accentSelectionSubtle
-            : 'transparent',
-        },
+  const row = [
+    styles.row,
+    dense && styles.panelRow,
+    { paddingLeft: inset + indent * depth },
+  ];
+  if (disabled) {
+    return (
+      <View
+        accessible
+        accessibilityLabel={label}
+        accessibilityRole="button"
+        accessibilityState={{ disabled, selected: current }}
         // iPhone's sheet dims what cannot be chosen, its count included.
-        disabled && !dense && styles.unavailable,
-      ]}>
-      {children}
-    </Pressable>
+        style={[row, !dense && styles.unavailable]}>
+        {children}
+      </View>
+    );
+  }
+  return (
+    <Host matchContents={{ vertical: true }}>
+      <SwiftUIButton
+        onPress={onPress}
+        modifiers={[buttonStyle('plain'), spokenLabel(label)]}>
+        <RNHostView matchContents={{ vertical: true }}>
+          <View
+            accessibilityElementsHidden
+            style={row}>
+            {children}
+          </View>
+        </RNHostView>
+      </SwiftUIButton>
+    </Host>
   );
 }
 
@@ -334,6 +350,7 @@ function AccountPage({
           {t('settings.sections.accounts')}
         </Text>
         <SheetButton
+          label={t('common.cancel')}
           style={styles.cancel}
           onPress={onCancel}>
           <Text style={[styles.cancelLabel, { color: colors.textPrimary }]}>
