@@ -3892,7 +3892,7 @@ describe('product registration', () => {
       });
       expect(screen.getByRole('button', { name: title })).toBeEnabled();
       slow.mockRestore();
-      // A read that fails after Cancel says nothing over the reader.
+      // A read that fails after Cancel, or in the same update, says nothing over the reader.
       await press('Cancel');
       const announce = jest.spyOn(
         AccessibilityInfo,
@@ -3903,9 +3903,12 @@ describe('product registration', () => {
         .spyOn(Contact, 'getAllDetails')
         .mockReturnValueOnce(late.promise);
       await sheet();
-      await press('Cancel');
       await act(async () => {
+        const cancelling = fireEvent.press(
+          screen.getByRole('button', { name: 'Cancel' }),
+        );
         late.reject(new Error('unreadable'));
+        await cancelling;
       });
       expect(announce).not.toHaveBeenCalled();
       closed.mockRestore();
@@ -3929,6 +3932,13 @@ describe('product registration', () => {
       await expect(screen.findByText(warning)).resolves.toBeVisible();
       expect(announce).toHaveBeenLastCalledWith(warning);
       failing.mockRestore();
+      // Cancel is the confirmation's second button.
+      await confirm(1);
+      expect(notSaved).toHaveBeenLastCalledWith(
+        'Block mail.example.invalid without exempting contacts?',
+        'Contacts couldn’t be read, so new mail from your contacts at mail.example.invalid and its subdomains will go to Trash too.',
+        expect.anything(),
+      );
       await act(async () => {
         await fireEvent.press(choice('mail.example.invalid only'));
       });

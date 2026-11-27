@@ -182,11 +182,13 @@ function BlockDomainForm({
   const read = useContactAddresses(open, false, attempt);
   const scope = subdomains ? { domain } : { domain, context: 'only' };
   const unreadable = t('blockedSenders.exemptContactsUnreadable', scope);
+  // A read that fails as the sheet closes says nothing over the reader.
+  const failed = open && read.failed;
   useEffect(() => {
-    if (read.failed) {
+    if (failed) {
       AccessibilityInfo.announceForAccessibility(unreadable);
     }
-  }, [read.failed, unreadable]);
+  }, [failed, unreadable]);
   const contacts = addressesAtDomain(
     domain,
     subdomains,
