@@ -229,6 +229,8 @@ const styles = StyleSheet.create({
     borderCurve: 'continuous',
   },
   grow: { flex: 1 },
+  // A hosted multiline label needs an intrinsic flex basis so Yoga measures its wrapped height.
+  wrappingLabel: { flexGrow: 1, flexShrink: 1 },
   // Symbols centre in fixed slots, so a wide one such as translate keeps its label in line.
   itemIcon: { width: 18, alignItems: 'center' },
   rowIcon: { width: settingsColumns ? 20 : 24, alignItems: 'center' },
@@ -492,6 +494,7 @@ function DestinationRow({
     <SettingsActionRow
       label={label}
       disabled={false}
+      ignoreSafeArea="container"
       onPress={onPress}>
       <View style={styles.row}>
         <View style={styles.destinationIcon}>
@@ -503,7 +506,11 @@ function DestinationRow({
         </View>
         <Text
           numberOfLines={large ? 0 : 1}
-          style={[type.title, styles.grow, { color: colors.textPrimary }]}>
+          style={[
+            type.title,
+            large ? styles.wrappingLabel : styles.grow,
+            { color: colors.textPrimary },
+          ]}>
           {label}
         </Text>
         <SFSymbol
@@ -742,6 +749,7 @@ export function SettingsWorkspace({
           <SettingsActionRow
             label={t('settings.destinations.account')}
             disabled={false}
+            ignoreSafeArea="container"
             onPress={() => {
               onDestination('account');
             }}>
@@ -750,7 +758,7 @@ export function SettingsWorkspace({
                 name={account}
                 size={52}
               />
-              <View style={styles.grow}>
+              <View style={styles.wrappingLabel}>
                 <Text
                   numberOfLines={lines}
                   style={[type.account, { color: colors.textPrimary }]}>
@@ -937,11 +945,14 @@ export function SettingsActionRow({
   disabled,
   onPress,
   children,
+  ...hostProps
 }: {
   readonly label: string;
   readonly disabled: boolean;
   readonly onPress: () => void;
   readonly children: ReactElement;
+  // The destination list already applies this inset. A second would move a scrolling label.
+  readonly ignoreSafeArea?: 'container';
 }) {
   // A text size changed while Settings is open keeps the hosted row's old height; a fresh host
   // measures the row again.
@@ -950,6 +961,7 @@ export function SettingsActionRow({
     <View>
       <Hairline />
       <Host
+        {...hostProps}
         key={fontScale}
         matchContents={{ vertical: true }}>
         <SwiftUIButton
