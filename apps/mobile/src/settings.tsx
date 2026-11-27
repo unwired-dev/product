@@ -8,13 +8,18 @@ import {
 } from '@expo/ui/swift-ui';
 import {
   accessibilityLabel as spokenLabel,
+  background,
   buttonBorderShape,
   buttonStyle,
+  contentShape,
   controlSize,
   disabled as inactive,
   font,
   foregroundStyle,
+  frame,
   labelStyle,
+  padding,
+  shapes,
   tint,
 } from '@expo/ui/swift-ui/modifiers';
 import {
@@ -157,6 +162,11 @@ export const switchRowHeight = settingsColumns ? undefined : 56;
 const rowInset = settingsColumns ? spacing.m * ipadListScale : spacing.l;
 // iPad's row rules are the Mac recipe's point at 1.15×, as its frames draw them.
 const rule = settingsColumns ? ipadListScale : StyleSheet.hairlineWidth;
+
+// iPad draws the Mac's 28pt push button at 1.15×, iPhone's frames a 36pt one; the clear slop
+// around it keeps the 44pt target without moving the layout.
+const pushButtonHeight = settingsColumns ? 28 * ipadListScale : 36;
+const pushButtonSlop = (44 - pushButtonHeight) / 2;
 
 const styles = StyleSheet.create({
   page: { flex: 1 },
@@ -314,6 +324,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   pushButton: { alignSelf: 'flex-start' },
+  pushButtonWrapping: { width: '100%' },
+  // The row's wrapping controls drop a child's negative top margin; a column keeps it.
+  pushButtonHost: { marginVertical: -pushButtonSlop },
 });
 
 // The Mail Profile and account monogram: the first letter on brand graphite.
@@ -1266,8 +1279,9 @@ export function settingsButton(busy: boolean): SettingsButton {
   };
 }
 
-// The system bordered button with the frames' quiet fill and primary text; a destructive one
-// keeps that fill with a destructive label, as the frames draw it.
+// A system button drawn as the frames' push button: a primary label on the quiet fill with the
+// control corners, or a destructive label without a fill, aligned with the row's text. The
+// bordered style would draw a darker capsule.
 function PushButton({
   busy,
   label,
@@ -1282,29 +1296,54 @@ function PushButton({
   readonly onPress: () => void;
 }) {
   const colors = usePalette();
+  // Larger text stacks Settings rows; the button then takes the row's width so its title wraps.
+  const large = useLargeText();
+  const shape = shapes.roundedRectangle({
+    cornerRadius: settingsColumns
+      ? radius.control * ipadListScale
+      : radius.control,
+  });
+  const side = settingsColumns ? spacing.m * ipadListScale : 14;
   return (
-    <Host
-      matchContents
-      style={styles.pushButton}>
-      <SwiftUIButton
-        role={tone ?? 'default'}
-        onPress={onPress}
-        modifiers={[
-          buttonStyle('bordered'),
-          tint(colors.textPrimary),
-          inactive(busy),
-          spokenLabel(label),
-        ]}>
-        <SwiftUIText
+    <View style={large ? styles.pushButtonWrapping : styles.pushButton}>
+      <Host
+        key={large ? 'wrapping' : 'ideal'}
+        matchContents={large ? { vertical: true } : true}
+        style={styles.pushButtonHost}>
+        <SwiftUIButton
+          role={tone ?? 'default'}
+          onPress={onPress}
           modifiers={[
-            font({ textStyle: settingsColumns ? 'subheadline' : 'body' }),
-            ...(tone === 'destructive'
-              ? [foregroundStyle(colors.statusDestructive)]
+            buttonStyle('plain'),
+            inactive(busy),
+            spokenLabel(label),
+            ...(large
+              ? [frame({ maxWidth: Infinity, alignment: 'leading' })]
               : []),
           ]}>
-          {title}
-        </SwiftUIText>
-      </SwiftUIButton>
-    </Host>
+          <SwiftUIText
+            modifiers={[
+              font({ textStyle: settingsColumns ? 'subheadline' : 'body' }),
+              foregroundStyle(
+                tone === 'destructive'
+                  ? colors.statusDestructive
+                  : colors.textPrimary,
+              ),
+              padding({
+                horizontal: tone === 'destructive' ? 0 : side,
+                vertical: 6,
+              }),
+              frame({ minHeight: pushButtonHeight }),
+              ...(tone === 'destructive'
+                ? []
+                : [background(colors.fillQuiet, shape)]),
+              padding({ vertical: pushButtonSlop }),
+              contentShape(shapes.rectangle()),
+            ]}>
+            {title}
+          </SwiftUIText>
+        </SwiftUIButton>
+      </Host>
+    </View>
   );
 }
