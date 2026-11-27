@@ -514,6 +514,7 @@ final class WindowTests: XCTestCase {
       // #3001: the times every platform offers; This Evening and This Weekend depend on the clock.
       XCTAssertTrue(app.menuItems["Tomorrow Morning"].exists)
       XCTAssertTrue(app.menuItems["Next Week"].exists)
+      if menu != nil { attach(XCUIScreen.main.screenshot(), "Reminder menu") }
       item.click()
       XCTAssertTrue(set.waitForExistence(timeout: 10))
     }
