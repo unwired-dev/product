@@ -391,7 +391,9 @@ export function ImapForm({
         review={setup}
         failure={imapFailure}
       />
-      <Actions style={formStyles.actions}>
+      <Actions
+        key={setup === undefined ? 'cancel' : 'connect'}
+        style={formStyles.actions}>
         {button(t('imap.cancel'), async () => {
           forgetPassword();
           onCancel();

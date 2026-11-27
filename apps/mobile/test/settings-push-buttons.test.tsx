@@ -7,9 +7,16 @@ const layout = (width: number) => ({
   nativeEvent: { layout: { x: 0, y: 0, width, height: 44 } },
 });
 
+const present = <T,>(value: T | null) => {
+  if (value === null) {
+    throw new Error('Not rendered');
+  }
+  return value;
+};
+
 // A long mailbox address makes Remove wider than the row: Remove and Cancel then stack.
 describe('settings push button row', () => {
-  it('keeps buttons side by side while they fit and stacks them once they need the whole row', async () => {
+  it('keeps buttons side by side while they fit, stacks them once they need the whole row and measures again when they change', async () => {
     expect.hasAssertions();
     const window = Dimensions.get('window');
     // At the default text size: Jest's window reports an accessibility size, which always stacks.
@@ -21,8 +28,8 @@ describe('settings push button row', () => {
           <Text>Cancel</Text>
         </PushButtonRow>,
       );
-      const { root } = screen;
-      const row = () => screen.getByText('Remove').parent;
+      const root = present(screen.root);
+      const row = () => present(screen.getByText('Remove').parent);
       await fireEvent(root, 'layout', layout(600));
       await fireEvent(row(), 'layout', layout(160));
 
@@ -31,6 +38,17 @@ describe('settings push button row', () => {
       await fireEvent(row(), 'layout', layout(600));
 
       expect(row()).toBe(root);
+
+      // Without Remove the row measures Cancel alone, side by side again.
+      await screen.rerender(
+        <PushButtonRow
+          key="cancel"
+          style={{ flexDirection: 'row' }}>
+          <Text>Cancel</Text>
+        </PushButtonRow>,
+      );
+
+      expect(screen.getByText('Cancel').parent).not.toBe(screen.root);
     } finally {
       await screen.unmount();
       Dimensions.set({ window });

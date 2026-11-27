@@ -36,6 +36,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -327,7 +328,8 @@ const styles = StyleSheet.create({
   pushButton: { alignSelf: 'flex-start' },
   // Beside a busy indicator the button shrinks to the room left.
   pushButtonWrapping: { width: '100%', flexShrink: 1 },
-  pushButtonColumn: { gap: spacing.s },
+  // Stacked buttons keep their 44pt hit areas apart.
+  pushButtonColumn: { gap: Math.max(spacing.s, 2 * pushButtonSlop) },
   // The row's wrapping controls drop a child's negative top margin; a column keeps it.
   pushButtonHost: { marginVertical: -pushButtonSlop },
 });
@@ -1295,9 +1297,12 @@ export function PushButtonRow({
   readonly children: ReactNode;
 }) {
   const large = useLargeText();
+  const { fontScale } = useWindowDimensions();
+  // A new text size measures the buttons again side by side; so does a new key, for new buttons.
   const [room, setRoom] = useState(Infinity);
-  const [needed, setNeeded] = useState(0);
-  const stacked = large || needed >= room;
+  const [measured, setMeasured] = useState({ fontScale, needed: 0 });
+  const stacked =
+    large || (measured.fontScale === fontScale && measured.needed >= room);
   return (
     <View
       style={stacked ? styles.pushButtonColumn : null}
@@ -1312,7 +1317,10 @@ export function PushButtonRow({
           <View
             style={[styles.pushButton, style]}
             onLayout={(event) => {
-              setNeeded(event.nativeEvent.layout.width);
+              setMeasured({
+                fontScale,
+                needed: event.nativeEvent.layout.width,
+              });
             }}>
             {children}
           </View>
