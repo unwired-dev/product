@@ -291,7 +291,8 @@ an Outlook draft instead
 
 Drafts saved from MIME, upload sessions and a refused large message passed against real Graph
 on iPhone in the [2026-11-23 run](#protected-outlookcom-runs) and on iPad in the
-2026-11-27 run; on Mac they remain a release check in
+2026-11-27 run, where Outlook's **Drafts** folder was not checked; on Mac, and **Drafts**
+on iPad, they remain a release check in
 [#637](https://github.com/unwired-dev/product/issues/637).
 
 ## Credentials
@@ -809,7 +810,8 @@ mail content.
   toolchain as on 2026-11-25, on a new iPad Pro 11-inch (M5) Simulator on iOS 27.0, with
   Xcode 27.2 on macOS 27.2.1. Build: a new Release build from the app source of
   `33ede47df2ab9b8abefa9d947170026ad84a8c4f`. Result: partial: the attachment and refusal
-  checks passed, and **Drafts** in Outlook on the web was not checked (see the
+  checks passed; **Drafts** in Outlook on the web was not checked, and credential handling
+  is verified only for passwords and the Recovery Key in the paths scanned (see the
   limitations). A fresh Google Product Sign-In with the Recovery Key, then **Microsoft 365
   and Outlook**, connected the personal mailbox with every address, password and the
   Recovery Key entered through the
