@@ -760,8 +760,12 @@ mail content.
   earlier message from the same run carried the PDF and the same photo from **Attach
   Photo**, which adds a photo as a file: it arrived with both listed as attachments,
   which is the documented behavior. **Sign Out of This Device** returned the app to
-  Welcome. No screenshot was taken while the software keyboard was shown after a pasted
-  value, and nothing read the screen while the **Recovery Key** field held the key. With
+  Welcome. Nothing read the screen while the **Recovery Key** field held the key, and no
+  screenshot the operator took showed the software keyboard after a pasted value. Once,
+  when the accessibility snapshot failed, the device driver saved a screenshot on its own
+  into the repository checkout while the composer's keyboard was shown, shortly after the
+  mailbox address had been pasted and about nine minutes after the last password; it was
+  deleted unopened. With
   the Simulator deleted, `simulator-credentials.zsh scan`, run on each path, found no
   password or Recovery Key in `~/.agent-device`, `~/Library/Logs`, T3 Code's device
   directory, the shell history, the temporary directory, the repository's `artifacts`
