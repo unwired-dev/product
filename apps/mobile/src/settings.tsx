@@ -1,12 +1,19 @@
 import type { ReactElement, ReactNode } from 'react';
 
-import { Host, RNHostView, Button as SwiftUIButton } from '@expo/ui/swift-ui';
+import {
+  Host,
+  RNHostView,
+  Button as SwiftUIButton,
+  Text as SwiftUIText,
+} from '@expo/ui/swift-ui';
 import {
   accessibilityLabel as spokenLabel,
   buttonBorderShape,
   buttonStyle,
   controlSize,
   disabled as inactive,
+  font,
+  foregroundStyle,
   labelStyle,
   tint,
 } from '@expo/ui/swift-ui/modifiers';
@@ -145,7 +152,6 @@ const groupRadius = settingsColumns ? radius.card : radius.settingsDetail;
 // iPad rows follow the frames' Mac recipe at 1.15×: 46pt single-line and 61.3pt two-line rows.
 // iPhone's Settings Row pads 13pt, so a 36pt push button makes a 62pt row.
 const rowPadding = settingsColumns ? 10 * ipadListScale : 13;
-const phoneButtonHeight = 36;
 // iPhone's frames draw a row with a switch at least 56pt tall.
 export const switchRowHeight = settingsColumns ? undefined : 56;
 const rowInset = settingsColumns ? spacing.m * ipadListScale : spacing.l;
@@ -307,19 +313,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  // iPad draws the Mac's 28pt push button at 1.15×, iPhone's frames a 36pt one; hit slop keeps
-  // the 44pt target.
-  button: {
-    minHeight: settingsColumns ? 28 * ipadListScale : phoneButtonHeight,
-    justifyContent: 'center',
-    paddingHorizontal: settingsColumns ? spacing.m : 14,
-    borderRadius: radius.control,
-    borderCurve: 'continuous',
-  },
+  pushButton: { alignSelf: 'flex-start' },
 });
-
-const buttonSlop =
-  (44 - (settingsColumns ? 28 * ipadListScale : phoneButtonHeight)) / 2;
 
 // The Mail Profile and account monogram: the first letter on brand graphite.
 function AccountMonogram({
@@ -1271,6 +1266,8 @@ export function settingsButton(busy: boolean): SettingsButton {
   };
 }
 
+// The system bordered button with the frames' quiet fill and primary text; a destructive one
+// keeps that fill with a destructive label, as the frames draw it.
 function PushButton({
   busy,
   label,
@@ -1286,42 +1283,28 @@ function PushButton({
 }) {
   const colors = usePalette();
   return (
-    <Pressable
-      accessibilityLabel={label}
-      accessibilityRole="button"
-      accessibilityState={{ disabled: busy }}
-      disabled={busy}
-      hitSlop={buttonSlop}
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.button,
-        {
-          alignSelf: 'flex-start',
-          backgroundColor:
-            tone === 'destructive' ? 'transparent' : colors.fillQuiet,
-          opacity: busy ? 0.4 : 1,
-        },
-        pressed &&
-          tone !== 'destructive' && {
-            backgroundColor: colors.accentSelectionSubtle,
-          },
-      ]}>
-      {({ pressed }) => (
-        <Text
-          style={[
-            type.title,
-            {
-              textDecorationLine:
-                pressed && tone === 'destructive' ? 'underline' : 'none',
-              color:
-                tone === 'destructive'
-                  ? colors.statusDestructive
-                  : colors.textPrimary,
-            },
+    <Host
+      matchContents
+      style={styles.pushButton}>
+      <SwiftUIButton
+        role={tone ?? 'default'}
+        onPress={onPress}
+        modifiers={[
+          buttonStyle('bordered'),
+          tint(colors.textPrimary),
+          inactive(busy),
+          spokenLabel(label),
+        ]}>
+        <SwiftUIText
+          modifiers={[
+            font({ textStyle: settingsColumns ? 'subheadline' : 'body' }),
+            ...(tone === 'destructive'
+              ? [foregroundStyle(colors.statusDestructive)]
+              : []),
           ]}>
           {title}
-        </Text>
-      )}
-    </Pressable>
+        </SwiftUIText>
+      </SwiftUIButton>
+    </Host>
   );
 }
