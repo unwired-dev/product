@@ -358,12 +358,14 @@ export const typedReply = (
   });
 };
 
-// The files a forward attaches: each listed attachment of an opened message in `mailbox`,
-// downloaded first. One too large to download, or that cannot be downloaded, is attached as a
-// failed asset. The saved files stay on the device until `release`, or each file's own `release`
-// once a Draft took it. `inboxOf` names the mailbox's Inbox now, which authorizing it again
-// replaces; without one, Try Again uses `inbox`. `keep`, from a client offering Try Again, keeps
-// a failed file for it.
+// The files a forward attaches: each listed attachment of an opened message in `mailbox`. One too
+// large to download, or that cannot be downloaded, is attached as a failed asset. For a client
+// offering Try Again (`keep`), a file not downloaded yet is `unavailable` with its `download`,
+// which the Draft store runs before importing it, so the Draft opens at once: no download starts
+// before then, since native mailbox requests and Draft saves wait in one queue. Without `keep`,
+// every download finishes first. The saved files stay on the device until `release`, or each
+// file's own `release` once a Draft took it. `inboxOf` names the mailbox's Inbox now, which
+// authorizing it again replaces; without one, Try Again uses `inbox`.
 type ForwardingInbox = Pick<
   GmailInbox | ImapInbox,
   | 'messageAttachments'
@@ -387,74 +389,132 @@ export async function forwardedAttachments(
   }>,
 ) {
   const listed = inbox.messageAttachments(id) ?? [];
-  // A download already running when Forward was chosen is awaited rather than started again. Files
-  // are held only once every download finished, so a rejected one leaves nothing held.
-  await Promise.all(
-    listed
-      .filter(({ state }) => state.kind !== 'oversized')
-      .map(({ locator }) => inbox.downloadAttachment(id, locator)),
+  const downloadable = listed.filter(({ state }) => state.kind !== 'oversized');
+  // The message stays read until each file's first download is held, or no Draft took the file,
+  // also once its reader closed.
+  const reading = inbox.retainMessage(id);
+  let left = downloadable.length;
+  const settle = () => {
+    left -= 1;
+    if (left === 0) {
+      reading();
+    }
+  };
+  if (left === 0) {
+    reading();
+  }
+  // A download already running when Forward was chosen is awaited rather than started again.
+  const fetch = async (locator: string) => {
+    try {
+      await inbox.downloadAttachment(id, locator);
+    } catch {
+      return undefined;
+    }
+    return inbox.holdAttachmentFile(id, locator);
+  };
+  // Each file's first download, run once; `start` false gives the file up without downloading it.
+  const firsts = new Map(
+    downloadable.map(({ locator }) => {
+      let pending = true;
+      const first = (start: boolean) => {
+        if (!pending) {
+          return undefined;
+        }
+        pending = false;
+        if (!start) {
+          settle();
+          return undefined;
+        }
+        return fetch(locator).finally(settle);
+      };
+      return [locator, first] as const;
+    }),
   );
+  // Without Try Again the Draft store cannot download, so every download finishes first.
+  const saved =
+    keep === true
+      ? undefined
+      : new Map(
+          await Promise.all(
+            downloadable.map(
+              async ({ locator }) =>
+                [locator, await firsts.get(locator)?.(true)] as const,
+            ),
+          ),
+        );
   const held: Array<() => void> = [];
   const sourceOf = (
-    saved: Readonly<ReturnType<typeof inbox.holdAttachmentFile>>,
+    file: Readonly<ReturnType<typeof inbox.holdAttachmentFile>>,
   ): AssetSource =>
-    saved === undefined
+    file === undefined
       ? { kind: 'unavailable' }
       : {
           kind: 'received',
           mailbox: {
             connection: mailbox,
-            address: saved.address,
-            generation: saved.generation,
+            address: file.address,
+            generation: file.generation,
           },
-          file: saved.file,
+          file: file.file,
         };
+  const downloaded = (
+    file: Readonly<ReturnType<typeof inbox.holdAttachmentFile>>,
+  ) => ({
+    source: sourceOf(file),
+    release: file?.release ?? (() => undefined),
+  });
   const files = listed.map((attachment): PickedFile => {
     const { locator, name, mimeType, state } = attachment;
     if (state.kind === 'oversized') {
       return { name, type: mimeType, source: { kind: 'oversized' } };
     }
-    const saved = inbox.holdAttachmentFile(id, locator);
-    if (saved !== undefined) {
-      held.push(saved.release);
+    // Try Again downloads it again from this mailbox, which the Draft's Mail Profile keeps,
+    // reading the message meanwhile in case its reader closed. Unless the message lists it alone
+    // in its place, with no other file of the same name, type and size, it is not downloaded.
+    const again = async () => {
+      const current = inboxOf?.() ?? inbox;
+      const retained = current.retainMessage(id);
+      try {
+        await current.readMessage(id);
+        const alike = (current.messageAttachments(id) ?? []).filter(
+          (each) =>
+            each.name === name &&
+            each.mimeType === mimeType &&
+            each.size === attachment.size,
+        );
+        if (alike.length !== 1 || alike[0]?.locator !== locator) {
+          return downloaded(undefined);
+        }
+        await current
+          .downloadAttachment(id, locator, { again: true })
+          .catch(() => undefined);
+        return downloaded(current.holdAttachmentFile(id, locator));
+      } finally {
+        retained();
+      }
+    };
+    // With Try Again, the Draft store's first `download` is the file's first; a file no Draft took
+    // is never downloaded.
+    const first = firsts.get(locator);
+    const file = saved?.get(locator);
+    const release =
+      saved === undefined
+        ? () => {
+            void first?.(false);
+          }
+        : file?.release;
+    if (release !== undefined) {
+      held.push(release);
     }
     return {
       name,
       type: mimeType,
-      source: sourceOf(saved),
-      release: saved?.release,
+      source: sourceOf(file),
+      release,
       keep,
-      // Try Again downloads it again from this mailbox, which the Draft's Mail Profile keeps,
-      // reading the message meanwhile in case its reader closed. Unless the message lists it alone
-      // in its place, with no other file of the same name, type and size, it is not downloaded.
       download: async () => {
-        const current = inboxOf?.() ?? inbox;
-        const reading = current.retainMessage(id);
-        try {
-          await current.readMessage(id);
-          const alike = (current.messageAttachments(id) ?? []).filter(
-            (each) =>
-              each.name === name &&
-              each.mimeType === mimeType &&
-              each.size === attachment.size,
-          );
-          if (alike.length !== 1 || alike[0]?.locator !== locator) {
-            return {
-              source: { kind: 'unavailable' },
-              release: () => undefined,
-            };
-          }
-          await current
-            .downloadAttachment(id, locator, { again: true })
-            .catch(() => undefined);
-          const again = current.holdAttachmentFile(id, locator);
-          return {
-            source: sourceOf(again),
-            release: again?.release ?? (() => undefined),
-          };
-        } finally {
-          reading();
-        }
+        const pending = first?.(true);
+        return pending === undefined ? again() : downloaded(await pending);
       },
     };
   });

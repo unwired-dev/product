@@ -3823,17 +3823,23 @@ describe('adding files and images to Drafts', () => {
       },
     ]);
     const release = vi.fn<() => void>();
-    const download = vi.fn<Download>(async () => {
-      storage.addFile('downloaded-again', 'plan');
-      return {
-        source: {
-          kind: 'received',
-          mailbox,
-          file: 'downloaded-again',
-        } satisfies AssetSource,
-        release,
-      };
-    });
+    // The Draft store downloads the forwarded file first, which fails, then again on Try Again.
+    const download = vi
+      .fn<Download>(async () => {
+        storage.addFile('downloaded-again', 'plan');
+        return {
+          source: {
+            kind: 'received',
+            mailbox,
+            file: 'downloaded-again',
+          } satisfies AssetSource,
+          release,
+        };
+      })
+      .mockResolvedValueOnce({
+        source: { kind: 'unavailable' },
+        release: () => undefined,
+      });
     const plan = drafts.prepare({
       name: 'plan.key',
       type: 'application/x-iwork-keynote-sffkey',
@@ -3856,7 +3862,7 @@ describe('adding files and images to Drafts', () => {
     // Reading the same missing file again can't succeed; downloading the forward again can.
     expect([...drafts.getRetries()]).toStrictEqual([plan.id]);
     await expect(drafts.retryImport(plan.id)).resolves.toBe(true);
-    expect(download).toHaveBeenCalledWith();
+    expect(download).toHaveBeenCalledTimes(2);
     expect(release).toHaveBeenCalledWith();
     expect(assetsOf(draft())[1]).toMatchObject({ state: 'complete', size: 4 });
   });
@@ -3883,6 +3889,46 @@ describe('adding files and images to Drafts', () => {
       { state: 'failed', notDownloaded: true },
     ]);
     expect([...drafts.getRetries()]).toStrictEqual([plan.id]);
+  });
+
+  it('copies nothing of a forwarded attachment cancelled while it downloads', async () => {
+    expect.hasAssertions();
+    const { storage, drafts, id, draft } = await opened();
+    const fetched = Promise.withResolvers<undefined>();
+    const release = vi.fn<() => void>();
+    const download = vi.fn<Download>(async () => {
+      await fetched.promise;
+      storage.addFile('downloaded', 'plan');
+      return {
+        source: {
+          kind: 'received',
+          mailbox: {
+            connection: alex.id,
+            address: alex.address,
+            generation: 'generation-1',
+          },
+          file: 'downloaded',
+        } satisfies AssetSource,
+        release,
+      };
+    });
+    const imports = vi.spyOn(storage.native, 'importDraftAsset');
+    const plan = drafts.prepare({ name: 'plan.key', type: 'application/pdf' });
+    await drafts.fill(
+      id,
+      (each) => ({ ...each, attachments: [...assetsOf(each), plan] }),
+      [{ asset: plan, source: { kind: 'unavailable' }, download, keep: true }],
+    );
+    await vi.waitFor(() => {
+      expect(download).toHaveBeenCalledWith();
+    });
+    await expect(drafts.cancelImport(plan.id)).resolves.toBe(true);
+    fetched.resolve(undefined);
+    await vi.waitFor(() => {
+      expect(release).toHaveBeenCalledWith();
+    });
+    expect(assetsOf(draft())).toMatchObject([{ state: 'cancelled' }]);
+    expect(imports).not.toHaveBeenCalled();
   });
 
   it('releases each received file once it is added or can no longer be tried again', async () => {

@@ -366,11 +366,9 @@ const shownMessage = (state: ReturnType<typeof useInbox>, id: string) => {
 const readable = (state: ReturnType<typeof useInbox>, message: unknown) =>
   state.kind === 'ready' && message !== undefined;
 
-// The response controls live in the fixed toolbar; their progress and failure show in the
-// reader's scrolling content, for the message they belong to.
-type ResponseStatus =
-  | Readonly<{ id: string; kind: 'preparingForward' | 'failed' }>
-  | undefined;
+// The response controls live in the fixed toolbar; their failure shows in the reader's scrolling
+// content, for the message it belongs to.
+type ResponseStatus = Readonly<{ id: string; kind: 'failed' }> | undefined;
 const ResponseStatusContext = createContext<
   Dispatch<SetStateAction<ResponseStatus>> | undefined
 >(undefined);
@@ -388,7 +386,7 @@ function ResponseStatusNotice({
   if (status === undefined || status.id !== id) {
     return null;
   }
-  return status.kind === 'failed' ? (
+  return (
     <View
       accessible
       accessibilityLabel={t('message.respondFailed')}
@@ -396,15 +394,6 @@ function ResponseStatusNotice({
       accessibilityRole="alert">
       <Text style={[styles.secondary, { color: colors.textPrimary }]}>
         {t('message.respondFailed')}
-      </Text>
-    </View>
-  ) : (
-    <View
-      accessible
-      accessibilityLabel={t('message.preparingForward')}
-      accessibilityLiveRegion="polite">
-      <Text style={[styles.secondary, { color: colors.textSecondary }]}>
-        {t('message.preparingForward')}
       </Text>
     </View>
   );
@@ -468,11 +457,7 @@ function ResponseActions({
     }
     starting.current = true;
     setPending(kind);
-    report?.(
-      kind === 'forward'
-        ? { id: message.id, kind: 'preparingForward' }
-        : undefined,
-    );
+    report?.(undefined);
     try {
       const draft = await startResponse(
         {
@@ -513,11 +498,6 @@ function ResponseActions({
     starting.current = false;
     if (mounted.current) {
       setPending(undefined);
-      report?.((status) =>
-        status?.id === message.id && status.kind === 'preparingForward'
-          ? undefined
-          : status,
-      );
     }
   };
   const actions = [

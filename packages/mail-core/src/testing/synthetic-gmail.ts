@@ -19,7 +19,7 @@ import {
 
 // A synthetic Gmail message; `disposition` is served as its Content-Disposition header, `headers`
 // as further message headers, and a `calendar` makes it multipart/mixed: its body, then the
-// calendar as `invite.ics`.
+// calendar as `invite.ics`. A `file` is attached as `budget.csv`, served apart by its attachment ID.
 interface SyntheticGmailMessage {
   readonly threadId?: string;
   readonly from?: string;
@@ -31,6 +31,7 @@ interface SyntheticGmailMessage {
   readonly text?: string;
   readonly disposition?: string;
   readonly calendar?: string;
+  readonly file?: string;
   readonly headers?: ReadonlyArray<Readonly<{ name: string; value: string }>>;
 }
 
@@ -317,6 +318,21 @@ const identity = (subject: string, granted: boolean) => ({
   subject,
   scopes: granted ? [gmailScope] : [],
 });
+// The `registration-forward` mailbox adds a message whose attachment downloads slowly, so a forward
+// of it opens while the file is still importing.
+const forwardFile = 'budget-csv';
+const forwardDelay = '30 seconds';
+const syntheticForward: Readonly<Record<string, SyntheticGmailMessage>> = {
+  '19a0c0ffee000051': {
+    from: 'Priya Natarajan <priya@example.invalid>',
+    subject: 'Q4 budget',
+    snippet: 'The Q4 budget is attached.',
+    internalDate: '1759500000000',
+    labelIds: ['INBOX', 'UNREAD'],
+    text: 'The Q4 budget is attached.',
+    file: 'Team,Budget\nDesign,12000\nEngineering,48000\n',
+  },
+};
 // The `registration-unsubscribe` mailbox adds three newsletters with one-click unsubscribe offers.
 // The mock native request answers with its URL's last segment: sent, failed and uncertain.
 const syntheticNewsletters: Readonly<Record<string, SyntheticGmailMessage>> =
@@ -370,7 +386,9 @@ const newestFirst = Order.flip(
 const bodyTypeOf = (message: SyntheticGmailMessage) =>
   message.html === undefined ? 'text/plain' : 'text/html';
 const mimeTypeOf = (message: SyntheticGmailMessage) =>
-  message.calendar === undefined ? bodyTypeOf(message) : 'multipart/mixed';
+  message.calendar === undefined && message.file === undefined
+    ? bodyTypeOf(message)
+    : 'multipart/mixed';
 // The body-free preflight prefetch makes: only the requested admission headers are returned.
 const admission = (
   message: SyntheticGmailMessage,
@@ -395,26 +413,52 @@ const full = (message: SyntheticGmailMessage) => {
     headers: mimeHeaders(message, bodyType),
     body: encoded(message.html ?? message.text ?? ''),
   };
+  const attached = [
+    ...(message.calendar === undefined
+      ? []
+      : [
+          {
+            mimeType: 'text/calendar',
+            filename: 'invite.ics',
+            headers: [
+              {
+                name: 'Content-Type',
+                value: 'text/calendar; charset=UTF-8; method=REQUEST',
+              },
+            ],
+            body: encoded(message.calendar),
+          },
+        ]),
+    ...(message.file === undefined
+      ? []
+      : [
+          {
+            mimeType: 'text/csv',
+            filename: 'budget.csv',
+            headers: [
+              { name: 'Content-Type', value: 'text/csv; name="budget.csv"' },
+              {
+                name: 'Content-Disposition',
+                value: 'attachment; filename="budget.csv"',
+              },
+            ],
+            body: {
+              size: encoded(message.file).size,
+              attachmentId: forwardFile,
+            },
+          },
+        ]),
+  ];
   return {
     payload:
-      message.calendar === undefined
+      attached.length === 0
         ? { ...body, headers: [...body.headers, ...(message.headers ?? [])] }
         : {
             mimeType: 'multipart/mixed',
             headers: mimeHeaders(message, 'multipart/mixed'),
             parts: [
               { ...body, headers: mimeHeaders({}, bodyType) },
-              {
-                mimeType: 'text/calendar',
-                filename: 'invite.ics',
-                headers: [
-                  {
-                    name: 'Content-Type',
-                    value: 'text/calendar; charset=UTF-8; method=REQUEST',
-                  },
-                ],
-                body: encoded(message.calendar),
-              },
+              ...attached,
             ],
           },
   };
@@ -461,6 +505,7 @@ export class SyntheticGoogle extends Context.Service<SyntheticGoogle>()(
         ...(scenario === 'registration-unsubscribe'
           ? syntheticNewsletters
           : {}),
+        ...(scenario === 'registration-forward' ? syntheticForward : {}),
         ...(scenario === 'registration-performance'
           ? syntheticPerformance
           : {}),
@@ -634,6 +679,13 @@ export class SyntheticGoogle extends Context.Service<SyntheticGoogle>()(
             labels: [{ id: 'Label_1', name: 'Travel', type: 'user' }],
           }),
         modify: ({ segments }, body) => modify(segments.at(-2) ?? '', body),
+        // The `registration-forward` attachment, held before it is served.
+        [forwardFile]: ({ segments }) => {
+          const file = messages[segments.at(-3) ?? '']?.file;
+          return file === undefined
+            ? Effect.succeed(missing)
+            : Effect.delay(reply(200, encoded(file)), forwardDelay);
+        },
         // The Inbox and search list the Inbox messages, the first two then the rest on a second
         // page; another view lists its messages as Gmail does, Spam and Trash only with
         // includeSpamTrash and every other message without a label.
