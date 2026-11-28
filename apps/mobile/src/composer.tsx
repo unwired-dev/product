@@ -757,9 +757,15 @@ export const layoutStyles = {
     // Cc/Bcc's 44pt target overhangs the 41.4pt row rather than growing it.
     trailing: { height: padFieldHeight, justifyContent: 'center' },
     assetChip: {},
-    // R2 of #2092: the bar and the reason Send waits, at the body's inset 14pt below the format bar.
-    assetProgress: { width: 138, marginTop: 2 },
-    waiting: { marginHorizontal: padInset - fieldInset, marginTop: 12 },
+    // R2 of #2092: the bar and the reason Send waits, at the body's inset 14pt below the format bar,
+    // in 16pt lines with the body's own inset below it.
+    assetProgress: { width: 138, marginTop: -1 },
+    waiting: {
+      marginHorizontal: padInset - fieldInset,
+      marginTop: 12,
+      marginBottom: -spacing.s,
+      lineHeight: 16,
+    },
   }),
 };
 
