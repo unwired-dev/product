@@ -113,7 +113,6 @@ const styles = StyleSheet.create({
   title: {
     ...(ipad ? typography.ipadList.title3Emphasized : textStyles.headline),
   },
-  // A fixed size: a host matching its contents grows the iPad popover to its full height.
   confirmButton: { position: 'absolute', right: 0, width: 44, height: 44 },
   confirm: {
     width: 44,
