@@ -460,10 +460,11 @@ const styles = StyleSheet.create({
   },
   assetMeta: { flexShrink: 1 },
   assetName: { ...textStyles.subheadlineEmphasized },
-  assetStatusRow: { flexDirection: 'row', alignItems: 'center', gap: 3 },
+  // R1 and R3 of #2092 draw the warning glyph inline at the status's size, a space before it.
+  assetStatusRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  // R2 of #2092 spaces the name, status and bar 2pt apart.
+  assetStatusImporting: { marginTop: 2 },
   assetStatus: { ...textStyles.footnote, flexShrink: 1 },
-  // R2 of #2092: the import's bar under its status.
-  assetProgress: { width: 140, marginTop: 2 },
   thumbnail: { width: 32, height: 32, borderRadius: radius.control },
   fields: { paddingHorizontal: fieldInset },
   field: {
@@ -691,6 +692,10 @@ export const layoutStyles = {
     tokenText: textStyles.body,
     trailing: { height: compactFieldHeight, justifyContent: 'center' },
     assetChip: { gap: 10 },
+    // R2 of #2092: the import's bar under its status, and the reason Send waits at the body's
+    // inset, 8pt below From.
+    assetProgress: { width: 144, marginTop: 2 },
+    waiting: { marginHorizontal: inset - fieldInset, marginTop: 4 },
   }),
   // The New Message card's text starts 23pt down and its fields end 6.9pt above its edge.
   regular: StyleSheet.create({
@@ -752,6 +757,9 @@ export const layoutStyles = {
     // Cc/Bcc's 44pt target overhangs the 41.4pt row rather than growing it.
     trailing: { height: padFieldHeight, justifyContent: 'center' },
     assetChip: {},
+    // R2 of #2092: the bar and the reason Send waits, at the body's inset 14pt below the format bar.
+    assetProgress: { width: 138, marginTop: 2 },
+    waiting: { marginHorizontal: padInset - fieldInset, marginTop: 12 },
   }),
 };
 
@@ -1885,13 +1893,18 @@ function AssetStatus({
   progress: number | undefined;
 }>) {
   const colors = usePalette();
+  const sized = layoutStyles[use(ComposerLayoutContext).size];
   return (
     <>
-      <View style={styles.assetStatusRow}>
+      <View
+        style={[
+          styles.assetStatusRow,
+          progress === undefined ? null : styles.assetStatusImporting,
+        ]}>
         {failed ? (
           <SFSymbol
             name="exclamationmark.triangle.fill"
-            size={11}
+            size={13}
             color={colors.statusWarning}
           />
         ) : null}
@@ -1907,7 +1920,7 @@ function AssetStatus({
       {progress === undefined ? null : (
         <ProgressBar
           percent={progress * 100}
-          style={styles.assetProgress}
+          style={sized.assetProgress}
         />
       )}
     </>
@@ -2039,9 +2052,11 @@ function AssetRow({
           onPress={retry}
         />
       ) : null}
+      {/* R1 and R2 of #2092 draw the chip's actions at the reader's 15pt, its capsule reaching
+          past the label. */}
       {onTryAgain === undefined || running ? null : (
         <Action
-          variant="composer"
+          variant="reader"
           disabled={!editable}
           accessibilityLabel={t('drafts.assets.retryImportLabel', {
             name: asset.name,
@@ -2052,7 +2067,7 @@ function AssetRow({
       )}
       {running ? (
         <Action
-          variant="composer"
+          variant="reader"
           disabled={!editable}
           accessibilityLabel={t('drafts.assets.cancelLabel', {
             name: asset.name,
@@ -2246,6 +2261,7 @@ function SendRefusalNotice({
 }) {
   const { t } = useLocalization();
   const colors = usePalette();
+  const { size } = use(ComposerLayoutContext);
   const provider = use(AccountContext)?.mailboxes.find(
     ({ id }) => id === connection,
   )?.provider;
@@ -2266,7 +2282,12 @@ function SendRefusalNotice({
         />
       )}
       {waiting === undefined ? null : (
-        <Text style={[styles.waiting, { color: colors.textSecondary }]}>
+        <Text
+          style={[
+            styles.waiting,
+            layoutStyles[size].waiting,
+            { color: colors.textSecondary },
+          ]}>
           {t('drafts.assets.stillImporting', { name: waiting })}
         </Text>
       )}
