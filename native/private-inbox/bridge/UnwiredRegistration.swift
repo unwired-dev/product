@@ -872,10 +872,10 @@ extension UnwiredRegistration {
     "^projects/[a-z][a-z0-9-]{4,28}[a-z0-9]/topics/[A-Za-z][A-Za-z0-9._~%+-]{2,254}$"
 
   // Mailbox preflight and registration changes share custody across all suspension points, except
-  // that a Gmail or Graph read releases it while the provider answers. A `transfer`, an IMAP
-  // message's bytes, obtains only the store under the gate, so a Draft save or its recovery write
-  // never waits behind a download; the read checks its connection's generation after the network
-  // wait, as ungated work does.
+  // that a Gmail or Graph read releases it while its token renews and the provider answers. A
+  // `transfer`, an IMAP message's bytes, obtains only the store under the gate, so a Draft save or
+  // its recovery write never waits behind a download; the read checks its connection's generation
+  // after the network wait, as ungated work does.
   private func mailbox(
     _ name: String, _ resolve: @escaping RCTPromiseResolveBlock,
     reject: @escaping RCTPromiseRejectBlock,

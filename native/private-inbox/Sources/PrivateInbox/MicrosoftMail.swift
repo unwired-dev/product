@@ -3,7 +3,7 @@ import Foundation
 
 // A Microsoft authorization for reading, organizing and sending mail through Graph. The account it names is
 // known only once Graph verifies it.
-struct MicrosoftMailIdentity {
+struct MicrosoftMailIdentity: Sendable {
   // The archived tokens, which only this device's Keychain record keeps.
   let credential: Data
   let accessToken: String

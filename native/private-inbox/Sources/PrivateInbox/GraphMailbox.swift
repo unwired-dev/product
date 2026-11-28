@@ -17,7 +17,7 @@ extension RegistrationStore {
   }
 
   // One Graph read for a Microsoft connection. Given the operation gate it holds, the read releases
-  // it while Graph answers.
+  // it while Microsoft renews its token and while Graph answers.
   func graph(
     url value: String, connection id: String, address: String, generation expected: String,
     gate: RegistrationOperationGate? = nil
@@ -307,7 +307,11 @@ extension RegistrationStore {
     let microsoft = try microsoftProvider()
     let identity: MicrosoftMailIdentity
     do {
-      identity = try await microsoft.refresh(credential)
+      identity = try await outside(gate) {
+        try await self.shared(\.microsoftRenewals, credential) {
+          try await self.microsoftProvider().refresh(credential)
+        }
+      }
     } catch is CancellationError {
       throw CancellationError()
     } catch RegistrationError.gmailUnavailable {
@@ -338,11 +342,7 @@ extension RegistrationStore {
         try await microsoft.graph(
           identity, url: url, method: method, body: body, contentType: contentType)
       }
-      if let gate {
-        (status, data) = try await gate.released(request)
-      } else {
-        (status, data) = try await request()
-      }
+      (status, data) = try await outside(gate, request)
     } catch RegistrationError.unavailable where sending {
       // It never left this device, so it is safe to try again.
       throw RegistrationError.unavailable

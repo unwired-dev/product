@@ -139,7 +139,28 @@ extension RegistrationStore {
     try await removeMailboxCache(id)
   }
 
-  // One Gmail read. Given the operation gate it holds, the read releases it while Gmail answers.
+  // Provider waits of a read that holds the operation gate run outside it.
+  func outside<Value>(_ gate: RegistrationOperationGate?, _ work: () async throws -> Value)
+    async throws -> Value
+  {
+    guard let gate else { return try await work() }
+    return try await gate.released(work)
+  }
+
+  // One renewal of a credential at a time; reads renewing it meanwhile wait for the same one.
+  func shared<Identity: Sendable>(
+    _ renewals: ReferenceWritableKeyPath<RegistrationStore, [Data: Task<Identity, any Error>]>,
+    _ credential: Data, _ renew: @escaping @MainActor () async throws -> Identity
+  ) async throws -> Identity {
+    if let running = self[keyPath: renewals][credential] { return try await running.value }
+    let renewal = Task { @MainActor in try await renew() }
+    self[keyPath: renewals][credential] = renewal
+    defer { self[keyPath: renewals][credential] = nil }
+    return try await renewal.value
+  }
+
+  // One Gmail read. Given the operation gate it holds, the read releases it while Google renews
+  // its token and while Gmail answers.
   func gmail(
     path: String, query: [URLQueryItem], connection: String, address: String, generation: String,
     gate: RegistrationOperationGate? = nil
@@ -308,7 +329,11 @@ extension RegistrationStore {
     }
     let identity: GoogleRegistrationIdentity
     do {
-      identity = try await provider.refresh(credential)
+      identity = try await outside(gate) {
+        try await self.shared(\.googleRenewals, credential) {
+          try await self.provider.refresh(credential)
+        }
+      }
     } catch is CancellationError {
       throw CancellationError()
     } catch is RegistrationError {
@@ -342,11 +367,7 @@ extension RegistrationStore {
         try await self.provider.gmail(
           identity, url: url, body: body, contentType: contentType, method: method)
       }
-      if let gate {
-        (status, data) = try await gate.released(request)
-      } else {
-        (status, data) = try await request()
-      }
+      (status, data) = try await outside(gate, request)
     } catch RegistrationError.unavailable where sending {
       // It never left this device, so it is safe to try again.
       throw RegistrationError.unavailable

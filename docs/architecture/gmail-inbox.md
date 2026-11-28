@@ -156,10 +156,11 @@ renewal and provider response, preventing a suspended
 operation from using or returning the previous mailbox after cleanup or
 reselection. Token renewal itself does not change the generation, so concurrent
 metadata reads can refresh without invalidating each other. A single Gmail or Graph
-read hands the gate on while the provider answers and queues to take it back, so a
-Draft save or its recovery write never waits behind a download; token renewal and its
-write stay under the gate, and the read validates the generation again once it holds
-it. An IMAP message read takes only the store under the gate
+read hands the gate on while its token renews and while the provider answers, and
+queues to take it back, so a Draft save or its recovery write never waits behind a
+download. Reads renewing one credential together share a single renewal. Once the
+read holds the gate again it validates the generation, and it keeps the renewed
+token only if the connection's credential is unchanged. An IMAP message read takes only the store under the gate
 ([#3119](https://github.com/unwired-dev/product/issues/3119)). Revocation preflight runs when opening the cache and before each committed page,
 so the backend receives no per-message read activity. A positive device revocation
 purges before cache access or commit. Gmail reads perform local account,
