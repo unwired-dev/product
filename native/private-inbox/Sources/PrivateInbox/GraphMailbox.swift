@@ -66,7 +66,7 @@ extension RegistrationStore {
       return value is String
     case "scheduledStartDateTime", "scheduledEndDateTime":
       guard let time = value as? [String: Any] else { return false }
-      return time.allSatisfy { ["dateTime", "timeZone"].contains($0.key) && $0.value is String }
+      return Set(time.keys) == ["dateTime", "timeZone"] && time.values.allSatisfy { $0 is String }
     default:
       return false
     }

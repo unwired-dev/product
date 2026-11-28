@@ -250,8 +250,9 @@ shows them yet.
   others ([Update mailboxSettings](https://learn.microsoft.com/en-us/graph/api/user-update-mailboxsettings?view=graph-rest-1.0)).
   Native code builds that body, so only the six fields the read decodes cross and no other
   mailbox setting can be written. Graph's answer, decoded as the read is, is the saved state.
-  Nothing is cached. Saves run one at a time, and a save the Inbox closed before it was sent
-  sends nothing.
+  Nothing is cached. Saves run one at a time. A save still waiting when the Inbox closes sends
+  nothing; one already handed to native code is sent, as the person asked, and its answer is
+  dropped. Native code still refuses it for a connection that was removed or verified again.
 - **Save failures.** A 403 answers `permission`: the grant lacks `MailboxSettings.ReadWrite`.
   The Inbox stays as it is and nothing asks for Microsoft again. Graph refusing the values
   (400), as for an end before the start, answers `failed`; other failures answer as the read's

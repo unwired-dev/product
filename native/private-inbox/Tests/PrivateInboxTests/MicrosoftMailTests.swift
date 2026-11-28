@@ -301,6 +301,7 @@ extension PrivateInboxTests {
       ["scheduledStartDateTime": Date()], ["internalReplyMessage": ["language": "en-US"]],
       ["scheduledEndDateTime": ["dateTime": "2026-12-07T07:00:00", "workingHours": "UTC"]],
       ["scheduledEndDateTime": ["dateTime": 1, "timeZone": "UTC"]],
+      ["scheduledStartDateTime": ["dateTime": "2026-12-07T07:00:00"]], ["scheduledEndDateTime": [:]],
       ["internalReplyMessage": String(repeating: "x", count: 1024 * 1024)],
     ] {
       await #expect(throws: RegistrationError.unavailable) {
