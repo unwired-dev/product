@@ -903,7 +903,11 @@ Jest; the synthetic Gmail layer does not create labels.
 `testSheetSwipes` runs on a `registration-declined` Release build with
 `UNWIRED_JOURNEY=testSheetSwipes` on iPhone; iPad, whose presenters there are popovers, skips it
 ([#2898](https://github.com/unwired-dev/product/issues/2898)). It connects the synthetic Gmail
-mailbox and opens a message. The Reply sheet, its **Labels** sheet and that sheet's
+mailbox. In the Inbox it turns **Filter** on and opens **Filters**, clears **Unread** and takes
+the same swipes from **Apply**, a system button
+([#3127](https://github.com/unwired-dev/product/issues/3127)): the swipe released early neither
+applies nor closes, the completed one discards, and a tap on **Apply** then applies the edit,
+turning the filter off. It then opens a message. The Reply sheet, its **Labels** sheet and that sheet's
 **New Label…** sheet each stay in place at a downward swipe held short and released at rest,
 captured as "… after a swipe released early" with the appearance. A completed downward swipe
 then closes each one, and the same control opens it again. **New Label** opens with the software

@@ -2,7 +2,17 @@ import type { Translate } from '@private-email/localization';
 import type { InboxFilter } from '@private-email/mail-core/mailboxes';
 import type { Dispatch, ReactElement, ReactNode, SetStateAction } from 'react';
 
-import { BottomSheet, Host, Popover, RNHostView } from '@expo/ui/swift-ui';
+import {
+  BottomSheet,
+  Host,
+  Popover,
+  RNHostView,
+  Button as SwiftUIButton,
+} from '@expo/ui/swift-ui';
+import {
+  buttonStyle,
+  accessibilityLabel as spokenLabel,
+} from '@expo/ui/swift-ui/modifiers';
 import { filterMessages } from '@private-email/mail-core/mailboxes';
 import { radius, spacing, typography } from '@private-email/mail-core/theme';
 import { Fragment, use, useMemo, useState } from 'react';
@@ -103,9 +113,8 @@ const styles = StyleSheet.create({
   title: {
     ...(ipad ? typography.ipadList.title3Emphasized : textStyles.headline),
   },
+  confirmButton: { position: 'absolute', right: 0, width: 44, height: 44 },
   confirm: {
-    position: 'absolute',
-    right: 0,
     width: 44,
     height: 44,
     borderRadius: 22,
@@ -308,17 +317,26 @@ function Filters({
           style={[styles.title, { color: colors.textPrimary }]}>
           {t('filters.title')}
         </Text>
-        <Pressable
-          accessibilityLabel={t('filters.apply')}
-          accessibilityRole="button"
-          onPress={onConfirm}
-          style={[styles.confirm, { backgroundColor: colors.accentFill }]}>
-          <SFSymbol
-            name="checkmark"
-            size={18}
-            color={colors.accentOnFill}
-          />
-        </Pressable>
+        <Host style={styles.confirmButton}>
+          <SwiftUIButton
+            onPress={onConfirm}
+            modifiers={[buttonStyle('plain'), spokenLabel(t('filters.apply'))]}>
+            <RNHostView>
+              <View
+                accessibilityElementsHidden
+                style={[
+                  styles.confirm,
+                  { backgroundColor: colors.accentFill },
+                ]}>
+                <SFSymbol
+                  name="checkmark"
+                  size={18}
+                  color={colors.accentOnFill}
+                />
+              </View>
+            </RNHostView>
+          </SwiftUIButton>
+        </Host>
       </View>
       <ScrollView style={styles.list}>
         <View style={styles.sections}>
