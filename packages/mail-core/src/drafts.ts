@@ -507,14 +507,13 @@ export function bodySuggestionSections(
   // Then people already on the Draft, once each, under their newest recent name, else the name
   // the Draft gives them, matched by either.
   const people = [...draft.to, ...draft.cc, ...draft.bcc];
-  const present = people.flatMap((person) => {
+  const present = people.flatMap((person, index) => {
     const address = person.address.toLowerCase();
-    const same = people.filter(
-      (each) => each.address.toLowerCase() === address,
-    );
-    if (same[0] !== person) {
+    const sameAs = (each: Recipient) => each.address.toLowerCase() === address;
+    if (people.findIndex(sameAs) !== index) {
       return [];
     }
+    const same = people.filter(sameAs);
     const named = sent
       .filter((each) => each.address.toLowerCase() === address)
       .map(({ sender }) =>

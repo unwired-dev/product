@@ -1573,6 +1573,13 @@ describe('entering Draft recipients', () => {
     expect(named('bob', bob.name)).toStrictEqual([bob]);
     expect(named('bob', '')).toStrictEqual([ana]);
     expect(
+      bodySuggestionSections(
+        { ...draft, to: [ana], cc: [ana] },
+        { start: 0, end: 1, text: '' },
+        { correspondents: [], contacts: [] },
+      ).recent,
+    ).toStrictEqual([ana]);
+    expect(
       recipientSuggestions({ ...onDraft, entries: { to: 't' } }, 'to', {
         correspondents,
       }),

@@ -753,7 +753,7 @@ export const layoutStyles = {
     bodySuggestions: {
       marginLeft: padFieldInset,
       width: padBodyMenuWidth,
-      marginTop: 6 * ipadListScale,
+      marginTop: 9 * ipadListScale,
       padding: 6 * ipadListScale,
     },
     token: { minHeight: padFieldHeight },
@@ -1330,8 +1330,9 @@ function SuggestionMenu({
                     {role === undefined ? null : (
                       <Text
                         style={[
-                          styles.suggestionName,
-                          sized.suggestionName,
+                          monograms
+                            ? styles.monogramAddress
+                            : [styles.suggestionName, sized.suggestionName],
                           { color: secondary },
                         ]}>
                         {role}
