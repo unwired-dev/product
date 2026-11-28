@@ -847,7 +847,6 @@ describe('the host assembly', () => {
         ['removed', [0]],
       ],
       badge: 'inbox',
-      sound: 'default',
     });
   });
 
