@@ -4213,6 +4213,7 @@ describe('product registration', () => {
           device.sound = sound;
           return Promise.resolve({ ...device });
         },
+        setNotificationProfile: () => Promise.resolve({ ...device }),
         setBadgeCount: () => Promise.resolve(null),
         openNotificationSettings: () => {
           native.push('system settings');
@@ -4297,6 +4298,7 @@ describe('product registration', () => {
           device.sound = sound;
           return Promise.resolve({ ...device });
         },
+        setNotificationProfile: () => Promise.resolve({ ...device }),
         setBadgeCount: () => Promise.resolve(null),
         openNotificationSettings: () => Promise.resolve(null),
         postNotifications: () => Promise.resolve(null),
@@ -4367,6 +4369,95 @@ describe('product registration', () => {
       ],
       saved: { badge: 'off', sound: 'none' },
       footer: true,
+    });
+  });
+
+  it('switches a Profile’s Badge and sound on this device, and hides the switches until notifications are allowed', async () => {
+    expect.hasAssertions();
+    const { synthetic } = await connectedAccount();
+    const store = createRegistration(synthetic.relaunch());
+    const device = {
+      authorization: 'undetermined',
+      previews: false,
+      badge: 'inbox',
+      sound: 'default',
+      badgeSoundOff: [] as readonly string[],
+    };
+    const owners: string[] = [];
+    const notifications = createNotifications(
+      {
+        notificationSettings: () => Promise.resolve({ ...device }),
+        requestNotifications: () => Promise.resolve({ ...device }),
+        setNotificationPreviews: () => Promise.resolve({ ...device }),
+        setNotificationBadge: () => Promise.resolve({ ...device }),
+        setNotificationSound: () => Promise.resolve({ ...device }),
+        // Only turning a switch off is exercised here.
+        setNotificationProfile: (owner, profile) => {
+          owners.push(owner);
+          device.badgeSoundOff = [...device.badgeSoundOff, profile];
+          return Promise.resolve({ ...device });
+        },
+        setBadgeCount: () => Promise.resolve(null),
+        openNotificationSettings: () => Promise.resolve(null),
+        postNotifications: () => Promise.resolve(null),
+      },
+      () => english,
+    );
+    await render(
+      <NotificationsContext value={notifications}>
+        <RegistrationGate
+          store={started(store)}
+          preview={false}>
+          <ConnectedInbox />
+        </RegistrationGate>
+      </NotificationsContext>,
+    );
+    await openAccount();
+    await openSettings('Notifications');
+    const primary = () =>
+      screen.getByRole('switch', {
+        name: 'Badge and sound for Primary Profile',
+      });
+    // Not yet asked for permission, the group is hidden.
+    await expect(screen.findByText('Allow…')).resolves.toBeVisible();
+    const undetermined = screen.queryByText('Profiles');
+    device.authorization = 'authorized';
+    await act(() => notifications.load());
+    await expect(screen.findByText('Profiles')).resolves.toBeVisible();
+    const shown = {
+      on: primary().props.value,
+      detail: screen.getByText('Badge and sound') !== null,
+    };
+    await act(async () => {
+      await fireEvent(primary(), 'valueChange', false);
+    });
+    const off = {
+      value: primary().props.value,
+      saved: device.badgeSoundOff,
+      owners,
+    };
+    // Denied in the system's settings, the group is hidden and the choice is kept.
+    device.authorization = 'denied';
+    await act(() => notifications.load());
+    const denied = screen.queryByText('Profiles');
+    device.authorization = 'authorized';
+    await act(() => notifications.load());
+    expect({
+      undetermined,
+      shown,
+      off,
+      denied,
+      allowedAgain: primary().props.value,
+    }).toStrictEqual({
+      undetermined: null,
+      shown: { on: true, detail: true },
+      off: {
+        value: false,
+        saved: ['default'],
+        owners: ['account-synthetic-product-subject'],
+      },
+      denied: null,
+      allowedAgain: false,
     });
   });
 

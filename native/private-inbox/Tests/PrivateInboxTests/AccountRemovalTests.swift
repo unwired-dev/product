@@ -176,8 +176,11 @@ extension PrivateInboxTests {
     #expect(try store.mailAssistance()["owner"] as? String == account)
     #expect(try store.mailAssistance()["profiles"] as? [String] == ["default"])
     #expect(try store.mailAssistance()["privateCloud"] as? [String] == ["default"])
+    // Its Profiles' Badge and sound choices name ids another Product Account reuses.
+    UserDefaults.standard.set(["default"], forKey: RegistrationStore.notificationProfilesOffKey)
     try await store.purge(notice: notice)
     #expect(try holdsNothing(keys, account: account))
+    #expect(UserDefaults.standard.object(forKey: RegistrationStore.notificationProfilesOffKey) == nil)
     #expect(try store.mailAssistance()["owner"] is NSNull)
     #expect(store.session == nil)
     #expect(store.identity == nil)
