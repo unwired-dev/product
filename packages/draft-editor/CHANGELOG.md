@@ -1,5 +1,129 @@
 # @private-email/draft-editor
 
+## 0.2.0
+
+### Minor Changes
+
+- 37dd285: The Tiptap Draft editor page edits a Draft's tables: Tab and Shift-Tab move
+  between cells, Tab leaves the last cell without adding a row, Return adds a line
+  in a cell, Backspace after a table selects it and a second deletes it as one Undo
+  step, and the caret's cell is outlined. A table the page cannot edit unchanged is
+  kept as it is. The composers still give the page the Draft's text without its
+  tables.
+
+  The page's `draftEditor.document`, its `update` message's `document` and the
+  `replace` command now carry a `TableDocument`.
+
+- 972916c: The Tiptap Draft editor page keeps a Draft's alignment, list levels, text colors, backgrounds,
+  font families and sizes through opening, editing and saving, and shows them as the current
+  composer does, with Dark colors and per-level list numbering. Typing, Return, joined blocks,
+  edits of a selection, marks and block kinds keep them as the current composer does; pasted HTML
+  still carries none. mail-core's new `body-display` entry
+  point holds `formatStyleOf`, `isListKind`, `listNumbersOf` and `markersOf` without a schema
+  library, so the page can bundle them; `semantic-document` still exports the first three (#2884).
+
+### Patch Changes
+
+- fb5b3a4: An inline image in a Semantic Message Document can carry a display `width` of 320, 640 or 1024 (Small, Medium or Large; Original without one). Formatting, typing, line breaks, Undo, cut and paste and storage keep it, and outgoing HTML gives the image that `width` while sending its original bytes. The Draft editor page carries the width and takes a `resize` command that sets or clears it for every use of one image as one undoable edit (#2487, part of #1735).
+- 00ee1d1: The evaluation composer opens Attach on iPhone, and Writing tools on iPhone and iPad, as system menus, as the regular composer does.
+  On iPhone, both composers' Attach and Writing tools menus end at the trailing edge and bottom of the composer controls, which hide while a menu is open, and list their actions top-down. The regular composer's iPhone controls now end 16pt from the trailing edge, as the frames draw them. The iPhone compose sheet shows the system grabber. On iPhone, the evaluation composer's header, From and body sit where the frames place them, and its body text uses the primary text colour. Paste Image shows two pages. iPad and Mac keep their sheet top and editor text as before.
+- 6fef500: The Draft editor page keeps the first line's layout for edits across lines inside a table cell, keeps a table's grid when an edit runs into it, selects a kept table that ends the body before Delete removes it, and leaves a caret after Select All and Return.
+- a2d2027: On Mac, files dropped on the Draft editor page of `registration-draft-editor` builds are
+  attached, as on the current composer: native code reads them from the drag pasteboard, and the
+  page still never reads their data (#2950).
+- b9e1782: On iPhone and iPad, the Draft editor page opens the current composer's Slash Command Menu when `/` is typed first in a body block. The menu hangs under the caret's line, the page hands it Return, Tab, the arrows and Escape, and its choice is one page edit that one Undo reverts.
+- a2a2c32: The Draft editor page keeps the caret after a word the system capitalizes or corrects as you type, so the next keys follow it instead of landing inside the word.
+- 5dc1d7b: On Mac, typing through an inline prediction in the Draft editor page leaves the word once, with the caret after it; Tab still accepts the prediction, Escape dismisses it, and a word picked from the completion bubble is added.
+- e97ad73: On the Mac, the Draft editor page opens the Mac composer's Slash Command Menu when `/` is typed first in a body block. The menu hangs under the `/`, whose left edge the page now reports with the caret's line, the page hands it Return, Tab, the arrows and Escape, and a chosen block is one page edit that one Undo reverts.
+- 0302409: Refresh dependencies to the latest compatible versions: Effect 4.1.5, Convex 1.51, jose 6.2.18, i18next 27.2 and react-i18next 18.0, parse5 8.1, the CSS parser 4.0.3 and Tiptap 3.34 in the Draft editor page. The Mac app moves to React Native macOS 0.83, with React Native 0.83.10 and React 19.2, and to WebView 14.0.1, the version iPhone and iPad use. In Effect 4.1 a request that waits for a lock can no longer take a free lock ahead of an earlier waiter, so a history backfill step in a Gmail, Microsoft or IMAP Inbox now steps aside for any Inbox request that is waiting, such as a synchronization, a change being sent or Discard Change, so a history read no longer delays them. Each tagged error class now carries a type brand, so another class with the same fields no longer type-checks as it.
+- Updated dependencies [f6bdbd4]
+- Updated dependencies [2b6b0a2]
+- Updated dependencies [ce04f2c]
+- Updated dependencies [22026ed]
+- Updated dependencies [6d21e32]
+- Updated dependencies [643fe96]
+- Updated dependencies [e662cb5]
+- Updated dependencies [fd50bbb]
+- Updated dependencies [e015cfb]
+- Updated dependencies [e74502a]
+- Updated dependencies [3f2363b]
+- Updated dependencies [1872d39]
+- Updated dependencies [16ef069]
+- Updated dependencies [4698039]
+- Updated dependencies [dbb1218]
+- Updated dependencies [3b19eb2]
+- Updated dependencies [44a7672]
+- Updated dependencies [c416829]
+- Updated dependencies [17eb728]
+- Updated dependencies [b981eff]
+- Updated dependencies [4a29bf4]
+- Updated dependencies [005823d]
+- Updated dependencies [fb5b3a4]
+- Updated dependencies [21ef44a]
+- Updated dependencies [9a7cf95]
+- Updated dependencies [d0534ac]
+- Updated dependencies [41140eb]
+- Updated dependencies [7f14b01]
+- Updated dependencies [e49531b]
+- Updated dependencies [768201e]
+- Updated dependencies [b2ff343]
+- Updated dependencies [f539826]
+- Updated dependencies [a1e183e]
+- Updated dependencies [0f25336]
+- Updated dependencies [811634a]
+- Updated dependencies [1250d61]
+- Updated dependencies [98348fc]
+- Updated dependencies [9f819a0]
+- Updated dependencies [677485c]
+- Updated dependencies [ce6b413]
+- Updated dependencies [8c26803]
+- Updated dependencies [1f68c5c]
+- Updated dependencies [ac45565]
+- Updated dependencies [9cba349]
+- Updated dependencies [c95a25b]
+- Updated dependencies [aa9ba6e]
+- Updated dependencies [a8e8d3f]
+- Updated dependencies [2ed2a21]
+- Updated dependencies [9776ab0]
+- Updated dependencies [c164dce]
+- Updated dependencies [592aac1]
+- Updated dependencies [fe92fe9]
+- Updated dependencies [4fda2a6]
+- Updated dependencies [f14bf7b]
+- Updated dependencies [5f1fa3a]
+- Updated dependencies [1ff7a94]
+- Updated dependencies [eaa3ffc]
+- Updated dependencies [82e8d34]
+- Updated dependencies [07d0ee3]
+- Updated dependencies [361a4f3]
+- Updated dependencies [70e2779]
+- Updated dependencies [ae1ee73]
+- Updated dependencies [209dfa9]
+- Updated dependencies [9322f52]
+- Updated dependencies [972916c]
+- Updated dependencies [8dd9f59]
+- Updated dependencies [a2d2027]
+- Updated dependencies [90c6a63]
+- Updated dependencies [33508c9]
+- Updated dependencies [3c710f3]
+- Updated dependencies [320d3e9]
+- Updated dependencies [4e72a1a]
+- Updated dependencies [2dd6518]
+- Updated dependencies [bba3bab]
+- Updated dependencies [06323ec]
+- Updated dependencies [f375899]
+- Updated dependencies [d6e84a2]
+- Updated dependencies [5df441d]
+- Updated dependencies [5df441d]
+- Updated dependencies [3e852e6]
+- Updated dependencies [2fcf2ba]
+- Updated dependencies [27cd600]
+- Updated dependencies [432b580]
+- Updated dependencies [20dffd7]
+- Updated dependencies [c66d1e5]
+- Updated dependencies [0302409]
+  - @private-email/mail-core@0.2.0
+
 ## 0.1.0
 
 ### Minor Changes

@@ -1,5 +1,15 @@
 # @private-email/convex
 
+## 0.1.1
+
+### Patch Changes
+
+- 6d21e32: Error reports for a failed operation whose error carries no JavaScript stack, such as a failed HTTP/envelope response or an asynchronous native rejection, now include the bundle coordinates where the operation was requested. They are taken only while error reporting is on and reach PostHog marked as synthetic operation call-site context, not as the throw site (#2331).
+- 0302409: Refresh dependencies to the latest compatible versions: Effect 4.1.5, Convex 1.51, jose 6.2.18, i18next 27.2 and react-i18next 18.0, parse5 8.1, the CSS parser 4.0.3 and Tiptap 3.34 in the Draft editor page. The Mac app moves to React Native macOS 0.83, with React Native 0.83.10 and React 19.2, and to WebView 14.0.1, the version iPhone and iPad use. In Effect 4.1 a request that waits for a lock can no longer take a free lock ahead of an earlier waiter, so a history backfill step in a Gmail, Microsoft or IMAP Inbox now steps aside for any Inbox request that is waiting, such as a synchronization, a change being sent or Discard Change, so a history read no longer delays them. Each tagged error class now carries a type brand, so another class with the same fields no longer type-checks as it.
+- Updated dependencies [6d21e32]
+- Updated dependencies [0302409]
+  - @private-email/contracts@0.1.1
+
 ## 0.1.0
 
 ### Minor Changes
