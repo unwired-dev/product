@@ -268,10 +268,12 @@ extension UnwiredRegistration {
   private static var newMailSound: String {
     sound(UserDefaults.standard.string(forKey: notificationSoundKey))
   }
-  // "none", one of the Mac's alert sounds by name, or otherwise "default".
+  // "none", one of the Mac's alert sounds by its exact name, or otherwise "default".
   private static func sound(_ name: String?) -> String {
     #if os(macOS)
-      if let name, !name.contains("/"), FileManager.default.fileExists(atPath: alertSound(name).path)
+      if let name,
+        (try? FileManager.default.contentsOfDirectory(atPath: "/System/Library/Sounds"))?
+          .contains("\(name).aiff") == true
       {
         return name
       }
@@ -282,7 +284,8 @@ extension UnwiredRegistration {
     URL(fileURLWithPath: "/System/Library/Sounds/\(name).aiff")
   }
   // UserNotifications does not look in /System/Library/Sounds, so the chosen Mac alert sound is
-  // copied into the app container's Library/Sounds first.
+  // copied into the app container's Library/Sounds first. If the copy fails, the system plays its
+  // default sound.
   private static func alertSound(named name: String) -> UNNotificationSound {
     #if os(macOS)
       let file = "\(name).aiff"
@@ -290,9 +293,16 @@ extension UnwiredRegistration {
         .appendingPathComponent("Sounds", isDirectory: true),
         !FileManager.default.fileExists(atPath: sounds.appendingPathComponent(file).path)
       {
-        try? FileManager.default.createDirectory(at: sounds, withIntermediateDirectories: true)
-        try? FileManager.default.copyItem(
-          at: alertSound(name), to: sounds.appendingPathComponent(file))
+        do {
+          try FileManager.default.createDirectory(at: sounds, withIntermediateDirectories: true)
+          try FileManager.default.copyItem(
+            at: alertSound(name), to: sounds.appendingPathComponent(file))
+        } catch {
+          let error = error as NSError
+          UnwiredNotifications.logger.error(
+            "New mail sound not copied: \(error.domain, privacy: .public) \(error.code, privacy: .public)"
+          )
+        }
       }
       return UNNotificationSound(named: UNNotificationSoundName(file))
     #else

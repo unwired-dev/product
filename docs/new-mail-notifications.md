@@ -301,7 +301,7 @@ imports the app entry in the background: the App Icon Badge follows each synchro
 typed reply holds delivery time, one kept in Drafts does not, and Open Draft waits until the mail shell follows it. The Mac `freshness.test.tsx`
 covers the Dock badge following a push wake and permission changed while the app was away. The app suites cover both
 Settings pages, including the Mac's alert sounds and its Profiles' switches while notifications are off. `ProductSyncTests.swift` covers sealing the policy record. Native
-delivery on iOS, iPadOS and macOS 27, including a tap that launches the app, its
-appearance and grouping, and each action from a locked device and with the app not
+delivery on iOS, iPadOS and macOS 27, including a tap that launches the app, the New mail
+sound it plays (#3096), its appearance and grouping, and each action from a locked device and with the app not
 running, needs a build with APNs and protected Gmail, IMAP and Microsoft 365
 mailboxes. It stays a required release check.
