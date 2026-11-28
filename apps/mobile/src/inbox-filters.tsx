@@ -113,7 +113,8 @@ const styles = StyleSheet.create({
   title: {
     ...(ipad ? typography.ipadList.title3Emphasized : textStyles.headline),
   },
-  confirmButton: { position: 'absolute', right: 0 },
+  // A fixed size: a host matching its contents grows the iPad popover to its full height.
+  confirmButton: { position: 'absolute', right: 0, width: 44, height: 44 },
   confirm: {
     width: 44,
     height: 44,
@@ -317,13 +318,11 @@ function Filters({
           style={[styles.title, { color: colors.textPrimary }]}>
           {t('filters.title')}
         </Text>
-        <Host
-          matchContents
-          style={styles.confirmButton}>
+        <Host style={styles.confirmButton}>
           <SwiftUIButton
             onPress={onConfirm}
             modifiers={[buttonStyle('plain'), spokenLabel(t('filters.apply'))]}>
-            <RNHostView matchContents>
+            <RNHostView>
               <View
                 accessibilityElementsHidden
                 style={[
