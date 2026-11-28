@@ -1,4 +1,8 @@
-import { Host, Button as SwiftUIButton } from '@expo/ui/swift-ui';
+import {
+  Host,
+  Button as SwiftUIButton,
+  Text as SwiftUIText,
+} from '@expo/ui/swift-ui';
 import {
   background,
   buttonStyle,
@@ -10,36 +14,53 @@ import {
   shapes,
 } from '@expo/ui/swift-ui/modifiers';
 import { radius } from '@private-email/mail-core/theme';
+import { StyleSheet } from 'react-native';
 
-import { usePalette } from './theme.ts';
+import { useLargeText, usePalette } from './theme.ts';
 
-// The system button on the quiet fill, with the system's press feedback (#3140).
+const styles = StyleSheet.create({ wide: { width: '100%' } });
+
+// The system button on the quiet fill, with the system's press feedback (#3140). A wide one, and
+// every one at the large text sizes, fills its row so its title wraps.
 export function ActionButton({
   label,
   onPress,
+  wide = false,
 }: {
   readonly label: string;
   readonly onPress: () => void;
+  readonly wide?: boolean;
 }) {
   const colors = usePalette();
+  const fill = useLargeText() || wide;
   return (
-    <Host matchContents>
+    <Host
+      key={fill ? 'fill' : 'ideal'}
+      matchContents={fill ? { vertical: true } : true}
+      style={fill ? styles.wide : null}>
       <SwiftUIButton
-        label={label}
         onPress={onPress}
-        modifiers={[
-          buttonStyle('plain'),
-          font({ textStyle: 'subheadline' }),
-          foregroundStyle(colors.textPrimary),
-          padding({ horizontal: 14 }),
-          frame({ minWidth: 44, minHeight: 44 }),
-          background(
-            colors.fillQuiet,
-            shapes.roundedRectangle({ cornerRadius: radius.control }),
-          ),
-          contentShape(shapes.rectangle()),
-        ]}
-      />
+        modifiers={[buttonStyle('plain')]}>
+        <SwiftUIText
+          modifiers={[
+            font({ textStyle: 'subheadline' }),
+            foregroundStyle(colors.textPrimary),
+            padding({ horizontal: 14 }),
+            frame({
+              minWidth: 44,
+              maxWidth: fill ? Infinity : undefined,
+              minHeight: 44,
+              alignment: 'leading',
+            }),
+            background(
+              colors.fillQuiet,
+              shapes.roundedRectangle({ cornerRadius: radius.control }),
+            ),
+            contentShape(shapes.rectangle()),
+          ]}>
+          {label}
+        </SwiftUIText>
+      </SwiftUIButton>
     </Host>
   );
 }

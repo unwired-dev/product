@@ -82,6 +82,7 @@ function ImapOrganizeStatus({ inbox }: { readonly inbox: ImapInbox }) {
       ) : null}
       {imap.blocked === undefined ? null : (
         <ActionButton
+          wide
           label={t('gmailActions.discardChange')}
           onPress={() => {
             if (imap.blocked !== undefined) {
