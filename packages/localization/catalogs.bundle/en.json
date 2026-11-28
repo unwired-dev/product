@@ -1861,6 +1861,7 @@
     "previewsDetail": "Sender and subject appear only on this device after you choose them.",
     "thisDevice_iphone": "On this iPhone",
     "thisDevice_ipad": "On this iPad",
+    "thisDevice_mac": "On this Mac",
     "badge": "App Icon Badge",
     "badge_ipad": "App icon badge",
     "dockBadge": "Dock badge",
@@ -1868,9 +1869,9 @@
       "off": "Off",
       "inbox": "Unread in Inbox"
     },
-    "badgeDetail": "Counts unread mail in Inbox.",
     "sound": "New Mail Sound",
     "sound_ipad": "New mail sound",
+    "sound_mac": "New mail sound",
     "sounds": {
       "default": "Default",
       "none": "None"

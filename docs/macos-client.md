@@ -503,6 +503,11 @@ such as after sign-out or while storage is locked. Command-, is always enabled,
 so while signed out, and in preview builds without a Product Account, the
 window opens and closes again at once.
 
+Settings › Notifications keeps this Mac's choices in its **On this Mac** group:
+**Dock badge**, and **New mail sound** with **Default**, the Mac's alert sounds and
+**None**; then each Mail Profile's **Badge and sound** switch. None of them synchronize;
+see [New Mail Notifications](new-mail-notifications.md#settings).
+
 Settings' Mail Assistance switch follows the Mac's system accent. Its graphite
 tint from the design remains a native-host deviation for design capture and
 qualification.

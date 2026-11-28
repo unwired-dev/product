@@ -266,7 +266,48 @@ extension UnwiredRegistration {
   private static let notificationBadgeKey = "dev.unwired.notification-badge"
   private static let notificationSoundKey = "dev.unwired.notification-sound"
   private static var newMailSound: String {
-    UserDefaults.standard.string(forKey: notificationSoundKey) == "none" ? "none" : "default"
+    sound(UserDefaults.standard.string(forKey: notificationSoundKey))
+  }
+  // "none", one of the Mac's alert sounds by its exact name, or otherwise "default".
+  private static func sound(_ name: String?) -> String {
+    #if os(macOS)
+      if let name,
+        (try? FileManager.default.contentsOfDirectory(atPath: "/System/Library/Sounds"))?
+          .contains("\(name).aiff") == true
+      {
+        return name
+      }
+    #endif
+    return name == "none" ? "none" : "default"
+  }
+  private static func alertSound(_ name: String) -> URL {
+    URL(fileURLWithPath: "/System/Library/Sounds/\(name).aiff")
+  }
+  // UserNotifications does not look in /System/Library/Sounds, so the chosen Mac alert sound is
+  // copied into the app container's Library/Sounds first. If the copy fails, the system plays its
+  // default sound.
+  private static func alertSound(named name: String) -> UNNotificationSound {
+    #if os(macOS)
+      let file = "\(name).aiff"
+      if let sounds = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask).first?
+        .appendingPathComponent("Sounds", isDirectory: true),
+        !FileManager.default.fileExists(atPath: sounds.appendingPathComponent(file).path)
+      {
+        do {
+          try FileManager.default.createDirectory(at: sounds, withIntermediateDirectories: true)
+          try FileManager.default.copyItem(
+            at: alertSound(name), to: sounds.appendingPathComponent(file))
+        } catch {
+          let error = error as NSError
+          UnwiredNotifications.logger.error(
+            "New mail sound not copied: \(error.domain, privacy: .public) \(error.code, privacy: .public)"
+          )
+        }
+      }
+      return UNNotificationSound(named: UNNotificationSoundName(file))
+    #else
+      return .default
+    #endif
   }
   // The Profiles whose Badge and sound switch is off.
   private static var badgeSoundOff: [String] {
@@ -346,15 +387,15 @@ extension UnwiredRegistration {
     }
   }
 
-  // The sound a shown New Mail Notification plays: "default" (the system's) or "none".
+  // The sound a shown New Mail Notification plays: "default" (the system's), "none", or on the
+  // Mac one of its alert sounds by name.
   @objc(setNotificationSound:resolver:rejecter:)
   func setNotificationSound(
     _ sound: String, resolve: @escaping RCTPromiseResolveBlock,
     reject: @escaping RCTPromiseRejectBlock
   ) {
     perform("setNotificationSound", resolve, reject: reject) { _ in
-      UserDefaults.standard.set(
-        sound == "none" ? "none" : "default", forKey: Self.notificationSoundKey)
+      UserDefaults.standard.set(Self.sound(sound), forKey: Self.notificationSoundKey)
       return await Self.notificationSettings()
     }
   }
@@ -441,7 +482,12 @@ extension UnwiredRegistration {
         }
       }
       await UnwiredNotifications.register(Array(categories.values))
-      let sound: UNNotificationSound? = Self.newMailSound == "none" ? nil : .default
+      let sound: UNNotificationSound? =
+        switch Self.newMailSound {
+        case "none": nil
+        case "default": .default
+        case let name: Self.alertSound(named: name)
+        }
       let silent = Self.badgeSoundOff
       var skipped: [String: Int] = [:]
       var added = 0

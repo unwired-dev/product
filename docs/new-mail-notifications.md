@@ -30,14 +30,20 @@ matches content, grouping and actions to the design.
   ([#2812](https://github.com/unwired-dev/product/issues/2812)). A New Mail Notification the
   system shows plays the chosen sound, or none; Send Reminder notifications keep the system's
   sound. It starts at **Default**, belongs to this device and never synchronizes, and
-  like the badge stays, dimmed, while notifications are off. The Mac's alert-sound choice
-  comes with [#2811](https://github.com/unwired-dev/product/issues/2811).
+  like the badge stays, dimmed, while notifications are off. On the Mac, **New mail sound**
+  sits under **Dock badge** in the **On this Mac** group and also offers the Mac's alert sounds
+  (Basso to Tink, the ones in `/System/Library/Sounds`); the design shows **Glass**
+  ([#2811](https://github.com/unwired-dev/product/issues/2811)). UserNotifications does not look
+  in `/System/Library/Sounds`, so posting copies the chosen sound into the app container's
+  `Library/Sounds` first.
 - **Profiles**, on iPhone and iPad, lists each Mail Profile with a **Badge and sound** switch
   ([#2809](https://github.com/unwired-dev/product/issues/2809)). A Profile switched off adds
   nothing to the App Icon Badge, and its New Mail Notifications are still shown but play no
   sound. Every switch starts on, belongs to this device and never synchronizes, and signing
   out or a purge removes the choices. Until notifications are allowed, and while they are off
-  in the system's settings, the group is not shown and the choices are kept. The Mac's switches come with [#2811](https://github.com/unwired-dev/product/issues/2811).
+  in the system's settings, the group is not shown and the choices are kept. The Mac has the
+  same switches ([#2811](https://github.com/unwired-dev/product/issues/2811)); as its design
+  shows, while notifications are off there they stay, dimmed, instead of hiding.
 - **Per Mailbox** has a switch for each Mailbox Connection, named by its provider
   and address. Every connection starts off. Turning one on the first time also asks for permission. The switch is
   a Mail Workflow Preference of the Profile that owns the connection: it
@@ -294,8 +300,8 @@ and a recreated connection or another account; `commands.test.ts` covers Reply w
 imports the app entry in the background: the App Icon Badge follows each synchronization, a
 typed reply holds delivery time, one kept in Drafts does not, and Open Draft waits until the mail shell follows it. The Mac `freshness.test.tsx`
 covers the Dock badge following a push wake and permission changed while the app was away. The app suites cover both
-Settings pages. `ProductSyncTests.swift` covers sealing the policy record. Native
-delivery on iOS, iPadOS and macOS 27, including a tap that launches the app, its
-appearance and grouping, and each action from a locked device and with the app not
+Settings pages, including the Mac's alert sounds and its Profiles' switches while notifications are off. `ProductSyncTests.swift` covers sealing the policy record. Native
+delivery on iOS, iPadOS and macOS 27, including a tap that launches the app, the New mail
+sound it plays (#3096), its appearance and grouping, and each action from a locked device and with the app not
 running, needs a build with APNs and protected Gmail, IMAP and Microsoft 365
 mailboxes. It stays a required release check.

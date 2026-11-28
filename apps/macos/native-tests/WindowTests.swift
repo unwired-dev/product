@@ -4391,8 +4391,16 @@ final class WindowTests: XCTestCase {
     center.typeKey(.return, modifierFlags: [])
     XCTAssertTrue(text("Allowed", in: settings).waitForExistence(timeout: 30))
     waitUntil { badge.value as? String == "Unread in Inbox" }
+    // #2811: the Mac's alert sounds and each Profile's Badge and sound switch.
+    let sound = settings.popUpButtons["New mail sound"]
+    XCTAssertEqual(sound.value as? String, "Default")
+    sound.click()
+    app.menuItems["Glass"].click()
+    waitUntil { sound.value as? String == "Glass" }
+    let profile = settings.switches["Badge and sound for Primary Profile"]
+    XCTAssertTrue(profile.waitForExistence(timeout: 10))
     let attachment = XCTAttachment(screenshot: settings.screenshot())
-    attachment.name = "Settings › Notifications, Unread in Inbox (\(appearance))"
+    attachment.name = "Settings › Notifications, Unread in Inbox and Glass (\(appearance))"
     attachment.lifetime = .keepAlways
     add(attachment)
   }

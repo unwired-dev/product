@@ -33,12 +33,28 @@ import { createSubscribable } from './subscribable.ts';
 // plays, and the Mail Profiles whose Badge and sound switch is off: their mail adds nothing to the
 // badge and their notifications play no sound. Native code keeps the choices as Device-Local
 // Preferences; previews and the badge start off, the sound at the system's default and every
-// Profile's switch on.
+// Profile's switch on. On the Mac the sound can also be one of the system's alert sounds.
+export const macAlertSounds = [
+  'Basso',
+  'Blow',
+  'Bottle',
+  'Frog',
+  'Funk',
+  'Glass',
+  'Hero',
+  'Morse',
+  'Ping',
+  'Pop',
+  'Purr',
+  'Sosumi',
+  'Submarine',
+  'Tink',
+] as const;
 const Settings = Schema.Struct({
   authorization: Schema.Literals(['undetermined', 'denied', 'authorized']),
   previews: Schema.Boolean,
   badge: Schema.Literals(['off', 'inbox']),
-  sound: Schema.Literals(['default', 'none']),
+  sound: Schema.Literals(['default', 'none', ...macAlertSounds]),
   badgeSoundOff: Schema.Array(Schema.NonEmptyString).pipe(
     Schema.withDecodingDefaultKey(Effect.succeed([])),
   ),
