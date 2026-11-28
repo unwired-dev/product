@@ -682,7 +682,13 @@ app follows under the issue named:
   where P2 draws 17 pt, keeps UIKit's 10 pt margin from the window's trailing
   edge, where P2 draws 16 pt, and at the default text size its Use … for All
   Messages title scales down to stay on one line in the system capsule's
-  insets. Its dividers separate the three actions, as I2 draws them.
+  insets. Its dividers separate the three actions, as I2 draws them. On the
+  Mac, More ends with Message Zoom… (#2808) after a separator, its level
+  right-aligned at the end of the menu's widest title, where M1 draws it in the
+  shortcut column: AppKit keeps its own trailing column after every title. Its
+  panel is the system popover, centred below More's toolbar group and kept
+  16 pt inside the window, and its Use … for All Messages button sizes to its
+  title, where M2 draws it 212 pt wide.
 - **Unsubscribe banner:** the Mac, iPhone and iPad banners leave out the line
   under the list name that counts the list's messages and how many were
   opened ("17 since August, opened 2."), so it is one line shorter, until

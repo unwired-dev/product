@@ -70,6 +70,7 @@ import {
   useProviderName,
 } from './mailbox.tsx';
 import { useMarkRead } from './mark-read.tsx';
+import { useZoomMenu } from './message-zoom.tsx';
 import { NewLabel } from './new-label.tsx';
 import { usePinAction, usePinned } from './pins.tsx';
 import { textStyles, usePalette } from './theme.ts';
@@ -404,6 +405,9 @@ function Toolbar({
   readonly ref?: Ref<View>;
 }) {
   const { t } = useLocalization();
+  // Message Zoom… follows More's other items, after a separator.
+  const zoom = useZoomMenu();
+  const sections = [{ items: more }, { items: zoom.items }];
   const button = ({ name, label, onPress }: Named) => (
     <ToolbarButton
       key={name}
@@ -447,15 +451,16 @@ function Toolbar({
       <GlassGroup style={styles.group}>
         {pin === undefined ? null : button(pin)}
         {rest.map(button)}
-        {more.length === 0 ? null : (
+        {more.length + zoom.items.length === 0 ? null : (
           <PopUp
             accessibilityLabel={t('message.more')}
             icon="ellipsis"
-            items={more}
+            sections={sections}
             variant="toolbar"
           />
         )}
         {below}
+        {zoom.panel}
       </GlassGroup>
     </View>
   );
@@ -739,8 +744,15 @@ function GmailMessageActions({
   // A label or folder the provider removed falls back to the Inbox, as the list does.
   const view = gmailViewName(state, opened, provider);
   const message = viewMessage(state, id, view);
+  // Mail outside the view, such as an archived message opened from search, can only be zoomed.
   if (message === undefined) {
-    return children;
+    return (
+      <Toolbar
+        actions={[]}
+        more={[]}>
+        {children}
+      </Toolbar>
+    );
   }
   // Responses and Pin also work for saved mail without organizing permission.
   if (!canOrganize(message) || !state.organize) {

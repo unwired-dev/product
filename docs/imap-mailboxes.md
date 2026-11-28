@@ -2399,6 +2399,45 @@ password manager by running
   **Decline**, refused and unconfirmed responses, Undo, offline and relaunch, cancelled
   invitations and series revisions on a live mailbox, the controlled standards server,
   Add to Calendar, Mac and iPad were not run.
+- **2026-11-28, Mac meeting invitation responses
+  ([#3118](https://github.com/unwired-dev/product/issues/3118)).** Target: React Native
+  macOS client, development-signed Release build without a Mock Mail Session, on macOS
+  27.2.1, with the development Convex deployment. Build: the app source of
+  `432b580029ca19df4919509cef9d70406940bf7f`. Toolchain: Xcode 27.2 (27B52). Operator:
+  agent, with credentials read at run time from the approved password manager. Each
+  address, password and the Recovery Key went in through the Mac pasteboard, marked
+  concealed and transient and cleared after each paste; no driver typed one. **Sign in
+  with Google** showed the system prompt for `accounts.google.com`, then Google's page in
+  the Mac's default browser; Product Sign-In found the certification Product Account, and
+  the Mac was unlocked with its Recovery Key. **iCloud Mail** and then, from Settings ›
+  Email Accounts › **Add an IMAP Mailbox** › **Other IMAP Account**, Seznam Email
+  connected with the servers of the Mac connect record above. Before either connected,
+  each mailbox, as organizer, sent the other one meeting request over SMTP from outside
+  the app, with one `text/calendar; method=REQUEST` part. Result: pass. In each mailbox
+  the request opened in the reader with the invitation card, **Invited, You, {address}**
+  (with **· iCloud** for iCloud Mail and **· IMAP** for Seznam Email), **Not answered
+  yet** and **Accept**, **Maybe** and **Decline**. In iCloud Mail, **Decline** showed
+  **In the Outbox. Your Decline response is queued. Undo is available.** with **Undo**
+  and **View in Outbox**, then **Waiting to send** once the Undo Send Window ended, and
+  about 16 seconds after the press **Declined. iCloud’s mail server accepted your
+  response…**. In Seznam Email, **Accept** went the same way to **Accepted. The mail
+  server accepted your response…** about 15 seconds after the press. Over IMAP, each
+  organizer's Inbox received exactly one `METHOD:REPLY`, with the invitation's UID, the
+  attendee's address and `PARTSTAT=DECLINED` or `PARTSTAT=ACCEPTED`, and with
+  `In-Reply-To` naming the request's Message-ID; each responder's Sent folder
+  (`Sent Messages`, `sent`) held exactly one copy. Afterwards no run message remained in
+  any folder of either mailbox, **Sign Out of This Device** returned the app to Welcome,
+  and the app was quit. `simulator-credentials.zsh scan` then found none of the three
+  passwords or the Recovery Key in `~/Library/Logs`, the app's container, the build's
+  `artifacts/macos-inbox`, the shell history, the operator's scratch files or this
+  run's session transcripts, nor in the 5,840 files written to the temporary
+  directories since the run began. Limitations: the operator drove the app through the
+  macOS accessibility interface and synthesized mouse and keyboard input. The
+  accessibility read of the first-mailbox iCloud Mail form did not list **Connect**,
+  which was clicked at its position on screen; this was not investigated. **Maybe**,
+  refused and unconfirmed responses, Undo, offline and relaunch, cancelled invitations
+  and series revisions on a live mailbox, the controlled standards server, Add to
+  Calendar and iPad were not run.
 
 Real iCloud Mail and Seznam Email organizing, IDLE and Sent filing qualification, through
 the app on both hosts, remains required before release

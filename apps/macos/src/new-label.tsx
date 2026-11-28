@@ -45,6 +45,8 @@ const styles = StyleSheet.create({
     borderRadius: 10,
   },
   separator: { height: StyleSheet.hairlineWidth, marginHorizontal: 12 },
+  // With its separator above, a row keeps the frame's 40pt pitch.
+  separatedRow: { minHeight: 40 - StyleSheet.hairlineWidth },
   header: {
     ...textStyles.subheadlineEmphasized,
     paddingLeft: 12,
@@ -60,7 +62,7 @@ const styles = StyleSheet.create({
 });
 
 // A clickable row of a grouped list that shows keyboard focus.
-function Row({
+export function Row({
   label,
   separated = false,
   disabled,
@@ -97,6 +99,7 @@ function Row({
         onPress={onPress}
         style={({ pressed }) => [
           styles.row,
+          separated && styles.separatedRow,
           {
             backgroundColor: pressed
               ? colors.accentSelectionSubtle

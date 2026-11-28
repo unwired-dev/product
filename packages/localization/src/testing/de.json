@@ -85,6 +85,9 @@
     "view": "Darstellung",
     "commands": "Befehle …",
     "refresh": "Aktualisieren",
+    "zoomIn": "Vergrößern",
+    "zoomOut": "Verkleinern",
+    "actualSize": "Tatsächliche Größe",
     "settings": "Einstellungen …",
     "settingsTitle": "Einstellungen",
     "newMessageTitle": "Neue Nachricht"

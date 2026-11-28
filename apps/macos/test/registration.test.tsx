@@ -1560,9 +1560,13 @@ describe('product registration', () => {
     await waitFor(() => {
       expect(imap.server.changes).toStrictEqual([`read INBOX ${invoice}`]);
     });
-    // IMAP folders have no labels, and the toolbar's own buttons mark read state and move, so no
-    // More menu repeats them.
-    expect(screen.queryByRole('button', { name: 'More' })).toBeNull();
+    // IMAP folders have no labels, and the toolbar's own buttons mark read state and move, so More
+    // holds only Message Zoom….
+    await fireEvent.press(screen.getByRole('button', { name: 'More' }));
+    expect(menuItems().map(({ title }) => title)).toStrictEqual([
+      'Message Zoom…',
+    ]);
+    await dismissMenu();
     // The star is offered only by the Command Palette (#2084): Star sets the server's \Flagged
     // flag and keeps the reader open, and the toolbar shows no star either way.
     expect(screen.queryByRole('button', { name: 'Star' })).toBeNull();
@@ -2946,9 +2950,7 @@ describe('product registration', () => {
         accessibilityLabel: 'Move to Travel / Lisbon',
       },
     ]);
-    // A Microsoft message is in one folder: it moves from the Move menu, and no More menu repeats
-    // the toolbar's read state and move.
-    expect(screen.queryByRole('button', { name: 'More' })).toBeNull();
+    // A Microsoft message is in one folder: it moves from the Move menu.
     await chooseMenuItem('Travel / Lisbon');
     await waitFor(() => {
       expect(graph.folderOf(plans)).toBe(lisbon);
@@ -3798,6 +3800,12 @@ describe('product registration', () => {
     await expect(
       screen.findByRole('header', { name: 'Studio archive' }),
     ).resolves.toBeVisible();
+    // Its More menu offers only Message Zoom…, dimmed for plain text.
+    await press('More');
+    expect(menuItems()).toMatchObject([
+      { title: 'Message Zoom…', disabled: true },
+    ]);
+    await dismissMenu();
     await waitFor(() => {
       expect(
         gmail.alex.requests

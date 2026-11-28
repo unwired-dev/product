@@ -179,7 +179,7 @@ Inbox window does.
 | File > New Message, Command-N          | Start a Draft in an Inbox window                    |
 | File > New Window, Option-Command-N    | Open an independent Inbox                           |
 | File > Close Window, Command-W         | Close the focused window                            |
-| Window > Show Inbox, Command-0         | Focus the first Inbox, or create one if none remain |
+| Window > Show Inbox, Shift-Command-0   | Focus the first Inbox, or create one if none remain |
 | Window > Next Window, Command-backtick | Cycle through Inbox windows                         |
 | Window > Inbox number                  | Focus that window                                   |
 | Dock/Finder reopen                     | Focus an existing Inbox or create one               |
@@ -480,6 +480,16 @@ same isolated client-world measurement scales the body with an app-owned
 message and Drafts never change. Changing it reopens an open message's document
 in place. The switch is a Device-Local Preference in `UnwiredFitWideMessages`,
 never synced.
+
+**More › Message Zoom…** zooms the open message alone
+([#2808](https://github.com/unwired-dev/product/issues/2808)). It is dimmed, not hidden,
+while the reader shows plain text. Its panel names the level, says it resets when the
+message closes, and offers Zoom In, Zoom Out, Actual Size and **Use … for All Messages**,
+which keeps that level as Message zoom. View › Zoom In (Command-+), Zoom Out
+(Command-−) and Actual Size (Command-0) do the same in the focused window, one
+Message zoom level at a time, also while the panel is open. For plain text, View
+keeps them listed and dimmed, and the Command Palette leaves them out. The message's own zoom lives in the reader, so opening
+another message drops it. Show Inbox moved to Shift-Command-0 for Actual Size.
 
 ## Settings
 

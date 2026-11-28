@@ -76,6 +76,9 @@ interface WindowHost extends TurboModule {
     outdent: boolean,
     indent: boolean,
   ) => void;
+  // Offers View's zoom items while `window`'s reader shows formatted mail; their choice arrives as a
+  // `zoom` event naming the window and the direction.
+  readonly setMessageZoomable: (window: string, zoomable: boolean) => void;
   // Where the body shows the character at `index`, in its own coordinates from its top left;
   // null once that body or character is gone.
   readonly composerCharacterFrame: (

@@ -1,9 +1,19 @@
 import type { ResponseKind } from '@private-email/mail-core/responses';
+import type { ReactNode } from 'react';
+import type { StyleProp, ViewStyle } from 'react-native';
 
-import { BottomSheet, Group, Host, RNHostView } from '@expo/ui/swift-ui';
 import {
+  BottomSheet,
+  Group,
+  Host,
+  RNHostView,
+  Button as SwiftUIButton,
+} from '@expo/ui/swift-ui';
+import {
+  buttonStyle,
   presentationBackground,
   presentationDetents,
+  accessibilityLabel as spokenLabel,
 } from '@expo/ui/swift-ui/modifiers';
 import { radius, spacing } from '@private-email/mail-core/theme';
 import {
@@ -15,7 +25,6 @@ import {
   useState,
 } from 'react';
 import {
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -84,6 +93,7 @@ const styles = StyleSheet.create({
     borderRadius: 22,
     backgroundColor: 'transparent',
   },
+  replyCloseButton: { width: 44 },
   replyClose: {
     width: 44,
     height: 44,
@@ -92,8 +102,8 @@ const styles = StyleSheet.create({
   },
   // Each tile hugs its icon frame and label, so Reply All's taller frame does not stretch the rest.
   replyTiles: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
+  replyTileButton: { flex: 1 },
   replyTile: {
-    flex: 1,
     gap: 6,
     paddingHorizontal: spacing.xs,
     paddingVertical: 14,
@@ -115,13 +125,46 @@ const styles = StyleSheet.create({
     minHeight: 50,
     paddingHorizontal: 18,
     paddingVertical: 14,
-    borderRadius: radius.mailboxGroup,
   },
   actionLabel: { ...textStyles.body, flex: 1 },
   // Hairlines span the group.
   actionSeparator: { height: StyleSheet.hairlineWidth },
   secondary: { ...textStyles.subheadline },
 });
+
+// One of the sheet's controls: the system button, with the circle, tile or row as its label (#3074).
+// A text size changed while the sheet is open keeps the hosted label's old height; a fresh host
+// measures it again.
+function SheetButton({
+  label,
+  style,
+  onPress,
+  children,
+}: {
+  readonly label: string;
+  // The button's width in the sheet's layout; the label sets its height.
+  readonly style?: StyleProp<ViewStyle>;
+  readonly onPress: () => void;
+  readonly children: ReactNode;
+}) {
+  const { fontScale } = useWindowDimensions();
+  return (
+    <Host
+      key={fontScale}
+      matchContents={{ vertical: true }}
+      style={style}>
+      <SwiftUIButton
+        onPress={onPress}
+        modifiers={[buttonStyle('plain'), spokenLabel(label)]}>
+        <RNHostView
+          boundedByHost
+          matchContents={{ vertical: true }}>
+          <View accessibilityElementsHidden>{children}</View>
+        </RNHostView>
+      </SwiftUIButton>
+    </Host>
+  );
+}
 
 // Owns the Reply presentation while the reader owns response preparation.
 export function ReplySheet({
@@ -264,54 +307,53 @@ export function ReplySheet({
                       </Text>
                     </View>
                     <GlassGroup style={styles.replyCloseGlass}>
-                      <Pressable
-                        accessibilityRole="button"
-                        accessibilityLabel={t('message.closeResponses')}
-                        onPress={onClose}
-                        style={styles.replyClose}>
-                        {/* The frames' 10×10pt cross. */}
-                        <SFSymbol
-                          name="xmark"
-                          size={12.85}
-                          color={colors.textPrimary}
-                        />
-                      </Pressable>
+                      <SheetButton
+                        label={t('message.closeResponses')}
+                        style={styles.replyCloseButton}
+                        onPress={onClose}>
+                        <View style={styles.replyClose}>
+                          {/* The frames' 10×10pt cross. */}
+                          <SFSymbol
+                            name="xmark"
+                            size={12.85}
+                            color={colors.textPrimary}
+                          />
+                        </View>
+                      </SheetButton>
                     </GlassGroup>
                   </View>
                   <View style={styles.replyTiles}>
                     {tiles.map(({ name, label, icon }) => {
                       const { size, slot } = tileIcons[icon] ?? tileIcon;
                       return (
-                        <Pressable
+                        <SheetButton
                           key={name}
-                          accessibilityRole="button"
-                          accessibilityLabel={label}
+                          label={label}
+                          style={styles.replyTileButton}
                           onPress={() => {
                             select(name);
-                          }}
-                          style={({ pressed }) => [
-                            styles.replyTile,
-                            {
-                              backgroundColor: pressed
-                                ? colors.accentSelectionSubtle
-                                : colors.fillQuiet,
-                            },
-                          ]}>
-                          <View style={[styles.replyIcon, { height: slot }]}>
-                            <SFSymbol
-                              name={icon}
-                              size={size}
-                              color={colors.textPrimary}
-                            />
-                          </View>
-                          <Text
+                          }}>
+                          <View
                             style={[
-                              styles.replyLabel,
-                              { color: colors.textPrimary },
+                              styles.replyTile,
+                              { backgroundColor: colors.fillQuiet },
                             ]}>
-                            {label}
-                          </Text>
-                        </Pressable>
+                            <View style={[styles.replyIcon, { height: slot }]}>
+                              <SFSymbol
+                                name={icon}
+                                size={size}
+                                color={colors.textPrimary}
+                              />
+                            </View>
+                            <Text
+                              style={[
+                                styles.replyLabel,
+                                { color: colors.textPrimary },
+                              ]}>
+                              {label}
+                            </Text>
+                          </View>
+                        </SheetButton>
                       );
                     })}
                   </View>
@@ -332,33 +374,26 @@ export function ReplySheet({
                               ]}
                             />
                           )}
-                          <Pressable
-                            accessibilityRole="button"
-                            accessibilityLabel={label}
+                          <SheetButton
+                            label={label}
                             onPress={() => {
                               select(name);
-                            }}
-                            style={({ pressed }) => [
-                              styles.actionRow,
-                              {
-                                backgroundColor: pressed
-                                  ? colors.accentSelectionSubtle
-                                  : 'transparent',
-                              },
-                            ]}>
-                            <Text
-                              style={[
-                                styles.actionLabel,
-                                { color: colors.textPrimary },
-                              ]}>
-                              {label}
-                            </Text>
-                            <SFSymbol
-                              name={icon}
-                              size={20}
-                              color={colors.textPrimary}
-                            />
-                          </Pressable>
+                            }}>
+                            <View style={styles.actionRow}>
+                              <Text
+                                style={[
+                                  styles.actionLabel,
+                                  { color: colors.textPrimary },
+                                ]}>
+                                {label}
+                              </Text>
+                              <SFSymbol
+                                name={icon}
+                                size={20}
+                                color={colors.textPrimary}
+                              />
+                            </View>
+                          </SheetButton>
                         </Fragment>
                       ))}
                     </View>
