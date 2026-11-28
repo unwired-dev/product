@@ -121,6 +121,7 @@ export function ImapMessageBody({
         current={current}
       />
       <Presentation
+        id={id}
         onCopy={(link) => {
           if (current()) {
             void setStringAsync(link.href);

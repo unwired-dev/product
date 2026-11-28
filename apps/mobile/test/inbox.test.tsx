@@ -2224,12 +2224,13 @@ describe('connected Gmail Inbox', () => {
     expect(
       screen.queryByText('Marked as read: “Saturday, by the river?”.'),
     ).toBeNull();
-    // On iPhone, More is the system menu iPad's frames draw, starting with Pin and ending with
-    // Delete.
+    // On iPhone, More is the system menu iPad's frames draw, starting with Pin, then Delete and
+    // Message Zoom….
     expect(menuSections(screen.getByLabelText('More'))).toStrictEqual([
       ['Pin', 'Mark as Unread', 'Move to Spam', 'Move to…'],
       ['Labels'],
       ['Delete'],
+      ['Message Zoom…'],
     ]);
     // The provider's star is offered only by the Command Palette (#2084).
     await openPalette(
@@ -2693,7 +2694,7 @@ describe('connected Gmail Inbox', () => {
     );
 
     // A cached label-only message found online still has no Inbox organizing actions; More
-    // offers only Pin, which needs no Gmail access.
+    // offers only Pin and Message Zoom…, which need no Gmail access.
     await fireEvent.changeText(field, 'Flight');
     await fireEvent.press(
       screen.getByRole('button', { name: 'Search Mail Servers for “Flight”' }),
@@ -2704,6 +2705,7 @@ describe('connected Gmail Inbox', () => {
     expect(screen.queryByRole('button', { name: 'Archive' })).toBeNull();
     expect(menuSections(screen.getByLabelText('More'))).toStrictEqual([
       ['Pin'],
+      ['Message Zoom…'],
     ]);
   });
 
@@ -3138,6 +3140,7 @@ describe('connected Gmail Inbox', () => {
     expect(menuSections(screen.getByLabelText('More'))).toStrictEqual([
       ['Pin', 'Mark as Unread', 'Move to Spam', 'Move to…'],
       ['Delete'],
+      ['Message Zoom…'],
     ]);
 
     // A Microsoft message is in one folder: it moves, with no label to add.

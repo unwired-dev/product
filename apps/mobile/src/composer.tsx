@@ -87,7 +87,6 @@ import {
   slashCommands,
   slashInserts,
   slashQuery,
-  unsendableAssets,
   prepareFiles,
   withAsset,
   withSender,
@@ -155,6 +154,7 @@ import {
   AppState,
   Image,
   Keyboard,
+  NativeEventEmitter,
   Platform,
   Pressable,
   ScrollView,
@@ -208,6 +208,7 @@ import {
   ToolbarButton,
 } from './design.tsx';
 import { DraftAssistance, DroppedAssistance } from './draft-assistance.tsx';
+import { native } from './host.ts';
 import { ipad } from './inbox-styles.ts';
 import { useLocalization } from './localization.ts';
 import {
@@ -229,6 +230,7 @@ import { fileSize } from './message-body.tsx';
 import { AssistanceContext } from './message-summary.tsx';
 import { AccountContext } from './registration-gate.tsx';
 import { ReminderBanner, SendMenu } from './send-reminder.tsx';
+import { ProgressBar } from './sync-status.tsx';
 import {
   textStyles,
   useAppearance,
@@ -430,6 +432,8 @@ const styles = StyleSheet.create({
     gap: spacing.s,
   },
   notice: { ...textStyles.subheadline },
+  // Why Send waits for a file still importing, above the body.
+  waiting: { ...textStyles.footnote },
   review: { paddingHorizontal: fieldInset, paddingTop: spacing.m },
   body: {
     ...textStyles.body,
@@ -459,7 +463,11 @@ const styles = StyleSheet.create({
   },
   assetMeta: { flexShrink: 1 },
   assetName: { ...textStyles.subheadlineEmphasized },
-  assetStatus: { ...textStyles.footnote },
+  // R1 and R3 of #2092 draw the warning glyph inline at the status's size, a space before it.
+  assetStatusRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  // R2 of #2092 spaces the name, status and bar 2pt apart.
+  assetStatusImporting: { marginTop: 2 },
+  assetStatus: { ...textStyles.footnote, flexShrink: 1 },
   thumbnail: { width: 32, height: 32, borderRadius: radius.control },
   fields: { paddingHorizontal: fieldInset },
   field: {
@@ -689,6 +697,10 @@ export const layoutStyles = {
     tokenText: textStyles.body,
     trailing: { height: compactFieldHeight, justifyContent: 'center' },
     assetChip: { gap: 10 },
+    // R2 of #2092: the import's bar under its status, and the reason Send waits at the body's
+    // inset, 8pt below From.
+    assetProgress: { width: 144, marginTop: 2 },
+    waiting: { marginHorizontal: inset - fieldInset, marginTop: 4 },
   }),
   // The New Message card's text starts 23pt down and its fields end 6.9pt above its edge.
   regular: StyleSheet.create({
@@ -750,6 +762,15 @@ export const layoutStyles = {
     // Cc/Bcc's 44pt target overhangs the 41.4pt row rather than growing it.
     trailing: { height: padFieldHeight, justifyContent: 'center' },
     assetChip: {},
+    // R2 of #2092: the bar and the reason Send waits, at the body's inset 14pt below the format bar,
+    // in 16pt lines with the body's own inset below it.
+    assetProgress: { width: 138, marginTop: -1 },
+    waiting: {
+      marginHorizontal: padInset - fieldInset,
+      marginTop: 12,
+      marginBottom: -spacing.s,
+      lineHeight: 16,
+    },
   }),
 };
 
@@ -1640,10 +1661,13 @@ const assetStatus = (
   {
     asset,
     running,
+    progress,
     preview,
   }: Readonly<{
     asset: Asset;
     running: boolean;
+    // The fraction of a running import read so far, once native code reports it.
+    progress: number | undefined;
     preview: AssetPreview | undefined;
   }>,
 ) => {
@@ -1661,21 +1685,60 @@ const assetStatus = (
     return size(asset.size);
   }
   if (asset.state === 'importing') {
-    return t(
-      running
-        ? 'drafts.assets.status.adding'
-        : 'drafts.assets.status.interrupted',
-    );
+    if (!running) {
+      return t('drafts.assets.status.interrupted');
+    }
+    return progress === undefined
+      ? t('drafts.assets.status.importing')
+      : t('drafts.assets.status.importingProgress', {
+          percent: Math.round(progress * 100),
+        });
   }
   if (asset.state === 'cancelled') {
     return t('drafts.assets.status.cancelled');
   }
+  if (asset.state === 'failed' && asset.reason === 'too-large') {
+    return t('drafts.assets.status.tooLarge');
+  }
   return t(
-    asset.state === 'failed' && asset.reason === 'too-large'
-      ? 'drafts.assets.status.tooLarge'
-      : 'drafts.assets.status.failed',
+    asset.state === 'failed' && asset.notDownloaded === true
+      ? 'drafts.assets.status.notDownloaded'
+      : 'drafts.assets.status.notAdded',
   );
 };
+
+// Each running import's fraction read so far, by asset, as native code reports it; an import has
+// none before its first report, such as pasted bytes, which report none. The composer listens
+// before a file's row is shown, so a report sent as its read begins is kept; an import that stops
+// forgets its reports, so a later Try Again starts without a percentage.
+function useImportProgress(running: ReadonlySet<string>) {
+  const [progress, setProgress] = useState<ReadonlyMap<string, number>>(
+    () => new Map(),
+  );
+  if ([...progress.keys()].some((id) => !running.has(id))) {
+    setProgress(new Map([...progress].filter(([id]) => running.has(id))));
+  }
+  useEffect(() => {
+    const subscription = new NativeEventEmitter(native()).addListener(
+      'draftImportProgress',
+      (event: object) => {
+        if (
+          'id' in event &&
+          typeof event.id === 'string' &&
+          'fraction' in event &&
+          typeof event.fraction === 'number'
+        ) {
+          const { id, fraction } = event;
+          setProgress((current) => new Map(current).set(id, fraction));
+        }
+      },
+    );
+    return () => {
+      subscription.remove();
+    };
+  }, []);
+  return progress;
+}
 
 // A complete asset's bytes checked against its digest, read again when it completes or changes;
 // an inline image's are also returned to show. A check refused while storage was locked runs
@@ -1847,14 +1910,62 @@ const assetMenu = (
   };
 };
 
+// A file's status line: a file that wasn't added shows its reason as a warning, and a running
+// import its fraction as a bar under it.
+function AssetStatus({
+  failed,
+  status,
+  progress,
+}: Readonly<{
+  failed: boolean;
+  status: string;
+  progress: number | undefined;
+}>) {
+  const colors = usePalette();
+  const sized = layoutStyles[use(ComposerLayoutContext).size];
+  return (
+    <>
+      <View
+        style={[
+          styles.assetStatusRow,
+          progress === undefined ? null : styles.assetStatusImporting,
+        ]}>
+        {failed ? (
+          <SFSymbol
+            name="exclamationmark.triangle.fill"
+            size={13}
+            color={colors.statusWarning}
+          />
+        ) : null}
+        <Text
+          numberOfLines={1}
+          style={[
+            styles.assetStatus,
+            { color: failed ? colors.statusWarning : colors.textSecondary },
+          ]}>
+          {status}
+        </Text>
+      </View>
+      {progress === undefined ? null : (
+        <ProgressBar
+          percent={progress * 100}
+          style={sized.assetProgress}
+        />
+      )}
+    </>
+  );
+}
+
 function AssetRow({
   asset,
   editable,
   inline,
   running,
+  progress,
   width,
   onRemove,
   onCancel,
+  onTryAgain,
   onConvert,
   onPreview,
   onResize,
@@ -1862,6 +1973,10 @@ function AssetRow({
   readonly asset: Asset;
   readonly inline: boolean;
   readonly running: boolean;
+  // The fraction of a running import read so far, once native code reports one.
+  readonly progress: number | undefined;
+  // Given for a file that wasn't added and whose source can be read again.
+  readonly onTryAgain: (() => void) | undefined;
   readonly editable: boolean;
   // The display width every use of an inline image in the body shares: undefined at its original
   // size, null when they differ.
@@ -1890,6 +2005,7 @@ function AssetRow({
   const status = assetStatus(t, (bytes) => fileSize(t, sizeFormat, bytes), {
     asset,
     running,
+    progress,
     preview,
   });
   const menu = assetMenu(t, {
@@ -1948,11 +2064,11 @@ function AssetRow({
           style={[styles.assetName, { color: colors.textPrimary }]}>
           {asset.name}
         </Text>
-        <Text
-          numberOfLines={1}
-          style={[styles.assetStatus, { color: colors.textSecondary }]}>
-          {status}
-        </Text>
+        <AssetStatus
+          failed={asset.state === 'failed'}
+          status={status}
+          progress={progress}
+        />
       </View>
       {preview?.kind === 'locked' || preview?.kind === 'incomplete' ? (
         <Action
@@ -1965,9 +2081,22 @@ function AssetRow({
           onPress={retry}
         />
       ) : null}
+      {/* R1 and R2 of #2092 draw the chip's actions at the reader's 15pt, its capsule reaching
+          past the label. */}
+      {onTryAgain === undefined || running ? null : (
+        <Action
+          variant="reader"
+          disabled={!editable}
+          accessibilityLabel={t('drafts.assets.retryImportLabel', {
+            name: asset.name,
+          })}
+          label={t('common.retry')}
+          onPress={onTryAgain}
+        />
+      )}
       {running ? (
         <Action
-          variant="composer"
+          variant="reader"
           disabled={!editable}
           accessibilityLabel={t('drafts.assets.cancelLabel', {
             name: asset.name,
@@ -2020,6 +2149,8 @@ export function DraftAssets({
   const { t } = useLocalization();
   const sized = layoutStyles[use(ComposerLayoutContext).size];
   const running = useSyncExternalStore(store.subscribe, store.getImports);
+  const retries = useSyncExternalStore(store.subscribe, store.getRetries);
+  const progress = useImportProgress(running);
   const attachments = draft.attachments ?? [];
   const images = [
     ...new Map(
@@ -2053,13 +2184,18 @@ export function DraftAssets({
             }
           : {})}
         running={running.has(asset.id)}
+        progress={progress.get(asset.id)}
+        onTryAgain={
+          asset.state === 'failed' && retries.has(asset.id)
+            ? () => {
+                void store.retryImport(asset.id);
+              }
+            : undefined
+        }
       />
     ));
   return (
     <View style={[styles.assets, sized.assets]}>
-      {unsendableAssets(draft).length > 0 ? (
-        <Alert message={t('drafts.assets.unsendable')} />
-      ) : null}
       <View
         accessibilityLabel={t('drafts.assets.attachments')}
         accessibilityRole="list"
@@ -2144,26 +2280,47 @@ const tooLarge = {
 function SendRefusalNotice({
   blocked,
   refused,
+  waiting,
   connection,
 }: {
   readonly blocked: SendRefusal | undefined;
   readonly refused: SendRefusal | undefined;
+  readonly waiting: string | undefined;
   readonly connection: string;
 }) {
   const { t } = useLocalization();
+  const colors = usePalette();
+  const { size } = use(ComposerLayoutContext);
   const provider = use(AccountContext)?.mailboxes.find(
     ({ id }) => id === connection,
   )?.provider;
   const shown = blocked ?? refused;
-  return shown === undefined ? null : (
-    <Alert
-      outcome={shown === refused}
-      message={t(
-        shown === 'too-large'
-          ? tooLarge[provider ?? 'gmail']
-          : `drafts.sendRefused.${shown}`,
+  // A file still importing is named above the body, as R2 of #2092 draws it, alongside any other
+  // reason Send is unavailable.
+  return (
+    <>
+      {shown === undefined ||
+      (shown === 'assets' && waiting !== undefined) ? null : (
+        <Alert
+          outcome={shown === refused}
+          message={t(
+            shown === 'too-large'
+              ? tooLarge[provider ?? 'gmail']
+              : `drafts.sendRefused.${shown}`,
+          )}
+        />
       )}
-    />
+      {waiting === undefined ? null : (
+        <Text
+          style={[
+            styles.waiting,
+            layoutStyles[size].waiting,
+            { color: colors.textSecondary },
+          ]}>
+          {t('drafts.assets.stillImporting', { name: waiting })}
+        </Text>
+      )}
+    </>
   );
 }
 
@@ -2253,10 +2410,9 @@ function useBlockedSend({
   );
   // Files that were not added leave Send available, which asks to send without them; one still
   // being added keeps it unavailable.
+  const adding = addingAsset(finished, running);
   const blocked =
-    refusal === 'assets' && addingAsset(finished, running) === undefined
-      ? undefined
-      : refusal;
+    refusal === 'assets' && adding === undefined ? undefined : refusal;
   if (blocked === undefined) {
     return { blocked, reason: undefined, notice: undefined, line: undefined };
   }
@@ -2264,11 +2420,18 @@ function useBlockedSend({
   const incomplete = (['to', 'cc', 'bcc'] as const)
     .map((field) => entryOf(finished, field))
     .find((entry) => entry !== '');
-  const reason =
+  let reason = blockedMessage(t, blocked, sendingMessage(t, draft, mailboxes));
+  if (
     incomplete !== undefined &&
     (blocked === 'recipients' || blocked === 'entries')
-      ? t('drafts.recipient.incomplete', { address: incomplete })
-      : blockedMessage(t, blocked, sendingMessage(t, draft, mailboxes));
+  ) {
+    reason = t('drafts.recipient.incomplete', { address: incomplete });
+  }
+  if (adding !== undefined) {
+    // VoiceOver reads the file Send waits for with Send, after any recipient it waits for.
+    const importing = t('drafts.assets.stillImporting', { name: adding.name });
+    reason = blocked === 'assets' ? importing : `${reason} ${importing}`;
+  }
   const ownPlace =
     blocked === 'recipients' || blocked === 'entries' || blocked === 'sender';
   return {
@@ -2567,12 +2730,17 @@ export function ComposerNotices({
   const { t } = useLocalization();
   const { size } = use(ComposerLayoutContext);
   const mailboxes = use(AccountContext)?.mailboxes ?? [];
+  const store = useDraftStore();
+  const running = useSyncExternalStore(store.subscribe, store.getImports);
+  // The file still importing that Send waits for.
+  const waiting = addingAsset(draft, running)?.name;
   // On iPad nothing holds the body down while there is nothing to say; iPhone's body inset counts
   // the notices' 8pt.
   if (
     size === 'regular' &&
     (closing === undefined || closing === 'saving') &&
     blocked === undefined &&
+    waiting === undefined &&
     refused === undefined &&
     (sendingStateOf(draft, mailboxes) === 'available' ||
       (!signIn && sendingStateOf(draft, mailboxes) === 'authorization'))
@@ -2606,6 +2774,7 @@ export function ComposerNotices({
         blocked={blocked}
         connection={draft.connection}
         refused={refused}
+        waiting={waiting}
       />
       <SendingNotice
         draft={draft}
@@ -4820,7 +4989,7 @@ function Editor({
       setPlaced(prepared.selection);
     }
     for (const { asset, file } of prepared.imports) {
-      void store.importAsset(asset, file.source);
+      void store.importAsset(asset, file.source, { keep: true });
     }
   };
   const choose = async (source: PickSource, inline: boolean) => {
