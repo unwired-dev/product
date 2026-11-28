@@ -120,17 +120,19 @@ function BadgeAndSound({
 }) {
   const { t } = useLocalization();
   const denied = settings?.authorization === 'denied';
+  const context = settingsColumns ? 'ipad' : 'iphone';
   return (
     <SettingsGroup
+      title={t('notifications.thisDevice', { context })}
       footer={t(
         denied ? 'notifications.badgeKept' : 'notifications.badgeSoundDetail',
       )}>
       <SettingsRow
-        title={t('notifications.badge')}
+        title={t('notifications.badge', { context })}
         disabled={denied}>
         {settings === undefined ? null : (
           <PopUpChoice
-            label={t('notifications.badge')}
+            label={t('notifications.badge', { context })}
             selected={settings.badge}
             choices={['off', 'inbox']}
             title={(badge) => t(`notifications.badges.${badge}`)}
@@ -148,11 +150,11 @@ function BadgeAndSound({
         )}
       </SettingsRow>
       <SettingsRow
-        title={t('notifications.sound')}
+        title={t('notifications.sound', { context })}
         disabled={denied}>
         {settings === undefined ? null : (
           <PopUpChoice
-            label={t('notifications.sound')}
+            label={t('notifications.sound', { context })}
             selected={settings.sound}
             choices={['default', 'none']}
             title={(sound) => t(`notifications.sounds.${sound}`)}

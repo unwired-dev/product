@@ -25,7 +25,7 @@ matches content, grouping and actions to the design.
   **Unread in Inbox**. It starts **Off**, belongs to this device and never synchronizes.
   While notifications are off in the system's settings, the choice stays, dimmed, and
   applies once they are allowed. See [App Icon Badge](#app-icon-badge).
-- **New Mail Sound**, under App Icon Badge on iPhone and iPad, chooses **Default** (the
+- **New Mail Sound**, under App Icon Badge in the **On this iPhone** (or iPad) group, chooses **Default** (the
   system's notification sound) or **None**
   ([#2812](https://github.com/unwired-dev/product/issues/2812)). A New Mail Notification the
   system shows plays the chosen sound, or none; Send Reminder notifications keep the system's
