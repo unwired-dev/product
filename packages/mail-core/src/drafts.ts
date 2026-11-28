@@ -504,21 +504,22 @@ export function bodySuggestionSections(
     excluded: [...kept, ...onDraft],
     limit: 4,
   });
-  // Then people already on the Draft, under the name it gives them, else their newest recent
-  // name, matched by either.
+  // Then people already on the Draft, once each, under their newest recent name, else the name
+  // the Draft gives them, matched by either.
+  const listed = new Set<string>();
   const present = [...draft.to, ...draft.cc, ...draft.bcc].flatMap((person) => {
+    const address = person.address.toLowerCase();
+    if (listed.has(address)) {
+      return [];
+    }
+    listed.add(address);
     const named = sent
-      .filter(
-        ({ address }) => address.toLowerCase() === person.address.toLowerCase(),
-      )
+      .filter((each) => each.address.toLowerCase() === address)
       .map(({ sender }) =>
         correspondentOf({ sender, address: person.address }),
       );
-    const shown =
-      person.name === undefined
-        ? (named.find(({ name }) => name !== undefined) ?? person)
-        : person;
-    return [shown, ...named].some(startsWith(typed)) ? [shown] : [];
+    const shown = named.find(({ name }) => name !== undefined) ?? person;
+    return [person, ...named].some(startsWith(typed)) ? [shown] : [];
   });
   const recent = [...others, ...present].slice(0, 4);
   const matched =

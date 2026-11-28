@@ -1546,25 +1546,27 @@ describe('entering Draft recipients', () => {
         { correspondents, contacts: [], excluded: ['me@example.com'] },
       ).recent,
     ).toStrictEqual([{ name: 'Me', address: 'me@example.com' }]);
-    // People on the Draft follow other recent people even when they sent the newest message, under
-    // the name the Draft gives them, and match by it or by a name from their mail.
+    // People on the Draft follow other recent people even when they sent the newest message, once
+    // each, under their newest name from their mail, else the Draft's, and match by either.
     const ana = { name: 'Ana Kovač', address: 'kovac@example.com' };
-    const named = (text: string) =>
+    const named = (text: string, sender: string) =>
       bodySuggestionSections(
-        { ...draft, cc: [ana] },
+        { ...draft, to: [ana], cc: [{ address: 'KOVAC@example.com' }] },
         { start: 0, end: text.length + 1, text },
         {
           correspondents: [
             { sender: '', address: 'KOVAC@example.com' },
-            { sender: 'Bob Kovač', address: 'kovac@example.com' },
+            { sender, address: 'kovac@example.com' },
             { sender: anna.name, address: anna.address },
           ],
           contacts: [],
         },
       ).recent;
-    expect(named('')).toStrictEqual([anna, ana]);
-    expect(named('an')).toStrictEqual([anna, ana]);
-    expect(named('bob')).toStrictEqual([ana]);
+    const bob = { name: 'Bob Kovač', address: ana.address };
+    expect(named('', '')).toStrictEqual([anna, ana]);
+    expect(named('', bob.name)).toStrictEqual([anna, bob]);
+    expect(named('an', bob.name)).toStrictEqual([anna, bob]);
+    expect(named('bob', bob.name)).toStrictEqual([bob]);
     expect(
       recipientSuggestions({ ...onDraft, entries: { to: 't' } }, 'to', {
         correspondents,

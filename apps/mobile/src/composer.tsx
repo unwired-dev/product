@@ -3914,16 +3914,25 @@ function BodyMenuAnchor({
     };
   });
   // How far the query's @ sits from its line's start: the line copied through the @ ends that far
-  // plus the @'s own width. Fabric reports no layout for views inside text, so text measures it.
-  const [ends, setEnds] = useState({ line: 0, at: 0 });
-  const endOf =
-    (key: keyof typeof ends) =>
-    ({ nativeEvent: { lines: laid } }: TextLayoutEvent) => {
-      const line = laid[laid.length - 1];
-      const at = line === undefined ? 0 : line.x + line.width;
-      setEnds((current) => ({ ...current, [key]: at }));
-    };
-  const indent = Math.max(ends.line - ends.at, 0);
+  // plus the @'s own width, unless the typed query wrapped onto a new line, which the @ then
+  // starts. Fabric reports no layout for views inside text, so text measures it.
+  type Laid = TextLayoutEvent['nativeEvent']['lines'];
+  const [laid, setLaid] = useState<
+    Partial<Record<'query' | 'line' | 'at', Laid>>
+  >({});
+  const layoutOf =
+    (key: 'query' | 'line' | 'at') =>
+    ({ nativeEvent: { lines: each } }: TextLayoutEvent) =>
+      setLaid((current) => ({ ...current, [key]: each }));
+  const endOf = (each: Laid = []) => {
+    const line = each[each.length - 1];
+    return line === undefined ? 0 : line.x + line.width;
+  };
+  const atLine = laid.line?.length ?? 0;
+  const indent =
+    (laid.query?.length ?? 0) > atLine
+      ? (laid.query?.[atLine]?.x ?? 0)
+      : Math.max(endOf(laid.line) - endOf(laid.at), 0);
   // The lines up to the caret: text after it may wrap below the line the menu hangs from.
   const lineStart = display.text.lastIndexOf('\n', start - 1) + 1;
   const lines = display.lines.slice(
@@ -3990,6 +3999,7 @@ function BodyMenuAnchor({
       <Text
         ref={queryLine}
         onLayout={measure}
+        onTextLayout={layoutOf('query')}
         {...hidden}
         style={[hidden.style, lines.length > 1 && styles.bodyCopyLine]}>
         {queryCopy}
@@ -3999,7 +4009,7 @@ function BodyMenuAnchor({
           <Text
             {...hidden}
             style={[hidden.style, styles.bodyProbe]}
-            onTextLayout={endOf('line')}>
+            onTextLayout={layoutOf('line')}>
             <Text style={kindStyles[last.kind]}>
               {last.marker}
               {spanCopy(cut(last.spans, 0, queryAt + 1))}
@@ -4008,7 +4018,7 @@ function BodyMenuAnchor({
           <Text
             {...hidden}
             style={[hidden.style, styles.bodyProbe]}
-            onTextLayout={endOf('at')}>
+            onTextLayout={layoutOf('at')}>
             <Text style={kindStyles[last.kind]}>
               {spanCopy(cut(last.spans, queryAt, queryAt + 1))}
             </Text>
