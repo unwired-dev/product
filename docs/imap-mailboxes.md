@@ -2438,6 +2438,55 @@ password manager by running
   refused and unconfirmed responses, Undo, offline and relaunch, cancelled invitations
   and series revisions on a live mailbox, the controlled standards server, Add to
   Calendar and iPad were not run.
+- **2026-11-28, iPad meeting invitation responses
+  ([#3121](https://github.com/unwired-dev/product/issues/3121)).** Target: Expo client,
+  Release build without a Mock Mail Session, ad hoc signed for the Simulator, on a new
+  iPad Pro 11-inch (M5) Simulator on iOS 27.0, with the development Convex deployment.
+  Build: the app source of `aeaa393d8778ffac10847f21b5a806cf5a7e1a72`. Toolchain: Xcode
+  27.2 (27B52). Operator: agent, with credentials read at run time from the approved
+  password manager. Each address, password and the Recovery Key went in through the
+  Simulator's pasteboard as in the steps above, with the exception the limitations name.
+  **Sign in with Google** showed the system prompt for `accounts.google.com`; Product
+  Sign-In found the certification Product Account, and the iPad was unlocked with its
+  Recovery Key. **iCloud Mail** and then, from Settings › Email Accounts › **Add
+  Account…** › **Add an IMAP Mailbox** › **Other IMAP Account**, Seznam Email connected
+  with the servers of the iPad connect record. Before either connected, each mailbox, as
+  organizer, sent the other one meeting request over SMTP from outside the app, with one
+  `text/calendar; method=REQUEST` part. Result: the invitation responses pass; credential
+  entry did not follow step 1, as the limitations say. In each mailbox the request opened
+  in the reader beside the list with the invitation card, **Invited, You, {address}**
+  (with **· iCloud** for iCloud Mail and **· IMAP** for Seznam Email), **Not answered
+  yet** and **Accept**, **Maybe** and **Decline**. The card was read every 3 to 4 seconds
+  after each press. In iCloud Mail, **Maybe** showed **In the Outbox. Your Maybe response
+  is queued. Undo is available.** with **Undo** and **View in Outbox**, then **Waiting to
+  send** once the Undo Send Window ended, then **Sending**; the first read showing
+  **Tentatively accepted. iCloud’s mail server accepted your response…** came 17 seconds
+  after the press. In Seznam Email, **Decline** showed the same queued state with
+  **Undo**, then **Waiting to send**; the first read showing **Declined. The mail server
+  accepted your response…** came 15 seconds after the press. Over IMAP, each organizer's
+  Inbox received exactly one `METHOD:REPLY`, with the invitation's UID, the attendee's
+  address and `PARTSTAT=TENTATIVE` or `PARTSTAT=DECLINED`, and with `In-Reply-To` naming
+  the request's Message-ID; each responder's Sent folder (`Sent Messages`, `sent`) held
+  exactly one copy. Afterwards no run message remained in any folder of either mailbox,
+  **Sign Out of This Device** returned the app to Welcome, and the Simulator was deleted.
+  `simulator-credentials.zsh scan` then found none of the three passwords or the Recovery
+  Key in `~/.agent-device`, `~/Library/Logs`, T3 Code's device directory, the shell
+  history, the operator's scratch files, this checkout's `artifacts` with this run's
+  DerivedData, or this run's session transcripts and temporary directory, nor in the
+  3,667 other files written to the temporary directories since the run began that still
+  existed, other agent sessions' directories aside. Limitations: against step 1, after
+  each mailbox password was pasted, one accessibility snapshot checked that the fields
+  held values while the keyboard was open; a search of `~/.agent-device` and T3 Code's
+  device directory found no PNG or JPEG file created since the run began, but a text scan
+  cannot show that no credential was captured in an image. The first press on the iCloud Mail form's
+  **Connect** left the form on screen, and a second one connected. Right after iCloud
+  Mail connected, the sidebar showed **The mail server could not be reached. Showing mail
+  saved on this device.** and the Inbox **Offline**; the next read, about 10 seconds
+  later, showed it cleared without any action. The first press on the sign-out
+  confirmation showed no change for about 18 seconds, and a second one signed out. None
+  of these was investigated. **Accept**, refused and unconfirmed responses, Undo, offline
+  and relaunch, cancelled invitations and series revisions on a live mailbox, the
+  controlled standards server and Add to Calendar were not run.
 
 Real iCloud Mail and Seznam Email organizing, IDLE and Sent filing qualification, through
 the app on both hosts, remains required before release
