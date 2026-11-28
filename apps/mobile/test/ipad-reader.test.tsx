@@ -27,7 +27,7 @@ import {
   within,
 } from '@testing-library/react-native';
 import { useState } from 'react';
-import { Dimensions, Modal, View } from 'react-native';
+import { Dimensions, Modal, Settings, View } from 'react-native';
 
 import {
   CommandPaletteProvider,
@@ -394,11 +394,13 @@ describe('iPad reader', () => {
     // The approved iPad More Menu frame: Mark as Unread, Move to Spam, Move to….
     expect(titles()).toStrictEqual([
       ['Mark as Unread', 'Move to Spam', 'Move to…'],
+      ['Message Zoom…'],
     ]);
     await act(() => inbox.openFolder('Junk'));
     await screen.rerender(reader(`3.${junk}.Junk`));
     expect(titles()).toStrictEqual([
       ['Mark as Unread', 'Not Spam', 'Move to…'],
+      ['Message Zoom…'],
     ]);
     const more = screen.getByLabelText('More');
     await act(async () => {
@@ -408,6 +410,90 @@ describe('iPad reader', () => {
     });
     await waitFor(() => {
       expect(imap.server.changes).toContain(`move Junk ${junk} INBOX`);
+    });
+  });
+
+  it('zooms one message from More until another opens, and keeps a level for all messages', async () => {
+    expect.hasAssertions();
+    Settings.set({ UnwiredMessageZoom: 100 });
+    const gmail = createSyntheticGmail({ messages: 0 });
+    const [first, second] = ['Invoice 2026-114', 'Receipt 2026-115'].map(
+      (subject) =>
+        gmail.deliver({ subject, content: { html: `<p>${subject}</p>` } }),
+    );
+    const inbox = createInboxStore(gmail.native);
+    await inbox.load();
+    const reader = (id: string | undefined) => (
+      <InboxProvider mailboxes={singleMailbox(inbox, alex)}>
+        <CommandPaletteProvider>
+          <MessageDetail
+            mailbox={alex}
+            id={id}
+          />
+        </CommandPaletteProvider>
+      </InboxProvider>
+    );
+    // The zoom the reader adds to the shown document, in percent.
+    const zoom = async () => {
+      const webview = await screen.findByTestId('message-webview');
+      const html: string = webview.props.source.html;
+      const { scale = '1' } = {
+        .../<style>body\{zoom:(?<scale>[\d.]+)\}/u.exec(html)?.groups,
+      };
+      return Math.round(Number(scale) * 100);
+    };
+    const press = async (name: string) => {
+      await fireEvent.press(screen.getByRole('button', { name }));
+    };
+    await render(reader(first));
+    await zoom();
+    await act(async () => {
+      await fireEvent(screen.getByLabelText('More'), 'select', {
+        nativeEvent: { id: 'zoom' },
+      });
+    });
+    expect(screen.getByText('Message zoom · 100%')).toBeVisible();
+    await press('Zoom In');
+    await press('Zoom In');
+    const zoomedIn = {
+      title: screen.getByText('Message zoom · 125%').props.children,
+      document: await zoom(),
+    };
+    await press('Zoom Out');
+    const zoomedOut = await zoom();
+    await press('Actual Size');
+    const actual = await zoom();
+    await press('Zoom In');
+    await screen.rerender(reader(second));
+    const next = await zoom();
+    await screen.rerender(reader(first));
+    const reopenedFirst = await zoom();
+    await screen.rerender(reader(second));
+    await act(async () => {
+      await fireEvent(screen.getByLabelText('More'), 'select', {
+        nativeEvent: { id: 'zoom' },
+      });
+    });
+    await press('Zoom Out');
+    await press('Use 85% for All Messages');
+    await screen.rerender(reader(first));
+
+    expect({
+      zoomedIn,
+      zoomedOut,
+      actual,
+      next,
+      reopenedFirst,
+      stored: Settings.get('UnwiredMessageZoom'),
+      reopened: await zoom(),
+    }).toStrictEqual({
+      zoomedIn: { title: 'Message zoom · 125%', document: 125 },
+      zoomedOut: 115,
+      actual: 100,
+      next: 100,
+      reopenedFirst: 100,
+      stored: 85,
+      reopened: 85,
     });
   });
 

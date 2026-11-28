@@ -385,6 +385,43 @@ extension PrivateInboxTests {
         "name": name, "labelListVisibility": "labelShow", "messageListVisibility": "show",
       ])
     #expect(revocationQueries == queriesBeforeReads + 2)
+    // Saving the vacation responder sends TypeScript's object whole, with PUT; anything that is not
+    // a JSON object, or is larger than 1 MiB, is refused before Gmail (#3092).
+    for vacation: [String: Any] in [
+      ["responseBodyHtml": String(repeating: "x", count: 1024 * 1024)], ["startTime": Date()],
+    ] {
+      await #expect(throws: RegistrationError.unavailable) {
+        _ = try await store.gmailSaveVacation(
+          vacation: vacation, connection: first, address: google.address,
+          generation: store.generation(firstSubject))
+      }
+    }
+    #expect(google.gmailRequests.count == 2)
+    let vacation: NSDictionary = [
+      "enableAutoReply": true, "responseSubject": "Back on Monday", "laterField": ["kept": true],
+    ]
+    let saved = try await store.gmailSaveVacation(
+      vacation: vacation as? [String: Any] ?? [:], connection: first, address: google.address,
+      generation: store.generation(firstSubject))
+    #expect(saved["status"] as? Int == 200)
+    #expect(
+      google.gmailRequests.last?.absoluteString
+        == "https://gmail.googleapis.com/gmail/v1/users/me/settings/vacation")
+    #expect(google.gmailMethods.last == "PUT")
+    let stored = try JSONSerialization.jsonObject(
+      with: try #require(google.gmailBodies.last ?? nil))
+    #expect(stored as? NSDictionary == vacation)
+    // Gmail's refusal comes back as Gmail sent it, so TypeScript can tell a missing scope apart.
+    let answered = google.gmailResponse
+    let refusal = #"{"error":{"code":403,"errors":[{"reason":"insufficientPermissions"}]}}"#
+    google.gmailResponse = (403, Data(refusal.utf8))
+    let refusedSave = try await store.gmailSaveVacation(
+      vacation: [:], connection: first, address: google.address,
+      generation: store.generation(firstSubject))
+    #expect(refusedSave["status"] as? Int == 403)
+    #expect(refusedSave["body"] as? String == refusal)
+    google.gmailResponse = answered
+    #expect(revocationQueries == queriesBeforeReads + 4)
     // Failed revalidation leaves the action unsent; cached read availability cannot authorize it.
     validationUnavailable = true
     let writesBeforeFailure = google.gmailRequests.count

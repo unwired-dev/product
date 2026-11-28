@@ -295,7 +295,9 @@ so `from:a+b@example.com` keeps its plus sign.
 
 [#3039](https://github.com/unwired-dev/product/issues/3039), the first slice of
 [#1697](https://github.com/unwired-dev/product/issues/1697), reads a Gmail mailbox's vacation
-responder, Gmail's name for Out of Office. No screen shows it yet.
+responder, Gmail's name for Out of Office, and
+[#3092](https://github.com/unwired-dev/product/issues/3092) saves a change to it. No screen
+shows it yet, and nothing asks for `gmail.settings.basic` yet.
 
 - **Grant.** The read uses the mailbox's existing `gmail.modify` grant, as the owner decided on
   26 November 2026. Saving a change will ask for `gmail.settings.basic` separately.
@@ -308,6 +310,18 @@ responder, Gmail's name for Out of Office. No screen shows it yet.
   a [search](#searching-gmail-online) does. A refused grant also asks for Gmail again, as a reader
   does. An answer for an Inbox that closed meanwhile is dropped, and a Microsoft mailbox reads
   nothing.
+- **Save.** `saveOutOfOffice(change)` reads the responder again and applies the change to what
+  Gmail stores now: a named field takes its value, `null` leaves it out, and every other field,
+  including one Unwired does not read, goes back as Gmail sent it. Gmail replaces the whole
+  responder, so native code sends the result as the one `PUT settings/vacation`, the only Gmail
+  write it accepts there. Gmail's answer is the saved responder. Nothing is cached. Saves run one
+  at a time, each over what the one before saved, and a save the Inbox closed before it read or
+  wrote Gmail sends nothing more.
+- **Save failures.** A 403 on the save whose reason is `insufficientPermissions` answers
+  `permission`: the grant lacks `gmail.settings.basic`. The Inbox stays open and nothing asks for
+  Gmail again. Any other 403 answers as a read's does. Gmail refusing the values (400) answers `failed`. Other
+  failures, and a read that fails first and sends no save, answer as the read does. A Microsoft
+  mailbox saves nothing.
 
 ## Behavior
 
