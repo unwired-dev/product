@@ -63,6 +63,7 @@ allowance=120
 [[ "$journey" == testEditFavorites* ]] && allowance=600
 [[ "$journey" == testGmailPaused* ]] && allowance=600
 [[ "$journey" == testGermanStrings* ]] && allowance=600
+[[ "$journey" == testMessageZoom* ]] && allowance=600
 [[ "$journey" == testComposerRecoveryAfterForceQuit ]] && allowance=300
 [[ "$journey" == testComposerOpening ]] && allowance=600
 [[ "$journey" == testLaunchAndFirstComposer ]] && allowance=600

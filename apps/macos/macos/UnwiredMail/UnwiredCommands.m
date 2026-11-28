@@ -9,6 +9,8 @@
 NSNotificationName const UnwiredOpenCommandPalette = @"UnwiredOpenCommandPalette";
 // View › Refresh, Command-R, tells the key window's JavaScript to synchronize its Inbox.
 NSNotificationName const UnwiredRefresh = @"UnwiredRefresh";
+// View › Zoom In, Zoom Out and Actual Size tell the key window's JavaScript to zoom its open message.
+NSNotificationName const UnwiredZoom = @"UnwiredZoom";
 // File › New Message, Command-N, tells an Inbox window's JavaScript to start a Draft.
 NSNotificationName const UnwiredNewMessage = @"UnwiredNewMessage";
 // Edit › Undo, Command-Z, tells an Inbox window's JavaScript to undo its last organizing action.
@@ -52,6 +54,20 @@ NSString *UnwiredWindowProfile(NSString *identifier)
 void UnwiredRecordWindowProfile(NSString *identifier, NSString *profile)
 {
   if (identifier != nil && profile != nil) windowProfiles()[identifier] = profile;
+}
+
+// The Inbox windows whose reader shows formatted mail, which View's zoom items zoom.
+static NSMutableSet<NSString *> *zoomableWindows(void)
+{
+  static NSMutableSet<NSString *> *windows;
+  static dispatch_once_t once;
+  dispatch_once(&once, ^{ windows = [NSMutableSet set]; });
+  return windows;
+}
+
+BOOL UnwiredMessageZoomable(NSString *identifier)
+{
+  return identifier != nil && [zoomableWindows() containsObject:identifier];
 }
 
 // Which of Decrease Indent and Increase Indent each composer body's selected list items allow.
@@ -112,7 +128,7 @@ RCT_EXPORT_MODULE()
 
 + (BOOL)requiresMainQueueSetup { return YES; }
 - (dispatch_queue_t)methodQueue { return dispatch_get_main_queue(); }
-- (NSArray<NSString *> *)supportedEvents { return @[@"openCommandPalette", @"refresh", @"newMessage", @"undo", @"indent", @"windowShouldClose", @"settingsClosed"]; }
+- (NSArray<NSString *> *)supportedEvents { return @[@"openCommandPalette", @"refresh", @"zoom", @"newMessage", @"undo", @"indent", @"windowShouldClose", @"settingsClosed"]; }
 
 - (void)startObserving
 {
@@ -120,6 +136,8 @@ RCT_EXPORT_MODULE()
       name:UnwiredOpenCommandPalette object:nil];
   [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(refresh:)
       name:UnwiredRefresh object:nil];
+  [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(zoom:)
+      name:UnwiredZoom object:nil];
   [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(newMessage:)
       name:UnwiredNewMessage object:nil];
   [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(undo:)
@@ -145,6 +163,12 @@ RCT_EXPORT_MODULE()
 - (void)refresh:(NSNotification *)notification
 {
   [self sendEventWithName:@"refresh" body:@{@"window": notification.object ?: @""}];
+}
+
+- (void)zoom:(NSNotification *)notification
+{
+  [self sendEventWithName:@"zoom" body:@{@"window": notification.object ?: @"",
+      @"direction": notification.userInfo[@"direction"]}];
 }
 
 - (void)newMessage:(NSNotification *)notification
@@ -310,6 +334,16 @@ RCT_EXPORT_METHOD(setComposerIndents:(NSString *)body outdent:(BOOL)outdent inde
     composerIndents()[body] = @[@(outdent), @(indent)];
   } else {
     [composerIndents() removeObjectForKey:body];
+  }
+}
+
+// An Inbox window's reader reports whether it shows formatted mail, and not once it closes.
+RCT_EXPORT_METHOD(setMessageZoomable:(NSString *)identifier zoomable:(BOOL)zoomable)
+{
+  if (zoomable) {
+    [zoomableWindows() addObject:identifier];
+  } else {
+    [zoomableWindows() removeObject:identifier];
   }
 }
 

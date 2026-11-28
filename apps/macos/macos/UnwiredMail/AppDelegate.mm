@@ -18,6 +18,8 @@ extern "C" NSString *UnwiredGuardedWindow(void);
 // UnwiredCommands.m: the Mail Profile each Inbox window's JavaScript last reported.
 extern "C" NSString *UnwiredWindowProfile(NSString *identifier);
 extern "C" void UnwiredRecordWindowProfile(NSString *identifier, NSString *profile);
+// UnwiredCommands.m: whether an Inbox window's reader shows formatted mail, which zooms.
+extern "C" BOOL UnwiredMessageZoomable(NSString *identifier);
 // UnwiredCommands.m: whether a composer body's selected list items allow Increase or Decrease Indent.
 extern "C" BOOL UnwiredComposerIndents(NSString *body, BOOL indent);
 // ComposerFormatting.m: the key window's focused composer body.
@@ -458,6 +460,11 @@ extern "C" void UnwiredInstallComposerFormatting(void);
   if (item.action == @selector(increaseIndent:) || item.action == @selector(decreaseIndent:)) {
     return UnwiredComposerIndents(UnwiredFocusedComposerBody(), item.action == @selector(increaseIndent:));
   }
+  // The zoom items are offered while the main window's reader shows formatted mail, outside a text field.
+  if (item.action == @selector(zoomMessage:)) {
+    return UnwiredMessageZoomable(NSApp.mainWindow.identifier) &&
+        ![NSApp.keyWindow.firstResponder isKindOfClass:NSText.class];
+  }
   if (item.action != @selector(undoOrganizing:)) return YES;
   NSWindow *window = NSApp.keyWindow;
   return [window.identifier hasPrefix:@"inbox-window-"] && window.sheetParent == nil &&
@@ -491,6 +498,15 @@ extern "C" void UnwiredInstallComposerFormatting(void);
   NSWindow *window = NSApp.keyWindow;
   if (window.identifier == nil) return;
   [NSNotificationCenter.defaultCenter postNotificationName:@"UnwiredRefresh" object:window.identifier];
+}
+
+// View › Zoom In (Command-+ or Command-=), Zoom Out (Command-−) and Actual Size (Command-0) zoom
+// the main window's open message, also while its Message zoom panel is key; its JavaScript listens
+// for the window.
+- (void)zoomMessage:(NSMenuItem *)item
+{
+  [NSNotificationCenter.defaultCenter postNotificationName:@"UnwiredZoom" object:NSApp.mainWindow.identifier
+                                                  userInfo:@{@"direction": item.representedObject}];
 }
 
 - (void)focusInbox:(id)sender
@@ -687,11 +703,24 @@ extern "C" void UnwiredInstallComposerFormatting(void);
   commands.target = self;
   NSMenuItem *refresh = [view addItemWithTitle:UnwiredNativeText(@"refresh") action:@selector(refresh:) keyEquivalent:@"r"];
   refresh.target = self;
+  [view addItem:[NSMenuItem separatorItem]];
+  // A hidden Zoom In takes Command-=, the same key without Shift.
+  NSArray<NSArray<NSString *> *> *zooms = @[@[@"zoomIn", @"+", @"in"], @[@"zoomIn", @"=", @"in"],
+                                           @[@"zoomOut", @"-", @"out"], @[@"actualSize", @"0", @"actual"]];
+  for (NSArray<NSString *> *zoom in zooms) {
+    NSMenuItem *item = [view addItemWithTitle:UnwiredNativeText(zoom[0]) action:@selector(zoomMessage:) keyEquivalent:zoom[1]];
+    item.target = self;
+    item.representedObject = zoom[2];
+    item.hidden = [zoom[1] isEqualToString:@"="];
+    item.allowsKeyEquivalentWhenHidden = item.hidden;
+  }
 
   NSMenuItem *windowItem = [main addItemWithTitle:UnwiredNativeText(@"window") action:nil keyEquivalent:@""];
   NSMenu *windows = [[NSMenu alloc] initWithTitle:UnwiredNativeText(@"window")];
   windowItem.submenu = windows;
+  // Command-0 is Actual Size, as in Safari and Preview.
   NSMenuItem *focus = [windows addItemWithTitle:UnwiredNativeText(@"showInbox") action:@selector(focusInbox:) keyEquivalent:@"0"];
+  focus.keyEquivalentModifierMask = NSEventModifierFlagCommand | NSEventModifierFlagShift;
   focus.target = self;
   [windows addItemWithTitle:UnwiredNativeText(@"minimize") action:@selector(performMiniaturize:) keyEquivalent:@"m"];
   NSMenuItem *next = [windows addItemWithTitle:UnwiredNativeText(@"nextWindow") action:@selector(nextWindow:) keyEquivalent:@"`"];

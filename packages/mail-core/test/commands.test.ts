@@ -10,6 +10,7 @@ import {
   orderCommands,
   responseCommands,
   runWhenOffered,
+  zoomCommands,
 } from '@private-email/mail-core/commands';
 
 const command = (
@@ -82,6 +83,35 @@ describe('command palette matching', () => {
     expect(titles('folder')).toStrictEqual(['Move to…']);
     expect(titles('compose')).toStrictEqual(['New Message']);
     expect(titles('   ')).toHaveLength(commands.length);
+  });
+
+  it('finds the open message’s zoom commands by name and runs each direction', () => {
+    expect.hasAssertions();
+    const chosen: string[] = [];
+    const zoom = zoomCommands(
+      english,
+      { id: 'gmail\n1', subject: 'Quarterly planning' },
+      (direction) => {
+        chosen.push(direction);
+      },
+    );
+    expect(matchCommands('zoom', zoom).map(({ title }) => title)).toStrictEqual(
+      ['Zoom In', 'Zoom Out', 'Actual Size'],
+    );
+    expect(
+      matchCommands('reset', zoom).map(({ title }) => title),
+    ).toStrictEqual(['Actual Size']);
+    for (const { run } of zoom) {
+      void run?.();
+    }
+    expect(chosen).toStrictEqual(['in', 'out', 'actual']);
+    // Chosen after another message opened, a zoom command no longer runs.
+    const next = zoomCommands(
+      english,
+      { id: 'gmail\n2', subject: 'Notes' },
+      () => undefined,
+    );
+    expect(offeredCommand(next, zoom[0]!)).toBeUndefined();
   });
 
   it('ignores accents in the query and the command', () => {

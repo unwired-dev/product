@@ -64,11 +64,8 @@ import { useLocalization } from './localization.ts';
 import { useProviderName } from './mailbox.tsx';
 import { styles } from './message-body-styles.ts';
 import { AssistanceContext, MessageSummary } from './message-summary.tsx';
-import {
-  fittedDocument,
-  useFitWideMessages,
-  useMessageZoom,
-} from './reading.ts';
+import { useShownZoom, useShowsFormatted } from './message-zoom.tsx';
+import { fittedDocument, useFitWideMessages } from './reading.ts';
 import { useRemoteImages } from './remote-content.tsx';
 import { windowHost } from './settings-window-client.ts';
 import { usePalette } from './theme.ts';
@@ -650,7 +647,7 @@ export function Presentation({
   const colors = usePalette();
   const { t } = useLocalization();
   const { rich, readable } = presentation;
-  const zoom = useMessageZoom();
+  const zoom = useShownZoom();
   const fit = useFitWideMessages();
   // A new source gets a new native view; remote-image node changes keep this navigation.
   const [navigation, setNavigation] = useState(() => ({
@@ -665,6 +662,7 @@ export function Presentation({
   const richKey = current.key;
   // Keep only the failed document's identity so its HTML and inline bytes can be released.
   const [failed, setFailed] = useState<number>();
+  useShowsFormatted(rich !== undefined && failed !== richKey);
   const offered =
     onLoadImages !== undefined &&
     rich !== undefined &&

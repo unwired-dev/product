@@ -317,7 +317,7 @@ the count line is one text element between the rewrite and the row
 ([#1902](https://github.com/unwired-dev/product/issues/1902)),
 and Keep Original closes it with the reply unchanged. Both states are audited and
 kept as `Writing tools W1` and `Writing tools W2` attachments. Option-Command-N opens a second Inbox with no
-selection; Command-backtick, Command-0 and Command-W then move between and close
+selection; Command-backtick, Shift-Command-0 and Command-W then move between and close
 windows while the first window keeps its Draft. Expand then moves that saved
 Draft into a New Message window, removes the overlay and omits Expand there;
 closing that window with Save Draft brings the Draft back into the Inbox
@@ -488,6 +488,17 @@ wraps, and at each width chooses **More › Labels › New Label…** and types
 `Travel/Spain`. **Labels** stays inside the window at both widths. Each window
 with the typed name is kept as an attachment, which shows no placeholder under
 the name. It sets Light; `testNewLabelPopoverDark` runs it in Dark.
+
+`testMessageZoom` uses the same build and sign-in
+([#2808](https://github.com/unwired-dev/product/issues/2808)) and sizes the
+window to the frames' 1280×800. In plain-text Gmail
+update 001, **More › Message Zoom…** and View's zoom items are dimmed. In
+formatted Gmail update 002, Command-= and Command-+ twice make it read 150%; its
+panel then reads `Message zoom · 150%`. With the panel open, Command-+ makes it
+175%, Command-− 150% and Command-0 100%; the panel's **Zoom In** makes it 115%
+and **Actual Size** 100% again, which More then shows. The More menu, the panel
+and the View menu are kept as attachments.
+It sets Light; `testMessageZoomDark` runs it in Dark.
 
 On iPhone and iPad, the default Gmail registration journey
 ([#2166](https://github.com/unwired-dev/product/issues/2166)) long-presses the
