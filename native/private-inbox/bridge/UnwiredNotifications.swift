@@ -359,13 +359,18 @@ extension UnwiredRegistration {
     }
   }
 
-  // Turns one Mail Profile's Badge and sound switch on or off.
-  @objc(setNotificationProfile:on:resolver:rejecter:)
+  // Turns one of the Product Account `owner`'s Mail Profiles' Badge and sound switch on or off.
+  // Runs in the registration operation gate: a choice that waited behind a purge changes nothing,
+  // since another Product Account reuses the Profile ids.
+  @objc(setNotificationProfile:profile:on:resolver:rejecter:)
   func setNotificationProfile(
-    _ profile: String, on: Bool, resolve: @escaping RCTPromiseResolveBlock,
+    _ owner: String, profile: String, on: Bool, resolve: @escaping RCTPromiseResolveBlock,
     reject: @escaping RCTPromiseRejectBlock
   ) {
-    perform("setNotificationProfile", resolve, reject: reject) { _ in
+    perform("setNotificationProfile", resolve, reject: reject) { store in
+      guard try store.load()?.product?.productAccountId == owner else {
+        return await Self.notificationSettings()
+      }
       let others = Self.badgeSoundOff.filter { $0 != profile }
       UserDefaults.standard.set(
         on || profile.isEmpty ? others : others + [profile],

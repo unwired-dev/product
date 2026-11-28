@@ -35,9 +35,9 @@ matches content, grouping and actions to the design.
 - **Profiles**, on iPhone and iPad, lists each Mail Profile with a **Badge and sound** switch
   ([#2809](https://github.com/unwired-dev/product/issues/2809)). A Profile switched off adds
   nothing to the App Icon Badge, and its New Mail Notifications are still shown but play no
-  sound. Every switch starts on, belongs to this device and never synchronizes. While
-  notifications are off in the system's settings, the group is not shown and the choices are
-  kept. The Mac's switches come with [#2811](https://github.com/unwired-dev/product/issues/2811).
+  sound. Every switch starts on, belongs to this device and never synchronizes, and signing
+  out or a purge removes the choices. Until notifications are allowed, and while they are off
+  in the system's settings, the group is not shown and the choices are kept. The Mac's switches come with [#2811](https://github.com/unwired-dev/product/issues/2811).
 - **Per Mailbox** has a switch for each Mailbox Connection, named by its provider
   and address. Every connection starts off. Turning one on the first time also asks for permission. The switch is
   a Mail Workflow Preference of the Profile that owns the connection: it
@@ -138,8 +138,8 @@ The badge is removed when the choice is **Off**, when notifications are not allo
 when no Inbox can open (after the last connection is removed or the person signs out)
 and when there is no unread listed mail. The badge is checked again whenever the app
 becomes active, since permission can change in the system's settings. While it counts,
-until saved registration has been read and while any Inbox is still opening or locked,
-the device leaves the badge it found unchanged rather than showing a partial count. A
+until saved registration has been read and while any Inbox it counts is still opening or
+locked, the device leaves the badge it found unchanged rather than showing a partial count. A
 push wake, or an Archive or Mark as Read on a notification, that launches the app works on
 its own mailbox and opens every other connection's saved Inbox listing without reading mail from its provider, so the badge counts
 every Profile whose **Badge and sound** switch is on. Snooze and Profile Lock do not exist

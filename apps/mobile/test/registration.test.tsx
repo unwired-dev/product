@@ -4370,17 +4370,18 @@ describe('product registration', () => {
     });
   });
 
-  it('switches a Profile’s Badge and sound on this device, and hides the switches while notifications are denied', async () => {
+  it('switches a Profile’s Badge and sound on this device, and hides the switches until notifications are allowed', async () => {
     expect.hasAssertions();
     const { synthetic } = await connectedAccount();
     const store = createRegistration(synthetic.relaunch());
     const device = {
-      authorization: 'authorized',
+      authorization: 'undetermined',
       previews: false,
       badge: 'inbox',
       sound: 'default',
       badgeSoundOff: [] as readonly string[],
     };
+    const owners: string[] = [];
     const notifications = createNotifications(
       {
         notificationSettings: () => Promise.resolve({ ...device }),
@@ -4389,7 +4390,8 @@ describe('product registration', () => {
         setNotificationBadge: () => Promise.resolve({ ...device }),
         setNotificationSound: () => Promise.resolve({ ...device }),
         // Only turning a switch off is exercised here.
-        setNotificationProfile: (profile) => {
+        setNotificationProfile: (owner, profile) => {
+          owners.push(owner);
           device.badgeSoundOff = [...device.badgeSoundOff, profile];
           return Promise.resolve({ ...device });
         },
@@ -4414,6 +4416,11 @@ describe('product registration', () => {
       screen.getByRole('switch', {
         name: 'Badge and sound for Primary Profile',
       });
+    // Not yet asked for permission, the group is hidden.
+    await expect(screen.findByText('Allow…')).resolves.toBeVisible();
+    const undetermined = screen.queryByText('Profiles');
+    device.authorization = 'authorized';
+    await act(() => notifications.load());
     await expect(screen.findByText('Profiles')).resolves.toBeVisible();
     const shown = {
       on: primary().props.value,
@@ -4422,7 +4429,11 @@ describe('product registration', () => {
     await act(async () => {
       await fireEvent(primary(), 'valueChange', false);
     });
-    const off = { value: primary().props.value, saved: device.badgeSoundOff };
+    const off = {
+      value: primary().props.value,
+      saved: device.badgeSoundOff,
+      owners,
+    };
     // Denied in the system's settings, the group is hidden and the choice is kept.
     device.authorization = 'denied';
     await act(() => notifications.load());
@@ -4430,13 +4441,19 @@ describe('product registration', () => {
     device.authorization = 'authorized';
     await act(() => notifications.load());
     expect({
+      undetermined,
       shown,
       off,
       denied,
       allowedAgain: primary().props.value,
     }).toStrictEqual({
+      undetermined: null,
       shown: { on: true, detail: true },
-      off: { value: false, saved: ['default'] },
+      off: {
+        value: false,
+        saved: ['default'],
+        owners: ['account-synthetic-product-subject'],
+      },
       denied: null,
       allowedAgain: false,
     });

@@ -143,8 +143,10 @@ export interface NativeNotifications {
   readonly setNotificationPreviews: (previews: boolean) => Promise<unknown>;
   readonly setNotificationBadge: (badge: BadgeChoice) => Promise<unknown>;
   readonly setNotificationSound: (sound: SoundChoice) => Promise<unknown>;
-  // Turns one Mail Profile's Badge and sound switch on or off.
+  // Turns one of the Product Account `owner`'s Mail Profiles' Badge and sound switch on or off;
+  // after that account is gone, nothing changes.
   readonly setNotificationProfile: (
+    owner: string,
     profile: string,
     on: boolean,
   ) => Promise<unknown>;
@@ -341,9 +343,9 @@ export function createNotifications(
         () => native.setNotificationSound(sound),
         'The New Mail Sound choice could not be saved:',
       ),
-    setProfileBadgeSound: (profile: string, on: boolean) =>
+    setProfileBadgeSound: (owner: string, profile: string, on: boolean) =>
       update(
-        () => native.setNotificationProfile(profile, on),
+        () => native.setNotificationProfile(owner, profile, on),
         'A Profile Badge and sound choice could not be saved:',
       ),
     // Keeps the App Icon Badge on the unread Inbox count of the Profiles whose Badge and sound

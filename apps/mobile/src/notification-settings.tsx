@@ -172,20 +172,22 @@ function BadgeAndSound({
   );
 }
 
-// Each Mail Profile's Badge and sound switch. While notifications are off the group is not shown,
-// and the choices stay until they are allowed again.
+// Each Mail Profile's Badge and sound switch. Until notifications are allowed the group is not
+// shown, and the choices stay until then.
 function Profiles({
+  account,
   profiles,
   device,
   settings,
 }: {
+  readonly account: string;
   readonly profiles: readonly MailProfile[];
   readonly device: NotificationSettingsStore;
   readonly settings: DeviceSettings;
 }) {
   const { t } = useLocalization();
   const colors = usePalette();
-  if (settings === undefined || settings.authorization === 'denied') {
+  if (settings?.authorization !== 'authorized') {
     return null;
   }
   return (
@@ -205,7 +207,7 @@ function Profiles({
               value={!settings.badgeSoundOff.includes(profile)}
               trackColor={{ false: colors.fillTrack, true: colors.accentFill }}
               onValueChange={(on) => {
-                void device.setProfileBadgeSound(profile, on);
+                void device.setProfileBadgeSound(account, profile, on);
               }}
             />
           </SettingsRow>
@@ -255,11 +257,13 @@ function PerMailbox({
 // New Mail Notification switch.
 export function NotificationSettings({
   button,
+  account,
   profiles,
   mailboxes,
   store,
 }: {
   readonly button: SettingsButton;
+  readonly account: string;
   readonly profiles: readonly MailProfile[];
   readonly mailboxes: readonly MailboxConnection[];
   readonly store: Registration;
@@ -311,6 +315,7 @@ export function NotificationSettings({
         settings={settings}
       />
       <Profiles
+        account={account}
         profiles={profiles}
         device={device}
         settings={settings}

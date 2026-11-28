@@ -74,6 +74,12 @@ const listedGmail = (
 
 // A host over a native module whose vault, Gmail and Drafts are synthetic. Attachment reads wait
 // until native code cancels them by name; the counts are the native reads the host made.
+// The signed-in Product Account a Badge and sound choice is made under.
+function ownerOf(host: ReturnType<typeof syntheticHost>['host']) {
+  const { snapshot } = host.registration.getSnapshot();
+  return snapshot.kind === 'signed-out' ? '' : snapshot.productAccountId;
+}
+
 function syntheticHost(reporting?: NativeErrorReporting, productSync = false) {
   const gmail = createSyntheticGmail();
   const shared = createSyntheticDevice();
@@ -272,7 +278,7 @@ function syntheticHost(reporting?: NativeErrorReporting, productSync = false) {
       device.sound = sound;
       return Promise.resolve({ ...device });
     },
-    setNotificationProfile: (profile, on) => {
+    setNotificationProfile: (_owner, profile, on) => {
       device.badgeSoundOff = [
         ...device.badgeSoundOff.filter((off) => off !== profile),
         ...(on ? [] : [profile]),
@@ -874,7 +880,11 @@ describe('the host assembly', () => {
     await host.notifications.request();
     await host.notifications.setBadge('inbox');
     badges.splice(0);
-    await host.notifications.setProfileBadgeSound(defaultProfile, false);
+    await host.notifications.setProfileBadgeSound(
+      ownerOf(host),
+      defaultProfile,
+      false,
+    );
     step('off');
     // New mail in a Profile switched off does not count.
     gmail.deliver({ subject: 'Arrived', unread: true });
@@ -893,11 +903,15 @@ describe('the host assembly', () => {
     );
     step('moved to Work');
     // Each Profile's switch counts only its own mail.
-    await host.notifications.setProfileBadgeSound(defaultProfile, true);
+    await host.notifications.setProfileBadgeSound(
+      ownerOf(host),
+      defaultProfile,
+      true,
+    );
     step('Primary on');
-    await host.notifications.setProfileBadgeSound(work, false);
+    await host.notifications.setProfileBadgeSound(ownerOf(host), work, false);
     step('Work off');
-    await host.notifications.setProfileBadgeSound(work, true);
+    await host.notifications.setProfileBadgeSound(ownerOf(host), work, true);
     step('Work on');
     expect({ steps, off: device.badgeSoundOff }).toStrictEqual({
       steps: [
@@ -918,7 +932,11 @@ describe('the host assembly', () => {
     host.followBadge();
     await host.start();
     await host.registration.register('google');
-    await host.notifications.setProfileBadgeSound(defaultProfile, false);
+    await host.notifications.setProfileBadgeSound(
+      ownerOf(host),
+      defaultProfile,
+      false,
+    );
     // Signing out purges the choices, whose Profile ids another Product Account reuses.
     await host.registration.signOut();
     device.badgeSoundOff = [];
