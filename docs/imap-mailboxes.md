@@ -2476,9 +2476,9 @@ password manager by running
   3,667 other files written to the temporary directories since the run began that still
   existed, other agent sessions' directories aside. Limitations: against step 1, after
   each mailbox password was pasted, one accessibility snapshot checked that the fields
-  held values while the keyboard was open; no screenshot file appeared under
-  `~/.agent-device` or T3 Code's device directory, but a text scan cannot show that no
-  credential was captured in an image. The first press on the iCloud Mail form's
+  held values while the keyboard was open; a search of `~/.agent-device` and T3 Code's
+  device directory found no PNG or JPEG file created since the run began, but a text scan
+  cannot show that no credential was captured in an image. The first press on the iCloud Mail form's
   **Connect** left the form on screen, and a second one connected. Right after iCloud
   Mail connected, the sidebar showed **The mail server could not be reached. Showing mail
   saved on this device.** and the Inbox **Offline**; the next read, about 10 seconds
