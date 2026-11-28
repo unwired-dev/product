@@ -902,7 +902,8 @@ reopening, **Undo** and **Discard** work as for any Draft.
 - **Forwarded files.** **Forward** opens its Draft at once, as Reply does
   ([#3119](https://github.com/unwired-dev/product/issues/3119)), and attaches every listed
   attachment as a Draft Asset. One already downloaded is added at once; the Draft store
-  downloads each other one from the original message before adding it, and the message stays
+  downloads each other one from the original message before adding it, starting once the Draft
+  is saved, since native mailbox requests and Draft saves wait in one queue. The message stays
   read until those downloads settle, also once its reader closed. While a file downloads its row
   shows **Importing…** with **Cancel**, and Send waits for it; a relaunch meanwhile leaves it
   **Not added**, as for any interrupted import. A Downloaded

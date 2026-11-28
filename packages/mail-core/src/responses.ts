@@ -361,7 +361,8 @@ export const typedReply = (
 // The files a forward attaches: each listed attachment of an opened message in `mailbox`. One too
 // large to download, or that cannot be downloaded, is attached as a failed asset. For a client
 // offering Try Again (`keep`), a file not downloaded yet is `unavailable` with its `download`,
-// which the Draft store runs before importing it, so the Draft opens at once; without `keep`,
+// which the Draft store runs before importing it, so the Draft opens at once: no download starts
+// before then, since native mailbox requests and Draft saves wait in one queue. Without `keep`,
 // every download finishes first. The saved files stay on the device until `release`, or each
 // file's own `release` once a Draft took it. `inboxOf` names the mailbox's Inbox now, which
 // authorizing it again replaces; without one, Try Again uses `inbox`.
@@ -388,9 +389,21 @@ export async function forwardedAttachments(
   }>,
 ) {
   const listed = inbox.messageAttachments(id) ?? [];
-  // A download already running when Forward was chosen is awaited rather than started again. The
-  // message stays read until each downloaded file is held, also once its reader closed.
+  const downloadable = listed.filter(({ state }) => state.kind !== 'oversized');
+  // The message stays read until each file's first download is held, or no Draft took the file,
+  // also once its reader closed.
   const reading = inbox.retainMessage(id);
+  let left = downloadable.length;
+  const settle = () => {
+    left -= 1;
+    if (left === 0) {
+      reading();
+    }
+  };
+  if (left === 0) {
+    reading();
+  }
+  // A download already running when Forward was chosen is awaited rather than started again.
   const fetch = async (locator: string) => {
     try {
       await inbox.downloadAttachment(id, locator);
@@ -399,21 +412,36 @@ export async function forwardedAttachments(
     }
     return inbox.holdAttachmentFile(id, locator);
   };
-  const fetching = new Map(
-    listed
-      .filter(({ state }) => state.kind !== 'oversized')
-      .map(({ locator }) => [locator, fetch(locator)]),
+  // Each file's first download, run once; `start` false gives the file up without downloading it.
+  const firsts = new Map(
+    downloadable.map(({ locator }) => {
+      let pending = true;
+      const first = (start: boolean) => {
+        if (!pending) {
+          return undefined;
+        }
+        pending = false;
+        if (!start) {
+          settle();
+          return undefined;
+        }
+        return fetch(locator).finally(settle);
+      };
+      return [locator, first] as const;
+    }),
   );
-  const fetched = (async () => {
-    const saved = new Map<string, Awaited<ReturnType<typeof fetch>>>();
-    for (const [locator, file] of fetching) {
-      saved.set(locator, await file);
-    }
-    reading();
-    return saved;
-  })();
   // Without Try Again the Draft store cannot download, so every download finishes first.
-  const saved = keep === true ? undefined : await fetched;
+  const saved =
+    keep === true
+      ? undefined
+      : new Map(
+          await Promise.all(
+            downloadable.map(
+              async ({ locator }) =>
+                [locator, await firsts.get(locator)?.(true)] as const,
+            ),
+          ),
+        );
   const held: Array<() => void> = [];
   const sourceOf = (
     file: Readonly<ReturnType<typeof inbox.holdAttachmentFile>>,
@@ -465,23 +493,14 @@ export async function forwardedAttachments(
         retained();
       }
     };
-    // With Try Again, the Draft store's first `download` takes the file Forward is downloading.
-    let first = saved === undefined ? fetching.get(locator) : undefined;
-    const take = () => {
-      const file = first;
-      first = undefined;
-      return file;
-    };
-    // A file no Draft took is released once its download settles.
-    const abandon = async () => {
-      const file = await take();
-      file?.release();
-    };
+    // With Try Again, the Draft store's first `download` is the file's first; a file no Draft took
+    // is never downloaded.
+    const first = firsts.get(locator);
     const file = saved?.get(locator);
     const release =
       saved === undefined
         ? () => {
-            void abandon();
+            void first?.(false);
           }
         : file?.release;
     if (release !== undefined) {
@@ -494,7 +513,7 @@ export async function forwardedAttachments(
       release,
       keep,
       download: async () => {
-        const pending = take();
+        const pending = first?.(true);
         return pending === undefined ? again() : downloaded(await pending);
       },
     };

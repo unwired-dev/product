@@ -603,12 +603,27 @@ describe('replying to and forwarding a received message', () => {
       await saveHeld.promise;
       return save(...args);
     };
+    // Native mailbox requests and Draft saves wait in one queue, so no download may start before
+    // the forward's Draft is saved.
+    const downloads = () =>
+      gmail.requests.filter(({ path }) => path.includes('/attachments/'))
+        .length;
+    const downloadsAtSave: number[] = [];
+    const commit = storage.native.commitDrafts.bind(storage.native);
+    vi.spyOn(storage.native, 'commitDrafts').mockImplementation(
+      async (...args) => {
+        downloadsAtSave.push(downloads());
+        return commit(...args);
+      },
+    );
 
     // The Draft opens while the file downloads; Send waits for it as for any import.
     const forward = draft(await start('forward'));
     expect(
       assetsOf(forward).map(({ name, state }) => ({ name, state })),
     ).toStrictEqual([{ name: 'notes.txt', state: 'importing' }]);
+    expect(downloadsAtSave.length).toBeGreaterThan(0);
+    expect(downloadsAtSave.every((count) => count === 0)).toBe(true);
     close();
     saveHeld.resolve(undefined);
     await vi.waitFor(() => {
