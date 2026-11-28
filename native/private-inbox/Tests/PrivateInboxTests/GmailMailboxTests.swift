@@ -708,33 +708,29 @@ extension PrivateInboxTests {
     _ = try await store.signIn()
     _ = try await store.authorizeGmail()
     // A read releases the operation gate while Google renews its token and while Gmail answers, so
-    // other work, such as a Draft save, runs meanwhile; reads renewing together share one renewal,
-    // and a removal in that window still invalidates the read once it takes the gate back.
+    // other work, such as a Draft save, runs meanwhile; a removal in either window, even one whose
+    // renewal then fails, still invalidates the read once it takes the gate back.
     let operations = RegistrationOperationGate()
-    func read() -> Task<Int?, any Error> {
-      Task {
+    for stage in ["renewal", "response", "remove", "remove-renewal"] {
+      let answering = MailboxPause()
+      if stage.hasSuffix("renewal") {
+        google.beforeRefresh = { await answering.wait() }
+      } else {
+        google.beforeGmail = { await answering.wait() }
+      }
+      let reading = Task {
         try await operations.perform {
           try await store.gmail(
             path: "profile", query: [], connection: current, address: google.address,
             generation: store.generation(currentSubject), gate: operations)["status"] as? Int
         }
       }
-    }
-    for stage in ["renewal", "response", "remove"] {
-      let answering = MailboxPause()
-      if stage == "renewal" {
-        google.beforeRefresh = { await answering.wait() }
-      } else {
-        google.beforeGmail = { await answering.wait() }
-      }
-      let refreshes = google.refreshes
-      let reading = read()
       await answering.reached()
-      let joining = stage == "renewal" ? read() : nil
       var ran = false
       let other = Task {
         try await operations.perform {
-          if stage == "remove" { _ = try await store.flowRemoveMailbox(current) }
+          if stage.hasPrefix("remove") { _ = try await store.flowRemoveMailbox(current) }
+          if stage == "remove-renewal" { google.refreshFailure = RegistrationError.gmailUnavailable }
           ran = true
         }
       }
@@ -742,13 +738,16 @@ extension PrivateInboxTests {
       #expect(ran)
       answering.resume()
       try await other.value
-      if stage == "remove" {
+      if stage.hasPrefix("remove") {
         await #expect(throws: PrivateInboxError.mailboxInvalidated) { _ = try await reading.value }
       } else {
         #expect(try await reading.value == 200)
       }
-      if let joining { #expect(try await joining.value == 200) }
-      #expect(google.refreshes == refreshes + 1)
+      google.refreshFailure = nil
+      if stage.hasPrefix("remove") {
+        _ = try await store.signIn()
+        _ = try await store.authorizeGmail()
+      }
     }
     _ = try await store.purge()
     _ = try await store.signIn()

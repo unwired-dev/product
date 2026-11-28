@@ -307,13 +307,12 @@ extension RegistrationStore {
     let microsoft = try microsoftProvider()
     let identity: MicrosoftMailIdentity
     do {
-      identity = try await outside(gate) {
-        try await self.shared(\.microsoftRenewals, credential) {
-          try await self.microsoftProvider().refresh(credential)
-        }
-      }
+      identity = try await outside(gate) { try await microsoft.refresh(credential) }
     } catch is CancellationError {
       throw CancellationError()
+    } catch where !current() {
+      // The connection changed while its old credential renewed.
+      throw PrivateInboxError.mailboxInvalidated
     } catch RegistrationError.gmailUnavailable {
       throw RegistrationError.gmailUnavailable
     } catch {

@@ -79,7 +79,7 @@ enum SignInProvider: String, Codable {
   case google, apple
 }
 
-struct GoogleRegistrationIdentity: Sendable {
+struct GoogleRegistrationIdentity {
   let subject: String
   let credential: Data
   let idToken: String
@@ -362,10 +362,6 @@ typealias BackendTransport = @MainActor (BackendRequest) async throws -> (Int, D
   var mailboxGenerations: [String: UUID] = [:] { didSet { closeStaleImapSessions() } }
   // Connections whose Gmail access verified in this process, and those open from cache only.
   var verifiedMailboxes: Set<String> = [] { didSet { closeStaleImapSessions() } }
-  // Renewals that reads run outside the operation gate, by credential, so reads of one
-  // connection share one.
-  var googleRenewals: [Data: Task<GoogleRegistrationIdentity, any Error>] = [:]
-  var microsoftRenewals: [Data: Task<MicrosoftMailIdentity, any Error>] = [:]
   // Open IMAP sessions by their opaque handle, and the task closing abandoned ones.
   var imapHandles: [String: ImapHandle] = [:]
   var imapSessionLimits = ImapSessionLimits()

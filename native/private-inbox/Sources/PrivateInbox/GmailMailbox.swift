@@ -147,18 +147,6 @@ extension RegistrationStore {
     return try await gate.released(work)
   }
 
-  // One renewal of a credential at a time; reads renewing it meanwhile wait for the same one.
-  func shared<Identity: Sendable>(
-    _ renewals: ReferenceWritableKeyPath<RegistrationStore, [Data: Task<Identity, any Error>]>,
-    _ credential: Data, _ renew: @escaping @MainActor () async throws -> Identity
-  ) async throws -> Identity {
-    if let running = self[keyPath: renewals][credential] { return try await running.value }
-    let renewal = Task { @MainActor in try await renew() }
-    self[keyPath: renewals][credential] = renewal
-    defer { self[keyPath: renewals][credential] = nil }
-    return try await renewal.value
-  }
-
   // One Gmail read. Given the operation gate it holds, the read releases it while Google renews
   // its token and while Gmail answers.
   func gmail(
@@ -329,13 +317,12 @@ extension RegistrationStore {
     }
     let identity: GoogleRegistrationIdentity
     do {
-      identity = try await outside(gate) {
-        try await self.shared(\.googleRenewals, credential) {
-          try await self.provider.refresh(credential)
-        }
-      }
+      identity = try await outside(gate) { try await self.provider.refresh(credential) }
     } catch is CancellationError {
       throw CancellationError()
+    } catch where !current() {
+      // The connection changed while its old credential renewed.
+      throw PrivateInboxError.mailboxInvalidated
     } catch is RegistrationError {
       throw RegistrationError.gmailUnavailable
     } catch  where (error as NSError).domain == "org.openid.appauth.oauth_token" {
