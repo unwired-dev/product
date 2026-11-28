@@ -178,7 +178,7 @@ function useActive() {
 // seconds once it stayed open that long with the app in front, or never when Manually. Once the
 // reader can change the message, it marks it read with the change Mark as Read makes. Each opening
 // marks it once, so a later Mark as Unread stands.
-function ReadWhenOpened<M extends Readonly<{ id: string }>>({
+function ReadWhenOpened<M extends Readonly<{ id: string; unread: boolean }>>({
   markedRef,
   store,
   message,
@@ -192,11 +192,17 @@ function ReadWhenOpened<M extends Readonly<{ id: string }>>({
   const choice = useMarkRead(useProfile());
   const active = useActive();
   const { id } = message;
+  // Whether this opening began unread: After 2 seconds waits only for one that did, so a reader
+  // opened after another window read the message leaves a later Mark as Unread alone.
+  const [began, setBegan] = useState({ store, id, unread: message.unread });
+  if (began.store !== store || began.id !== id) {
+    setBegan({ store, id, unread: message.unread });
+  }
   // The opening that has stayed open 2 seconds with the app in front.
   const [elapsed, setElapsed] =
     useState<Readonly<{ store: object; id: string }>>();
   useEffect(() => {
-    if (choice !== 'afterTwoSeconds' || !active) {
+    if (choice !== 'afterTwoSeconds' || !active || !began.unread) {
       return undefined;
     }
     const started = Date.now();
@@ -211,7 +217,7 @@ function ReadWhenOpened<M extends Readonly<{ id: string }>>({
     return () => {
       clearTimeout(timer);
     };
-  }, [choice, active, store, id]);
+  }, [choice, active, began.unread, store, id]);
   const due =
     choice === 'immediately' ||
     (choice === 'afterTwoSeconds' &&

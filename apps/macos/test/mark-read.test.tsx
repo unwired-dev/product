@@ -155,8 +155,19 @@ describe('settings › Reading › Mark as Read on the Mac', () => {
     });
   });
 
-  it('leaves a Mark as Unread alone when another window opened the message earlier', async () => {
-    expect.hasAssertions();
+  // How many times Gmail was asked to read an unread message opened with After 2 seconds in a first
+  // window, then in a second as `steps` say. Gmail answers the first change only once `release`
+  // runs.
+  const readsInTwoWindows = async (
+    steps: (
+      control: Readonly<{
+        wait: (milliseconds: number) => Promise<void>;
+        openSecond: () => Promise<void>;
+        markUnread: () => Promise<void>;
+        release: () => void;
+      }>,
+    ) => Promise<void>,
+  ) => {
     const initial = AppState.currentState;
     AppState.currentState = 'active';
     jest.useFakeTimers({
@@ -171,7 +182,6 @@ describe('settings › Reading › Mark as Read on the Mac', () => {
     await store.setMarkRead(defaultProfile, 'afterTwoSeconds');
     const gmail = createSyntheticGmail();
     const id = gmail.deliver({ subject: 'Report' });
-    // Gmail answers the first change only once `release` runs.
     let release: () => void = () => undefined;
     // oxlint-disable-next-line promise/avoid-new -- Hold Gmail's answer until the test releases it.
     const answered = new Promise<void>((resolve) => {
@@ -204,18 +214,20 @@ describe('settings › Reading › Mark as Read on the Mac', () => {
       </ReadingPreferencesContext>
     );
     const app = await render(windows(['first']));
-    await wait(1000);
-    // A second window opens the message a second later.
-    await app.rerender(windows(['first', 'second']));
-    // The first window's wait ends and reads it; while Gmail has not answered, the person marks
-    // it unread before the second window's wait ends.
-    await wait(1100);
-    await fireEvent.press(
-      within(app.getByTestId('first')).getByRole('button', {
-        name: 'Mark as Unread',
-      }),
-    );
-    await wait(1500);
+    await steps({
+      wait,
+      openSecond: async () => {
+        await app.rerender(windows(['first', 'second']));
+      },
+      markUnread: async () => {
+        await fireEvent.press(
+          within(app.getByTestId('first')).getByRole('button', {
+            name: 'Mark as Unread',
+          }),
+        );
+      },
+      release,
+    });
     release();
     await wait(100);
     const reads = gmail.modifies.filter(({ remove }) =>
@@ -224,6 +236,38 @@ describe('settings › Reading › Mark as Read on the Mac', () => {
     await app.unmount();
     jest.useRealTimers();
     AppState.currentState = initial;
+    return reads;
+  };
+
+  it('leaves a Mark as Unread alone when another window opened the message earlier', async () => {
+    expect.hasAssertions();
+    const reads = await readsInTwoWindows(
+      async ({ wait, openSecond, markUnread }) => {
+        await wait(1000);
+        await openSecond();
+        // The first window reads it at 2 seconds; while Gmail has not answered, the person marks
+        // it unread before the second window's wait ends.
+        await wait(1100);
+        await markUnread();
+        await wait(1500);
+      },
+    );
+    expect(reads).toBe(1);
+  });
+
+  it('leaves a Mark as Unread alone when another window opened the message already read', async () => {
+    expect.hasAssertions();
+    const reads = await readsInTwoWindows(
+      async ({ wait, openSecond, markUnread, release }) => {
+        // The first window reads it at 2 seconds, which Gmail saves.
+        await wait(2000);
+        release();
+        await wait(50);
+        await openSecond();
+        await markUnread();
+        await wait(2500);
+      },
+    );
     expect(reads).toBe(1);
   });
 });

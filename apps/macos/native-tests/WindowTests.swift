@@ -3888,6 +3888,7 @@ final class WindowTests: XCTestCase {
     // The menu is outside the window, so the screen is captured.
     attach(XCUIScreen.main.screenshot(), "Mark as Read choices")
     app.typeKey(.escape, modifierFlags: [])
+    XCTAssertTrue(app.menuItems["Manually"].waitForNonExistence(timeout: 5))
     XCTAssertEqual(popUp("Primary Profile").value as? String, "Immediately")
   }
 
