@@ -157,7 +157,7 @@ type Marked = RefObject<Readonly<{ store: object; id: string }> | undefined>;
 // After 2 seconds marks a message read once it has stayed open this long with the app in front.
 const markReadDelay = 2000;
 // When each mailbox's opened message was last marked read automatically, so a reader in another
-// window whose wait began earlier leaves a later Mark as Unread alone.
+// window opened before then leaves a later Mark as Unread alone.
 const markedAt = new WeakMap<object, Map<string, number>>();
 
 // Whether the app is in front.
@@ -192,11 +192,19 @@ function ReadWhenOpened<M extends Readonly<{ id: string; unread: boolean }>>({
   const choice = useMarkRead(useProfile());
   const active = useActive();
   const { id } = message;
-  // Whether this opening began unread: After 2 seconds waits only for one that did, so a reader
-  // opened after another window read the message leaves a later Mark as Unread alone.
-  const [began, setBegan] = useState({ store, id, unread: message.unread });
+  // Whether this opening began unread, and the message's last automatic mark then: After 2 seconds
+  // waits only for an opening that began unread and that no window has marked since, so a reader
+  // opened after another window read it, or whose wait leaving the app restarted, leaves a later
+  // Mark as Unread alone.
+  const opened = () => ({
+    store,
+    id,
+    unread: message.unread,
+    marked: markedAt.get(store)?.get(id),
+  });
+  const [began, setBegan] = useState(opened);
   if (began.store !== store || began.id !== id) {
-    setBegan({ store, id, unread: message.unread });
+    setBegan(opened());
   }
   // The opening that has stayed open 2 seconds with the app in front.
   const [elapsed, setElapsed] =
@@ -205,11 +213,10 @@ function ReadWhenOpened<M extends Readonly<{ id: string; unread: boolean }>>({
     if (choice !== 'afterTwoSeconds' || !active || !began.unread) {
       return undefined;
     }
-    const started = Date.now();
     const timer = setTimeout(() => {
       if (
         AppState.currentState === 'active' &&
-        (markedAt.get(store)?.get(id) ?? -Infinity) < started
+        markedAt.get(store)?.get(id) === began.marked
       ) {
         setElapsed({ store, id });
       }
@@ -217,7 +224,7 @@ function ReadWhenOpened<M extends Readonly<{ id: string; unread: boolean }>>({
     return () => {
       clearTimeout(timer);
     };
-  }, [choice, active, began.unread, store, id]);
+  }, [choice, active, began.unread, began.marked, store, id]);
   const due =
     choice === 'immediately' ||
     (choice === 'afterTwoSeconds' &&

@@ -2,6 +2,7 @@ import type {
   MarkRead,
   NativeInboxPreferences,
 } from '@private-email/mail-core/inbox-preferences';
+import type { AppStateStatus } from 'react-native';
 
 import { createInboxPreferences } from '@private-email/mail-core/inbox-preferences';
 import { createInboxStore } from '@private-email/mail-core/inbox-store';
@@ -165,11 +166,20 @@ describe('settings › Reading › Mark as Read on the Mac', () => {
         openSecond: () => Promise<void>;
         markUnread: () => Promise<void>;
         release: () => void;
+        // The person leaves Unwired, or returns to it.
+        switchTo: (state: 'active' | 'background') => Promise<void>;
       }>,
     ) => Promise<void>,
   ) => {
     const initial = AppState.currentState;
     AppState.currentState = 'active';
+    const listeners: Array<(state: AppStateStatus) => void> = [];
+    const listening = jest
+      .spyOn(AppState, 'addEventListener')
+      .mockImplementation((_type, listener) => {
+        listeners.push(listener);
+        return { remove: () => undefined };
+      });
     jest.useFakeTimers({
       doNotFake: ['nextTick', 'setImmediate', 'queueMicrotask'],
     });
@@ -227,6 +237,14 @@ describe('settings › Reading › Mark as Read on the Mac', () => {
         );
       },
       release,
+      switchTo: async (state) => {
+        await act(async () => {
+          AppState.currentState = state;
+          for (const listener of listeners) {
+            listener(state);
+          }
+        });
+      },
     });
     release();
     await wait(100);
@@ -235,6 +253,7 @@ describe('settings › Reading › Mark as Read on the Mac', () => {
     ).length;
     await app.unmount();
     jest.useRealTimers();
+    listening.mockRestore();
     AppState.currentState = initial;
     return reads;
   };
@@ -250,6 +269,27 @@ describe('settings › Reading › Mark as Read on the Mac', () => {
         await wait(1100);
         await markUnread();
         await wait(1500);
+      },
+    );
+    expect(reads).toBe(1);
+  });
+
+  it('leaves a Mark as Unread alone when the other window waits again after the app returns', async () => {
+    expect.hasAssertions();
+    const reads = await readsInTwoWindows(
+      async ({ wait, openSecond, markUnread, release, switchTo }) => {
+        await wait(1000);
+        await openSecond();
+        // The first window reads it at 2 seconds, which Gmail saves, and the person marks it
+        // unread, leaves and returns, so the second window waits 2 seconds again.
+        await wait(1000);
+        release();
+        await wait(50);
+        await markUnread();
+        await switchTo('background');
+        await wait(50);
+        await switchTo('active');
+        await wait(2500);
       },
     );
     expect(reads).toBe(1);
