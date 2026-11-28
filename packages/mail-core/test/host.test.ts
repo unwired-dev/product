@@ -880,19 +880,51 @@ describe('the host assembly', () => {
     gmail.deliver({ subject: 'Arrived', unread: true });
     await host.gmailMailboxes.load();
     step('arrived while off');
-    // Another Profile's switch leaves this one's count alone.
-    await host.notifications.setProfileBadgeSound('work', false);
-    step('another Profile off');
+    // Moved to a Profile whose switch is on, its mail counts again.
+    await host.registration.createProfile('Work');
+    const work = required(
+      profilesOf(host.registration.getSnapshot().snapshot).find(
+        ({ name }) => name === 'Work',
+      ),
+    ).id;
+    await host.registration.moveMailbox(
+      syntheticMailboxes['alex@example.invalid'],
+      work,
+    );
+    step('moved to Work');
+    // Each Profile's switch counts only its own mail.
     await host.notifications.setProfileBadgeSound(defaultProfile, true);
-    step('on');
+    step('Primary on');
+    await host.notifications.setProfileBadgeSound(work, false);
+    step('Work off');
+    await host.notifications.setProfileBadgeSound(work, true);
+    step('Work on');
     expect({ steps, off: device.badgeSoundOff }).toStrictEqual({
       steps: [
         ['off', [0]],
         ['arrived while off', []],
-        ['another Profile off', []],
-        ['on', [2]],
+        ['moved to Work', [2]],
+        ['Primary on', []],
+        ['Work off', [0]],
+        ['Work on', [2]],
       ],
-      off: ['work'],
+      off: [],
+    });
+  });
+
+  it('reads the Badge and sound choices again once the Product Account changes', async () => {
+    expect.hasAssertions();
+    const { host, device } = syntheticHost(undefined, true);
+    host.followBadge();
+    await host.start();
+    await host.registration.register('google');
+    await host.notifications.setProfileBadgeSound(defaultProfile, false);
+    // Signing out purges the choices, whose Profile ids another Product Account reuses.
+    await host.registration.signOut();
+    device.badgeSoundOff = [];
+    await host.registration.register('google');
+    await vi.waitFor(() => {
+      expect(host.notifications.getSnapshot()?.badgeSoundOff).toStrictEqual([]);
     });
   });
 

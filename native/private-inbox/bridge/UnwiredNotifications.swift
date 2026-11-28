@@ -265,13 +265,12 @@ extension UnwiredRegistration {
   private static let notificationPreviewsKey = "dev.unwired.notification-previews"
   private static let notificationBadgeKey = "dev.unwired.notification-badge"
   private static let notificationSoundKey = "dev.unwired.notification-sound"
-  private static let notificationProfilesOffKey = "dev.unwired.notification-profiles-off"
   private static var newMailSound: String {
     UserDefaults.standard.string(forKey: notificationSoundKey) == "none" ? "none" : "default"
   }
   // The Profiles whose Badge and sound switch is off.
   private static var badgeSoundOff: [String] {
-    UserDefaults.standard.stringArray(forKey: notificationProfilesOffKey) ?? []
+    UserDefaults.standard.stringArray(forKey: RegistrationStore.notificationProfilesOffKey) ?? []
   }
 
   private static func notificationSettings() async -> [String: Any] {
@@ -370,7 +369,7 @@ extension UnwiredRegistration {
       let others = Self.badgeSoundOff.filter { $0 != profile }
       UserDefaults.standard.set(
         on || profile.isEmpty ? others : others + [profile],
-        forKey: Self.notificationProfilesOffKey)
+        forKey: RegistrationStore.notificationProfilesOffKey)
       return await Self.notificationSettings()
     }
   }

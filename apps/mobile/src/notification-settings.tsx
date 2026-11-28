@@ -199,8 +199,9 @@ function Profiles({
             subtitle={t('notifications.badgeAndSound')}
             minHeight={switchRowHeight}>
             <Switch
-              accessibilityLabel={name}
-              accessibilityHint={t('notifications.badgeAndSound')}
+              accessibilityLabel={t('notifications.badgeAndSoundFor', {
+                name,
+              })}
               value={!settings.badgeSoundOff.includes(profile)}
               trackColor={{ false: colors.fillTrack, true: colors.accentFill }}
               onValueChange={(on) => {

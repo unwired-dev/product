@@ -1856,6 +1856,7 @@
     "badgeKept": "Your choices are kept and apply as soon as notifications are allowed.",
     "profiles": "Profiles",
     "badgeAndSound": "Badge and sound",
+    "badgeAndSoundFor": "Badge and sound for {{name}}",
     "perMailbox": "Per Mailbox",
     "mailbox": "{{provider}} · {{address}}",
     "perMailboxDetail": "Off until you turn it on. Each mailbox’s choice syncs to your other devices.",

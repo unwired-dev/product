@@ -141,8 +141,8 @@ becomes active, since permission can change in the system's settings. While it c
 until saved registration has been read and while any Inbox is still opening or locked,
 the device leaves the badge it found unchanged rather than showing a partial count. A
 push wake, or an Archive or Mark as Read on a notification, that launches the app works on
-its own mailbox and opens every other connection's saved Inbox listing without reading mail from its provider, so the badge counts them
-all. Snooze and Profile Lock do not exist
+its own mailbox and opens every other connection's saved Inbox listing without reading mail from its provider, so the badge counts
+every Profile whose **Badge and sound** switch is on. Snooze and Profile Lock do not exist
 yet; a locked Profile's count comes with
 [#2813](https://github.com/unwired-dev/product/issues/2813).
 

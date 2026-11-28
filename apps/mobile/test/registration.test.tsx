@@ -4411,11 +4411,12 @@ describe('product registration', () => {
     await openAccount();
     await openSettings('Notifications');
     const primary = () =>
-      screen.getByRole('switch', { name: 'Primary Profile' });
+      screen.getByRole('switch', {
+        name: 'Badge and sound for Primary Profile',
+      });
     await expect(screen.findByText('Profiles')).resolves.toBeVisible();
     const shown = {
       on: primary().props.value,
-      hint: primary().props.accessibilityHint,
       detail: screen.getByText('Badge and sound') !== null,
     };
     await act(async () => {
@@ -4434,7 +4435,7 @@ describe('product registration', () => {
       denied,
       allowedAgain: primary().props.value,
     }).toStrictEqual({
-      shown: { on: true, hint: 'Badge and sound', detail: true },
+      shown: { on: true, detail: true },
       off: { value: false, saved: ['default'] },
       denied: null,
       allowedAgain: false,

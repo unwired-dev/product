@@ -311,15 +311,16 @@ export function createNotifications(
         ),
       ),
     );
+  const load = () =>
+    update(
+      () => native.notificationSettings(),
+      'Notification settings could not be read:',
+    );
   return {
     getSnapshot: settings.getSnapshot,
     subscribe: settings.subscribe,
     // Also after activation: the person can change permission in the system's settings.
-    load: () =>
-      update(
-        () => native.notificationSettings(),
-        'Notification settings could not be read:',
-      ),
+    load,
     request: () =>
       update(
         () => native.requestNotifications(),
@@ -403,13 +404,25 @@ export function createNotifications(
           void runLogged(write);
         }
       };
+      // A purge removes the Profiles' Badge and sound choices, whose ids another Product Account
+      // reuses, so the settings are read again whenever the Product Account changes.
+      const owner = () => {
+        const { snapshot } = sources.registration.getSnapshot();
+        return snapshot.kind === 'signed-out'
+          ? undefined
+          : snapshot.productAccountId;
+      };
+      let account = owner();
       settings.subscribe(follow);
-      sources.registration.subscribe(follow);
+      sources.registration.subscribe(() => {
+        if (owner() !== account) {
+          account = owner();
+          void load();
+        }
+        follow();
+      });
       sources.mailboxes.subscribe(follow);
-      void update(
-        () => native.notificationSettings(),
-        'Notification settings could not be read:',
-      );
+      void load();
     },
     openSettings: () =>
       runLogged(

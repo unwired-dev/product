@@ -872,10 +872,15 @@ typealias BackendTransport = @MainActor (BackendRequest) async throws -> (Int, D
     }
   }
 
+  // The Mail Profiles whose Badge and sound switch is off on this device. Profile ids, such as the
+  // Primary Profile's, repeat between Product Accounts, so a purge removes the choices.
+  nonisolated static let notificationProfilesOffKey = "dev.unwired.notification-profiles-off"
+
   // A revoked device keeps nothing of the Product Account: keys, requests and credentials go.
   // Every item is attempted; the registration record goes last, so a failed purge is retried.
   func purge(notice: String? = nil) async throws {
     withdrawNotifications(nil)
+    UserDefaults.standard.removeObject(forKey: Self.notificationProfilesOffKey)
     try stopErrorReporting()
     forgetMailboxAccess()
     session = nil
