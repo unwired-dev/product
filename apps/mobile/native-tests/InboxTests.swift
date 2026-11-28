@@ -4609,8 +4609,6 @@ final class InboxTests: XCTestCase {
     connectGmail(app)
     let rowan = app.buttons["Unread. Rowan Hale. Garden plans for spring"]
     XCTAssertTrue(rowan.waitForExistence(timeout: 30))
-    rowan.tap()
-    XCTAssertTrue(header("rowan@example.invalid", in: app).waitForExistence(timeout: 10))
     let replyAll = app.buttons["Reply All"]
     // The Labels and New Label sheets share the Labels heading.
     let heading = app.staticTexts["Labels"].firstMatch
@@ -4666,6 +4664,31 @@ final class InboxTests: XCTestCase {
       open()
       XCTAssertTrue(shown.waitForExistence(timeout: 10), "\(sheet) did not open again")
     }
+    // #3127: a swipe released early from the Filters sheet's Apply, a system button, neither
+    // applies the edit nor closes the sheet; a tap on Apply applies it.
+    let filter = app.descendants(matching: .any)
+      .matching(NSPredicate(format: "label == %@", "Filter")).firstMatch
+    filter.tap()
+    let summary = app.buttons["Filtered by Unread"]
+    XCTAssertTrue(summary.waitForExistence(timeout: 10))
+    let apply = app.buttons["Apply Filters"]
+    let unread = app.descendants(matching: .any)
+      .matching(NSPredicate(format: "label == %@", "Unread")).firstMatch
+    let openFilters = {
+      if apply.exists { return }
+      summary.tap()
+      XCTAssertTrue(unread.waitForExistence(timeout: 10))
+      // Clearing Unread turns the filter off once applied.
+      unread.tap()
+      self.waitUntil { unread.value as? String == "checkbox, unchecked" }
+    }
+    swipes("Filters sheet from Apply", from: apply, shown: apply, open: openFilters)
+    _ = settledFrame(of: apply)
+    apply.tap()
+    XCTAssertTrue(apply.waitForNonExistence(timeout: 5), "Apply did not close the Filters sheet")
+    XCTAssertTrue(summary.waitForNonExistence(timeout: 5), "Apply did not apply the edit")
+    rowan.tap()
+    XCTAssertTrue(header("rowan@example.invalid", in: app).waitForExistence(timeout: 10))
     swipes("Reply sheet", from: replyAll, shown: replyAll, open: openReply)
     // #3077, #3074: a swipe released early fires none of the SwiftUI buttons, Close, the tiles,
     // the rows or New Label…; a tap on Close still closes.
