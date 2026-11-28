@@ -308,19 +308,26 @@ export function createNotifications(
   const settings = createSubscribable<NotificationSettings | undefined>(
     undefined,
   );
-  const update = (request: () => Promise<unknown>, failure: string) =>
-    runLogged(
+  // Reads and writes are not serialized, so only the latest request's settings are kept.
+  let latest = 0;
+  const update = (request: () => Promise<unknown>, failure: string) => {
+    latest += 1;
+    const id = latest;
+    return runLogged(
       logged(
         failure,
         settingsOf(request).pipe(
           Effect.tap((next) =>
             Effect.sync(() => {
-              settings.set(next);
+              if (id === latest) {
+                settings.set(next);
+              }
             }),
           ),
         ),
       ),
     );
+  };
   const load = () =>
     update(
       () => native.notificationSettings(),

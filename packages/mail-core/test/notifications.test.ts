@@ -238,6 +238,46 @@ describe('opening a tapped New Mail Notification', () => {
 
 const unused = () => Promise.reject(new Error('Not used here'));
 
+describe('notification settings', () => {
+  it('keeps the latest request when an earlier read settles after it', async () => {
+    expect.hasAssertions();
+    const read = (badgeSoundOff: readonly string[]) => ({
+      authorization: 'authorized',
+      previews: true,
+      badge: 'inbox',
+      sound: 'default',
+      badgeSoundOff,
+    });
+    const earlierRead = Promise.withResolvers<unknown>();
+    const newerRead = Promise.withResolvers<unknown>();
+    const notifications = createNotifications(
+      {
+        notificationSettings: vi
+          .fn<() => Promise<unknown>>()
+          .mockReturnValueOnce(earlierRead.promise)
+          .mockReturnValueOnce(newerRead.promise),
+        postNotifications: unused,
+        requestNotifications: unused,
+        setNotificationPreviews: unused,
+        setNotificationBadge: unused,
+        setNotificationSound: unused,
+        setNotificationProfile: unused,
+        setBadgeCount: unused,
+        openNotificationSettings: unused,
+      },
+      () => english,
+    );
+    // The earlier Product Account's read settles after the newer account's.
+    const earlier = notifications.load();
+    const newer = notifications.load();
+    newerRead.resolve(read([]));
+    await newer;
+    earlierRead.resolve(read(['default']));
+    await earlier;
+    expect(notifications.getSnapshot()?.badgeSoundOff).toStrictEqual([]);
+  });
+});
+
 describe('posting a New Mail Notification', () => {
   it('checks the Profile the connection is in as it posts, after a move meanwhile', async () => {
     expect.hasAssertions();
