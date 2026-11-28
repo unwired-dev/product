@@ -10,6 +10,11 @@ import type {
 import type { ReactNode } from 'react';
 import type { StyleProp, TurboModule, ViewStyle } from 'react-native';
 
+import { Host, RNHostView, Button as SwiftUIButton } from '@expo/ui/swift-ui';
+import {
+  buttonStyle,
+  accessibilityLabel as spokenLabel,
+} from '@expo/ui/swift-ui/modifiers';
 import { languages as appLanguages } from '@private-email/localization';
 import { draftTextIssue } from '@private-email/mail-core/assistance';
 import { radius, spacing, typography } from '@private-email/mail-core/theme';
@@ -35,10 +40,10 @@ import {
 import {
   ActivityIndicator,
   Platform,
-  Pressable,
   StyleSheet,
   Text,
   TurboModuleRegistry,
+  useWindowDimensions,
   View,
 } from 'react-native';
 
@@ -505,6 +510,7 @@ function SplitTranslate({
 }) {
   const colors = usePalette();
   const { t, settings } = useLocalization();
+  const { fontScale } = useWindowDimensions();
   const [retried, setRetried] = useState(false);
   useOutcomeAnnouncement(
     retried && languages === 'failed'
@@ -545,21 +551,29 @@ function SplitTranslate({
           ? { gap: spacing.s }
           : [styles.capsule, { backgroundColor: colors.surfaceContent }],
       ]}>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={t('translation.translateMessageLabel')}
-        onPress={onTranslate}
-        style={({ pressed }) => [
-          styles.splitHalf,
-          pad ? null : { paddingLeft: 14, paddingRight: spacing.s },
-          {
-            backgroundColor: pressed
-              ? colors.accentSelectionSubtle
-              : 'transparent',
-          },
-        ]}>
-        <Text style={label}>{t('translation.translate')}</Text>
-      </Pressable>
+      {/* The system button, with the label as its label (#3129). A text size changed while the
+          reader is open keeps the hosted label's old size; a fresh host measures it again. */}
+      <Host
+        key={fontScale}
+        matchContents>
+        <SwiftUIButton
+          onPress={onTranslate}
+          modifiers={[
+            buttonStyle('plain'),
+            spokenLabel(t('translation.translateMessageLabel')),
+          ]}>
+          <RNHostView matchContents>
+            <View
+              accessibilityElementsHidden
+              style={[
+                styles.splitHalf,
+                pad ? null : { paddingLeft: 14, paddingRight: spacing.s },
+              ]}>
+              <Text style={label}>{t('translation.translate')}</Text>
+            </View>
+          </RNHostView>
+        </SwiftUIButton>
+      </Host>
       {typeof languages === 'string' ? null : (
         <>
           <View
