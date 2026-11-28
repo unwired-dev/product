@@ -7,6 +7,8 @@ const unwiredRegistration = {
   mailAssistance: () => Promise.resolve({ owner: null, profiles: [] }),
   preference: () => Promise.resolve({ value: null }),
   setPreference: () => Promise.resolve({}),
+  addListener: () => undefined,
+  removeListeners: () => undefined,
 };
 // `SettingsManager` as the device's user defaults, empty when a test file starts.
 const userDefaults = {};

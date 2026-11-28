@@ -564,7 +564,7 @@ function EvaluationEditor({
       });
     }
     for (const { asset, file } of imports) {
-      void store.importAsset(asset, file.source);
+      void store.importAsset(asset, file.source, { keep: true });
     }
   };
   // Remove and Cancel already queued when Save Draft or Send starts leave the frozen version alone.

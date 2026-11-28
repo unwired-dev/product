@@ -732,19 +732,19 @@ size caption and drawing the image in the body with corner handles come in later
 [#1735](https://github.com/unwired-dev/product/issues/1735) slices.
 
 An added file is **importing** until its bytes are stored. While it imports, its
-row says **Adding…** and offers **Cancel**. On the Mac it says **Importing…**, and
-once native code reports how much of a file it has read, **Importing… 64%** with a
-progress bar under it, which VoiceOver reads with the row
-([#2992](https://github.com/unwired-dev/product/issues/2992)): the registration
+row says **Importing…** and offers **Cancel**, and once native code reports how much
+of a file it has read, **Importing… 64%** with a progress bar under it, which
+VoiceOver reads with the row (Mac [#2992](https://github.com/unwired-dev/product/issues/2992),
+iPhone and iPad [#2795](https://github.com/unwired-dev/product/issues/2795)): the registration
 module reads a picked, dropped or received file in 1 MiB chunks and sends
 `draftImportProgress` (`{ id, fraction }`) at each whole percent; pasted image
 bytes report none. A file whose import was cancelled,
 interrupted by quitting or relaunch, could not be read or saved, is too large or,
 for a received attachment, couldn’t be downloaded stays listed as **Not added**
-with the reason. On iPhone and iPad the composer warns that files not added are not
-sent. On the Mac the row names the reason ("Couldn’t be downloaded"), or says
-**Wasn’t added** when the reason is unknown, and offers **Try Again**
-([#2991](https://github.com/unwired-dev/product/issues/2991)): a failed import keeps
+with the reason. The row names the reason ("Couldn’t be downloaded"), or says
+**Wasn’t added** when the reason is unknown, and offers **Try Again** (Mac
+[#2991](https://github.com/unwired-dev/product/issues/2991), iPhone and iPad
+[#2795](https://github.com/unwired-dev/product/issues/2795)): a failed import keeps
 its source on the device while it can be retried, and Try Again
 (`retryImport`, listed by `getRetries`) reads the same file, pasted image or
 Downloaded Attachment again without a picker. A picked or dropped file is read again at
@@ -753,12 +753,12 @@ device while it can be retried; Try Again downloads a forwarded one again, from 
 mailbox's current Inbox, when it wasn't downloaded or went missing, and only while the
 message lists it alone in its place: another file, or several alike in name, type and
 size, is not added. Nor is a received file whose mailbox moved into another Mail Profile,
-even while its file was being read. Cancel arriving once an import failed leaves Try Again in place. Only the Mac
-keeps a picked, pasted or received copy (`keep`). The copy is deleted once the file is added or removed, when its Draft is
+even while its file was being read. Cancel arriving once an import failed leaves Try Again in place. Every
+composer keeps a picked, pasted or received copy (`keep`). The copy is deleted once the file is added or removed, when its Draft is
 discarded or sent, when a composer that never saved it closes, on sign-out and at
 launch; a file too large for Drafts is not retried. Only complete files can be sent: `unsendableAssets` in
 `@private-email/mail-core/drafts` lists everything else, which [Send](outbox.md) refuses.
-While a file is still being added, Send stays unavailable; on the Mac the reason
+While a file is still being added, Send stays unavailable; the reason
 above the body names the file ("“plan.pdf” is still importing. Wait for it, or remove
 it, to send."), and VoiceOver reads it as Send's help. Once only files that
 were **Not added** stand in the way, Send stays available and first asks **Send
