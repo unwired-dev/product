@@ -3914,7 +3914,7 @@ function BodyMenuAnchor({
     };
   });
   // How far the query's @ sits from its line's start: the line copied through the @ ends that far
-  // plus the @'s own width, unless the typed query wrapped onto a new line, which the @ then
+  // plus the @'s own width, unless typing the query moved the @ onto a later line, which it then
   // starts. Fabric reports no layout for views inside text, so text measures it.
   type Laid = TextLayoutEvent['nativeEvent']['lines'];
   const [laid, setLaid] = useState<
@@ -3928,13 +3928,17 @@ function BodyMenuAnchor({
     const line = each[each.length - 1];
     return line === undefined ? 0 : line.x + line.width;
   };
-  const atLine = laid.line?.length ?? 0;
-  const indent =
-    (laid.query?.length ?? 0) > atLine
-      ? (laid.query?.[atLine]?.x ?? 0)
-      : Math.max(endOf(laid.line) - endOf(laid.at), 0);
   // The lines up to the caret: text after it may wrap below the line the menu hangs from.
   const lineStart = display.text.lastIndexOf('\n', start - 1) + 1;
+  let laidOut = 0;
+  const atLine =
+    laid.query?.findIndex(
+      ({ text }) => (laidOut += text.length) > start - lineStart,
+    ) ?? -1;
+  const indent =
+    atLine >= (laid.line?.length ?? 0)
+      ? (laid.query?.[atLine]?.x ?? 0)
+      : Math.max(endOf(laid.line) - endOf(laid.at), 0);
   const lines = display.lines.slice(
     0,
     display.text.slice(0, start).split('\n').length,
