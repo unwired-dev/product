@@ -2469,7 +2469,7 @@ password manager by running
   device directory, the shell history, the operator's scratch files, this checkout's
   `artifacts` with this run's DerivedData, or this run's session transcripts, nor in the
   3,667 files written to the temporary directories since the run began that still
-  existed. Limitations: against step 1, after each mailbox password was pasted, one
+  existed, other agent sessions' scratch directories aside. Limitations: against step 1, after each mailbox password was pasted, one
   accessibility snapshot checked that the fields held values while the keyboard was
   open; the driver saved no screenshot. The first press on the iCloud Mail form's
   **Connect** closed the keyboard and a second one connected. Right after iCloud Mail
