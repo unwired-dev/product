@@ -444,7 +444,7 @@ under **Folders**, **Move to** any other selectable folder, including the Inbox.
 folders the server declares as Trash or Spam (`\Trash`, `\Junk`), or chosen for them as
 [Synchronization](#synchronization) describes, **Move to Inbox** takes
 the place of Archive, Delete and Move to Spam, as in Gmail's Trash and Spam (the
-iPhone and iPad reader names it **Not Spam** in Spam); it offers no Undo. IMAP has no labels. Opening an unread message sets its `\Seen` flag, as
+iPhone and iPad reader names it **Not Spam** in Spam); it offers no Undo. IMAP has no labels. Opening an unread message, as its Mail Profile's **Mark as Read** setting says, sets its `\Seen` flag, as
 [Organizing mail](gmail-inbox.md#organizing-mail) describes for every provider.
 The star is the server's `\Flagged` flag, which other mail apps show as a flag. Only
 the [Command Palette](command-palette.md) offers **Star** and **Remove Star**: no

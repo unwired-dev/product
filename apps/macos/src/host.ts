@@ -47,6 +47,7 @@ export const {
   pins,
   unsubscribe,
   inboxPreferences,
+  readingPreferences,
   outbox,
   wakes,
   freshness,

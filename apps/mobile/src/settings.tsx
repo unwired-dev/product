@@ -1236,6 +1236,7 @@ export function PopUpChoice<Choice extends string>({
   selected,
   choices,
   title,
+  subtitle,
   disabled = false,
   onChoose,
 }: {
@@ -1244,6 +1245,8 @@ export function PopUpChoice<Choice extends string>({
   readonly selected: Choice;
   readonly choices: readonly Choice[];
   readonly title: (choice: Choice) => string;
+  // A second line under a choice's title in the menu.
+  readonly subtitle?: ((choice: Choice) => string) | undefined;
   readonly disabled?: boolean;
   readonly onChoose: (choice: Choice) => void;
 }) {
@@ -1261,6 +1264,7 @@ export function PopUpChoice<Choice extends string>({
           items: choices.map((choice) => ({
             key: choice,
             title: title(choice),
+            ...(subtitle === undefined ? {} : { subtitle: subtitle(choice) }),
             symbol: '',
             checked: choice === selected,
             run: () => {

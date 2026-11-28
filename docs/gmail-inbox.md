@@ -532,16 +532,29 @@ Gmail's labels.
 | **Move to** a label           | Adds the label and removes the shown view's label: `INBOX` from the Inbox or All Mail, otherwise that label, Spam or Trash; keeps others |
 | **Undo**                      | Reverses the latest removal from the Inbox                                                                                               |
 
-Opening an unread message reads it ([#2080](https://github.com/unwired-dev/product/issues/2080)):
-once the reader can change the message, it makes the change **Mark as Read** makes, for every
-provider: Gmail's `UNREAD`, Microsoft's `isRead` and IMAP's `\Seen`. Neither the change nor
+Opening an unread message reads it ([#2080](https://github.com/unwired-dev/product/issues/2080))
+as its Mail Profile's **Mark as Read** setting says
+([#2829](https://github.com/unwired-dev/product/issues/2829)): once the reader can change the
+message, it makes the change **Mark as Read** makes, for every provider: Gmail's `UNREAD`,
+Microsoft's `isRead` and IMAP's `\Seen`. Neither the change nor
 a refusal of it is announced, and both leave the latest notice and its **Undo** in place.
 Each opening marks the message once, even when two windows show it, so **Mark as Unread**
 stands while it stays open. A Thread reader marks only the message it opened. A read that
 rolls back because only the saved Inbox opens is asked again once Gmail access verifies.
 An online search result outside every cached view offers no organizing actions, so opening
-it leaves it unread. Prefetch, body downloads and notifications leave read state alone. The preference for when opening reads mail is deferred to
-[#1992](https://github.com/unwired-dev/product/issues/1992).
+it leaves it unread. Prefetch, body downloads and notifications leave read state alone.
+
+Settings › Reading › **Mark as Read** offers one pop-up per Mail Profile, the Primary Profile
+first, because Settings has no Profile of its own. **Immediately**, the default, marks a message as
+it opens. **After 2 seconds** marks it only once it has stayed open 2 seconds with the app in front:
+closing it, opening another or leaving the app sooner leaves it unread, and returning starts the
+2 seconds again. **Manually** never marks on opening, so mail stays unread until **Mark as Read**.
+The choice is a Mail Workflow Preference
+([ADR 0019](adr/0019-sync-mail-workflow-preferences-not-device-state.md)): it survives a relaunch
+and reaches the Profile's other Trusted Devices, and the footer adds “Waiting to sync with your
+other devices.” until Private Sync publishes a choice made here. Until the stored choice is read,
+opening marks nothing; signed out, or when storage cannot read it, opening marks immediately. A
+choice storage refuses shows that it was not saved, with **Try Again**.
 
 The reader shows these actions as SF Symbol buttons in Liquid Glass toolbar groups
 with the action's name as their accessibility label. On the Mac, a fixed toolbar
