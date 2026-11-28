@@ -7750,6 +7750,44 @@ describe('adding files and images to a Draft', () => {
     expect(storage.discardedPicks()).toStrictEqual([]);
   });
 
+  it('shows a new file’s progress reported before its row is shown', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(
+      {
+        ...storage.native,
+        importDraftAsset: async (owner, id, source) => {
+          DeviceEventEmitter.emit('draftImportProgress', { id, fraction: 0.5 });
+          return storage.native.importDraftAsset(owner, id, source);
+        },
+      },
+      registration,
+    );
+    await render(
+      <App
+        drafts={drafts}
+        registration={registration}
+      />,
+    );
+    await press('New Message');
+    storage.addFile('file:///notes.txt', 'notes');
+    storage.pickNext('files', [
+      { uri: 'file:///notes.txt', name: 'notes.txt', type: 'text/plain' },
+    ]);
+    storage.holdImports();
+    await press('Attach File');
+    await expect(
+      screen.findByLabelText('notes.txt, Importing… 50%'),
+    ).resolves.toBeOnTheScreen();
+    await act(async () => {
+      storage.releaseImports();
+    });
+    await expect(
+      screen.findByLabelText('notes.txt, 5 bytes'),
+    ).resolves.toBeOnTheScreen();
+  });
+
   it('keeps verified inline bytes without a thumbnail available after reopening', async () => {
     expect.hasAssertions();
     const registration = account(connected(['alex@example.invalid']));

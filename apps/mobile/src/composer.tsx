@@ -1670,18 +1670,16 @@ const assetStatus = (
   );
 };
 
-// A running import's fraction read so far, as native code reports it; undefined before its first
-// report, such as for pasted bytes, which report none. The row listens while shown, so a report sent
-// as Try Again starts the read arrives before the row renders it as importing.
-function useImportProgress(id: string, running: boolean) {
-  const [progress, setProgress] = useState<number>();
-  // An import that stops forgets its reports, so a later Try Again starts without a percentage.
-  const [wasRunning, setWasRunning] = useState(running);
-  if (wasRunning !== running) {
-    setWasRunning(running);
-    if (!running) {
-      setProgress(undefined);
-    }
+// Each running import's fraction read so far, by asset, as native code reports it; an import has
+// none before its first report, such as pasted bytes, which report none. The composer listens
+// before a file's row is shown, so a report sent as its read begins is kept; an import that stops
+// forgets its reports, so a later Try Again starts without a percentage.
+function useImportProgress(running: ReadonlySet<string>) {
+  const [progress, setProgress] = useState<ReadonlyMap<string, number>>(
+    () => new Map(),
+  );
+  if ([...progress.keys()].some((id) => !running.has(id))) {
+    setProgress(new Map([...progress].filter(([id]) => running.has(id))));
   }
   useEffect(() => {
     const subscription = new NativeEventEmitter(native()).addListener(
@@ -1689,19 +1687,20 @@ function useImportProgress(id: string, running: boolean) {
       (event: object) => {
         if (
           'id' in event &&
-          event.id === id &&
+          typeof event.id === 'string' &&
           'fraction' in event &&
           typeof event.fraction === 'number'
         ) {
-          setProgress(event.fraction);
+          const { id, fraction } = event;
+          setProgress((current) => new Map(current).set(id, fraction));
         }
       },
     );
     return () => {
       subscription.remove();
     };
-  }, [id]);
-  return running ? progress : undefined;
+  }, []);
+  return progress;
 }
 
 // A complete asset's bytes checked against its digest, read again when it completes or changes;
@@ -1920,6 +1919,7 @@ function AssetRow({
   editable,
   inline,
   running,
+  progress,
   width,
   onRemove,
   onCancel,
@@ -1931,6 +1931,8 @@ function AssetRow({
   readonly asset: Asset;
   readonly inline: boolean;
   readonly running: boolean;
+  // The fraction of a running import read so far, once native code reports one.
+  readonly progress: number | undefined;
   // Given for a file that wasn't added and whose source can be read again.
   readonly onTryAgain: (() => void) | undefined;
   readonly editable: boolean;
@@ -1952,7 +1954,6 @@ function AssetRow({
     [settings.locale],
   );
   const { preview, retry } = usePreview(asset, inline);
-  const progress = useImportProgress(asset.id, running);
   const uri = inline && preview?.kind === 'ready' ? preview.uri : undefined;
   useEffect(() => {
     if (inline) {
@@ -2105,6 +2106,7 @@ export function DraftAssets({
   const sized = layoutStyles[use(ComposerLayoutContext).size];
   const running = useSyncExternalStore(store.subscribe, store.getImports);
   const retries = useSyncExternalStore(store.subscribe, store.getRetries);
+  const progress = useImportProgress(running);
   const attachments = draft.attachments ?? [];
   const images = [
     ...new Map(
@@ -2138,6 +2140,7 @@ export function DraftAssets({
             }
           : {})}
         running={running.has(asset.id)}
+        progress={progress.get(asset.id)}
         onTryAgain={
           asset.state === 'failed' && retries.has(asset.id)
             ? () => {
