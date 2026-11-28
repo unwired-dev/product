@@ -48,7 +48,9 @@ export function ReadingSettings() {
             }))}
           />
         </SettingsRow>
-        <SettingsRow title={t('reading.fitWide', { context: 'mac' })}>
+        <SettingsRow
+          title={t('reading.fitWide', { context: 'mac' })}
+          separated={false}>
           <Switch
             accessibilityLabel={t('reading.fitWide', { context: 'mac' })}
             value={fit}
