@@ -185,6 +185,12 @@ jest.mock('@expo/ui/swift-ui', () => {
         accessibilityHint: modifiers?.find(
           (each) => each.$type === 'accessibilityHint',
         )?.hint,
+        accessibilityValue: (() => {
+          const value = modifiers?.find(
+            (each) => each.$type === 'accessibilityValue',
+          )?.value;
+          return value === undefined ? undefined : { text: value };
+        })(),
         onPress,
         disabled: modifiers?.some(
           (each) => each.$type === 'disabled' && each.disabled,
@@ -327,6 +333,7 @@ jest.mock('@expo/ui/swift-ui/modifiers', () => ({
   }),
   accessibilityLabel: (label) => ({ $type: 'accessibilityLabel', label }),
   accessibilityHint: (hint) => ({ $type: 'accessibilityHint', hint }),
+  accessibilityValue: (value) => ({ $type: 'accessibilityValue', value }),
   background: (style, shape) => ({ $type: 'background', style, shape }),
   buttonBorderShape: (shape) => ({ $type: 'buttonBorderShape', shape }),
   buttonStyle: (style) => ({ $type: 'buttonStyle', style }),

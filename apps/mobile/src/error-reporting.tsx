@@ -16,7 +16,6 @@ import {
 import {
   ActivityIndicator,
   Alert,
-  Pressable,
   StyleSheet,
   Switch,
   Text,
@@ -118,16 +117,11 @@ export function ErrorReportingEntry({
         );
   return (
     <SettingsGroup title={t('errorReporting.title')}>
-      <Pressable
-        accessibilityLabel={t('errorReporting.title')}
-        accessibilityRole="button"
-        accessibilityValue={status === undefined ? undefined : { text: status }}
-        onPress={onPress}
-        style={({ pressed }) =>
-          pressed && {
-            backgroundColor: colors.accentSelectionSubtle,
-          }
-        }>
+      <SettingsActionRow
+        label={t('errorReporting.title')}
+        value={status}
+        disabled={false}
+        onPress={onPress}>
         <SettingsRow title={t('errorReporting.title')}>
           {status === undefined ? null : (
             <Text
@@ -144,7 +138,7 @@ export function ErrorReportingEntry({
             color={colors.textSecondary}
           />
         </SettingsRow>
-      </Pressable>
+      </SettingsActionRow>
     </SettingsGroup>
   );
 }
