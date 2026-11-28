@@ -58,20 +58,27 @@ extension RegistrationStore {
       address: address, generation: generation)
   }
 
-  // The automatic-reply fields the read decodes, the only mailbox settings TypeScript may change.
-  static let automaticReplyFields: Set<String> = [
-    "status", "externalAudience", "internalReplyMessage", "externalReplyMessage",
-    "scheduledStartDateTime", "scheduledEndDateTime",
-  ]
+  // The automatic-reply fields the read decodes, the only mailbox settings TypeScript may change:
+  // text, or a date and time with its time zone.
+  static func automaticReplyField(_ field: String, _ value: Any) -> Bool {
+    switch field {
+    case "status", "externalAudience", "internalReplyMessage", "externalReplyMessage":
+      return value is String
+    case "scheduledStartDateTime", "scheduledEndDateTime":
+      guard let time = value as? [String: Any] else { return false }
+      return time.allSatisfy { ["dateTime", "timeZone"].contains($0.key) && $0.value is String }
+    default:
+      return false
+    }
+  }
 
   // The one mailbox settings write: Graph merges `automaticReplies` into the stored automatic
-  // replies. This file wraps them, so no other mailbox setting can be written; only a JSON object of
-  // the known fields, of at most 1 MiB, crosses.
+  // replies. This file wraps them, so no other mailbox setting can be written; only the known
+  // fields, of at most 1 MiB, cross.
   func graphSaveAutomaticReplies(
     automaticReplies: [String: Any], connection: String, address: String, generation: String
   ) async throws -> [String: Any] {
-    guard Set(automaticReplies.keys).isSubset(of: Self.automaticReplyFields),
-      JSONSerialization.isValidJSONObject(automaticReplies),
+    guard automaticReplies.allSatisfy({ Self.automaticReplyField($0.key, $0.value) }),
       let body = try? JSONSerialization.data(
         withJSONObject: ["automaticRepliesSetting": automaticReplies]),
       body.count <= 1024 * 1024,

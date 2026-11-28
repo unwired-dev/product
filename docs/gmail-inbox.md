@@ -310,7 +310,7 @@ shows it yet, and nothing asks for `gmail.settings.basic` yet.
   a [search](#searching-gmail-online) does. A refused grant also asks for Gmail again, as a reader
   does. An answer for an Inbox that closed meanwhile is dropped, and a Microsoft mailbox reads
   nothing.
-- **Save.** `saveOutOfOffice(change)` reads the responder again and applies the change to what
+- **Save.** `saveOutOfOffice({ vacation })` reads the responder again and applies the change to what
   Gmail stores now: a named field takes its value, `null` leaves it out, and every other field,
   including one Unwired does not read, goes back as Gmail sent it. Gmail replaces the whole
   responder, so native code sends the result as the one `PUT settings/vacation`, the only Gmail
@@ -321,7 +321,8 @@ shows it yet, and nothing asks for `gmail.settings.basic` yet.
   `permission`: the grant lacks `gmail.settings.basic`. The Inbox stays open and nothing asks for
   Gmail again. Any other 403 answers as a read's does. Gmail refusing the values (400) answers `failed`. Other
   failures, and a read that fails first and sends no save, answer as the read does. A Microsoft
-  mailbox saves nothing.
+  mailbox saves no Gmail change; it saves its own
+  [automatic replies](microsoft-mail.md#out-of-office).
 
 ## Behavior
 

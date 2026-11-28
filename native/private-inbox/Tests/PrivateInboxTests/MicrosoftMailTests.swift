@@ -295,10 +295,12 @@ extension PrivateInboxTests {
     }
     #expect(microsoft.graphWrites.count == 3)
     // Saving the automatic replies writes only them, wrapped in one mailboxSettings PATCH; another
-    // setting, a value that is not JSON or a body over 1 MiB never reaches Microsoft (#3124).
+    // setting, a value of another shape or a body over 1 MiB never reaches Microsoft (#3124).
     for automaticReplies: [String: Any] in [
       ["timeZone": "UTC"], ["status": "disabled", "language": ["locale": "en-US"]],
-      ["scheduledStartDateTime": Date()],
+      ["scheduledStartDateTime": Date()], ["internalReplyMessage": ["language": "en-US"]],
+      ["scheduledEndDateTime": ["dateTime": "2026-12-07T07:00:00", "workingHours": "UTC"]],
+      ["scheduledEndDateTime": ["dateTime": 1, "timeZone": "UTC"]],
       ["internalReplyMessage": String(repeating: "x", count: 1024 * 1024)],
     ] {
       await #expect(throws: RegistrationError.unavailable) {
