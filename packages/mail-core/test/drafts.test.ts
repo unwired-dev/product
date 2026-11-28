@@ -3891,6 +3891,46 @@ describe('adding files and images to Drafts', () => {
     expect([...drafts.getRetries()]).toStrictEqual([plan.id]);
   });
 
+  it('copies nothing of a forwarded attachment cancelled while it downloads', async () => {
+    expect.hasAssertions();
+    const { storage, drafts, id, draft } = await opened();
+    const fetched = Promise.withResolvers<undefined>();
+    const release = vi.fn<() => void>();
+    const download = vi.fn<Download>(async () => {
+      await fetched.promise;
+      storage.addFile('downloaded', 'plan');
+      return {
+        source: {
+          kind: 'received',
+          mailbox: {
+            connection: alex.id,
+            address: alex.address,
+            generation: 'generation-1',
+          },
+          file: 'downloaded',
+        } satisfies AssetSource,
+        release,
+      };
+    });
+    const imports = vi.spyOn(storage.native, 'importDraftAsset');
+    const plan = drafts.prepare({ name: 'plan.key', type: 'application/pdf' });
+    await drafts.fill(
+      id,
+      (each) => ({ ...each, attachments: [...assetsOf(each), plan] }),
+      [{ asset: plan, source: { kind: 'unavailable' }, download, keep: true }],
+    );
+    await vi.waitFor(() => {
+      expect(download).toHaveBeenCalledWith();
+    });
+    await expect(drafts.cancelImport(plan.id)).resolves.toBe(true);
+    fetched.resolve(undefined);
+    await vi.waitFor(() => {
+      expect(release).toHaveBeenCalledWith();
+    });
+    expect(assetsOf(draft())).toMatchObject([{ state: 'cancelled' }]);
+    expect(imports).not.toHaveBeenCalled();
+  });
+
   it('releases each received file once it is added or can no longer be tried again', async () => {
     expect.hasAssertions();
     const { session, storage, drafts, id, draft } = await opened();

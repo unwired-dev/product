@@ -429,11 +429,42 @@ export async function forwardedAttachments(
           },
           file: file.file,
         };
+  const downloaded = (
+    file: Readonly<ReturnType<typeof inbox.holdAttachmentFile>>,
+  ) => ({
+    source: sourceOf(file),
+    release: file?.release ?? (() => undefined),
+  });
   const files = listed.map((attachment): PickedFile => {
     const { locator, name, mimeType, state } = attachment;
     if (state.kind === 'oversized') {
       return { name, type: mimeType, source: { kind: 'oversized' } };
     }
+    // Try Again downloads it again from this mailbox, which the Draft's Mail Profile keeps,
+    // reading the message meanwhile in case its reader closed. Unless the message lists it alone
+    // in its place, with no other file of the same name, type and size, it is not downloaded.
+    const again = async () => {
+      const current = inboxOf?.() ?? inbox;
+      const retained = current.retainMessage(id);
+      try {
+        await current.readMessage(id);
+        const alike = (current.messageAttachments(id) ?? []).filter(
+          (each) =>
+            each.name === name &&
+            each.mimeType === mimeType &&
+            each.size === attachment.size,
+        );
+        if (alike.length !== 1 || alike[0]?.locator !== locator) {
+          return downloaded(undefined);
+        }
+        await current
+          .downloadAttachment(id, locator, { again: true })
+          .catch(() => undefined);
+        return downloaded(current.holdAttachmentFile(id, locator));
+      } finally {
+        retained();
+      }
+    };
     // With Try Again, the Draft store's first `download` takes the file Forward is downloading.
     let first = saved === undefined ? fetching.get(locator) : undefined;
     const take = () => {
@@ -443,7 +474,8 @@ export async function forwardedAttachments(
     };
     // A file no Draft took is released once its download settles.
     const abandon = async () => {
-      (await take())?.release();
+      const file = await take();
+      file?.release();
     };
     const file = saved?.get(locator);
     const release =
@@ -461,45 +493,9 @@ export async function forwardedAttachments(
       source: sourceOf(file),
       release,
       keep,
-      // Try Again downloads it again from this mailbox, which the Draft's Mail Profile keeps,
-      // reading the message meanwhile in case its reader closed. Unless the message lists it alone
-      // in its place, with no other file of the same name, type and size, it is not downloaded.
       download: async () => {
         const pending = take();
-        if (pending !== undefined) {
-          const each = await pending;
-          return {
-            source: sourceOf(each),
-            release: each?.release ?? (() => undefined),
-          };
-        }
-        const current = inboxOf?.() ?? inbox;
-        const reading = current.retainMessage(id);
-        try {
-          await current.readMessage(id);
-          const alike = (current.messageAttachments(id) ?? []).filter(
-            (each) =>
-              each.name === name &&
-              each.mimeType === mimeType &&
-              each.size === attachment.size,
-          );
-          if (alike.length !== 1 || alike[0]?.locator !== locator) {
-            return {
-              source: { kind: 'unavailable' },
-              release: () => undefined,
-            };
-          }
-          await current
-            .downloadAttachment(id, locator, { again: true })
-            .catch(() => undefined);
-          const again = current.holdAttachmentFile(id, locator);
-          return {
-            source: sourceOf(again),
-            release: again?.release ?? (() => undefined),
-          };
-        } finally {
-          reading();
-        }
+        return pending === undefined ? again() : downloaded(await pending);
       },
     };
   });
