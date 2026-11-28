@@ -84,6 +84,24 @@ struct InboxPreferencesRecord: SyncedRecord, Equatable {
   }
 }
 
+// One Mail Profile's reading preferences record (ADR 0019's `mail-workflow-preferences:reading`),
+// such as when opening a message marks it read: each field's latest value, as JSON naming the
+// Profile, whose identifier is the record's.
+struct ReadingPreferencesRecord: SyncedRecord, Equatable {
+  static let kind = "profile-reading-preferences"
+  static let field = "preferences"
+  static let schemaVersion = 1
+  let id: String
+  let version: Int
+  let preferences: String?
+  var content: String? { preferences }
+  init(id: String, version: Int, content: String?) {
+    self.id = id
+    self.version = version
+    preferences = content
+  }
+}
+
 // One Draft's Send Reminder record: the reminder, naming the Draft and its Mail Profile, or its
 // removal, as JSON. It holds none of the Draft's content.
 struct SendReminderRecord: SyncedRecord, Equatable {

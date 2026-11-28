@@ -1,9 +1,12 @@
+import type { MailProfile } from '@private-email/mail-core/registration';
+
 import { messageZooms } from '@private-email/mail-core/message-body';
 import { Switch } from 'react-native';
 
 import { PopUp } from './composer-controls.tsx';
 import { Label } from './label.tsx';
 import { useLocalization } from './localization.ts';
+import { MarkReadSettings } from './mark-read.tsx';
 import {
   setFitWideMessages,
   setMessageZoom,
@@ -14,8 +17,13 @@ import { SettingsGroup, SettingsRow } from './settings.tsx';
 import { textStyles, usePalette } from './theme.ts';
 
 // Settings › Reading: app text follows macOS; received formatted mail zooms, and fits the reader's
-// width, on this Mac.
-export function ReadingSettings() {
+// width, on this Mac; each of `profiles` chooses when opening a message marks it read.
+export function ReadingSettings({
+  profiles,
+}: {
+  // The Mail Profiles besides the Default Profile.
+  readonly profiles: readonly MailProfile[];
+}) {
   const { t } = useLocalization();
   const colors = usePalette();
   const zoom = useMessageZoom();
@@ -59,6 +67,7 @@ export function ReadingSettings() {
           />
         </SettingsRow>
       </SettingsGroup>
+      <MarkReadSettings profiles={profiles} />
     </>
   );
 }

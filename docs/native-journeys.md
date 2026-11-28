@@ -439,6 +439,14 @@ it and choosing − leaves **No Blocked Senders**. A screen capture of the open
 menu, the sheet and the listed Settings are kept as attachments. It sets Light; `testBlockDomainDark` runs it in
 Dark.
 
+`testMarkAsRead` uses the same build and sign-in
+([#2829](https://github.com/unwired-dev/product/issues/2829)). It adds a Work
+Profile in Settings › Profiles, then Settings › Reading shows a **Mark as Read**
+pop-up for each Profile, **Immediately** for Primary Profile. It chooses
+**After 2 seconds** for Work, and Escape closes Primary Profile's open menu without
+changing it. Settings and a screen capture of the open menu are kept as
+attachments. It sets Light; `testMarkAsReadDark` runs it in Dark.
+
 `testSendNow` uses the same build and sign-in
 ([#2594](https://github.com/unwired-dev/product/issues/2594)). It writes a New
 Message to `jordan@example.invalid`, opens Send's menu with a right click and

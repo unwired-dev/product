@@ -38,7 +38,10 @@ const openReader = async () => {
   await settings.load();
   return render(
     <RemoteContentContext value={settings}>
-      <ReadingSettings destination="reading" />
+      <ReadingSettings
+        destination="reading"
+        profiles={[]}
+      />
       <ReaderScrollView>
         <GmailMessageBody
           inbox={inbox}
