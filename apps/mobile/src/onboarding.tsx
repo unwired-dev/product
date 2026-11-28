@@ -1,5 +1,12 @@
 import type { ReactNode } from 'react';
 
+import { Host, RNHostView, Button as SwiftUIButton } from '@expo/ui/swift-ui';
+import {
+  accessibilityHint,
+  buttonStyle,
+  disabled as inactive,
+  accessibilityLabel as spokenLabel,
+} from '@expo/ui/swift-ui/modifiers';
 import {
   ipadListScale,
   palette,
@@ -14,6 +21,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import Animated, { css } from 'react-native-reanimated';
@@ -737,69 +745,82 @@ export function ProviderRow({
   readonly last?: boolean;
 }) {
   const colors = usePalette();
+  // A text size changed while the list is open keeps the hosted row's old height; a fresh host
+  // measures the row again.
+  const { fontScale } = useWindowDimensions();
+  // The system button, with the row as its label, its spoken name and the detail as its hint. The
+  // separator stays outside the button, so a busy step dims only the row.
   return (
-    <Pressable
-      accessibilityHint={detail}
-      accessibilityLabel={name}
-      accessibilityRole="button"
-      accessibilityState={{ disabled }}
-      disabled={disabled}
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.provider,
-        ipad && styles.ipadProvider,
-        {
-          backgroundColor: pressed
-            ? colors.accentSelectionSubtle
-            : 'transparent',
-          borderBottomWidth: last ? 0 : StyleSheet.hairlineWidth,
-          borderBottomColor: colors.separator,
-        },
-      ]}>
-      <View
-        style={[
-          styles.tile,
-          ipad
-            ? [styles.ipadTile, { backgroundColor: colors.fillQuiet }]
-            : [
-                styles.outlinedTile,
-                {
-                  backgroundColor: colors.surfaceContent,
-                  borderColor: colors.separator,
-                },
-              ],
-        ]}>
-        <SFSymbol
-          color={colors.textPrimary}
-          name={symbol}
-          semibold
-          size={ipad ? 13 * ipadListScale : 17}
-        />
-      </View>
-      <View style={styles.providerText}>
-        <Text
-          style={[
-            styles.providerName,
-            ipad && styles.ipadProviderName,
-            { color: colors.textPrimary },
+    <View
+      style={{
+        borderBottomWidth: last ? 0 : StyleSheet.hairlineWidth,
+        borderBottomColor: colors.separator,
+      }}>
+      <Host
+        key={fontScale}
+        matchContents={{ vertical: true }}>
+        <SwiftUIButton
+          onPress={onPress}
+          modifiers={[
+            buttonStyle('plain'),
+            inactive(disabled),
+            spokenLabel(name),
+            accessibilityHint(detail),
           ]}>
-          {name}
-        </Text>
-        <Text
-          style={[
-            styles.providerDetail,
-            ipad && styles.ipadProviderDetail,
-            { color: colors.textSecondary },
-          ]}>
-          {detail}
-        </Text>
-      </View>
-      <SFSymbol
-        name="chevron.right"
-        size={12}
-        color={colors.textSecondary}
-      />
-    </Pressable>
+          <RNHostView
+            boundedByHost
+            matchContents={{ vertical: true }}>
+            <View
+              accessibilityElementsHidden
+              style={[styles.provider, ipad && styles.ipadProvider]}>
+              <View
+                style={[
+                  styles.tile,
+                  ipad
+                    ? [styles.ipadTile, { backgroundColor: colors.fillQuiet }]
+                    : [
+                        styles.outlinedTile,
+                        {
+                          backgroundColor: colors.surfaceContent,
+                          borderColor: colors.separator,
+                        },
+                      ],
+                ]}>
+                <SFSymbol
+                  color={colors.textPrimary}
+                  name={symbol}
+                  semibold
+                  size={ipad ? 13 * ipadListScale : 17}
+                />
+              </View>
+              <View style={styles.providerText}>
+                <Text
+                  style={[
+                    styles.providerName,
+                    ipad && styles.ipadProviderName,
+                    { color: colors.textPrimary },
+                  ]}>
+                  {name}
+                </Text>
+                <Text
+                  style={[
+                    styles.providerDetail,
+                    ipad && styles.ipadProviderDetail,
+                    { color: colors.textSecondary },
+                  ]}>
+                  {detail}
+                </Text>
+              </View>
+              <SFSymbol
+                name="chevron.right"
+                size={12}
+                color={colors.textSecondary}
+              />
+            </View>
+          </RNHostView>
+        </SwiftUIButton>
+      </Host>
+    </View>
   );
 }
 

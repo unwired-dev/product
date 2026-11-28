@@ -3418,6 +3418,8 @@ final class InboxTests: XCTestCase {
     app.buttons["Continue"].tap()
     app.buttons["Sign in with Apple"].tap()
     XCTAssertTrue(app.buttons["Gmail"].waitForExistence(timeout: 15))
+    // #3139: each provider row is a system button.
+    capture("Mailbox providers")
     app.buttons["Gmail"].tap()
     XCTAssertTrue(text("connected on this device", in: app).waitForExistence(timeout: 15))
     enter(
@@ -3434,6 +3436,7 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(app.buttons["Add an IMAP Mailbox"].waitForExistence(timeout: 15))
     app.buttons["Add an IMAP Mailbox"].tap()
     XCTAssertTrue(app.buttons["Other IMAP Account"].waitForExistence(timeout: 15))
+    capture("IMAP providers")
     app.buttons["Other IMAP Account"].tap()
     // #2189: an address at a catalogued provider fills in its servers and says so; clearing it
     // empties them again for manual entry.
