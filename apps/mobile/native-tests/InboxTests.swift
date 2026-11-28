@@ -4667,8 +4667,11 @@ final class InboxTests: XCTestCase {
       XCTAssertTrue(shown.waitForExistence(timeout: 10), "\(sheet) did not open again")
     }
     swipes("Reply sheet", from: replyAll, shown: replyAll, open: openReply)
-    // #3077: a swipe released early fires nothing from Close, a Pressable that #3074 makes a
-    // SwiftUI button, or from New Label…, a SwiftUI button; a tap on Close still closes.
+    // #3077, #3074: a swipe released early fires none of the SwiftUI buttons, Close, the tiles,
+    // the rows or New Label…; a tap on Close still closes.
+    swipes("Reply sheet from Move to Spam", from: app.buttons["Move to Spam"], shown: replyAll) {
+      if !replyAll.exists { openReply() }
+    }
     let close = app.buttons["Close"]
     swipes("Reply sheet from Close", from: close, shown: replyAll) {
       if !replyAll.exists { openReply() }
