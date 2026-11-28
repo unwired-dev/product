@@ -195,14 +195,22 @@ extension ProductRegistrationReceipt {
   func signIn(mail: Bool, hint: String?) async throws -> GoogleRegistrationIdentity
   func refresh(_ credential: Data) async throws -> GoogleRegistrationIdentity
   func verifyGmail(_ identity: GoogleRegistrationIdentity) async throws -> GmailRegistrationReceipt
-  // One Gmail API request with this identity's access token: a read, or a POST of a body of
-  // `contentType`. HTTP failures are returned, not thrown.
+  // One Gmail API request with this identity's access token: a read, or a `method` request with
+  // a body of `contentType`. HTTP failures are returned, not thrown.
   func gmail(
-    _ identity: GoogleRegistrationIdentity, url: URL, body: Data?, contentType: String
+    _ identity: GoogleRegistrationIdentity, url: URL, body: Data?, contentType: String,
+    method: String
   ) async throws -> (Int, Data)
 }
 
 extension GoogleRegistrationProvider {
+  // A read, or a POST of a body of `contentType`.
+  func gmail(
+    _ identity: GoogleRegistrationIdentity, url: URL, body: Data?, contentType: String
+  ) async throws -> (Int, Data) {
+    try await gmail(identity, url: url, body: body, contentType: contentType, method: "POST")
+  }
+
   // A read, or a JSON POST with a body.
   func gmail(_ identity: GoogleRegistrationIdentity, url: URL, body: Data?) async throws -> (
     Int, Data

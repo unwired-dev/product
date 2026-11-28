@@ -25,7 +25,7 @@ mailbox credential, preserves repeated query parameters, refuses redirects and
 returns only status/body. The ephemeral URL session keeps HTTP response caches
 off disk. Native and TypeScript diagnostics use fixed allow-listed values.
 
-The bridge exposes `gmailRequest(path, query, mailbox)`, `gmailModify(change, mailbox)`, `gmailCreateLabel(name, mailbox)`, `openMailbox(connection)` and
+The bridge exposes `gmailRequest(path, query, mailbox)`, `gmailModify(change, mailbox)`, `gmailCreateLabel(name, mailbox)`, `gmailSaveVacation(vacation, mailbox)`, `openMailbox(connection)` and
 `commitMailbox(mailbox, expectedRevision, document, history)` and
 `openMailboxSegment(mailbox, name)`. Hosts pass null for an unchanged history. The cache reply contains
 revision, address, an opaque native generation, a non-secret owner identity and an optional document, with `availability: retry` only for
@@ -416,6 +416,12 @@ IDs added since its base without restoring pre-existing labels the provider remo
 Creation validates the message's owner before provider access and after the reply,
 and lifecycle failures use the Inbox's owner-fenced recovery. Duplicate names are
 left to Gmail to refuse; they never apply an already-listed label instead.
+
+Issue #3092 adds `gmailSaveVacation(vacation, mailbox)` through the same native
+mutation fence. Gmail's `updateVacation` replaces the whole responder, so
+TypeScript sends the object it read with the change applied. Native code accepts
+only a JSON object of at most 1 MiB and sends it as the one credentialed `PUT` to
+`settings/vacation`.
 
 The encrypted metadata document retains ordered pending actions, snapshots for
 restoration, stable intake IDs, immutable dispatch records and user labels. Each

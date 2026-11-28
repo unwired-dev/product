@@ -4595,8 +4595,8 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(name.waitForNonExistence(timeout: 10))
   }
 
-  // #2898: on iPhone a Gmail reader's Reply, Labels and New Label sheets each stay in place at a
-  // downward swipe released early, and close at a completed one, after which they open again.
+  // #2898: on iPhone a Gmail reader's Reply, Labels, New Label and Move sheets each stay in place
+  // at a downward swipe released early, and close at a completed one, after which they open again.
   func testSheetSwipes() throws {
     try XCTSkipIf(UIDevice.current.userInterfaceIdiom != .phone, "The sheets are iPhone's")
     continueAfterFailure = false
@@ -4677,6 +4677,32 @@ final class InboxTests: XCTestCase {
     _ = settledFrame(of: cancel)
     cancel.tap()
     XCTAssertTrue(name.waitForNonExistence(timeout: 10))
+    // #3073: Back, Close and Cancel are system buttons and the folder rows pressable rows (#3077);
+    // no swipe presses one.
+    let caption = app.staticTexts["Move this message to another folder."].firstMatch
+    let openMove = {
+      if caption.exists { return }
+      if !replyAll.exists { openReply() }
+      app.buttons["Move to…"].tap()
+    }
+    // The reader's own Back stays in the tree behind the sheet.
+    let moveSheet = app.otherElements["move-sheet"]
+    swipes("Move sheet from Close", from: app.buttons["Close"], shown: caption, open: openMove)
+    swipes("Move sheet from Back", from: moveSheet.buttons["Back"], shown: caption, open: openMove)
+    swipes(
+      "Move sheet from a folder", from: app.buttons["Move to Travel"], shown: caption,
+      open: openMove)
+    let accounts = app.staticTexts["Accounts"].firstMatch
+    swipes("Move sheet from Cancel", from: moveSheet.buttons["Cancel"], shown: accounts) {
+      if accounts.exists { return }
+      openMove()
+      moveSheet.buttons["Back"].tap()
+    }
+    moveSheet.buttons["Cancel"].tap()
+    XCTAssertTrue(accounts.waitForNonExistence(timeout: 5))
+    let moved = "A Move sheet swipe moved the message"
+    XCTAssertTrue(header("rowan@example.invalid", in: app).exists, moved)
+    XCTAssertFalse(app.buttons["Undo"].exists, moved)
   }
 
   // A downward swipe on a sheet, held short and released at rest, which leaves the sheet in place.

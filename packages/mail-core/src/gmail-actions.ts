@@ -339,3 +339,9 @@ export const GmailVacationSchema = Schema.Struct({
   ),
 });
 export type GmailVacation = typeof GmailVacationSchema.Type;
+
+// A change to the vacation responder: each named field takes the value, and null leaves it out, as
+// Gmail stores a setting that is off or empty. Fields not named keep what Gmail has.
+export type GmailVacationChange = {
+  readonly [Field in keyof GmailVacation]?: GmailVacation[Field] | null;
+};
