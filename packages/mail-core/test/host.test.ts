@@ -966,6 +966,60 @@ describe('the host assembly', () => {
     });
   });
 
+  it('applies no queued App Icon Badge count once a muted Profile’s mailboxes cannot be told apart', async () => {
+    expect.hasAssertions();
+    const { host, gmail, shared, badges, badgeWrites } = syntheticHost(
+      undefined,
+      true,
+    );
+    host.followBadge();
+    await host.start();
+    gmail.deliver({ subject: 'Unread', unread: true });
+    await host.registration.register('google');
+    await host.registration.addMailbox();
+    await host.gmailMailboxes.load();
+    await host.notifications.request();
+    await host.notifications.setBadge('inbox');
+    await host.registration.createProfile('Work');
+    const work = required(
+      profilesOf(host.registration.getSnapshot().snapshot).find(
+        ({ name }) => name === 'Work',
+      ),
+    ).id;
+    await host.registration.moveMailbox(
+      syntheticMailboxes['alex@example.invalid'],
+      work,
+    );
+    await host.notifications.setProfileBadgeSound(
+      ownerOf(host),
+      defaultProfile,
+      false,
+    );
+    badges.splice(0);
+    // The write of 2 is still running when 3 is wanted.
+    const written = Promise.withResolvers<null>();
+    badgeWrites.answer = () => written.promise;
+    gmail.deliver({ subject: 'Second', unread: true });
+    await host.gmailMailboxes.load();
+    gmail.deliver({ subject: 'Third', unread: true });
+    await host.gmailMailboxes.load();
+    // Then which Profile the mailbox is in cannot be read.
+    shared.device.productSync.unreadable = true;
+    await host.registration.restore();
+    badgeWrites.answer = () => Promise.resolve(null);
+    written.resolve(null);
+    await host.notifications.load();
+    const unreadable = badges.splice(0);
+    shared.device.productSync.unreadable = false;
+    await host.registration.restore();
+    await vi.waitFor(() => {
+      expect({ unreadable, readable: badges }).toStrictEqual({
+        unreadable: [2],
+        readable: [3],
+      });
+    });
+  });
+
   it('reads the Badge and sound choices again once the Product Account changes', async () => {
     expect.hasAssertions();
     const { host, device } = syntheticHost(undefined, true);
