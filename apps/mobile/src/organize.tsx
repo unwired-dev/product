@@ -237,8 +237,8 @@ export function ReadWhenOpened<M extends Readonly<{ id: string }>>({
 }
 
 // The reader's actions for the message's provider: one glass toolbar of Archive, Move, the
-// response actions passed as children, and More, whose panel lists the remaining actions. iPhone
-// leaves out More while its Reply sheet offers them.
+// response actions passed as children, and More, whose panel lists the remaining actions. While
+// the iPhone Reply sheet offers them, More lists only Message Zoom….
 export function MessageActions({
   id,
   folder,
