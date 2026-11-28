@@ -3858,6 +3858,10 @@ final class WindowTests: XCTestCase {
     func popUp(_ profile: String) -> XCUIElement {
       settings.popUpButtons["Mark as Read for \(profile)"]
     }
+    // Each choice's title carries its description: "After 2 seconds, If a message stays open…".
+    func choice(_ title: String) -> XCUIElement {
+      app.menuItems.matching(NSPredicate(format: "title BEGINSWITH %@", "\(title), ")).firstMatch
+    }
     func attach(_ screenshot: XCUIScreenshot, _ name: String) {
       let attachment = XCTAttachment(screenshot: screenshot)
       attachment.name = "\(name) (\(appearance))"
@@ -3879,16 +3883,16 @@ final class WindowTests: XCTestCase {
     XCTAssertTrue(popUp("Work").waitForExistence(timeout: 15))
     XCTAssertEqual(popUp("Primary Profile").value as? String, "Immediately")
     popUp("Work").click()
-    XCTAssertTrue(app.menuItems["After 2 seconds"].waitForExistence(timeout: 5))
-    app.menuItems["After 2 seconds"].click()
+    XCTAssertTrue(choice("After 2 seconds").waitForExistence(timeout: 5))
+    choice("After 2 seconds").click()
     waitUntil { popUp("Work").value as? String == "After 2 seconds" }
     attach(settings.screenshot(), "Settings › Reading")
     popUp("Primary Profile").click()
-    XCTAssertTrue(app.menuItems["Manually"].waitForExistence(timeout: 5))
+    XCTAssertTrue(choice("Manually").waitForExistence(timeout: 5))
     // The menu is outside the window, so the screen is captured.
     attach(XCUIScreen.main.screenshot(), "Mark as Read choices")
     app.typeKey(.escape, modifierFlags: [])
-    XCTAssertTrue(app.menuItems["Manually"].waitForNonExistence(timeout: 5))
+    XCTAssertTrue(choice("Manually").waitForNonExistence(timeout: 5))
     XCTAssertEqual(popUp("Primary Profile").value as? String, "Immediately")
   }
 
