@@ -110,6 +110,7 @@ describe('headless Gmail freshness', () => {
         ...permission,
         previews: false,
         badge: 'inbox',
+        sound: 'default',
       }),
       setBadgeCount,
       nextNotificationAction: jest
@@ -400,6 +401,7 @@ describe('headless Gmail freshness', () => {
         authorization: 'authorized',
         previews: false,
         badge: 'off',
+        sound: 'default',
       }),
       setBadgeCount: async () => null,
       postReplyNotification,

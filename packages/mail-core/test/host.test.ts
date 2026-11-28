@@ -108,6 +108,7 @@ function syntheticHost(reporting?: NativeErrorReporting, productSync = false) {
     authorization: 'undetermined',
     previews: false,
     badge: 'off',
+    sound: 'default',
   };
   const badges: number[] = [];
   // How the system answers each App Icon Badge write.
@@ -264,6 +265,10 @@ function syntheticHost(reporting?: NativeErrorReporting, productSync = false) {
     },
     setNotificationBadge: (badge) => {
       device.badge = badge;
+      return Promise.resolve({ ...device });
+    },
+    setNotificationSound: (sound) => {
+      device.sound = sound;
       return Promise.resolve({ ...device });
     },
     setBadgeCount: (count) => {

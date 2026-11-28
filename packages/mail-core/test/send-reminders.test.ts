@@ -736,6 +736,7 @@ describe('due Send Reminder notifications', () => {
       authorization: 'authorized',
       previews: false,
       badge: 'off',
+      sound: 'default',
     };
     const draftListeners = new Set<() => void>();
     const settingsListeners = new Set<() => void>();
@@ -830,6 +831,7 @@ describe('due Send Reminder notifications', () => {
       authorization: 'authorized',
       previews: true,
       badge: 'off',
+      sound: 'default',
     } as const;
     await change({ drafts: ready(draft), settings: previews });
     expect(scheduled.at(-1)).toStrictEqual(
@@ -895,7 +897,11 @@ describe('due Send Reminder notifications', () => {
     vi.spyOn(console, 'error').mockReturnValue();
     const { store, scheduled, native, change } = await follow();
     await change({ drafts: ready(draft) });
-    const shown = { authorization: 'authorized', badge: 'off' } as const;
+    const shown = {
+      authorization: 'authorized',
+      badge: 'off',
+      sound: 'default',
+    } as const;
     // A settings change, such as previews turned off and on, may have withdrawn it natively.
     await change({ settings: { ...shown, previews: false } });
     expect(scheduled).toHaveLength(2);
@@ -920,10 +926,20 @@ describe('due Send Reminder notifications', () => {
     const { scheduled, change } = await follow();
     await change({
       drafts: ready(draft),
-      settings: { authorization: 'denied', previews: false, badge: 'off' },
+      settings: {
+        authorization: 'denied',
+        previews: false,
+        badge: 'off',
+        sound: 'default',
+      },
     });
     await change({
-      settings: { authorization: 'authorized', previews: false, badge: 'off' },
+      settings: {
+        authorization: 'authorized',
+        previews: false,
+        badge: 'off',
+        sound: 'default',
+      },
     });
     expect(scheduled).toHaveLength(2);
   });
