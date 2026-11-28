@@ -281,8 +281,8 @@ extension UnwiredRegistration {
   private static func alertSound(_ name: String) -> URL {
     URL(fileURLWithPath: "/System/Library/Sounds/\(name).aiff")
   }
-  // A notification finds a named sound only in the app's own Library/Sounds, so the chosen Mac
-  // alert sound is copied there first.
+  // UserNotifications does not look in /System/Library/Sounds, so the chosen Mac alert sound is
+  // copied into the app container's Library/Sounds first.
   private static func alertSound(named name: String) -> UNNotificationSound {
     #if os(macOS)
       let file = "\(name).aiff"

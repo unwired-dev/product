@@ -33,8 +33,9 @@ matches content, grouping and actions to the design.
   like the badge stays, dimmed, while notifications are off. On the Mac, **New mail sound**
   sits under **Dock badge** in the **On this Mac** group and also offers the Mac's alert sounds
   (Basso to Tink, the ones in `/System/Library/Sounds`); the design shows **Glass**
-  ([#2811](https://github.com/unwired-dev/product/issues/2811)). A notification plays only a
-  sound in the app's own `Library/Sounds`, so posting copies the chosen one there first.
+  ([#2811](https://github.com/unwired-dev/product/issues/2811)). UserNotifications does not look
+  in `/System/Library/Sounds`, so posting copies the chosen sound into the app container's
+  `Library/Sounds` first.
 - **Profiles**, on iPhone and iPad, lists each Mail Profile with a **Badge and sound** switch
   ([#2809](https://github.com/unwired-dev/product/issues/2809)). A Profile switched off adds
   nothing to the App Icon Badge, and its New Mail Notifications are still shown but play no

@@ -1870,7 +1870,6 @@
       "off": "Off",
       "inbox": "Unread in Inbox"
     },
-    "badgeDetail": "Counts unread mail in Inbox.",
     "sound": "New Mail Sound",
     "sound_ipad": "New mail sound",
     "sound_mac": "New mail sound",
