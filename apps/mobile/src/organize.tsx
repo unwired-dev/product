@@ -47,7 +47,7 @@ import {
   useState,
   useSyncExternalStore,
 } from 'react';
-import { Platform, StyleSheet, View } from 'react-native';
+import { AppState, Platform, StyleSheet, View } from 'react-native';
 
 import type { Destination } from './move-sheet.tsx';
 import type { ThreadAction } from './reply-sheet.tsx';
@@ -67,8 +67,10 @@ import {
   useInbox,
   useInboxActions,
   useMailbox,
+  useProfile,
   useProviderName,
 } from './mailbox.tsx';
+import { useMarkRead } from './mark-read.tsx';
 import { MovePanel, MoveSheet } from './move-sheet.tsx';
 import { LabelChoices, NewLabel } from './new-label.tsx';
 import { usePinAction, usePinned } from './pins.tsx';
@@ -179,8 +181,27 @@ export type Marked = RefObject<
   Readonly<{ store: object; id: string }> | undefined
 >;
 
-// Opening a message reads it: once the reader can change the message, it marks it read with the
-// change Mark as Read makes. Each opening marks it once, so a later Mark as Unread stands.
+// After 2 seconds marks a message read once it has stayed open this long with the app in front.
+const markReadDelay = 2000;
+
+// Whether the app is in front.
+function useActive() {
+  const [active, setActive] = useState(AppState.currentState === 'active');
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (state) => {
+      setActive(state === 'active');
+    });
+    return () => {
+      subscription.remove();
+    };
+  }, []);
+  return active;
+}
+
+// Opening a message reads it as its Mail Profile's Mark as Read choice says: Immediately, After 2
+// seconds once it stayed open that long with the app in front, or never when Manually. Once the
+// reader can change the message, it marks it read with the change Mark as Read makes. Each opening
+// marks it once, so a later Mark as Unread stands.
 export function ReadWhenOpened<M extends Readonly<{ id: string }>>({
   markedRef,
   store,
@@ -192,9 +213,31 @@ export function ReadWhenOpened<M extends Readonly<{ id: string }>>({
   readonly message: M;
   readonly read: (message: M) => Promise<unknown>;
 }) {
+  const choice = useMarkRead(useProfile());
+  const active = useActive();
+  const { id } = message;
+  // The opening that has stayed open 2 seconds with the app in front.
+  const [elapsed, setElapsed] =
+    useState<Readonly<{ store: object; id: string }>>();
+  useEffect(() => {
+    if (choice !== 'afterTwoSeconds' || !active) {
+      return undefined;
+    }
+    const timer = setTimeout(() => {
+      setElapsed({ store, id });
+    }, markReadDelay);
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [choice, active, store, id]);
+  const due =
+    choice === 'immediately' ||
+    (choice === 'afterTwoSeconds' &&
+      elapsed?.store === store &&
+      elapsed.id === id);
   useEffect(() => {
     const marked = markedRef.current;
-    if (marked?.store !== store || marked.id !== message.id) {
+    if (due && (marked?.store !== store || marked.id !== message.id)) {
       const opening = { store, id: message.id };
       markedRef.current = opening;
       // A read the mailbox could not save marks it again once the reader can change it.
@@ -205,7 +248,7 @@ export function ReadWhenOpened<M extends Readonly<{ id: string }>>({
       };
       void mark();
     }
-  }, [markedRef, store, message, read]);
+  }, [due, markedRef, store, message, read]);
   return null;
 }
 

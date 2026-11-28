@@ -34,6 +34,15 @@ const isListDensity = Schema.is(ListDensitySchema);
 export const PreviewLinesSchema = Schema.Literals([0, 1, 2, 3]);
 export type PreviewLines = typeof PreviewLinesSchema.Type;
 const isPreviewLines = Schema.is(PreviewLinesSchema);
+// When opening a message marks it read: Immediately (the default), once it has stayed open 2
+// seconds, or never, leaving it unread until the person chooses Mark as Read.
+export const MarkReadSchema = Schema.Literals([
+  'immediately',
+  'afterTwoSeconds',
+  'manually',
+]);
+export type MarkRead = typeof MarkReadSchema.Type;
+const isMarkRead = Schema.is(MarkReadSchema);
 const isFavoriteEntries = Schema.is(FavoriteEntriesSchema);
 const isSectionFolders = Schema.is(SectionFoldersSchema);
 // The same empty Favorites and folders every read, so a React snapshot of none stays equal.
@@ -128,6 +137,8 @@ const PulledSchema = Schema.Struct({
   ),
   unreadable: Schema.Array(Schema.NonEmptyString),
 });
+const waitingKey = (account: string, profile: string) =>
+  JSON.stringify([account, profile]);
 // Native code accepts a Private Sync record identifier of at most 200 characters.
 const publishable = (profile: string) => profile.length <= 200;
 
@@ -293,6 +304,10 @@ export function createInboxPreferences(
   // The Product Accounts whose last read storage failed, so which of their connections are muted is
   // unknown.
   const failed = new Set<string | undefined>();
+  // Each Profile, by Product Account, with a choice stored here that no pass has published yet, and
+  // the number of that choice, so a pass that read before it does not count it as published.
+  const waiting = new Map<string, number>();
+  let choices = 0;
   // The Profiles the last pass asked Private Sync about for `account`, and those whose records it
   // could not read, once a pass merged what it pulled and no other device's write overtook it;
   // none since a pass failed or was overtaken.
@@ -413,6 +428,7 @@ export function createInboxPreferences(
     if (account === undefined) {
       return false;
     }
+    const started = choices;
     const before = yield* opened(account);
     // Every Profile stored here, registered or holding a connection, so a record of one that does
     // not open is reported unreadable rather than absent.
@@ -457,6 +473,15 @@ export function createInboxPreferences(
         })) || conflicted;
     }
     pulled = conflicted ? undefined : { account, known, unreadable };
+    if (!conflicted) {
+      for (const { profile } of stored.filter(sendable)) {
+        const key = waitingKey(account, profile);
+        if ((waiting.get(key) ?? Infinity) <= started) {
+          waiting.delete(key);
+          notify();
+        }
+      }
+    }
     return conflicted;
   });
 
@@ -482,6 +507,7 @@ export function createInboxPreferences(
     value:
       | ListDensity
       | PreviewLines
+      | MarkRead
       | boolean
       | ((stored: unknown) => FavoriteEntries | SectionFolders | undefined),
   ) => {
@@ -489,24 +515,31 @@ export function createInboxPreferences(
     if (scopes.length === 0) {
       return false;
     }
+    const account = signedIn();
+    // The Profiles whose field the write changed.
+    const written = new Set<string>();
     const stored = await runLogged(
-      changed(signedIn(), (kept) =>
+      changed(account, (kept) =>
         scopes.reduce((next, profile) => {
           const fields = fieldsOf(next, profile);
           const field = fields[name];
           const chosen =
             typeof value === 'function' ? value(field?.value) : value;
-          return chosen === undefined ||
+          if (
+            chosen === undefined ||
             JSON.stringify(field?.value) === JSON.stringify(chosen)
-            ? next
-            : withFields(next, profile, {
-                ...fields,
-                [name]: {
-                  value: chosen,
-                  at: Math.max(Date.now(), (field?.at ?? 0) + 1),
-                  ...(typeof value === 'function' ? madeFrom(field) : {}),
-                },
-              });
+          ) {
+            return next;
+          }
+          written.add(profile);
+          return withFields(next, profile, {
+            ...fields,
+            [name]: {
+              value: chosen,
+              at: Math.max(Date.now(), (field?.at ?? 0) + 1),
+              ...(typeof value === 'function' ? madeFrom(field) : {}),
+            },
+          });
         }, kept),
       ).pipe(
         Effect.as(true),
@@ -515,6 +548,13 @@ export function createInboxPreferences(
         ),
       ),
     );
+    if (stored && sync !== undefined && account !== undefined) {
+      choices += 1;
+      for (const profile of written) {
+        waiting.set(waitingKey(account, profile), choices);
+      }
+      notify();
+    }
     if (stored) {
       void synchronize();
     }
@@ -632,6 +672,27 @@ export function createInboxPreferences(
       choose([profile], foldersField(connection), (stored) =>
         change(isSectionFolders(stored) ? stored : noFolders),
       ),
+    // When opening a message of `profile` marks it read: Immediately when none was chosen, when
+    // signed out, or once storage failed to read the choice; undefined until the first read.
+    markRead: (profile: string): MarkRead | undefined => {
+      const account = signedIn();
+      if (account === undefined || failed.has(account)) {
+        return 'immediately';
+      }
+      if (shown.account !== account) {
+        return undefined;
+      }
+      const value = fieldsOf(shown.profiles, profile).markRead?.value;
+      return isMarkRead(value) ? value : 'immediately';
+    },
+    // Chooses when opening a message of `profile` marks it read, as `setListDensity` does.
+    setMarkRead: (profile: string, choice: MarkRead) =>
+      choose([profile], 'markRead', choice),
+    // Whether a choice made here for `profile` waits for Private Sync to publish it.
+    waiting: (profile: string) => {
+      const account = signedIn();
+      return account !== undefined && waiting.has(waitingKey(account, profile));
+    },
     // Merges Private Sync into this device's preferences and publishes this device's changes;
     // resolves once no pass is running.
     synchronize,

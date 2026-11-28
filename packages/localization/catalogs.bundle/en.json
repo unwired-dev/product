@@ -119,6 +119,19 @@
     "footer_ipad": "Zooms formatted mail as you read it on this iPad. The message and your Drafts don’t change.",
     "footer_mac": "Zooms formatted mail as you read it on this Mac. The message and your Drafts don’t change."
   },
+  "markRead": {
+    "profile": "Mark as Read for {{name}}",
+    "immediately": "Immediately",
+    "immediatelyDetail": "As soon as you open a message",
+    "afterTwoSeconds": "After 2 seconds",
+    "afterTwoSeconds_iphone": "After 2 Seconds",
+    "afterTwoSecondsDetail": "If a message stays open for 2 seconds",
+    "manually": "Manually",
+    "manuallyDetail": "Mail stays unread until you mark it read",
+    "footer": "Each Profile keeps its own choice on all its devices. Notifications and downloads never mark mail read.",
+    "waiting": "Waiting to sync with your other devices.",
+    "saveFailed": "Your change wasn’t saved on this device. Choose Try Again."
+  },
   "listDensity": {
     "title": "List density",
     "comfortable": "Comfortable",

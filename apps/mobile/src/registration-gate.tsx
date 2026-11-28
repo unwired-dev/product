@@ -575,7 +575,10 @@ function SettingsPage({
             <SettingsGroup footer={copy.description} />
           </>
         ) : null}
-        <ReadingSettings destination={destination} />
+        <ReadingSettings
+          destination={destination}
+          profiles={profilesOf(snapshot)}
+        />
         {destination === 'appearance' ? (
           <>
             <AppearanceSettings />
