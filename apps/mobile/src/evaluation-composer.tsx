@@ -36,6 +36,7 @@ import {
   slashTools,
 } from '@private-email/mail-core/assistance';
 import {
+  addingAsset,
   addRecipients,
   applySlashBlock,
   draftOf,
@@ -63,6 +64,7 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  useSyncExternalStore,
 } from 'react';
 import { Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
@@ -348,6 +350,7 @@ function EvaluationEditor({
   readonly onExpand?: (() => void) | undefined;
 }) {
   const store = useDraftStore();
+  const running = useSyncExternalStore(store.subscribe, store.getImports);
   const state = useDrafts();
   const outbox = useOutbox();
   const colors = usePalette();
@@ -564,7 +567,7 @@ function EvaluationEditor({
       });
     }
     for (const { asset, file } of imports) {
-      void store.importAsset(asset, file.source);
+      void store.importAsset(asset, file.source, { keep: true });
     }
   };
   // Remove and Cancel already queued when Save Draft or Send starts leave the frozen version alone.
@@ -995,6 +998,7 @@ function EvaluationEditor({
           <EditorHeader
             subject={draft.subject}
             busy={closing === 'saving'}
+            waiting={addingAsset(draft, running)}
             closeOpen={open === 'close'}
             closeAnchor={closeAnchor}
             sender={

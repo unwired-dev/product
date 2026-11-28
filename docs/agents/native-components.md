@@ -59,6 +59,16 @@ dimensions or animation curve. The [frames rule](../../AGENTS.md#design) still
 decides what the component does, and Draft safety holds whatever it offers. This
 policy does not authorize dropping required behavior to fit a component.
 
+A SwiftUI `Button` in a sheet's or popover's React Native content (`BottomSheet` →
+`RNHostView` → React Native views → `Host`) can be used like a `Pressable`. SwiftUI's own
+recognizers in that `Host` are not prevented by the sheet's drag or a React Native scroll view, so
+`patches/@expo__ui@58.0.30.patch` gives `RNHostView` a passive recognizer that cancels them when a
+pan outside the `Host` begins, as React Native cancels its own touches
+([#3077](https://github.com/unwired-dev/product/issues/3077)). A sheet slice that converts its
+controls adds a swipe released early from one of them to its journey, as `testSheetSwipes` does
+from **New Label…**. Delete the patch hunk once `@expo/ui` cancels a nested `Host`'s
+touches itself.
+
 Layouts hold at window and screen sizes other than the frame's, keep 44pt touch
 targets on iPhone and iPad, and keep controls and final content rows clear of
 floating chrome such as the search bar, toolbar groups and the composer.

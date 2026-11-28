@@ -470,7 +470,16 @@ so more messages pass the reader's 20,000-point cap and scroll inside the view;
 WebKit reports that scroll, so remote images there still load as they come near
 ([Gmail inbox](gmail-inbox.md#links-and-blocked-remote-content)). The zoom is a
 Device-Local Preference in this Mac's user defaults (`UnwiredMessageZoom`), never
-synced. Fit wide messages to the screen follows separately.
+synced. **Fit wide messages to the screen**
+([#2803](https://github.com/unwired-dev/product/issues/2803)), a switch under
+Message zoom, on by default, shrinks a received formatted message wider than the
+reader to its width at every Message zoom; off, it scrolls sideways. It marks the
+document as iPhone and iPad do ([Expo client](expo-client.md#reading)), and the
+same isolated client-world measurement scales the body with an app-owned
+`transform` and reports the shrunk height, so plain-text messages, the stored
+message and Drafts never change. Changing it reopens an open message's document
+in place. The switch is a Device-Local Preference in `UnwiredFitWideMessages`,
+never synced.
 
 **More › Message Zoom…** zooms the open message alone
 ([#2808](https://github.com/unwired-dev/product/issues/2808)). It is dimmed, not hidden,

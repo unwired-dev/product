@@ -131,6 +131,10 @@ export interface NativeGmailMailboxes {
     mailbox: Scope,
   ) => Promise<unknown>;
   readonly gmailCreateLabel: (name: string, mailbox: Scope) => Promise<unknown>;
+  readonly gmailSaveVacation: (
+    vacation: Parameters<NativeGmailMailbox['gmailSaveVacation']>[0],
+    mailbox: Scope,
+  ) => Promise<unknown>;
   readonly gmailSend: (
     message: Parameters<NativeGmailMailbox['gmailSend']>[0],
     mailbox: Scope,
@@ -324,6 +328,8 @@ const bound = (
       native.graphModify(change, scope(mailbox)),
     gmailCreateLabel: (name, mailbox) =>
       native.gmailCreateLabel(name, scope(mailbox)),
+    gmailSaveVacation: (vacation, mailbox) =>
+      native.gmailSaveVacation(vacation, scope(mailbox)),
     gmailSend: (message, mailbox) => native.gmailSend(message, scope(mailbox)),
     graphSend: (message, mailbox) => native.graphSend(message, scope(mailbox)),
     graphPrepare: (draft, mailbox) =>

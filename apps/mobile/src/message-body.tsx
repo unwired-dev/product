@@ -89,6 +89,7 @@ import {
   fittedDocument,
   useFitWideMessages,
   useMessageZoom,
+  useShowsFormatted,
   zoomedDocument,
 } from './reading.ts';
 import { useRemoteImages } from './remote-content.tsx';
@@ -735,6 +736,7 @@ function RichDocument({
 }
 
 export function Presentation({
+  id,
   presentation,
   onChoose,
   onCopy,
@@ -742,6 +744,8 @@ export function Presentation({
   onNear,
   onLoadImages,
 }: {
+  // The message shown, which Zooming one message can zoom on its own.
+  readonly id: string;
   readonly presentation: MessagePresentation;
   readonly onChoose: (link: BodyLink) => void;
   readonly onCopy: (link: BodyLink) => void;
@@ -753,7 +757,7 @@ export function Presentation({
   const colors = usePalette();
   const { t } = useLocalization();
   const { rich, readable } = presentation;
-  const zoom = useMessageZoom();
+  const zoom = useMessageZoom(id);
   const fit = useFitWideMessages();
   // A new source gets a new native view; remote-image node changes keep this navigation.
   const [navigation, setNavigation] = useState(() => ({
@@ -768,6 +772,7 @@ export function Presentation({
   const richKey = current.key;
   // Keep only the failed document's identity so its HTML and inline bytes can be released.
   const [failed, setFailed] = useState<number>();
+  useShowsFormatted(id, rich !== undefined && failed !== richKey);
   const offered =
     onLoadImages !== undefined &&
     rich !== undefined &&
@@ -1453,6 +1458,7 @@ export function GmailMessageBody({
         current={current}
       />
       <Presentation
+        id={id}
         onCopy={(link) => {
           if (current()) {
             void setStringAsync(link.href);

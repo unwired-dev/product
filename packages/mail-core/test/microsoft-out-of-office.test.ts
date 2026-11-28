@@ -144,6 +144,16 @@ describe("reading a Microsoft mailbox's automatic replies", () => {
     expect(inbox.getSnapshot()).toMatchObject({ sync: 'authentication' });
   });
 
+  it('saves nothing, as Gmail does', async () => {
+    expect.hasAssertions();
+    const { inbox, requests } = repliesInbox();
+    await inbox.load();
+    await expect(
+      inbox.saveOutOfOffice({ enableAutoReply: true }),
+    ).resolves.toBeUndefined();
+    expect(requests).toHaveLength(0);
+  });
+
   it('reads nothing before the Inbox opens', async () => {
     expect.hasAssertions();
     const { inbox, requests } = repliesInbox();

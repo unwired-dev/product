@@ -1,8 +1,11 @@
 import type {
   MailboxConnection,
+  MailProfile,
   Registration,
 } from '@private-email/mail-core/registration';
 
+import { profileName } from '@private-email/mail-core/profile-windows';
+import { defaultProfile } from '@private-email/mail-core/registration';
 import { typography } from '@private-email/mail-core/theme';
 import { createContext, use, useEffect, useSyncExternalStore } from 'react';
 import { AppState, Switch, Text } from 'react-native';
@@ -109,9 +112,9 @@ function MailboxNotifications({
   );
 }
 
-// What the App Icon Badge counts. While notifications are off, the choice stays, dimmed, until
-// they are allowed again.
-function AppIconBadge({
+// What the App Icon Badge counts and the sound a shown New Mail Notification plays. While
+// notifications are off, the choices stay, dimmed, until they are allowed again.
+function BadgeAndSound({
   device,
   settings,
 }: {
@@ -120,17 +123,19 @@ function AppIconBadge({
 }) {
   const { t } = useLocalization();
   const denied = settings?.authorization === 'denied';
+  const context = settingsColumns ? 'ipad' : 'iphone';
   return (
     <SettingsGroup
+      title={t('notifications.thisDevice', { context })}
       footer={t(
-        denied ? 'notifications.badgeKept' : 'notifications.badgeDetail',
+        denied ? 'notifications.badgeKept' : 'notifications.badgeSoundDetail',
       )}>
       <SettingsRow
-        title={t('notifications.badge')}
+        title={t('notifications.badge', { context })}
         disabled={denied}>
         {settings === undefined ? null : (
           <PopUpChoice
-            label={t('notifications.badge')}
+            label={t('notifications.badge', { context })}
             selected={settings.badge}
             choices={['off', 'inbox']}
             title={(badge) => t(`notifications.badges.${badge}`)}
@@ -147,6 +152,68 @@ function AppIconBadge({
           />
         )}
       </SettingsRow>
+      <SettingsRow
+        title={t('notifications.sound', { context })}
+        disabled={denied}>
+        {settings === undefined ? null : (
+          <PopUpChoice
+            label={t('notifications.sound', { context })}
+            selected={settings.sound}
+            choices={['default', 'none']}
+            title={(sound) => t(`notifications.sounds.${sound}`)}
+            disabled={denied}
+            onChoose={(sound) => {
+              void device.setSound(sound);
+            }}
+          />
+        )}
+      </SettingsRow>
+    </SettingsGroup>
+  );
+}
+
+// Each Mail Profile's Badge and sound switch. Until notifications are allowed the group is not
+// shown, and the choices stay until then.
+function Profiles({
+  account,
+  profiles,
+  device,
+  settings,
+}: {
+  readonly account: string;
+  readonly profiles: readonly MailProfile[];
+  readonly device: NotificationSettingsStore;
+  readonly settings: DeviceSettings;
+}) {
+  const { t } = useLocalization();
+  const colors = usePalette();
+  if (settings?.authorization !== 'authorized') {
+    return null;
+  }
+  return (
+    <SettingsGroup title={t('notifications.profiles')}>
+      {[defaultProfile, ...profiles.map(({ id }) => id)].map((profile) => {
+        const name = profileName(t, profile, profiles);
+        return (
+          <SettingsRow
+            key={profile}
+            title={name}
+            subtitle={t('notifications.badgeAndSound')}
+            subtitleTone="detail"
+            minHeight={switchRowHeight}>
+            <Switch
+              accessibilityLabel={t('notifications.badgeAndSoundFor', {
+                name,
+              })}
+              value={!settings.badgeSoundOff.includes(profile)}
+              trackColor={{ false: colors.fillTrack, true: colors.accentFill }}
+              onValueChange={(on) => {
+                void device.setProfileBadgeSound(account, profile, on);
+              }}
+            />
+          </SettingsRow>
+        );
+      })}
     </SettingsGroup>
   );
 }
@@ -186,14 +253,19 @@ function PerMailbox({
   );
 }
 
-// This device's notification permission, previews and App Icon Badge, which never synchronize,
-// then each connection's synchronized New Mail Notification switch.
+// This device's notification permission, previews, App Icon Badge, New Mail Sound and each
+// Profile's Badge and sound switch, which never synchronize, then each connection's synchronized
+// New Mail Notification switch.
 export function NotificationSettings({
   button,
+  account,
+  profiles,
   mailboxes,
   store,
 }: {
   readonly button: SettingsButton;
+  readonly account: string;
+  readonly profiles: readonly MailProfile[];
   readonly mailboxes: readonly MailboxConnection[];
   readonly store: Registration;
 }) {
@@ -239,7 +311,13 @@ export function NotificationSettings({
           />
         </SettingsRow>
       </SettingsGroup>
-      <AppIconBadge
+      <BadgeAndSound
+        device={device}
+        settings={settings}
+      />
+      <Profiles
+        account={account}
+        profiles={profiles}
         device={device}
         settings={settings}
       />

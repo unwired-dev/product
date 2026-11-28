@@ -323,6 +323,9 @@ mail server** for a reviewed provider, **The mail server** for any other.
   names the declined answer, accepts it, captures the original as an **Older version**, follows
   **Show Latest** and captures each supplier walkthrough failure as on iPhone and
   iPad.
+- On iPhone, live iCloud Mail and Seznam Email mailboxes answered real meeting
+  requests through the app, and each organizer received one `METHOD:REPLY`; see
+  the [run record](imap-mailboxes.md#certification-runs-through-the-app).
 - A mailbox removed while its response is sending on the Mac, iPhone and iPad,
   and a real Gmail
   organizer receiving the response remain required before release. Only revoking

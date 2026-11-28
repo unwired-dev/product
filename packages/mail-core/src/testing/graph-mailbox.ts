@@ -725,6 +725,7 @@ export function createSyntheticGraph({
     gmailRequest: () => rejection('unavailable'),
     gmailModify: () => rejection('unavailable'),
     gmailCreateLabel: () => rejection('unavailable'),
+    gmailSaveVacation: () => rejection('unavailable'),
     gmailSend: () => rejection('unavailable'),
     graphSend: (outgoing) => {
       if (!('draft' in outgoing)) {

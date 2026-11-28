@@ -1137,6 +1137,7 @@ describe('product registration', () => {
       'Mark as Unread',
       'Move to…',
       'Delete',
+      'Message Zoom…',
     ]);
     await fromPalette('Star');
     await waitFor(() => {
@@ -1154,6 +1155,7 @@ describe('product registration', () => {
       'Mark as Unread',
       'Move to…',
       'Delete',
+      'Message Zoom…',
     ]);
 
     // Archive moves it to the folder the server declares, closes the reader and offers Undo.
@@ -4188,7 +4190,12 @@ describe('product registration', () => {
     const { synthetic } = await connectedAccount();
     const store = createRegistration(synthetic.relaunch());
     await connectImap(store, { address: 'alex@icloud.example.invalid' });
-    const device = { authorization: 'denied', previews: false, badge: 'off' };
+    const device = {
+      authorization: 'denied',
+      previews: false,
+      badge: 'off',
+      sound: 'default',
+    };
     const native: string[] = [];
     const notifications = createNotifications(
       {
@@ -4202,6 +4209,11 @@ describe('product registration', () => {
           device.badge = badge;
           return Promise.resolve({ ...device });
         },
+        setNotificationSound: (sound) => {
+          device.sound = sound;
+          return Promise.resolve({ ...device });
+        },
+        setNotificationProfile: () => Promise.resolve({ ...device }),
         setBadgeCount: () => Promise.resolve(null),
         openNotificationSettings: () => {
           native.push('system settings');
@@ -4262,12 +4274,17 @@ describe('product registration', () => {
     });
   });
 
-  it('keeps the saved App Icon Badge choice, dimmed, while notifications are denied and saves a new one once they are allowed', async () => {
+  it('keeps the saved App Icon Badge and New Mail Sound choices, dimmed, while notifications are denied and saves new ones once they are allowed', async () => {
     expect.hasAssertions();
     const { synthetic } = await connectedAccount();
     const store = createRegistration(synthetic.relaunch());
     // Unread in Inbox was chosen on this device before notifications were turned off.
-    const device = { authorization: 'denied', previews: false, badge: 'inbox' };
+    const device = {
+      authorization: 'denied',
+      previews: false,
+      badge: 'inbox',
+      sound: 'default',
+    };
     const notifications = createNotifications(
       {
         notificationSettings: () => Promise.resolve({ ...device }),
@@ -4275,6 +4292,109 @@ describe('product registration', () => {
         setNotificationPreviews: () => Promise.resolve({ ...device }),
         setNotificationBadge: (badge) => {
           device.badge = badge;
+          return Promise.resolve({ ...device });
+        },
+        setNotificationSound: (sound) => {
+          device.sound = sound;
+          return Promise.resolve({ ...device });
+        },
+        setNotificationProfile: () => Promise.resolve({ ...device }),
+        setBadgeCount: () => Promise.resolve(null),
+        openNotificationSettings: () => Promise.resolve(null),
+        postNotifications: () => Promise.resolve(null),
+      },
+      () => english,
+    );
+    await render(
+      <NotificationsContext value={notifications}>
+        <RegistrationGate
+          store={started(store)}
+          preview={false}>
+          <ConnectedInbox />
+        </RegistrationGate>
+      </NotificationsContext>,
+    );
+    await openAccount();
+    await openSettings('Notifications');
+    const badge = () => screen.getByLabelText(/^App Icon Badge: /u);
+    const sound = () => screen.getByLabelText(/^New Mail Sound: /u);
+    const choose = async (
+      popUp: () => ReturnType<typeof screen.getByLabelText>,
+      choice: string,
+    ) => {
+      const item = popUp()
+        .props.sections.flatMap(
+          ({
+            items,
+          }: {
+            items: ReadonlyArray<{ id: string; title: string }>;
+          }) => items,
+        )
+        .find(({ title }: { title: string }) => title === choice);
+      await act(() => {
+        fireEvent(popUp(), 'select', { nativeEvent: { id: item.id } });
+      });
+    };
+    await screen.findByText(
+      'Your choices are kept and apply as soon as notifications are allowed.',
+    );
+    const denied = [badge(), sound()].map(({ props }) => ({
+      disabled: props.accessibilityState?.disabled,
+      label: props.accessibilityLabel,
+    }));
+    // The person allows notifications in the system's settings and comes back.
+    device.authorization = 'authorized';
+    await act(() => notifications.load());
+    await choose(badge, 'Off');
+    await choose(sound, 'None');
+    expect({
+      denied,
+      allowed: [badge(), sound()].map(({ props }) => ({
+        disabled: props.accessibilityState?.disabled,
+        label: props.accessibilityLabel,
+      })),
+      saved: { badge: device.badge, sound: device.sound },
+      footer:
+        screen.queryByText(
+          'Counts unread mail in Inbox. Sounds play only for notifications that are shown.',
+        ) !== null,
+    }).toStrictEqual({
+      denied: [
+        { disabled: true, label: 'App Icon Badge: Unread in Inbox' },
+        { disabled: true, label: 'New Mail Sound: Default' },
+      ],
+      allowed: [
+        { disabled: false, label: 'App Icon Badge: Off' },
+        { disabled: false, label: 'New Mail Sound: None' },
+      ],
+      saved: { badge: 'off', sound: 'none' },
+      footer: true,
+    });
+  });
+
+  it('switches a Profile’s Badge and sound on this device, and hides the switches until notifications are allowed', async () => {
+    expect.hasAssertions();
+    const { synthetic } = await connectedAccount();
+    const store = createRegistration(synthetic.relaunch());
+    const device = {
+      authorization: 'undetermined',
+      previews: false,
+      badge: 'inbox',
+      sound: 'default',
+      badgeSoundOff: [] as readonly string[],
+    };
+    const owners: string[] = [];
+    const notifications = createNotifications(
+      {
+        notificationSettings: () => Promise.resolve({ ...device }),
+        requestNotifications: () => Promise.resolve({ ...device }),
+        setNotificationPreviews: () => Promise.resolve({ ...device }),
+        setNotificationBadge: () => Promise.resolve({ ...device }),
+        setNotificationSound: () => Promise.resolve({ ...device }),
+        // Only turning a switch off is exercised here.
+        setNotificationProfile: (owner, profile) => {
+          owners.push(owner);
+          device.badgeSoundOff = [...device.badgeSoundOff, profile];
           return Promise.resolve({ ...device });
         },
         setBadgeCount: () => Promise.resolve(null),
@@ -4294,38 +4414,50 @@ describe('product registration', () => {
     );
     await openAccount();
     await openSettings('Notifications');
-    const badge = () => screen.getByLabelText(/^App Icon Badge: /u);
-    await screen.findByText(
-      'Your choices are kept and apply as soon as notifications are allowed.',
-    );
-    const denied = {
-      disabled: badge().props.accessibilityState?.disabled,
-      label: badge().props.accessibilityLabel,
-    };
-    // The person allows notifications in the system's settings and comes back.
+    const primary = () =>
+      screen.getByRole('switch', {
+        name: 'Badge and sound for Primary Profile',
+      });
+    // Not yet asked for permission, the group is hidden.
+    await expect(screen.findByText('Allow…')).resolves.toBeVisible();
+    const undetermined = screen.queryByText('Profiles');
     device.authorization = 'authorized';
     await act(() => notifications.load());
-    const item = badge()
-      .props.sections.flatMap(
-        ({ items }: { items: ReadonlyArray<{ id: string; title: string }> }) =>
-          items,
-      )
-      .find(({ title }: { title: string }) => title === 'Off');
-    await act(() => {
-      fireEvent(badge(), 'select', { nativeEvent: { id: item.id } });
+    await expect(screen.findByText('Profiles')).resolves.toBeVisible();
+    const shown = {
+      on: primary().props.value,
+      detail: screen.getByText('Badge and sound') !== null,
+    };
+    await act(async () => {
+      await fireEvent(primary(), 'valueChange', false);
     });
+    const off = {
+      value: primary().props.value,
+      saved: device.badgeSoundOff,
+      owners,
+    };
+    // Denied in the system's settings, the group is hidden and the choice is kept.
+    device.authorization = 'denied';
+    await act(() => notifications.load());
+    const denied = screen.queryByText('Profiles');
+    device.authorization = 'authorized';
+    await act(() => notifications.load());
     expect({
+      undetermined,
+      shown,
+      off,
       denied,
-      allowed: badge().props.accessibilityState?.disabled,
-      label: badge().props.accessibilityLabel,
-      saved: device.badge,
-      footer: screen.queryByText('Counts unread mail in Inbox.') !== null,
+      allowedAgain: primary().props.value,
     }).toStrictEqual({
-      denied: { disabled: true, label: 'App Icon Badge: Unread in Inbox' },
-      allowed: false,
-      label: 'App Icon Badge: Off',
-      saved: 'off',
-      footer: true,
+      undetermined: null,
+      shown: { on: true, detail: true },
+      off: {
+        value: false,
+        saved: ['default'],
+        owners: ['account-synthetic-product-subject'],
+      },
+      denied: null,
+      allowedAgain: false,
     });
   });
 

@@ -185,6 +185,12 @@ jest.mock('@expo/ui/swift-ui', () => {
         accessibilityHint: modifiers?.find(
           (each) => each.$type === 'accessibilityHint',
         )?.hint,
+        accessibilityValue: (() => {
+          const value = modifiers?.find(
+            (each) => each.$type === 'accessibilityValue',
+          )?.value;
+          return value === undefined ? undefined : { text: value };
+        })(),
         onPress,
         disabled: modifiers?.some(
           (each) => each.$type === 'disabled' && each.disabled,
@@ -298,6 +304,7 @@ jest.mock('@expo/ui/swift-ui', () => {
     BottomSheet,
     Button,
     DatePicker,
+    Divider: () => null,
     Form: Passthrough,
     Popover,
     Group,
@@ -326,6 +333,7 @@ jest.mock('@expo/ui/swift-ui/modifiers', () => ({
   }),
   accessibilityLabel: (label) => ({ $type: 'accessibilityLabel', label }),
   accessibilityHint: (hint) => ({ $type: 'accessibilityHint', hint }),
+  accessibilityValue: (value) => ({ $type: 'accessibilityValue', value }),
   background: (style, shape) => ({ $type: 'background', style, shape }),
   buttonBorderShape: (shape) => ({ $type: 'buttonBorderShape', shape }),
   buttonStyle: (style) => ({ $type: 'buttonStyle', style }),
@@ -343,8 +351,10 @@ jest.mock('@expo/ui/swift-ui/modifiers', () => ({
   frame: (params) => ({ $type: 'frame', ...params }),
   ignoreSafeArea: (params) => ({ $type: 'ignoreSafeArea', ...params }),
   kerning: (value) => ({ $type: 'kerning', value }),
+  lineLimit: (limit) => ({ $type: 'lineLimit', limit }),
   listRowBackground: (color) => ({ $type: 'listRowBackground', color }),
   listStyle: (style) => ({ $type: 'listStyle', style }),
+  minimumScaleFactor: (factor) => ({ $type: 'minimumScaleFactor', factor }),
   monospacedDigit: () => ({ $type: 'monospacedDigit' }),
   onAppear: (eventListener) => ({ $type: 'onAppear', eventListener }),
   padding: (params) => ({ $type: 'padding', ...params }),

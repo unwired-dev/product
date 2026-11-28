@@ -171,6 +171,151 @@ index dac02b2ea14de86cf43387b1bcefe995dfb07c4d..40438dc6edc33fbba41534916b5333fd
 +  }
 +}
 +#endif
+diff --git a/ios/RNHostView.swift b/ios/RNHostView.swift
+index dfd743a6d7f10949dfad9f2f06585359cabfa5cb..362584f43b6aa7f933aed68ef1cb9558e39413c8 100644
+--- a/ios/RNHostView.swift
++++ b/ios/RNHostView.swift
+@@ -2,6 +2,9 @@
+ 
+ import SwiftUI
+ import ExpoModulesCore
++#if os(iOS)
++import UIKit.UIGestureRecognizerSubclass
++#endif
+ 
+ internal final class RNHostViewProps: ExpoSwiftUI.ViewProps {
+   @Field var matchContentsHorizontal: Bool = false
+@@ -166,6 +169,9 @@ private struct PublishContentOriginModifier: ViewModifier {
+ private final class RNHostTouchHandler: ObservableObject {
+   private weak var touchHandler: UIGestureRecognizer?
+   private weak var attachedView: UIView?
++  #if os(iOS)
++  private let nestedHostCanceller = NestedHostTouchCanceller()
++  #endif
+ 
+   func attach(to view: UIView) {
+     if attachedView === view, touchHandler != nil {
+@@ -174,12 +180,18 @@ private final class RNHostTouchHandler: ObservableObject {
+     detach()
+     touchHandler = ExpoUITouchHandlerHelper.createAndAttachTouchHandler(for: view)
+     attachedView = view
++    #if os(iOS)
++    view.addGestureRecognizer(nestedHostCanceller)
++    #endif
+   }
+ 
+   func detach() {
+     if let touchHandler, let attachedView {
+       ExpoUITouchHandlerHelper.detachTouchHandler(touchHandler, from: attachedView)
+     }
++    #if os(iOS)
++    nestedHostCanceller.view?.removeGestureRecognizer(nestedHostCanceller)
++    #endif
+     touchHandler = nil
+     attachedView = nil
+   }
+@@ -189,6 +201,101 @@ private final class RNHostTouchHandler: ObservableObject {
+   }
+ }
+ 
++#if os(iOS)
++// A `Host` inside the hosted content tracks its touches with SwiftUI's own recognizers, which a pan
++// outside it, such as the sheet's drag or a React Native scroll view, does not prevent: a short
++// sheet drag released at rest would still fire the SwiftUI `Button` it started on (#3077). Such a
++// pan cancels a `Pressable` as it begins; this cancels the nested `Host`'s recognizers at that
++// moment too. It never recognizes and prevents nothing.
++private final class NestedHostTouchCanceller: UIGestureRecognizer {
++  private var nested: [UIGestureRecognizer] = []
++  private var outside: [UIPanGestureRecognizer] = []
++
++  init() {
++    super.init(target: nil, action: nil)
++    cancelsTouchesInView = false
++    delaysTouchesEnded = false
++  }
++
++  override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
++    super.touchesBegan(touches, with: event)
++    for touch in touches {
++      guard let host = outermostHost(above: touch.view) else {
++        continue
++      }
++      for recognizer in touch.gestureRecognizers ?? [] {
++        // A scroll view inside the `Host` scrolls as before.
++        if let view = recognizer.view, view.isDescendant(of: host), !(view is UIScrollView) {
++          nested.append(recognizer)
++        } else if let pan = recognizer as? UIPanGestureRecognizer, !outside.contains(pan) {
++          pan.addTarget(self, action: #selector(outsidePanChanged(_:)))
++          outside.append(pan)
++        }
++      }
++    }
++  }
++
++  override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) {
++    super.touchesEnded(touches, with: event)
++    failOnceLifted(event)
++  }
++
++  override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent) {
++    super.touchesCancelled(touches, with: event)
++    failOnceLifted(event)
++  }
++
++  override func reset() {
++    super.reset()
++    for pan in outside {
++      pan.removeTarget(self, action: #selector(outsidePanChanged(_:)))
++    }
++    outside = []
++    nested = []
++  }
++
++  override func canPrevent(_ preventedGestureRecognizer: UIGestureRecognizer) -> Bool {
++    false
++  }
++
++  override func canBePrevented(by preventingGestureRecognizer: UIGestureRecognizer) -> Bool {
++    false
++  }
++
++  @objc private func outsidePanChanged(_ pan: UIPanGestureRecognizer) {
++    guard pan.state == .began else {
++      return
++    }
++    // Disabling a recognizer cancels its touches; enabled again, it takes the next touch.
++    for recognizer in nested where recognizer.isEnabled {
++      recognizer.isEnabled = false
++      recognizer.isEnabled = true
++    }
++    nested = []
++  }
++
++  private func failOnceLifted(_ event: UIEvent) {
++    let down = event.touches(for: self)?.contains { $0.phase != .ended && $0.phase != .cancelled }
++    if down != true {
++      state = .failed
++    }
++  }
++
++  // The outermost `Host`, or other Expo view, between the touched view and the content root.
++  private func outermostHost(above touched: UIView?) -> UIView? {
++    var host: UIView?
++    var current = touched
++    while let candidate = current, candidate !== view {
++      if candidate is ExpoView {
++        host = candidate
++      }
++      current = candidate.superview
++    }
++    return host
++  }
++}
++#endif
++
+ // Sets SwiftUI view size from Yoga node size on the matched axes
+ // Listens to Yoga node size changes and updates the SwiftUI view size
+ // An axis that is not matched fills the parent and reports its size to the Yoga node instead
 diff --git a/src/swift-ui/BottomSheet/index.tsx b/src/swift-ui/BottomSheet/index.tsx
 index 3f111f57a556deae32d7a45ff2901dcf013d1eac..41c567cb7dba989faf177f23013452575b988f0d 100644
 --- a/src/swift-ui/BottomSheet/index.tsx

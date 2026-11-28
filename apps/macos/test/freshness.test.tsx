@@ -61,6 +61,7 @@ describe('application-scoped Gmail freshness', () => {
         ...permission,
         previews: false,
         badge: 'inbox',
+        sound: 'default',
       }),
       setBadgeCount,
     };

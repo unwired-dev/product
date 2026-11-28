@@ -1944,6 +1944,7 @@ describe('product registration', () => {
       authorization: 'undetermined',
       previews: false,
       badge: 'off',
+      sound: 'default',
     };
     const requests: string[] = [];
     const notifications = createNotifications(
@@ -1959,6 +1960,8 @@ describe('product registration', () => {
           return Promise.resolve({ ...device });
         },
         setNotificationBadge: () => Promise.resolve({ ...device }),
+        setNotificationSound: () => Promise.resolve({ ...device }),
+        setNotificationProfile: () => Promise.resolve({ ...device }),
         setBadgeCount: () => Promise.resolve(null),
         openNotificationSettings: () => Promise.resolve(null),
         postNotifications: () => Promise.resolve(null),
@@ -2026,7 +2029,12 @@ describe('product registration', () => {
       [alex]: { native: createSyntheticGmail({ messages: 1 }).native },
     });
     // Unread in Inbox was chosen on this Mac before notifications were turned off.
-    const device = { authorization: 'denied', previews: false, badge: 'inbox' };
+    const device = {
+      authorization: 'denied',
+      previews: false,
+      badge: 'inbox',
+      sound: 'default',
+    };
     const notifications = createNotifications(
       {
         notificationSettings: () => Promise.resolve({ ...device }),
@@ -2036,6 +2044,11 @@ describe('product registration', () => {
           device.badge = badge;
           return Promise.resolve({ ...device });
         },
+        setNotificationSound: (sound) => {
+          device.sound = sound;
+          return Promise.resolve({ ...device });
+        },
+        setNotificationProfile: () => Promise.resolve({ ...device }),
         setBadgeCount: () => Promise.resolve(null),
         openNotificationSettings: () => Promise.resolve(null),
         postNotifications: () => Promise.resolve(null),

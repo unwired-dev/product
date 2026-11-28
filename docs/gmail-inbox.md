@@ -295,7 +295,9 @@ so `from:a+b@example.com` keeps its plus sign.
 
 [#3039](https://github.com/unwired-dev/product/issues/3039), the first slice of
 [#1697](https://github.com/unwired-dev/product/issues/1697), reads a Gmail mailbox's vacation
-responder, Gmail's name for Out of Office. No screen shows it yet.
+responder, Gmail's name for Out of Office, and
+[#3092](https://github.com/unwired-dev/product/issues/3092) saves a change to it. No screen
+shows it yet, and nothing asks for `gmail.settings.basic` yet.
 
 - **Grant.** The read uses the mailbox's existing `gmail.modify` grant, as the owner decided on
   26 November 2026. Saving a change will ask for `gmail.settings.basic` separately.
@@ -308,6 +310,18 @@ responder, Gmail's name for Out of Office. No screen shows it yet.
   a [search](#searching-gmail-online) does. A refused grant also asks for Gmail again, as a reader
   does. An answer for an Inbox that closed meanwhile is dropped, and a Microsoft mailbox reads
   nothing.
+- **Save.** `saveOutOfOffice(change)` reads the responder again and applies the change to what
+  Gmail stores now: a named field takes its value, `null` leaves it out, and every other field,
+  including one Unwired does not read, goes back as Gmail sent it. Gmail replaces the whole
+  responder, so native code sends the result as the one `PUT settings/vacation`, the only Gmail
+  write it accepts there. Gmail's answer is the saved responder. Nothing is cached. Saves run one
+  at a time, each over what the one before saved, and a save the Inbox closed before it read or
+  wrote Gmail sends nothing more.
+- **Save failures.** A 403 on the save whose reason is `insufficientPermissions` answers
+  `permission`: the grant lacks `gmail.settings.basic`. The Inbox stays open and nothing asks for
+  Gmail again. Any other 403 answers as a read's does. Gmail refusing the values (400) answers `failed`. Other
+  failures, and a read that fails first and sends no save, answer as the read does. A Microsoft
+  mailbox saves nothing.
 
 ## Behavior
 
@@ -1267,12 +1281,12 @@ never splits a word such as a button label. URL-like runs of printable ASCII
 longer than 24 characters, containing `/`, `?`, `&` or `=`, may break after each
 punctuation character and at least every 24 characters, so they do not widen a
 table past the column; other words, scripts and emoji never split. Content that still needs more width, such as unwrappable text,
-scrolls horizontally inside WebKit instead of being clipped. On iPhone and iPad,
-**Fit Wide Messages to the Screen** in Settings › Reading, on by default, shrinks
+scrolls horizontally inside WebKit instead of being clipped. **Fit Wide Messages
+to the Screen** in Settings › Reading, on by default on iPhone, iPad and the Mac, shrinks
 such a document to the column instead: each measurement scales the body in place
 with an app-owned CSS `transform` at the unscaled width ratio, so text shrinks
 evenly, below WebKit's minimum font size, and an authorized image refits the
-document without reloading it. On the Mac, horizontal
+document without reloading it. With it off on the Mac, horizontal
 mouse-wheel or trackpad scrolling moves the message sideways while vertical
 scrolling still moves the reader. Only a document
 above the presentation height cap scrolls vertically inside WebKit. The reader's cap is 20,000 points on both hosts, and a

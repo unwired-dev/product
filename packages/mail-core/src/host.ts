@@ -295,6 +295,9 @@ export function createHost(
       setNotificationPreviews: (previews) =>
         native().setNotificationPreviews(previews),
       setNotificationBadge: (badge) => native().setNotificationBadge(badge),
+      setNotificationSound: (sound) => native().setNotificationSound(sound),
+      setNotificationProfile: (owner, profile, on) =>
+        native().setNotificationProfile(owner, profile, on),
       setBadgeCount: (count) => native().setBadgeCount(count),
       openNotificationSettings: () => native().openNotificationSettings(),
       postNotifications: (posted, actions) =>
@@ -405,6 +408,8 @@ export function createHost(
       graphModify: (change, mailbox) => native().graphModify(change, mailbox),
       gmailCreateLabel: (name, mailbox) =>
         native().gmailCreateLabel(name, mailbox),
+      gmailSaveVacation: (vacation, mailbox) =>
+        native().gmailSaveVacation(vacation, mailbox),
       gmailSend: (message, mailbox) =>
         observe('send', 'send-failed', () =>
           native().gmailSend(message, mailbox),

@@ -25,6 +25,19 @@ matches content, grouping and actions to the design.
   **Unread in Inbox**. It starts **Off**, belongs to this device and never synchronizes.
   While notifications are off in the system's settings, the choice stays, dimmed, and
   applies once they are allowed. See [App Icon Badge](#app-icon-badge).
+- **New Mail Sound**, under App Icon Badge in the **On this iPhone** (or iPad) group, chooses **Default** (the
+  system's notification sound) or **None**
+  ([#2812](https://github.com/unwired-dev/product/issues/2812)). A New Mail Notification the
+  system shows plays the chosen sound, or none; Send Reminder notifications keep the system's
+  sound. It starts at **Default**, belongs to this device and never synchronizes, and
+  like the badge stays, dimmed, while notifications are off. The Mac's alert-sound choice
+  comes with [#2811](https://github.com/unwired-dev/product/issues/2811).
+- **Profiles**, on iPhone and iPad, lists each Mail Profile with a **Badge and sound** switch
+  ([#2809](https://github.com/unwired-dev/product/issues/2809)). A Profile switched off adds
+  nothing to the App Icon Badge, and its New Mail Notifications are still shown but play no
+  sound. Every switch starts on, belongs to this device and never synchronizes, and signing
+  out or a purge removes the choices. Until notifications are allowed, and while they are off
+  in the system's settings, the group is not shown and the choices are kept. The Mac's switches come with [#2811](https://github.com/unwired-dev/product/issues/2811).
 - **Per Mailbox** has a switch for each Mailbox Connection, named by its provider
   and address. Every connection starts off. Turning one on the first time also asks for permission. The switch is
   a Mail Workflow Preference of the Profile that owns the connection: it
@@ -111,8 +124,8 @@ withdraws all of them.
 ## App Icon Badge
 
 With **Unread in Inbox**, the app icon, or the Mac's Dock icon, shows the number of unread messages this device
-lists in the Inbox of every Mailbox Connection whose Inbox can open, across all Mail
-Profiles: the same messages the sidebar's Inbox rows count. Unread mail older than
+lists in the Inbox of every Mailbox Connection whose Inbox can open, across the Mail
+Profiles whose **Badge and sound** switch is on: the same messages the sidebar's Inbox rows count. Unread mail older than
 what the device has listed is not counted, so a mailbox whose provider holds more
 unread mail than the device listed shows fewer. Every change to a listed Inbox updates
 the badge, whether it came from the reader, a notification action, the foreground
@@ -125,13 +138,14 @@ The badge is removed when the choice is **Off**, when notifications are not allo
 when no Inbox can open (after the last connection is removed or the person signs out)
 and when there is no unread listed mail. The badge is checked again whenever the app
 becomes active, since permission can change in the system's settings. While it counts,
-until saved registration has been read and while any Inbox is still opening or locked,
-the device leaves the badge it found unchanged rather than showing a partial count. A
+until saved registration has been read, while any Inbox it counts is still opening or
+locked, and, while a Profile's **Badge and sound** switch is off, while this device cannot read
+which Profile a mailbox is in, the device leaves the badge it found unchanged rather than showing a partial count. A
 push wake, or an Archive or Mark as Read on a notification, that launches the app works on
-its own mailbox and opens every other connection's saved Inbox listing without reading mail from its provider, so the badge counts them
-all. Snooze and Profile Lock do not exist
-yet; the per-Profile **Badge and sound** switches and **New Mail Sound** come with
-[#1723](https://github.com/unwired-dev/product/issues/1723).
+its own mailbox and opens every other connection's saved Inbox listing without reading mail from its provider, so the badge counts
+every Profile whose **Badge and sound** switch is on. Snooze and Profile Lock do not exist
+yet; a locked Profile's count comes with
+[#2813](https://github.com/unwired-dev/product/issues/2813).
 
 ## How a notification looks
 
@@ -269,7 +283,7 @@ On a connected device, Console.app filtered to those subsystems shows them; on a
 `microsoft-notifications.test.ts` cover each provider's arrival classification and commit
 ordering; `gmail-views.test.ts` covers replay after an interrupted listing.
 `host.test.ts` covers gating, a connection its Profile hides and preferences that cannot be read, background completion, permission and generic and preview
-content, the App Icon Badge count and when it clears, and that its diagnostics name no message or connection. `mail-profiles.test.ts` covers the synchronized policy and its fail-closed
+content, the App Icon Badge count and when it clears, a Profile whose Badge and sound switch is off, and that its diagnostics name no message or connection. `mail-profiles.test.ts` covers the synchronized policy and its fail-closed
 writes. `notifications.test.ts` covers account/incarnation routing, Draft exit guards,
 retired readers and Reply. `host.test.ts` also covers notification Archive and Mark
 as Read, for Gmail and IMAP, and a typed reply: sent with only its text and reported as admitted, Undo,

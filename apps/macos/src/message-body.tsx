@@ -65,6 +65,7 @@ import { useProviderName } from './mailbox.tsx';
 import { styles } from './message-body-styles.ts';
 import { AssistanceContext, MessageSummary } from './message-summary.tsx';
 import { useShownZoom, useShowsFormatted } from './message-zoom.tsx';
+import { fittedDocument, useFitWideMessages } from './reading.ts';
 import { useRemoteImages } from './remote-content.tsx';
 import { windowHost } from './settings-window-client.ts';
 import { usePalette } from './theme.ts';
@@ -442,16 +443,19 @@ export function ReaderScrollView({
 // no link previews, and every navigation cancelled. A chosen link goes to the confirmation.
 // The view stays hidden behind a placeholder until its first layout is measured. Blocked remote
 // images within one viewport of the visible range are reported as they come near. The mounted
-// document takes the reader's Message Zoom in place, keeping its selection.
+// document takes the reader's Message Zoom in place, keeping its selection, and, with `fit`, shrinks
+// a wider document to the view's width.
 function RichDocument({
   rich,
   zoom,
+  fit,
   onChoose,
   onFailure,
   onNear,
 }: {
   readonly rich: NonNullable<MessagePresentation['rich']>;
   readonly zoom: number;
+  readonly fit: boolean;
   readonly onChoose: (link: BodyLink) => void;
   readonly onFailure: () => void;
   readonly onNear: (urls: readonly string[]) => void;
@@ -461,12 +465,13 @@ function RichDocument({
   // The laid-out width; a later different width lays the document out and measures it again.
   const [width, setWidth] = useState<number>();
   // oxlint-disable-next-line react/hook-use-state -- This mounted navigation keeps its original source.
-  const [source] = useState(() => ({
-    html: labelImagePlaceholders(
+  const [source] = useState(() => {
+    const html = labelImagePlaceholders(
       rich.initialDocument,
       t('messageBody.imageNotLoaded'),
-    ),
-  }));
+    );
+    return { html: fit ? fittedDocument(html) : html };
+  });
   const container = useRef<View>(null);
   const viewport = use(ReaderViewportContext);
   const [layout, setLayout] = useState(0);
@@ -478,7 +483,7 @@ function RichDocument({
   // How far the view has scrolled inside its document, and the check it reruns.
   const inner = useRef(0);
   const near = useRef<() => void>(undefined);
-  // An outgoing document, such as one replaced by a Message Zoom change, withdraws its images.
+  // An outgoing document, such as one replaced by a Fit Wide Messages change, withdraws its images.
   const withdraw = useRef(onNear);
   useEffect(() => {
     withdraw.current = onNear;
@@ -643,6 +648,7 @@ export function Presentation({
   const { t } = useLocalization();
   const { rich, readable } = presentation;
   const zoom = useShownZoom();
+  const fit = useFitWideMessages();
   // A new source gets a new native view; remote-image node changes keep this navigation.
   const [navigation, setNavigation] = useState(() => ({
     document: rich?.initialDocument,
@@ -693,9 +699,10 @@ export function Presentation({
       ) : (
         <>
           <RichDocument
-            key={richKey}
+            key={`${richKey}:${fit}`}
             rich={rich}
             zoom={zoom / 100}
+            fit={fit}
             onNear={onNear}
             onChoose={onChoose}
             onFailure={() => {

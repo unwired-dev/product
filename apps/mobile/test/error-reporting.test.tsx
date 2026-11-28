@@ -72,27 +72,35 @@ describe('error reporting controls', () => {
         <ErrorReportingEntry onPress={() => undefined} />
       </ErrorReportingContext.Provider>,
     );
-    expect(screen.getByText('Off')).toBeVisible();
+    // The row shows the status and its button speaks it as the value.
+    const status = () => ({
+      visible: screen
+        .queryAllByText(/^(?:On|Off)$/u, { includeHiddenElements: true })
+        .map(({ props }) => props.children),
+      spoken: screen.getByRole('button', { name: 'Error Reporting' }).props
+        .accessibilityValue,
+    });
+    const shown = (...text: string[]) => ({
+      visible: text,
+      spoken: expect.objectContaining({ text: text[0] }),
+    });
+    expect(status()).toStrictEqual(shown('Off'));
     await act(async () => {
       update({ kind: 'ready', enabled: true, deletion: 'idle' });
     });
-    expect({
-      visible: screen.getByText('On').props.children,
-      accessible: screen.getByRole('button', { name: 'Error Reporting' }).props
-        .accessibilityValue.text,
-    }).toStrictEqual({ visible: 'On', accessible: 'On' });
+    expect(status()).toStrictEqual(shown('On'));
     await act(async () => {
       update({ kind: 'deleting', phase: 'pending' });
     });
-    expect(screen.getByText('Off')).toBeVisible();
+    expect(status()).toStrictEqual(shown('Off'));
     await act(async () => {
       update({ kind: 'loading' });
     });
-    expect(screen.queryByText('Off')).toBeNull();
+    expect(status()).toStrictEqual(shown());
     await act(async () => {
       update({ kind: 'unavailable' });
     });
-    expect(screen.queryByText('Off')).toBeNull();
+    expect(status()).toStrictEqual(shown());
   });
 
   it('explicit opt-in is available without signing in', async () => {
