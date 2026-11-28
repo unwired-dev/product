@@ -4726,6 +4726,7 @@ final class InboxTests: XCTestCase {
     // #3125: the folder row the swipe left alone still moves the message at a tap.
     openMove()
     let travel = app.buttons["Move to Travel"]
+    XCTAssertTrue(travel.waitForExistence(timeout: 10))
     _ = settledFrame(of: travel)
     travel.tap()
     XCTAssertTrue(app.buttons["Undo"].waitForExistence(timeout: 15), "Move to Travel moved nothing")
