@@ -1,8 +1,11 @@
 import type {
   MailboxConnection,
+  MailProfile,
   Registration,
 } from '@private-email/mail-core/registration';
 
+import { profileName } from '@private-email/mail-core/profile-windows';
+import { defaultProfile } from '@private-email/mail-core/registration';
 import { typography } from '@private-email/mail-core/theme';
 import { createContext, use, useEffect, useSyncExternalStore } from 'react';
 import { AppState, Switch, Text } from 'react-native';
@@ -169,6 +172,48 @@ function BadgeAndSound({
   );
 }
 
+// Each Mail Profile's Badge and sound switch. While notifications are off the group is not shown,
+// and the choices stay until they are allowed again.
+function Profiles({
+  profiles,
+  device,
+  settings,
+}: {
+  readonly profiles: readonly MailProfile[];
+  readonly device: NotificationSettingsStore;
+  readonly settings: DeviceSettings;
+}) {
+  const { t } = useLocalization();
+  const colors = usePalette();
+  if (settings === undefined || settings.authorization === 'denied') {
+    return null;
+  }
+  return (
+    <SettingsGroup title={t('notifications.profiles')}>
+      {[defaultProfile, ...profiles.map(({ id }) => id)].map((profile) => {
+        const name = profileName(t, profile, profiles);
+        return (
+          <SettingsRow
+            key={profile}
+            title={name}
+            subtitle={t('notifications.badgeAndSound')}
+            minHeight={switchRowHeight}>
+            <Switch
+              accessibilityLabel={name}
+              accessibilityHint={t('notifications.badgeAndSound')}
+              value={!settings.badgeSoundOff.includes(profile)}
+              trackColor={{ false: colors.fillTrack, true: colors.accentFill }}
+              onValueChange={(on) => {
+                void device.setProfileBadgeSound(profile, on);
+              }}
+            />
+          </SettingsRow>
+        );
+      })}
+    </SettingsGroup>
+  );
+}
+
 // The Per Mailbox group: a switch for each connection.
 function PerMailbox({
   mailboxes,
@@ -204,14 +249,17 @@ function PerMailbox({
   );
 }
 
-// This device's notification permission, previews, App Icon Badge and New Mail Sound, which never
-// synchronize, then each connection's synchronized New Mail Notification switch.
+// This device's notification permission, previews, App Icon Badge, New Mail Sound and each
+// Profile's Badge and sound switch, which never synchronize, then each connection's synchronized
+// New Mail Notification switch.
 export function NotificationSettings({
   button,
+  profiles,
   mailboxes,
   store,
 }: {
   readonly button: SettingsButton;
+  readonly profiles: readonly MailProfile[];
   readonly mailboxes: readonly MailboxConnection[];
   readonly store: Registration;
 }) {
@@ -258,6 +306,11 @@ export function NotificationSettings({
         </SettingsRow>
       </SettingsGroup>
       <BadgeAndSound
+        device={device}
+        settings={settings}
+      />
+      <Profiles
+        profiles={profiles}
         device={device}
         settings={settings}
       />

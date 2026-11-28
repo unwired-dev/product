@@ -4211,6 +4211,7 @@ describe('product registration', () => {
           device.sound = sound;
           return Promise.resolve({ ...device });
         },
+        setNotificationProfile: () => Promise.resolve({ ...device }),
         setBadgeCount: () => Promise.resolve(null),
         openNotificationSettings: () => {
           native.push('system settings');
@@ -4295,6 +4296,7 @@ describe('product registration', () => {
           device.sound = sound;
           return Promise.resolve({ ...device });
         },
+        setNotificationProfile: () => Promise.resolve({ ...device }),
         setBadgeCount: () => Promise.resolve(null),
         openNotificationSettings: () => Promise.resolve(null),
         postNotifications: () => Promise.resolve(null),
@@ -4365,6 +4367,77 @@ describe('product registration', () => {
       ],
       saved: { badge: 'off', sound: 'none' },
       footer: true,
+    });
+  });
+
+  it('switches a Profile’s Badge and sound on this device, and hides the switches while notifications are denied', async () => {
+    expect.hasAssertions();
+    const { synthetic } = await connectedAccount();
+    const store = createRegistration(synthetic.relaunch());
+    const device = {
+      authorization: 'authorized',
+      previews: false,
+      badge: 'inbox',
+      sound: 'default',
+      badgeSoundOff: [] as readonly string[],
+    };
+    const notifications = createNotifications(
+      {
+        notificationSettings: () => Promise.resolve({ ...device }),
+        requestNotifications: () => Promise.resolve({ ...device }),
+        setNotificationPreviews: () => Promise.resolve({ ...device }),
+        setNotificationBadge: () => Promise.resolve({ ...device }),
+        setNotificationSound: () => Promise.resolve({ ...device }),
+        // Only turning a switch off is exercised here.
+        setNotificationProfile: (profile) => {
+          device.badgeSoundOff = [...device.badgeSoundOff, profile];
+          return Promise.resolve({ ...device });
+        },
+        setBadgeCount: () => Promise.resolve(null),
+        openNotificationSettings: () => Promise.resolve(null),
+        postNotifications: () => Promise.resolve(null),
+      },
+      () => english,
+    );
+    await render(
+      <NotificationsContext value={notifications}>
+        <RegistrationGate
+          store={started(store)}
+          preview={false}>
+          <ConnectedInbox />
+        </RegistrationGate>
+      </NotificationsContext>,
+    );
+    await openAccount();
+    await openSettings('Notifications');
+    const primary = () =>
+      screen.getByRole('switch', { name: 'Primary Profile' });
+    await expect(screen.findByText('Profiles')).resolves.toBeVisible();
+    const shown = {
+      on: primary().props.value,
+      hint: primary().props.accessibilityHint,
+      detail: screen.getByText('Badge and sound') !== null,
+    };
+    await act(async () => {
+      await fireEvent(primary(), 'valueChange', false);
+    });
+    const off = { value: primary().props.value, saved: device.badgeSoundOff };
+    // Denied in the system's settings, the group is hidden and the choice is kept.
+    device.authorization = 'denied';
+    await act(() => notifications.load());
+    const denied = screen.queryByText('Profiles');
+    device.authorization = 'authorized';
+    await act(() => notifications.load());
+    expect({
+      shown,
+      off,
+      denied,
+      allowedAgain: primary().props.value,
+    }).toStrictEqual({
+      shown: { on: true, hint: 'Badge and sound', detail: true },
+      off: { value: false, saved: ['default'] },
+      denied: null,
+      allowedAgain: false,
     });
   });
 

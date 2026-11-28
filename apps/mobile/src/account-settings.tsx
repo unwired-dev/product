@@ -1421,6 +1421,7 @@ export function AccountSettings({
       {destination === 'notifications' ? (
         <NotificationSettings
           button={button}
+          profiles={profilesOf(snapshot)}
           mailboxes={mailboxes}
           store={store}
         />

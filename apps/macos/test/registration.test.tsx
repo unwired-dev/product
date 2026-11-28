@@ -1957,6 +1957,7 @@ describe('product registration', () => {
         },
         setNotificationBadge: () => Promise.resolve({ ...device }),
         setNotificationSound: () => Promise.resolve({ ...device }),
+        setNotificationProfile: () => Promise.resolve({ ...device }),
         setBadgeCount: () => Promise.resolve(null),
         openNotificationSettings: () => Promise.resolve(null),
         postNotifications: () => Promise.resolve(null),
@@ -2043,6 +2044,7 @@ describe('product registration', () => {
           device.sound = sound;
           return Promise.resolve({ ...device });
         },
+        setNotificationProfile: () => Promise.resolve({ ...device }),
         setBadgeCount: () => Promise.resolve(null),
         openNotificationSettings: () => Promise.resolve(null),
         postNotifications: () => Promise.resolve(null),

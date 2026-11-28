@@ -1854,6 +1854,8 @@
     },
     "badgeSoundDetail": "Counts unread mail in Inbox. Sounds play only for notifications that are shown.",
     "badgeKept": "Your choices are kept and apply as soon as notifications are allowed.",
+    "profiles": "Profiles",
+    "badgeAndSound": "Badge and sound",
     "perMailbox": "Per Mailbox",
     "mailbox": "{{provider}} · {{address}}",
     "perMailboxDetail": "Off until you turn it on. Each mailbox’s choice syncs to your other devices.",

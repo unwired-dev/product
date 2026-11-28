@@ -260,6 +260,7 @@ describe('posting a New Mail Notification', () => {
         setNotificationPreviews: unused,
         setNotificationBadge: unused,
         setNotificationSound: unused,
+        setNotificationProfile: unused,
         setBadgeCount: unused,
         openNotificationSettings: unused,
       },

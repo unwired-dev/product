@@ -117,6 +117,7 @@ RCT_EXTERN_METHOD(requestNotifications:(RCTPromiseResolveBlock)resolve rejecter:
 RCT_EXTERN_METHOD(setNotificationPreviews:(BOOL)previews resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(setNotificationBadge:(NSString *)badge resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(setNotificationSound:(NSString *)sound resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
+RCT_EXTERN_METHOD(setNotificationProfile:(NSString *)profile on:(BOOL)on resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(setBadgeCount:(double)count resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(openNotificationSettings:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(postNotifications:(NSArray *)notifications actions:(NSDictionary *)actions resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)

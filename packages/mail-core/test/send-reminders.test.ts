@@ -737,6 +737,7 @@ describe('due Send Reminder notifications', () => {
       previews: false,
       badge: 'off',
       sound: 'default',
+      badgeSoundOff: [],
     };
     const draftListeners = new Set<() => void>();
     const settingsListeners = new Set<() => void>();
@@ -832,6 +833,7 @@ describe('due Send Reminder notifications', () => {
       previews: true,
       badge: 'off',
       sound: 'default',
+      badgeSoundOff: [],
     } as const;
     await change({ drafts: ready(draft), settings: previews });
     expect(scheduled.at(-1)).toStrictEqual(
@@ -901,6 +903,7 @@ describe('due Send Reminder notifications', () => {
       authorization: 'authorized',
       badge: 'off',
       sound: 'default',
+      badgeSoundOff: [],
     } as const;
     // A settings change, such as previews turned off and on, may have withdrawn it natively.
     await change({ settings: { ...shown, previews: false } });
@@ -931,6 +934,7 @@ describe('due Send Reminder notifications', () => {
         previews: false,
         badge: 'off',
         sound: 'default',
+        badgeSoundOff: [],
       },
     });
     await change({
@@ -939,6 +943,7 @@ describe('due Send Reminder notifications', () => {
         previews: false,
         badge: 'off',
         sound: 'default',
+        badgeSoundOff: [],
       },
     });
     expect(scheduled).toHaveLength(2);

@@ -109,6 +109,7 @@ function syntheticHost(reporting?: NativeErrorReporting, productSync = false) {
     previews: false,
     badge: 'off',
     sound: 'default',
+    badgeSoundOff: [] as readonly string[],
   };
   const badges: number[] = [];
   // How the system answers each App Icon Badge write.
@@ -269,6 +270,13 @@ function syntheticHost(reporting?: NativeErrorReporting, productSync = false) {
     },
     setNotificationSound: (sound) => {
       device.sound = sound;
+      return Promise.resolve({ ...device });
+    },
+    setNotificationProfile: (profile, on) => {
+      device.badgeSoundOff = [
+        ...device.badgeSoundOff.filter((off) => off !== profile),
+        ...(on ? [] : [profile]),
+      ];
       return Promise.resolve({ ...device });
     },
     setBadgeCount: (count) => {
@@ -847,6 +855,44 @@ describe('the host assembly', () => {
         ['removed', [0]],
       ],
       badge: 'inbox',
+    });
+  });
+
+  it('leaves a Profile whose Badge and sound switch is off out of the App Icon Badge', async () => {
+    expect.hasAssertions();
+    const { host, gmail, badges, device } = syntheticHost(undefined, true);
+    host.followBadge();
+    const steps: Array<readonly [string, readonly number[]]> = [];
+    const step = (name: string) => {
+      steps.push([name, badges.splice(0)]);
+    };
+    await host.start();
+    gmail.deliver({ subject: 'Unread', unread: true });
+    await host.registration.register('google');
+    await host.registration.addMailbox();
+    await host.gmailMailboxes.load();
+    await host.notifications.request();
+    await host.notifications.setBadge('inbox');
+    badges.splice(0);
+    await host.notifications.setProfileBadgeSound(defaultProfile, false);
+    step('off');
+    // New mail in a Profile switched off does not count.
+    gmail.deliver({ subject: 'Arrived', unread: true });
+    await host.gmailMailboxes.load();
+    step('arrived while off');
+    // Another Profile's switch leaves this one's count alone.
+    await host.notifications.setProfileBadgeSound('work', false);
+    step('another Profile off');
+    await host.notifications.setProfileBadgeSound(defaultProfile, true);
+    step('on');
+    expect({ steps, off: device.badgeSoundOff }).toStrictEqual({
+      steps: [
+        ['off', [0]],
+        ['arrived while off', []],
+        ['another Profile off', []],
+        ['on', [2]],
+      ],
+      off: ['work'],
     });
   });
 

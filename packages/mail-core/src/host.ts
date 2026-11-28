@@ -296,6 +296,8 @@ export function createHost(
         native().setNotificationPreviews(previews),
       setNotificationBadge: (badge) => native().setNotificationBadge(badge),
       setNotificationSound: (sound) => native().setNotificationSound(sound),
+      setNotificationProfile: (profile, on) =>
+        native().setNotificationProfile(profile, on),
       setBadgeCount: (count) => native().setBadgeCount(count),
       openNotificationSettings: () => native().openNotificationSettings(),
       postNotifications: (posted, actions) =>

@@ -29,13 +29,18 @@ import { createSubscribable } from './subscribable.ts';
 
 // What the operating system lets this device show, whether a New Mail Notification may show its
 // sender and subject, what the App Icon Badge counts and the sound a shown New Mail Notification
-// plays. Native code keeps the choices as Device-Local Preferences; previews and the badge start
-// off, the sound at the system's default.
+// plays, and the Mail Profiles whose Badge and sound switch is off: their mail adds nothing to the
+// badge and their notifications play no sound. Native code keeps the choices as Device-Local
+// Preferences; previews and the badge start off, the sound at the system's default and every
+// Profile's switch on.
 const Settings = Schema.Struct({
   authorization: Schema.Literals(['undetermined', 'denied', 'authorized']),
   previews: Schema.Boolean,
   badge: Schema.Literals(['off', 'inbox']),
   sound: Schema.Literals(['default', 'none']),
+  badgeSoundOff: Schema.Array(Schema.NonEmptyString).pipe(
+    Schema.withDecodingDefaultKey(Effect.succeed([])),
+  ),
 });
 export type NotificationSettings = typeof Settings.Type;
 export type BadgeChoice = NotificationSettings['badge'];
@@ -138,6 +143,11 @@ export interface NativeNotifications {
   readonly setNotificationPreviews: (previews: boolean) => Promise<unknown>;
   readonly setNotificationBadge: (badge: BadgeChoice) => Promise<unknown>;
   readonly setNotificationSound: (sound: SoundChoice) => Promise<unknown>;
+  // Turns one Mail Profile's Badge and sound switch on or off.
+  readonly setNotificationProfile: (
+    profile: string,
+    on: boolean,
+  ) => Promise<unknown>;
   // Shows `count` on the application's icon; 0 removes the badge.
   readonly setBadgeCount: (count: number) => Promise<unknown>;
   // Opens this application's notification settings in the system's settings.
@@ -211,6 +221,7 @@ type BadgeSources = Readonly<{
   mailboxes: Readonly<{
     getConnections: () => ReadonlyArray<
       Readonly<{
+        profile: string;
         state: Readonly<{
           kind: string;
           messages?: ReadonlyArray<Readonly<{ unread: boolean }>>;
@@ -223,8 +234,12 @@ type BadgeSources = Readonly<{
 
 // The unread messages this device lists in the Inbox of every open connection, as the sidebar's
 // Inbox rows count them, or undefined while saved registration or an Inbox has not opened yet.
-// Without an Inbox to open, after sign-out or the last removal, nothing is unread.
-const inboxUnread = ({ registration, mailboxes }: BadgeSources) => {
+// Without an Inbox to open, after sign-out or the last removal, nothing is unread. Connections of
+// the Profiles in `off` are left out.
+const inboxUnread = (
+  { registration, mailboxes }: BadgeSources,
+  off: readonly string[],
+) => {
   const { snapshot, restoring, locked } = registration.getSnapshot();
   if (restoring === true || locked === true) {
     return undefined;
@@ -233,7 +248,9 @@ const inboxUnread = ({ registration, mailboxes }: BadgeSources) => {
     return 0;
   }
   let unread = 0;
-  for (const { state } of mailboxes.getConnections()) {
+  for (const { state } of mailboxes
+    .getConnections()
+    .filter(({ profile }) => !off.includes(profile))) {
     if (state.kind === 'loading' || state.kind === 'locked') {
       return undefined;
     }
@@ -323,8 +340,14 @@ export function createNotifications(
         () => native.setNotificationSound(sound),
         'The New Mail Sound choice could not be saved:',
       ),
-    // Keeps the App Icon Badge on the unread Inbox count while the badge counts it and the system
-    // allows notifications, and removes it otherwise. A count is applied only once every source
+    setProfileBadgeSound: (profile: string, on: boolean) =>
+      update(
+        () => native.setNotificationProfile(profile, on),
+        'A Profile Badge and sound choice could not be saved:',
+      ),
+    // Keeps the App Icon Badge on the unread Inbox count of the Profiles whose Badge and sound
+    // switch is on while the badge counts it and the system allows notifications, and removes it
+    // otherwise. A count is applied only once every source
     // has settled, so while it counts, a launch that has not opened saved registration or an
     // Inbox yet keeps the badge it found.
     followBadge: (sources: BadgeSources) => {
@@ -369,7 +392,7 @@ export function createNotifications(
         }
         const count =
           current.authorization === 'authorized' && current.badge === 'inbox'
-            ? inboxUnread(sources)
+            ? inboxUnread(sources, current.badgeSoundOff)
             : 0;
         if (count === undefined) {
           return;
