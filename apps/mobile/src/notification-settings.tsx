@@ -109,9 +109,9 @@ function MailboxNotifications({
   );
 }
 
-// What the App Icon Badge counts. While notifications are off, the choice stays, dimmed, until
-// they are allowed again.
-function AppIconBadge({
+// What the App Icon Badge counts and the sound a shown New Mail Notification plays. While
+// notifications are off, the choices stay, dimmed, until they are allowed again.
+function BadgeAndSound({
   device,
   settings,
 }: {
@@ -120,17 +120,19 @@ function AppIconBadge({
 }) {
   const { t } = useLocalization();
   const denied = settings?.authorization === 'denied';
+  const context = settingsColumns ? 'ipad' : 'iphone';
   return (
     <SettingsGroup
+      title={t('notifications.thisDevice', { context })}
       footer={t(
-        denied ? 'notifications.badgeKept' : 'notifications.badgeDetail',
+        denied ? 'notifications.badgeKept' : 'notifications.badgeSoundDetail',
       )}>
       <SettingsRow
-        title={t('notifications.badge')}
+        title={t('notifications.badge', { context })}
         disabled={denied}>
         {settings === undefined ? null : (
           <PopUpChoice
-            label={t('notifications.badge')}
+            label={t('notifications.badge', { context })}
             selected={settings.badge}
             choices={['off', 'inbox']}
             title={(badge) => t(`notifications.badges.${badge}`)}
@@ -143,6 +145,22 @@ function AppIconBadge({
                 void device.request();
               }
               void device.setBadge(badge);
+            }}
+          />
+        )}
+      </SettingsRow>
+      <SettingsRow
+        title={t('notifications.sound', { context })}
+        disabled={denied}>
+        {settings === undefined ? null : (
+          <PopUpChoice
+            label={t('notifications.sound', { context })}
+            selected={settings.sound}
+            choices={['default', 'none']}
+            title={(sound) => t(`notifications.sounds.${sound}`)}
+            disabled={denied}
+            onChoose={(sound) => {
+              void device.setSound(sound);
             }}
           />
         )}
@@ -186,8 +204,8 @@ function PerMailbox({
   );
 }
 
-// This device's notification permission, previews and App Icon Badge, which never synchronize,
-// then each connection's synchronized New Mail Notification switch.
+// This device's notification permission, previews, App Icon Badge and New Mail Sound, which never
+// synchronize, then each connection's synchronized New Mail Notification switch.
 export function NotificationSettings({
   button,
   mailboxes,
@@ -239,7 +257,7 @@ export function NotificationSettings({
           />
         </SettingsRow>
       </SettingsGroup>
-      <AppIconBadge
+      <BadgeAndSound
         device={device}
         settings={settings}
       />

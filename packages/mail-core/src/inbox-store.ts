@@ -40,7 +40,10 @@ import type {
   GmailPart,
   MessagePresentation,
 } from './message-body.ts';
-import type { GraphAutomaticReplies } from './microsoft-graph.ts';
+import type {
+  GraphAutomaticReplies,
+  GraphCategory,
+} from './microsoft-graph.ts';
 import type { DraftFile, OutgoingSend } from './outgoing-message.ts';
 import type {
   ProviderPayload,
@@ -363,20 +366,29 @@ const searchUnavailable = (reason: Unavailable['reason']): Unavailable => ({
   reason,
 });
 
-// A mailbox's Out of Office as its provider stores it, or why the provider could not answer.
+// A mailbox setting as its provider stores it, or why the provider could not answer.
 // Microsoft refuses the read for want of a settings grant that the mail grant does not include.
-export type OutOfOfficeRead =
-  | Readonly<{ kind: 'found'; vacation: GmailVacation }>
-  | Readonly<{ kind: 'found'; automaticReplies: GraphAutomaticReplies }>
+type SettingRead<Found> =
+  | Found
   | Unavailable
   | Readonly<{ kind: 'unavailable'; reason: 'permission' }>;
 
+// A mailbox's Out of Office as its provider stores it, or why the provider could not answer.
+export type OutOfOfficeRead = SettingRead<
+  | Readonly<{ kind: 'found'; vacation: GmailVacation }>
+  | Readonly<{ kind: 'found'; automaticReplies: GraphAutomaticReplies }>
+>;
+
+// A Microsoft mailbox's Outlook category list, or why Microsoft could not answer.
+export type OutlookCategoriesRead = SettingRead<
+  Readonly<{ kind: 'found'; categories: readonly GraphCategory[] }>
+>;
+
 // A saved Out of Office as its provider stores it afterwards, or why the provider did not save it.
 // Gmail refuses the save for want of the settings grant that the mail grant does not include.
-export type OutOfOfficeSave =
-  | Readonly<{ kind: 'saved'; vacation: GmailVacation }>
-  | Unavailable
-  | Readonly<{ kind: 'unavailable'; reason: 'permission' }>;
+export type OutOfOfficeSave = SettingRead<
+  Readonly<{ kind: 'saved'; vacation: GmailVacation }>
+>;
 
 // A presentation's plain-text fallback after its rich view failed, still collapsible.
 const readableOnly = ({
@@ -3870,6 +3882,49 @@ export function createInboxStore(
     };
     return result;
   });
+  // Reads one of this mailbox's settings from its provider, as a search does. Undefined when it
+  // was not read, as when the provider offers none, or the Inbox closed or changed meanwhile.
+  // Microsoft's 403 asks for MailboxSettings, not for mail again: the mail grant works, so the
+  // Inbox stays as it is.
+  function readSetting<Found>(
+    read:
+      | ((
+          scope: MailboxScope,
+        ) => Effect.Effect<
+          Found,
+          SyncFailure | GmailNotFound | GmailInvalidPage
+        >)
+      | undefined,
+    label: string,
+    settingsGrant = true,
+  ): Promise<SettingRead<Found> | undefined> {
+    const scope = opened;
+    const reading = owner;
+    if (scope === undefined || state.kind !== 'ready' || read === undefined) {
+      return Promise.resolve(undefined);
+    }
+    return runLogged(
+      read(scope).pipe(
+        Effect.catchTags({
+          SyncFailure: (failure) =>
+            settingsGrant &&
+            failure.kind === 'authentication' &&
+            failure.cause === 403
+              ? Effect.succeed({
+                  kind: 'unavailable' as const,
+                  reason: 'permission' as const,
+                })
+              : searchFailed(failure, reading, label),
+          GmailNotFound: () => Effect.succeed(searchUnavailable('failed')),
+          GmailInvalidPage: () => Effect.succeed(searchUnavailable('failed')),
+        }),
+        Effect.map((result) =>
+          owner === reading && state.kind === 'ready' ? result : undefined,
+        ),
+      ),
+    );
+  }
+
   function searchFailed(
     { kind, diagnostic }: Readonly<Pick<SyncFailure, 'kind' | 'diagnostic'>>,
     reading: number,
@@ -4394,53 +4449,45 @@ export function createInboxStore(
     // Reads this mailbox's Out of Office from its provider, as a search does. Undefined when it was
     // not read, as when the provider offers none, or the Inbox closed or changed meanwhile.
     outOfOffice: (): Promise<OutOfOfficeRead | undefined> => {
-      const scope = opened;
-      const reading = owner;
       const { vacation, automaticReplies } = providerReader;
-      if (scope === undefined || state.kind !== 'ready') {
-        return Promise.resolve(undefined);
-      }
-      const read:
-        | Effect.Effect<
-            OutOfOfficeRead,
-            SyncFailure | GmailNotFound | GmailInvalidPage
-          >
-        | undefined =
-        vacation === undefined
-          ? automaticReplies?.(scope).pipe(
-              Effect.map((replies) => ({
-                kind: 'found',
-                automaticReplies: replies,
+      return vacation === undefined
+        ? readSetting(
+            automaticReplies &&
+              ((scope) =>
+                automaticReplies(scope).pipe(
+                  Effect.map((replies) => ({
+                    kind: 'found' as const,
+                    automaticReplies: replies,
+                  })),
+                )),
+            'Out of Office could not be read:',
+          )
+        : readSetting(
+            (scope) =>
+              vacation(scope).pipe(
+                Effect.map((settings) => ({
+                  kind: 'found' as const,
+                  vacation: settings,
+                })),
+              ),
+            'Out of Office could not be read:',
+            false,
+          );
+    },
+    // Reads a Microsoft mailbox's Outlook category list, as Out of Office is read. Undefined when
+    // it was not read, as for a mailbox of another provider.
+    outlookCategories: (): Promise<OutlookCategoriesRead | undefined> => {
+      const read = providerReader.outlookCategories;
+      return readSetting(
+        read &&
+          ((scope) =>
+            read(scope).pipe(
+              Effect.map((categories) => ({
+                kind: 'found' as const,
+                categories,
               })),
-            )
-          : vacation(scope).pipe(
-              Effect.map((settings) => ({ kind: 'found', vacation: settings })),
-            );
-      if (read === undefined) {
-        return Promise.resolve(undefined);
-      }
-      const label = 'Out of Office could not be read:';
-      return runLogged(
-        read.pipe(
-          Effect.catchTags({
-            SyncFailure: (failure) =>
-              // Microsoft's 403 asks for MailboxSettings, not for mail again: the mail grant
-              // works, so the Inbox stays as it is.
-              automaticReplies !== undefined &&
-              failure.kind === 'authentication' &&
-              failure.cause === 403
-                ? Effect.succeed<OutOfOfficeRead>({
-                    kind: 'unavailable',
-                    reason: 'permission',
-                  })
-                : searchFailed(failure, reading, label),
-            GmailNotFound: () => Effect.succeed(searchUnavailable('failed')),
-            GmailInvalidPage: () => Effect.succeed(searchUnavailable('failed')),
-          }),
-          Effect.map((result) =>
-            owner === reading && state.kind === 'ready' ? result : undefined,
-          ),
-        ),
+            )),
+        'Outlook categories could not be read:',
       );
     },
     // Saves `change` to this mailbox's Out of Office at its provider, as a read does. Undefined when

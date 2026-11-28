@@ -28,15 +28,18 @@ import { typedBody, typedReply } from './responses.ts';
 import { createSubscribable } from './subscribable.ts';
 
 // What the operating system lets this device show, whether a New Mail Notification may show its
-// sender and subject, and what the App Icon Badge counts. Native code keeps the choices as
-// Device-Local Preferences; previews and the badge start off.
+// sender and subject, what the App Icon Badge counts and the sound a shown New Mail Notification
+// plays. Native code keeps the choices as Device-Local Preferences; previews and the badge start
+// off, the sound at the system's default.
 const Settings = Schema.Struct({
   authorization: Schema.Literals(['undetermined', 'denied', 'authorized']),
   previews: Schema.Boolean,
   badge: Schema.Literals(['off', 'inbox']),
+  sound: Schema.Literals(['default', 'none']),
 });
 export type NotificationSettings = typeof Settings.Type;
 export type BadgeChoice = NotificationSettings['badge'];
+export type SoundChoice = NotificationSettings['sound'];
 const decodeSettings = Schema.decodeUnknownEffect(Settings);
 
 const Mailbox = Schema.Struct({
@@ -134,6 +137,7 @@ export interface NativeNotifications {
   readonly requestNotifications: () => Promise<unknown>;
   readonly setNotificationPreviews: (previews: boolean) => Promise<unknown>;
   readonly setNotificationBadge: (badge: BadgeChoice) => Promise<unknown>;
+  readonly setNotificationSound: (sound: SoundChoice) => Promise<unknown>;
   // Shows `count` on the application's icon; 0 removes the badge.
   readonly setBadgeCount: (count: number) => Promise<unknown>;
   // Opens this application's notification settings in the system's settings.
@@ -313,6 +317,11 @@ export function createNotifications(
       update(
         () => native.setNotificationBadge(badge),
         'The App Icon Badge choice could not be saved:',
+      ),
+    setSound: (sound: SoundChoice) =>
+      update(
+        () => native.setNotificationSound(sound),
+        'The New Mail Sound choice could not be saved:',
       ),
     // Keeps the App Icon Badge on the unread Inbox count while the badge counts it and the system
     // allows notifications, and removes it otherwise. A count is applied only once every source
