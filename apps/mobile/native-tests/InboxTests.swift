@@ -4667,7 +4667,20 @@ final class InboxTests: XCTestCase {
       XCTAssertTrue(shown.waitForExistence(timeout: 10), "\(sheet) did not open again")
     }
     swipes("Reply sheet", from: replyAll, shown: replyAll, open: openReply)
+    // #3077: a swipe released early fires nothing from Close, a Pressable that #3074 makes a
+    // SwiftUI button, or from New Label…, a SwiftUI button; a tap on Close still closes.
+    let close = app.buttons["Close"]
+    swipes("Reply sheet from Close", from: close, shown: replyAll) {
+      if !replyAll.exists { openReply() }
+    }
+    _ = settledFrame(of: close)
+    close.tap()
+    XCTAssertTrue(replyAll.waitForNonExistence(timeout: 5), "Close did not close the Reply sheet")
     swipes("Labels sheet", from: heading, shown: newLabel, open: openLabels)
+    // New Label… would open New Label, which brings the keyboard.
+    swipes("Labels sheet from New Label…", from: newLabel, shown: newLabel) {
+      if !newLabel.exists { openLabels() }
+    }
     swipes("New Label sheet", from: heading, shown: name, typing: true) {
       if !newLabel.exists { openLabels() }
       newLabel.tap()
