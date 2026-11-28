@@ -1,57 +1,66 @@
-import { radius, spacing } from '@private-email/mail-core/theme';
-import { Pressable, StyleSheet, Text } from 'react-native';
+import {
+  Host,
+  Button as SwiftUIButton,
+  Text as SwiftUIText,
+} from '@expo/ui/swift-ui';
+import {
+  background,
+  buttonStyle,
+  contentShape,
+  font,
+  foregroundStyle,
+  frame,
+  padding,
+  shapes,
+} from '@expo/ui/swift-ui/modifiers';
+import { radius } from '@private-email/mail-core/theme';
+import { StyleSheet } from 'react-native';
 
-import { SFSymbol } from './design.tsx';
-import { textStyles, usePalette } from './theme.ts';
+import { useLargeText, usePalette } from './theme.ts';
 
-const styles = StyleSheet.create({
-  button: {
-    minHeight: 44,
-    minWidth: 44,
-    maxWidth: '100%',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.xs,
-    paddingHorizontal: 14,
-    borderRadius: radius.control,
-    borderCurve: 'continuous',
-  },
-  label: { ...textStyles.subheadline, flexShrink: 1 },
-});
+const styles = StyleSheet.create({ wide: { width: '100%' } });
 
-// A keyboard-focusable control; a checked state makes it a checkbox.
+// The system button on the quiet fill, with the system's press feedback (#3140). A wide one, and
+// every one at the large text sizes, fills its row so its title wraps.
 export function ActionButton({
   label,
   onPress,
-  checked,
+  wide = false,
 }: {
   readonly label: string;
   readonly onPress: () => void;
-  readonly checked?: boolean;
+  readonly wide?: boolean;
 }) {
   const colors = usePalette();
+  const fill = useLargeText() || wide;
   return (
-    <Pressable
-      accessibilityLabel={label}
-      accessibilityRole={checked === undefined ? 'button' : 'checkbox'}
-      accessibilityState={checked === undefined ? undefined : { checked }}
-      focusable
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.button,
-        {
-          backgroundColor: pressed
-            ? colors.accentSelectionSubtle
-            : colors.fillQuiet,
-        },
-      ]}>
-      {checked === true ? (
-        <SFSymbol
-          name="checkmark"
-          color={colors.textPrimary}
-        />
-      ) : null}
-      <Text style={[styles.label, { color: colors.textPrimary }]}>{label}</Text>
-    </Pressable>
+    <Host
+      key={fill ? 'fill' : 'ideal'}
+      matchContents={fill ? { vertical: true } : true}
+      style={fill ? styles.wide : null}>
+      <SwiftUIButton
+        onPress={onPress}
+        modifiers={[buttonStyle('plain')]}>
+        <SwiftUIText
+          modifiers={[
+            font({ textStyle: 'subheadline' }),
+            foregroundStyle(colors.textPrimary),
+            padding({ horizontal: 14 }),
+            frame({
+              minWidth: 44,
+              ...(fill ? { maxWidth: Infinity } : {}),
+              minHeight: 44,
+              alignment: 'leading',
+            }),
+            background(
+              colors.fillQuiet,
+              shapes.roundedRectangle({ cornerRadius: radius.control }),
+            ),
+            contentShape(shapes.rectangle()),
+          ]}>
+          {label}
+        </SwiftUIText>
+      </SwiftUIButton>
+    </Host>
   );
 }
