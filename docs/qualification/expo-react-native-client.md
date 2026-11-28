@@ -515,18 +515,16 @@ temporary capture journey that was not committed.
   composer overlay spans the reader's width below its header, in Light and
   Dark. At about 905 points the sidebar, list and reader stay side by side,
   with the overlay's format bar wrapping (Light and Dark). At about 1,435
-  points the layout was captured in Light only: the Dark capture journey
-  exceeded XCTest's two-minute allowance during that resize and its capture
-  was lost. [#3087](https://github.com/unwired-dev/product/issues/3087) took
-  it on 2026-11-28 with a `registration-performance` Testing build of
-  `65a4d1ad9`, on the same host, Xcode and macOS, through another temporary
-  capture journey with a ten-minute allowance, which passed in 25.1 seconds.
-  In Dark, dragging the window's corner widened it from 1,040 to 1,431
-  points. The sidebar, list and reader stayed side by side with an open
-  message, and with **New Message** the overlay spanned the reader's width
-  below its header, its format bar on one row and its fields, From and Send
-  unclipped. Text style read "Bo…", as it does at 764 points
-  ([#2982](https://github.com/unwired-dev/product/issues/2982)).
+  points this pass captured the layout in Light. The Dark captures come from
+  [#3087](https://github.com/unwired-dev/product/issues/3087) on 2026-11-28:
+  a `registration-performance` Testing build of `65a4d1ad9` on the same host,
+  Xcode and macOS, and a temporary capture journey with a ten-minute
+  allowance, which passed in 25.1 seconds. Dragging the window's corner
+  widened it from 1,040 to 1,431 points. With a message open, the sidebar,
+  list and reader stayed side by side; with **New Message**, the overlay
+  spanned the reader's width below its header, its format bar on one row and
+  its fields, From and Send unclipped. Text style read "Bo…", as it does at
+  764 points ([#2982](https://github.com/unwired-dev/product/issues/2982)).
 - Sidebar, Light and Dark: Hide Sidebar and Show Sidebar work from the
   toolbar. With Reduce Motion off, sampled accessibility positions show the
   sidebar sliding out over 200 to 230
