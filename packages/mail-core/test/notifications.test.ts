@@ -239,7 +239,7 @@ describe('opening a tapped New Mail Notification', () => {
 const unused = () => Promise.reject(new Error('Not used here'));
 
 describe('notification settings', () => {
-  it('keeps the latest request when an earlier read settles after it', async () => {
+  it('reads the settings only once a pending choice is saved', async () => {
     expect.hasAssertions();
     const read = (badgeSoundOff: readonly string[]) => ({
       authorization: 'authorized',
@@ -248,33 +248,41 @@ describe('notification settings', () => {
       sound: 'default',
       badgeSoundOff,
     });
-    const earlierRead = Promise.withResolvers<unknown>();
-    const newerRead = Promise.withResolvers<unknown>();
+    // The device's saved choices; a read reports them as they were when it started.
+    let off: readonly string[] = [];
+    const saved = Promise.withResolvers<null>();
     const notifications = createNotifications(
       {
-        notificationSettings: vi
-          .fn<() => Promise<unknown>>()
-          .mockReturnValueOnce(earlierRead.promise)
-          .mockReturnValueOnce(newerRead.promise),
+        notificationSettings: () => {
+          const seen = off;
+          return saved.promise.then(() => read(seen));
+        },
         postNotifications: unused,
         requestNotifications: unused,
         setNotificationPreviews: unused,
         setNotificationBadge: unused,
         setNotificationSound: unused,
-        setNotificationProfile: unused,
+        setNotificationProfile: async () => {
+          await saved.promise;
+          off = ['default'];
+          return read(off);
+        },
         setBadgeCount: unused,
         openNotificationSettings: unused,
       },
       () => english,
     );
-    // The earlier Product Account's read settles after the newer account's.
-    const earlier = notifications.load();
-    const newer = notifications.load();
-    newerRead.resolve(read([]));
-    await newer;
-    earlierRead.resolve(read(['default']));
-    await earlier;
-    expect(notifications.getSnapshot()?.badgeSoundOff).toStrictEqual([]);
+    const choice = notifications.setProfileBadgeSound(
+      'account',
+      'default',
+      false,
+    );
+    const refresh = notifications.load();
+    saved.resolve(null);
+    await Promise.all([choice, refresh]);
+    expect(notifications.getSnapshot()?.badgeSoundOff).toStrictEqual([
+      'default',
+    ]);
   });
 });
 

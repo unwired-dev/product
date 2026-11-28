@@ -3,6 +3,7 @@ import type { Translate } from '@private-email/localization';
 import * as Effect from 'effect/Effect';
 import * as Option from 'effect/Option';
 import * as Schema from 'effect/Schema';
+import * as Semaphore from 'effect/Semaphore';
 
 import type { Draft, OutboxEntry } from './draft-model.ts';
 import type { Drafts, DraftsState } from './drafts.ts';
@@ -308,26 +309,24 @@ export function createNotifications(
   const settings = createSubscribable<NotificationSettings | undefined>(
     undefined,
   );
-  // Reads and writes are not serialized, so only the latest request's settings are kept.
-  let latest = 0;
-  const update = (request: () => Promise<unknown>, failure: string) => {
-    latest += 1;
-    const id = latest;
-    return runLogged(
+  // One settings request runs at a time, so each publishes in the order it was made: a read
+  // cannot settle after a later read or a later saved choice and bring back what it found.
+  const requests = Semaphore.makeUnsafe(1);
+  const update = (request: () => Promise<unknown>, failure: string) =>
+    runLogged(
       logged(
         failure,
-        settingsOf(request).pipe(
-          Effect.tap((next) =>
-            Effect.sync(() => {
-              if (id === latest) {
+        requests.withPermit(
+          settingsOf(request).pipe(
+            Effect.tap((next) =>
+              Effect.sync(() => {
                 settings.set(next);
-              }
-            }),
+              }),
+            ),
           ),
         ),
       ),
     );
-  };
   const load = () =>
     update(
       () => native.notificationSettings(),

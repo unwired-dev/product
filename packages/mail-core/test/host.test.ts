@@ -1046,9 +1046,12 @@ describe('the host assembly', () => {
     badgeWrites.answer = () => Promise.reject(new Error('refused'));
     host.followBadge();
     await host.notifications.load();
+    const refused = badges.length;
     badgeWrites.answer = () => Promise.resolve(null);
     await host.notifications.load();
-    expect(badges).toStrictEqual([0, 0]);
+    // Tried again at the next change, then left alone once the system applied it.
+    await host.notifications.load();
+    expect([refused > 0, badges.length - refused]).toStrictEqual([true, 1]);
   });
 
   it('logs why New Mail Notifications were or were not posted, never what or whose', async () => {
