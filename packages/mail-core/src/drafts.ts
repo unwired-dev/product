@@ -2922,9 +2922,11 @@ export function createDrafts(
       if (unhold !== undefined) {
         holders.add({ id: asset.id, release: unhold });
       }
-      // Only a client offering Try Again downloads a forwarded file again.
+      // Only a client offering Try Again downloads a forwarded file, first when it isn't on the
+      // device yet.
       void importThenPublish(asset, source, {
         download: keep === true ? download : undefined,
+        again: source.kind === 'unavailable',
         keep: keep === true,
       });
     }

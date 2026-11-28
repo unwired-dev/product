@@ -92,7 +92,6 @@
     "replyAll": "Reply All",
     "forward": "Forward",
     "closeResponses": "Close",
-    "preparingForward": "Preparing to forward…",
     "respondFailed": "The reply or forward didn’t open. Choose Reply or Forward again."
   },
   "appearance": {

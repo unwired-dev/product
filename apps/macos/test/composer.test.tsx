@@ -8185,7 +8185,6 @@ describe('replying to and forwarding from the reader', () => {
       );
       expect(isScrollable(failure)).toBe(true);
       expect(screen.getByRole('alert')).toBeVisible();
-      expect(screen.queryByText('Preparing to forward…')).toBeNull();
       await press('Forward');
       await expect(screen.findByLabelText('Subject')).resolves.toHaveProp(
         'value',
@@ -8224,13 +8223,7 @@ describe('replying to and forwarding from the reader', () => {
       reply();
       forward();
     });
-    try {
-      expect(
-        isScrollable(await screen.findByText('Preparing to forward…')),
-      ).toBe(true);
-    } finally {
-      storage.release();
-    }
+    storage.release();
     await expect(screen.findByLabelText('Subject')).resolves.toHaveProp(
       'value',
       'Fwd: Plans',

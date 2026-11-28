@@ -358,12 +358,13 @@ export const typedReply = (
   });
 };
 
-// The files a forward attaches: each listed attachment of an opened message in `mailbox`,
-// downloaded first. One too large to download, or that cannot be downloaded, is attached as a
-// failed asset. The saved files stay on the device until `release`, or each file's own `release`
-// once a Draft took it. `inboxOf` names the mailbox's Inbox now, which authorizing it again
-// replaces; without one, Try Again uses `inbox`. `keep`, from a client offering Try Again, keeps
-// a failed file for it.
+// The files a forward attaches: each listed attachment of an opened message in `mailbox`. One too
+// large to download, or that cannot be downloaded, is attached as a failed asset. For a client
+// offering Try Again (`keep`), a file not downloaded yet is `unavailable` with its `download`,
+// which the Draft store runs before importing it, so the Draft opens at once; without `keep`,
+// every download finishes first. The saved files stay on the device until `release`, or each
+// file's own `release` once a Draft took it. `inboxOf` names the mailbox's Inbox now, which
+// authorizing it again replaces; without one, Try Again uses `inbox`.
 type ForwardingInbox = Pick<
   GmailInbox | ImapInbox,
   | 'messageAttachments'
@@ -387,47 +388,91 @@ export async function forwardedAttachments(
   }>,
 ) {
   const listed = inbox.messageAttachments(id) ?? [];
-  // A download already running when Forward was chosen is awaited rather than started again. Files
-  // are held only once every download finished, so a rejected one leaves nothing held.
-  await Promise.all(
+  // A download already running when Forward was chosen is awaited rather than started again. The
+  // message stays read until each downloaded file is held, also once its reader closed.
+  const reading = inbox.retainMessage(id);
+  const fetch = async (locator: string) => {
+    try {
+      await inbox.downloadAttachment(id, locator);
+    } catch {
+      return undefined;
+    }
+    return inbox.holdAttachmentFile(id, locator);
+  };
+  const fetching = new Map(
     listed
       .filter(({ state }) => state.kind !== 'oversized')
-      .map(({ locator }) => inbox.downloadAttachment(id, locator)),
+      .map(({ locator }) => [locator, fetch(locator)]),
   );
+  const fetched = (async () => {
+    const saved = new Map<string, Awaited<ReturnType<typeof fetch>>>();
+    for (const [locator, file] of fetching) {
+      saved.set(locator, await file);
+    }
+    reading();
+    return saved;
+  })();
+  // Without Try Again the Draft store cannot download, so every download finishes first.
+  const saved = keep === true ? undefined : await fetched;
   const held: Array<() => void> = [];
   const sourceOf = (
-    saved: Readonly<ReturnType<typeof inbox.holdAttachmentFile>>,
+    file: Readonly<ReturnType<typeof inbox.holdAttachmentFile>>,
   ): AssetSource =>
-    saved === undefined
+    file === undefined
       ? { kind: 'unavailable' }
       : {
           kind: 'received',
           mailbox: {
             connection: mailbox,
-            address: saved.address,
-            generation: saved.generation,
+            address: file.address,
+            generation: file.generation,
           },
-          file: saved.file,
+          file: file.file,
         };
   const files = listed.map((attachment): PickedFile => {
     const { locator, name, mimeType, state } = attachment;
     if (state.kind === 'oversized') {
       return { name, type: mimeType, source: { kind: 'oversized' } };
     }
-    const saved = inbox.holdAttachmentFile(id, locator);
-    if (saved !== undefined) {
-      held.push(saved.release);
+    // With Try Again, the Draft store's first `download` takes the file Forward is downloading.
+    let first = saved === undefined ? fetching.get(locator) : undefined;
+    const take = () => {
+      const file = first;
+      first = undefined;
+      return file;
+    };
+    // A file no Draft took is released once its download settles.
+    const abandon = async () => {
+      (await take())?.release();
+    };
+    const file = saved?.get(locator);
+    const release =
+      saved === undefined
+        ? () => {
+            void abandon();
+          }
+        : file?.release;
+    if (release !== undefined) {
+      held.push(release);
     }
     return {
       name,
       type: mimeType,
-      source: sourceOf(saved),
-      release: saved?.release,
+      source: sourceOf(file),
+      release,
       keep,
       // Try Again downloads it again from this mailbox, which the Draft's Mail Profile keeps,
       // reading the message meanwhile in case its reader closed. Unless the message lists it alone
       // in its place, with no other file of the same name, type and size, it is not downloaded.
       download: async () => {
+        const pending = take();
+        if (pending !== undefined) {
+          const each = await pending;
+          return {
+            source: sourceOf(each),
+            release: each?.release ?? (() => undefined),
+          };
+        }
         const current = inboxOf?.() ?? inbox;
         const reading = current.retainMessage(id);
         try {

@@ -899,8 +899,13 @@ reopening, **Undo** and **Discard** work as for any Draft.
   a forwarded-message header naming From, Date, Subject, To and Cc. The text comes from
   the plain alternative or the sanitized HTML's readable text. Rich quote formatting,
   links and editing the correspondence are deferred.
-- **Forwarded files.** **Forward** first downloads every listed attachment, showing
-  **Preparing to forward…**, then attaches the copies as Draft Assets. A Downloaded
+- **Forwarded files.** **Forward** opens its Draft at once, as Reply does
+  ([#3119](https://github.com/unwired-dev/product/issues/3119)), and attaches every listed
+  attachment as a Draft Asset. One already downloaded is added at once; the Draft store
+  downloads each other one from the original message before adding it, and the message stays
+  read until those downloads settle, also once its reader closed. While a file downloads its row
+  shows **Importing…** with **Cancel**, and Send waits for it; a relaunch meanwhile leaves it
+  **Not added**, as for any interrupted import. A Downloaded
   Attachment saved before its mailbox's generation changed, as after each Mac
   activation, is downloaded again. A forward also
   copies the message's resolved Inline Images into its quoted text. They import like other
@@ -914,8 +919,10 @@ reopening, **Undo** and **Discard** work as for any Draft.
 
 Preparation belongs to the initiating reader, Product Account and navigation.
 Closing that reader or switching it to another mailbox, changing accounts, the
-receiving mailbox losing its authorization or choosing another destination while the attachments download
-prevents the response Draft from being created. Queued
+receiving mailbox losing its authorization or choosing another destination before the response
+Draft is created prevents it. Once a forward's Draft exists its files belong to it: a file whose
+download fails, as when the mailbox lost its authorization meanwhile, is **Not added** with
+**Try Again**. Queued
 presses start only one response.
 If another editor completes the new Draft while its first save is pending, that
 editor's content is preserved and response preparation stops.

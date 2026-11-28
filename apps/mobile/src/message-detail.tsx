@@ -524,11 +524,9 @@ function RegularHeader({ subject }: { readonly subject: string }) {
   );
 }
 
-// The response controls live in the fixed toolbar; their progress and failure show in the
-// reader's scrolling content, for the message they belong to.
-type ResponseStatus =
-  | Readonly<{ id: string; kind: 'preparingForward' | 'failed' }>
-  | undefined;
+// The response controls live in the fixed toolbar; their failure shows in the reader's scrolling
+// content, for the message it belongs to.
+type ResponseStatus = Readonly<{ id: string; kind: 'failed' }> | undefined;
 const ResponseStatusContext = createContext<
   Dispatch<SetStateAction<ResponseStatus>> | undefined
 >(undefined);
@@ -546,18 +544,12 @@ function ResponseStatusNotice({
   if (status === undefined || status.id !== id) {
     return null;
   }
-  return status.kind === 'failed' ? (
+  return (
     <Text
       accessibilityLiveRegion="polite"
       accessibilityRole="alert"
       style={[styles.secondary, { color: colors.textPrimary }]}>
       {t('message.respondFailed')}
-    </Text>
-  ) : (
-    <Text
-      accessibilityLiveRegion="polite"
-      style={[styles.secondary, { color: colors.textSecondary }]}>
-      {t('message.preparingForward')}
     </Text>
   );
 }
@@ -635,11 +627,7 @@ function ResponseActions({
     }
     starting.current = true;
     setPending(kind);
-    report?.(
-      kind === 'forward'
-        ? { id: message.id, kind: 'preparingForward' }
-        : undefined,
-    );
+    report?.(undefined);
     try {
       const draft = await startResponse(
         {
@@ -680,11 +668,6 @@ function ResponseActions({
     starting.current = false;
     if (mounted.current) {
       setPending(undefined);
-      report?.((status) =>
-        status?.id === message.id && status.kind === 'preparingForward'
-          ? undefined
-          : status,
-      );
     }
   };
   return (
