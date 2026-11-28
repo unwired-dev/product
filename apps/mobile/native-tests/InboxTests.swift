@@ -1733,6 +1733,9 @@ final class InboxTests: XCTestCase {
     } else {
       capture("Remind Me to Send sheet")
       // #3135, #3077: the times are system buttons; a swipe released early from one sets nothing.
+      XCTAssertTrue(
+        app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Tomorrow Morning, ")).firstMatch
+          .exists)
       let rest = settledFrame(of: tomorrow)
       swipeReleasedEarly(from: tomorrow.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)))
       XCTAssertEqual(settledFrame(of: tomorrow), rest, "Remind Me to Send moved after a swipe released early")
