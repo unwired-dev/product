@@ -20,6 +20,7 @@ import type {
   GmailAction,
   GmailLabel,
   GmailVacation,
+  GmailVacationChange,
 } from './gmail-actions.ts';
 import type {
   Cache,
@@ -367,6 +368,13 @@ const searchUnavailable = (reason: Unavailable['reason']): Unavailable => ({
 export type OutOfOfficeRead =
   | Readonly<{ kind: 'found'; vacation: GmailVacation }>
   | Readonly<{ kind: 'found'; automaticReplies: GraphAutomaticReplies }>
+  | Unavailable
+  | Readonly<{ kind: 'unavailable'; reason: 'permission' }>;
+
+// A saved Out of Office as its provider stores it afterwards, or why the provider did not save it.
+// Gmail refuses the save for want of the settings grant that the mail grant does not include.
+export type OutOfOfficeSave =
+  | Readonly<{ kind: 'saved'; vacation: GmailVacation }>
   | Unavailable
   | Readonly<{ kind: 'unavailable'; reason: 'permission' }>;
 
@@ -4424,6 +4432,55 @@ export function createInboxStore(
                     reason: 'permission',
                   })
                 : searchFailed(failure, reading, label),
+            GmailNotFound: () => Effect.succeed(searchUnavailable('failed')),
+            GmailInvalidPage: () => Effect.succeed(searchUnavailable('failed')),
+          }),
+          Effect.map((result) =>
+            owner === reading && state.kind === 'ready' ? result : undefined,
+          ),
+        ),
+      );
+    },
+    // Saves `change` to this mailbox's Out of Office at its provider, as a read does. Undefined when
+    // it was not saved, as when the provider offers no save, or the Inbox closed or changed
+    // meanwhile.
+    saveOutOfOffice: (
+      change: GmailVacationChange,
+    ): Promise<OutOfOfficeSave | undefined> => {
+      const scope = opened;
+      const reading = owner;
+      const { saveVacation } = providerReader;
+      if (
+        scope === undefined ||
+        state.kind !== 'ready' ||
+        saveVacation === undefined
+      ) {
+        return Promise.resolve(undefined);
+      }
+      return runLogged(
+        saveVacation(scope, change).pipe(
+          Effect.map(
+            Option.match({
+              onNone: (): OutOfOfficeSave | undefined =>
+                searchUnavailable('failed'),
+              onSome: (vacation): OutOfOfficeSave | undefined => ({
+                kind: 'saved',
+                vacation,
+              }),
+            }),
+          ),
+          Effect.catchTags({
+            SyncFailure: (failure) =>
+              searchFailed(
+                failure,
+                reading,
+                'Out of Office could not be saved:',
+              ),
+            GmailMissingScope: () =>
+              Effect.succeed<OutOfOfficeSave>({
+                kind: 'unavailable',
+                reason: 'permission',
+              }),
             GmailNotFound: () => Effect.succeed(searchUnavailable('failed')),
             GmailInvalidPage: () => Effect.succeed(searchUnavailable('failed')),
           }),

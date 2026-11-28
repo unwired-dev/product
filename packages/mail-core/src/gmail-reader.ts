@@ -5,7 +5,7 @@ import * as Option from 'effect/Option';
 import * as Order from 'effect/Order';
 import * as Schema from 'effect/Schema';
 
-import type { GmailLabel } from './gmail-actions.ts';
+import type { GmailLabel, GmailVacationChange } from './gmail-actions.ts';
 import type {
   GmailMessage,
   MailboxDocument,
@@ -57,7 +57,12 @@ import {
   newestFirst,
   pageSize,
 } from './mailbox-document.ts';
-import { providerRead, providerWrite, SyncFailure } from './mailbox-read.ts';
+import {
+  GmailMissingScope,
+  providerRead,
+  providerWrite,
+  SyncFailure,
+} from './mailbox-read.ts';
 import {
   decodeAttachment,
   decodeFullMessage,
@@ -148,6 +153,24 @@ const decodeModified = json(
 const decodeCreatedLabel = json(GmailLabelSchema);
 
 const decodeVacation = json(GmailVacationSchema);
+
+// The vacation responder as Gmail stores it, with the fields Unwired does not read.
+const decodeStoredVacation = json(Schema.Record(Schema.String, Schema.Unknown));
+
+// The stored responder with `change` applied: a named value replaces Gmail's, null leaves the field
+// out, and every other field keeps what Gmail has.
+const changedVacation = (
+  stored: Readonly<Record<string, unknown>>,
+  change: GmailVacationChange,
+): Record<string, unknown> =>
+  Object.fromEntries(
+    Object.entries({ ...stored, ...change })
+      .map(([field, value]): [string, unknown] => [
+        field,
+        value === undefined ? stored[field] : value,
+      ])
+      .filter(([, value]) => value !== null && value !== undefined),
+  );
 
 const mailbox = /^\s*(?:"?(?<name>[^"<]*?)"?\s*)?<(?<address>[^<>]+)>\s*$/u;
 
@@ -1004,5 +1027,27 @@ export function createGmailReader(
       metadata(scope, id, true).pipe(Effect.map(([, message]) => message)),
     vacation: (scope: MailboxScope) =>
       gmail(scope)('settings/vacation', [], decodeVacation),
+    // Gmail replaces the whole responder, so the save writes over what Gmail stores now.
+    saveVacation: (scope: MailboxScope, change: GmailVacationChange) =>
+      gmail(scope)('settings/vacation', [], decodeStoredVacation).pipe(
+        Effect.flatMap((stored) =>
+          providerWrite(
+            () =>
+              native.gmailSaveVacation(changedVacation(stored, change), scope),
+            (status) => status === 200,
+            decodeVacation,
+          ).pipe(
+            // The mail grant has just read the responder, so a 403 that is not a usage limit
+            // refuses the settings scope, not the grant.
+            Effect.catchIf(
+              (failure) =>
+                failure instanceof SyncFailure &&
+                failure.kind === 'authentication' &&
+                failure.cause === 403,
+              () => Effect.fail(new GmailMissingScope()),
+            ),
+          ),
+        ),
+      ),
   } satisfies ProviderReader;
 }

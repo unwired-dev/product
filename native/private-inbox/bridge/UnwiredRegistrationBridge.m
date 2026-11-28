@@ -71,6 +71,7 @@ RCT_EXTERN_METHOD(graphRequest:(NSString *)url mailbox:(NSDictionary *)mailbox r
 RCT_EXTERN_METHOD(cancelGmailRequest:(NSString *)request)
 RCT_EXTERN_METHOD(gmailModify:(NSDictionary *)change mailbox:(NSDictionary *)mailbox resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(gmailCreateLabel:(NSString *)name mailbox:(NSDictionary *)mailbox resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
+RCT_EXTERN_METHOD(gmailSaveVacation:(NSDictionary *)vacation mailbox:(NSDictionary *)mailbox resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(graphModify:(NSDictionary *)change mailbox:(NSDictionary *)mailbox resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(gmailSend:(NSDictionary *)message mailbox:(NSDictionary *)mailbox resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(graphSend:(NSDictionary *)message mailbox:(NSDictionary *)mailbox resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)

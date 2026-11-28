@@ -56,13 +56,16 @@ import Testing
   var gmailRequests: [URL] = []
   var gmailBodies: [Data?] = []
   var gmailContentTypes: [String] = []
+  var gmailMethods: [String] = []
   var gmailResponse: (Int, Data) = (200, Data(#"{"historyId":"7"}"#.utf8))
   var gmailFailure: (any Error)?
   func gmail(
-    _ identity: GoogleRegistrationIdentity, url: URL, body: Data?, contentType: String
+    _ identity: GoogleRegistrationIdentity, url: URL, body: Data?, contentType: String,
+    method: String
   ) async throws -> (Int, Data) {
     gmailRequests.append(url)
     gmailContentTypes.append(contentType)
+    gmailMethods.append(method)
     gmailBodies.append(body)
     let pause = beforeGmail
     beforeGmail = nil

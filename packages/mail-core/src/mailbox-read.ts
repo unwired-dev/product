@@ -41,6 +41,12 @@ export interface NativeGmailRequests {
     name: string,
     mailbox: Readonly<{ address: string; generation: string }>,
   ) => Promise<unknown>;
+  // Resolves `{ status, body }` for Gmail's replacement of the vacation responder with `vacation`,
+  // a JSON object that native code sends as the body of `PUT settings/vacation`.
+  readonly gmailSaveVacation: (
+    vacation: Readonly<Record<string, unknown>>,
+    mailbox: Readonly<{ address: string; generation: string }>,
+  ) => Promise<unknown>;
   // Sends one message through Gmail's messages.send upload, inserting each asset segment's
   // verified bytes, and joins `threadId` when given. Resolves `{ status, body }` once Gmail
   // answers. Rejects with 'delivery-unknown' when the request may have reached Gmail without an
@@ -171,6 +177,13 @@ export class GmailNotFound extends Schema.TaggedError<
   GmailNotFound,
   { readonly brand: unique symbol }
 >()('GmailNotFound', {}) {}
+
+// Google refused a settings write for a scope the mail grant does not include. Authorizing mail
+// again cannot resolve it.
+export class GmailMissingScope extends Schema.TaggedError<
+  GmailMissingScope,
+  { readonly brand: unique symbol }
+>()('GmailMissingScope', {}) {}
 
 // Gmail refused the mailbox's grant; authorizing Gmail again is the only remedy.
 export const rejectedGrant = (error: unknown) =>
