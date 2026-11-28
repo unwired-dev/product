@@ -946,10 +946,15 @@ export function SettingsActionRow({
   readonly onPress: () => void;
   readonly children: ReactElement;
 }) {
+  // A text size changed while Settings is open keeps the hosted row's old height; a fresh host
+  // measures the row again.
+  const { fontScale } = useWindowDimensions();
   return (
     <View>
       <Hairline />
-      <Host matchContents={{ vertical: true }}>
+      <Host
+        key={fontScale}
+        matchContents={{ vertical: true }}>
         <SwiftUIButton
           onPress={onPress}
           modifiers={[
@@ -957,7 +962,9 @@ export function SettingsActionRow({
             inactive(disabled),
             spokenLabel(label),
           ]}>
-          <RNHostView matchContents={{ vertical: true }}>
+          <RNHostView
+            boundedByHost
+            matchContents={{ vertical: true }}>
             <RowHairline value={false}>
               <View
                 accessibilityElementsHidden
