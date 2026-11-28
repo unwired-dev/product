@@ -253,7 +253,7 @@ shows them yet.
   Nothing is cached. Saves run one at a time. A save still waiting when the Inbox closes sends
   nothing; one already handed to native code is sent, as the person asked, and its answer is
   dropped. Native code still refuses it for a connection that was removed or verified again.
-- **Save failures.** A 403 answers `permission`: the grant lacks `MailboxSettings.ReadWrite`.
+- **Save failures.** A 403 answers `permission`. The usual cause is a grant without `MailboxSettings.ReadWrite`, but a conditional-access policy can refuse the save too.
   The Inbox stays as it is and nothing asks for Microsoft again. Graph refusing the values
   (400), as for an end before the start, answers `failed`; other failures answer as the read's
   do. A Gmail mailbox saves no automatic replies, and a Microsoft one no Gmail change.
