@@ -21,6 +21,7 @@
     "registration-invitation",
     "registration-imap-folders",
     "registration-unsubscribe",
+    "registration-forward",
     "categorization-spike",
     "assistance-qualification"
   ],
