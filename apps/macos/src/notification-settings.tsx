@@ -1,8 +1,13 @@
+import type { SoundChoice } from '@private-email/mail-core/notifications';
 import type {
   MailboxConnection,
+  MailProfile,
   Registration,
 } from '@private-email/mail-core/registration';
 
+import { macAlertSounds } from '@private-email/mail-core/notifications';
+import { profileName } from '@private-email/mail-core/profile-windows';
+import { defaultProfile } from '@private-email/mail-core/registration';
 import { createContext, use, useEffect, useSyncExternalStore } from 'react';
 import { AppState, Switch } from 'react-native';
 
@@ -56,9 +61,9 @@ function Authorization({
   return settings === undefined ? null : shown[settings.authorization]();
 }
 
-// What the Dock badge counts. While notifications are off, the choice stays, dimmed, until they
-// are allowed again.
-function DockBadge({
+// What the Dock badge counts and the sound a shown New Mail Notification plays. While
+// notifications are off, the choices stay, dimmed, until they are allowed again.
+function BadgeAndSound({
   device,
   settings,
 }: {
@@ -67,10 +72,15 @@ function DockBadge({
 }) {
   const { t } = useLocalization();
   const denied = settings?.authorization === 'denied';
+  const soundTitle = (sound: SoundChoice) =>
+    sound === 'default' || sound === 'none'
+      ? t(`notifications.sounds.${sound}`)
+      : sound;
   return (
     <SettingsGroup
+      title={t('notifications.thisDevice', { context: 'mac' })}
       footer={t(
-        denied ? 'notifications.badgeKept' : 'notifications.badgeDetail',
+        denied ? 'notifications.badgeKept' : 'notifications.badgeSoundDetail',
       )}>
       <SettingsRow
         title={t('notifications.dockBadge')}
@@ -98,6 +108,77 @@ function DockBadge({
           />
         )}
       </SettingsRow>
+      <SettingsRow
+        title={t('notifications.sound', { context: 'mac' })}
+        disabled={denied}>
+        {settings === undefined ? null : (
+          <PopUp
+            variant="inline"
+            accessibilityLabel={t('notifications.sound', { context: 'mac' })}
+            label={soundTitle(settings.sound)}
+            disabled={denied}
+            sections={[['default'], macAlertSounds, ['none']].map(
+              (sounds: readonly SoundChoice[]) => ({
+                items: sounds.map((sound) => ({
+                  key: sound,
+                  title: soundTitle(sound),
+                  checked: sound === settings.sound,
+                  run: () => {
+                    void device.setSound(sound);
+                  },
+                })),
+              }),
+            )}
+          />
+        )}
+      </SettingsRow>
+    </SettingsGroup>
+  );
+}
+
+// Each Mail Profile's Badge and sound switch. Until notifications are first allowed the group is
+// not shown; while they are off it stays, dimmed, and the choices are kept.
+function Profiles({
+  account,
+  profiles,
+  device,
+  settings,
+}: {
+  readonly account: string;
+  readonly profiles: readonly MailProfile[];
+  readonly device: NotificationSettingsStore;
+  readonly settings: DeviceSettings;
+}) {
+  const { t } = useLocalization();
+  const colors = usePalette();
+  if (settings === undefined || settings.authorization === 'undetermined') {
+    return null;
+  }
+  const denied = settings.authorization === 'denied';
+  return (
+    <SettingsGroup title={t('notifications.profiles')}>
+      {[defaultProfile, ...profiles.map(({ id }) => id)].map((profile) => {
+        const name = profileName(t, profile, profiles);
+        return (
+          <SettingsRow
+            key={profile}
+            title={name}
+            subtitle={t('notifications.badgeAndSound')}
+            disabled={denied}>
+            <Switch
+              accessibilityLabel={t('notifications.badgeAndSoundFor', {
+                name,
+              })}
+              disabled={denied}
+              value={!settings.badgeSoundOff.includes(profile)}
+              trackColor={{ false: colors.fillTrack, true: colors.accentFill }}
+              onValueChange={(on) => {
+                void device.setProfileBadgeSound(account, profile, on);
+              }}
+            />
+          </SettingsRow>
+        );
+      })}
     </SettingsGroup>
   );
 }
@@ -184,14 +265,19 @@ function PerMailbox({
   );
 }
 
-// This device's notification permission, previews and Dock badge, which never synchronize, then
-// each connection's synchronized New Mail Notification switch.
+// This device's notification permission, previews, Dock badge, New Mail Sound and each Profile's
+// Badge and sound switch, which never synchronize, then each connection's synchronized New Mail
+// Notification switch.
 export function NotificationSettings({
   button,
+  account,
+  profiles,
   mailboxes,
   store,
 }: {
   readonly button: SettingsButton;
+  readonly account: string;
+  readonly profiles: readonly MailProfile[];
   readonly mailboxes: readonly MailboxConnection[];
   readonly store: Registration;
 }) {
@@ -235,7 +321,13 @@ export function NotificationSettings({
           />
         </SettingsRow>
       </SettingsGroup>
-      <DockBadge
+      <BadgeAndSound
+        device={device}
+        settings={settings}
+      />
+      <Profiles
+        account={account}
+        profiles={profiles}
         device={device}
         settings={settings}
       />
