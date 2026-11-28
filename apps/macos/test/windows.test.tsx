@@ -3634,7 +3634,7 @@ describe('mac windows over a connected Gmail mailbox', () => {
             { items: [{ title: 'New Label…' }] },
           ],
         },
-        { title: 'Message Zoom…', subtitle: '100%', disabled: true },
+        { title: 'Message Zoom…', detail: '100%', disabled: true },
       ]);
       await chooseSubmenuItem('Labels', 'Receipts');
       await waitFor(() => {
@@ -3741,7 +3741,7 @@ describe('mac windows over a connected Gmail mailbox', () => {
       );
       expect(menuItems().at(-1)).toMatchObject({
         title: 'Message Zoom…',
-        subtitle: '115%',
+        detail: '115%',
         disabled: false,
       });
       await chooseMenuItem('Message Zoom…');
@@ -3786,6 +3786,19 @@ describe('mac windows over a connected Gmail mailbox', () => {
         await window.findByRole('button', { name: /Oliver Park/u }),
       );
       await expect(zoomed()).resolves.toBe(1.25);
+      // Steps chosen before the reader redraws each start from the last.
+      await act(async () => {
+        DeviceEventEmitter.emit('zoom', {
+          window: 'inbox-window-first',
+          direction: 'in',
+        });
+        DeviceEventEmitter.emit('zoom', {
+          window: 'inbox-window-first',
+          direction: 'in',
+        });
+        await Promise.resolve();
+      });
+      await expect(zoomed()).resolves.toBe(1.75);
     } finally {
       await app.unmount();
       commands.mockRestore();

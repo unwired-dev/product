@@ -193,6 +193,8 @@ export type PopUpItem = Readonly<{
   title: string;
   // A second line AppKit shows under the title.
   subtitle?: string | undefined;
+  // A value AppKit shows after the title, on the same line at the menu's trailing edge.
+  detail?: string;
   accessibilityLabel?: string;
   // An SF Symbol beside the title, in its own color when given.
   symbol?: string;

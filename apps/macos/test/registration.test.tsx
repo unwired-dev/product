@@ -3787,6 +3787,12 @@ describe('product registration', () => {
     await expect(
       screen.findByRole('header', { name: 'Studio archive' }),
     ).resolves.toBeVisible();
+    // Its More menu offers only Message Zoom…, dimmed for plain text.
+    await press('More');
+    expect(menuItems()).toMatchObject([
+      { title: 'Message Zoom…', disabled: true },
+    ]);
+    await dismissMenu();
     await waitFor(() => {
       expect(
         gmail.alex.requests

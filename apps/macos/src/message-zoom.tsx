@@ -98,15 +98,19 @@ const steps = (zoom: Zoom) => ({
 // View › Zoom In (Command-+), Zoom Out (Command-−) and Actual Size (Command-0) zoom the open message.
 function Keys() {
   const reader = use(OneMessageZoom);
-  const zoom = useShownZoom();
+  const stored = useMessageZoom();
   useMenuCommand('zoom', (direction) => {
-    const to =
-      direction === 'in' || direction === 'out' || direction === 'actual'
-        ? steps(zoom)[direction]
-        : undefined;
-    if (reader?.formatted === true && to !== undefined) {
-      reader.setOwn({ id: reader.id, zoom: to });
+    if (
+      reader?.formatted !== true ||
+      (direction !== 'in' && direction !== 'out' && direction !== 'actual')
+    ) {
+      return;
     }
+    // Each step starts from the last, even before React shows it.
+    reader.setOwn((own) => {
+      const to = steps(own?.id === reader.id ? own.zoom : stored)[direction];
+      return to === undefined ? own : { id: reader.id, zoom: to };
+    });
   });
   return null;
 }
@@ -161,7 +165,7 @@ export function useZoomMenu(): {
       {
         key: `${reader.id}\nzoom`,
         title: t('reading.zoomMenu'),
-        subtitle: t('reading.percent', { value: zoom }),
+        detail: t('reading.percent', { value: zoom }),
         symbol: 'plus.magnifyingglass',
         disabled: !reader.formatted,
         run: () => {

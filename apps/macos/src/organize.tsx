@@ -659,8 +659,15 @@ function GmailMessageActions({
   // A label or folder the provider removed falls back to the Inbox, as the list does.
   const view = gmailViewName(state, opened, provider);
   const message = viewMessage(state, id, view);
+  // Mail outside the view, such as an archived message opened from search, can only be zoomed.
   if (message === undefined) {
-    return children;
+    return (
+      <Toolbar
+        actions={[]}
+        more={[]}>
+        {children}
+      </Toolbar>
+    );
   }
   // Responses and Pin also work for saved mail without organizing permission.
   if (!canOrganize(message) || !state.organize) {
