@@ -2373,7 +2373,8 @@ password manager by running
   both certification mailboxes were connected through the app as in the first record,
   each credential pasted through the steps above. Each mailbox, as organizer, sent the
   other one meeting request over SMTP from outside the app, with one
-  `text/calendar; method=REQUEST` part. Result: pass. In each mailbox the request opened
+  `text/calendar; method=REQUEST` part. Result: the invitation responses pass; credential
+  entry did not follow step 1, as the limitations say. In each mailbox the request opened
   in the reader with the invitation card, **Invited, You, {address} · IMAP**, **Not
   answered yet** and **Accept**, **Maybe** and **Decline**. In iCloud Mail, **Accept**
   went through the Outbox and the card then read **Accepted. iCloud’s mail server
@@ -2387,10 +2388,12 @@ password manager by running
   deleted. `simulator-credentials.zsh scan` then found none of the three passwords or the
   Recovery Key in `~/.agent-device`, `~/Library/Logs`, T3 Code's device directory, the
   shell history, the operator's scratch files, this checkout's `artifacts` with this
-  run's DerivedData, or this run's session transcripts. Limitations: against step 1,
+  run's DerivedData, this run's session transcripts, or the 17,475 files written to the
+  temporary directories since the run began that still existed. Limitations: against step 1,
   accessibility snapshots ran and one screenshot was taken while the keyboard was open
   after the Seznam Email password was copied; the screenshot showed no suggestion bar
-  and the driver saved no screenshot of its own. In the Other IMAP Account form the
+  and the driver saved no screenshot of its own, but a text scan cannot show that no
+  credential was captured in an image. In the Other IMAP Account form the
   keyboard covered **Password** and **Connect**, so the form was dragged up by hand and
   **Return** ended editing ([#3090](https://github.com/unwired-dev/product/issues/3090)).
   **Decline**, refused and unconfirmed responses, Undo, offline and relaunch, cancelled
