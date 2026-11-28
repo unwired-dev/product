@@ -7,11 +7,33 @@ import Foundation
   public init() {}
 
   public func perform<Value>(_ operation: () async throws -> Value) async rethrows -> Value {
-    if active { await withCheckedContinuation { waiting.append($0) } } else { active = true }
-    defer {
-      if waiting.isEmpty { active = false } else { waiting.removeFirst().resume() }
-    }
+    await acquire()
+    defer { release() }
     return try await operation()
+  }
+
+  // Inside `perform`: hands custody to the next operation while `work` waits, as for a provider's
+  // answer, then queues to take it back, so a Draft save never waits behind a download. The caller
+  // checks its state again afterwards.
+  public func released<Value>(_ work: () async throws -> Value) async throws -> Value {
+    release()
+    let value: Value
+    do {
+      value = try await work()
+    } catch {
+      await acquire()
+      throw error
+    }
+    await acquire()
+    return value
+  }
+
+  private func acquire() async {
+    if active { await withCheckedContinuation { waiting.append($0) } } else { active = true }
+  }
+
+  private func release() {
+    if waiting.isEmpty { active = false } else { waiting.removeFirst().resume() }
   }
 }
 
@@ -117,12 +139,14 @@ extension RegistrationStore {
     try await removeMailboxCache(id)
   }
 
+  // One Gmail read. Given the operation gate it holds, the read releases it while Gmail answers.
   func gmail(
-    path: String, query: [URLQueryItem], connection: String, address: String, generation: String
+    path: String, query: [URLQueryItem], connection: String, address: String, generation: String,
+    gate: RegistrationOperationGate? = nil
   ) async throws -> [String: Any] {
     try await gmail(
       url: Self.gmailURL(path: path, query: query), body: nil, connection: connection,
-      address: address, generation: generation)
+      address: address, generation: generation, gate: gate)
   }
 
   // A message's label change. This file writes the body, so only label identifiers cross from
@@ -253,7 +277,7 @@ extension RegistrationStore {
   private func gmail(
     url: URL, body: Data?, contentType: String = "application/json", method: String = "POST",
     connection id: String, address: String, generation expectedGeneration: String,
-    sending: Bool = false
+    sending: Bool = false, gate: RegistrationOperationGate? = nil
   ) async throws -> [String: Any] {
     let generation = mailboxGeneration(id)
     // Work from before a removal or another verification is stale, whatever the connection's
@@ -314,8 +338,15 @@ extension RegistrationStore {
       guard deliveryAllowed() else { throw RegistrationError.unavailable }
     }
     do {
-      (status, data) = try await provider.gmail(
-        identity, url: url, body: body, contentType: contentType, method: method)
+      let request = {
+        try await self.provider.gmail(
+          identity, url: url, body: body, contentType: contentType, method: method)
+      }
+      if let gate {
+        (status, data) = try await gate.released(request)
+      } else {
+        (status, data) = try await request()
+      }
     } catch RegistrationError.unavailable where sending {
       // It never left this device, so it is safe to try again.
       throw RegistrationError.unavailable

@@ -704,10 +704,44 @@ extension PrivateInboxTests {
       await #expect(throws: PrivateInboxError.mailboxInvalidated) { _ = try await reading.value }
       #expect(google.gmailRequests.count == (stage == "response" ? 1 : 0))
     }
-    // A revocation preflight queues behind captured registration writes, then purges their result.
     _ = try await store.purge()
     _ = try await store.signIn()
     _ = try await store.authorizeGmail()
+    // A read releases the operation gate while Gmail answers, so other work, such as a Draft save,
+    // runs meanwhile; a removal in that window still invalidates the read once it takes it back.
+    let operations = RegistrationOperationGate()
+    for removing in [false, true] {
+      let answering = MailboxPause()
+      google.beforeGmail = { await answering.wait() }
+      let reading = Task {
+        try await operations.perform {
+          try await store.gmail(
+            path: "profile", query: [], connection: current, address: google.address,
+            generation: store.generation(currentSubject), gate: operations)["status"] as? Int
+        }
+      }
+      await answering.reached()
+      var ran = false
+      let other = Task {
+        try await operations.perform {
+          if removing { _ = try await store.flowRemoveMailbox(current) }
+          ran = true
+        }
+      }
+      for _ in 0..<100 where !ran { await Task.yield() }
+      #expect(ran)
+      answering.resume()
+      try await other.value
+      if removing {
+        await #expect(throws: PrivateInboxError.mailboxInvalidated) { _ = try await reading.value }
+      } else {
+        #expect(try await reading.value == 200)
+      }
+    }
+    _ = try await store.purge()
+    _ = try await store.signIn()
+    _ = try await store.authorizeGmail()
+    // A revocation preflight queues behind captured registration writes, then purges their result.
     let gate = RegistrationOperationGate()
     let restoring = MailboxPause()
     google.beforeRefresh = { await restoring.wait() }

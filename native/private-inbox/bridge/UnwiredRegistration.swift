@@ -871,10 +871,11 @@ extension UnwiredRegistration {
   private static let topicPattern =
     "^projects/[a-z][a-z0-9-]{4,28}[a-z0-9]/topics/[A-Za-z][A-Za-z0-9._~%+-]{2,254}$"
 
-  // Mailbox preflight and registration changes share custody across all suspension points. A
-  // `transfer`, a file's bytes from the provider, obtains only the store under the gate, so a Draft
-  // save or its recovery write never waits behind a download; the read checks its connection's
-  // generation after the network wait, as ungated work does.
+  // Mailbox preflight and registration changes share custody across all suspension points, except
+  // that a Gmail or Graph read releases it while the provider answers. A `transfer`, an IMAP
+  // message's bytes, obtains only the store under the gate, so a Draft save or its recovery write
+  // never waits behind a download; the read checks its connection's generation after the network
+  // wait, as ungated work does.
   private func mailbox(
     _ name: String, _ resolve: @escaping RCTPromiseResolveBlock,
     reject: @escaping RCTPromiseRejectBlock,
@@ -1252,13 +1253,11 @@ extension UnwiredRegistration {
       reject("unavailable", "Microsoft mail could not be reached.", nil)
       return
     }
-    mailbox(
-      "graphRequest", resolve, reject: reject, request: request,
-      transfer: url.contains("/attachments/")
-    ) {
+    mailbox("graphRequest", resolve, reject: reject, request: request) {
       let (connection, address, generation) = try Self.scope(scope)
       return try await $0.graph(
-        url: url, connection: connection, address: address, generation: generation)
+        url: url, connection: connection, address: address, generation: generation,
+        gate: Self.operations)
     }
   }
 
@@ -1277,10 +1276,7 @@ extension UnwiredRegistration {
       reject("unavailable", "Gmail could not be reached.", nil)
       return
     }
-    mailbox(
-      "gmailRequest", resolve, reject: reject, request: request,
-      transfer: path.contains("/attachments/")
-    ) {
+    mailbox("gmailRequest", resolve, reject: reject, request: request) {
       let (connection, address, generation) = try Self.scope(scope)
       // Name-value pairs, so repeated parameters keep their order.
       let items = try query.map { pair in
@@ -1291,7 +1287,7 @@ extension UnwiredRegistration {
       }
       return try await $0.gmail(
         path: path, query: items, connection: connection, address: address,
-        generation: generation)
+        generation: generation, gate: Self.operations)
     }
   }
 

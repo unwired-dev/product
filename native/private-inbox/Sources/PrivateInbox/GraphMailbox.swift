@@ -16,13 +16,15 @@ extension RegistrationStore {
     return url
   }
 
-  // One Graph read for a Microsoft connection.
-  func graph(url value: String, connection id: String, address: String, generation expected: String)
-    async throws -> [String: Any]
-  {
+  // One Graph read for a Microsoft connection. Given the operation gate it holds, the read releases
+  // it while Graph answers.
+  func graph(
+    url value: String, connection id: String, address: String, generation expected: String,
+    gate: RegistrationOperationGate? = nil
+  ) async throws -> [String: Any] {
     try await graphCall(
       url: Self.graphURL(value), method: "GET", body: nil, connection: id, address: address,
-      generation: expected)
+      generation: expected, gate: gate)
   }
 
   // The one Microsoft write: one message's read state, its Outlook categories, or its move to a
@@ -282,7 +284,8 @@ extension RegistrationStore {
   // returned whatever changed meanwhile, as the message may already be sent.
   private func graphCall(
     url: URL, method: String, body: Data?, contentType: String = "application/json",
-    connection id: String, address: String, generation expected: String, sending: Bool = false
+    connection id: String, address: String, generation expected: String, sending: Bool = false,
+    gate: RegistrationOperationGate? = nil
   ) async throws -> [String: Any] {
     let generation = mailboxGeneration(id)
     guard generation.uuidString == expected else { throw PrivateInboxError.mailboxInvalidated }
@@ -331,8 +334,15 @@ extension RegistrationStore {
       guard deliveryAllowed() else { throw RegistrationError.unavailable }
     }
     do {
-      (status, data) = try await microsoft.graph(
-        identity, url: url, method: method, body: body, contentType: contentType)
+      let request = {
+        try await microsoft.graph(
+          identity, url: url, method: method, body: body, contentType: contentType)
+      }
+      if let gate {
+        (status, data) = try await gate.released(request)
+      } else {
+        (status, data) = try await request()
+      }
     } catch RegistrationError.unavailable where sending {
       // It never left this device, so it is safe to try again.
       throw RegistrationError.unavailable
