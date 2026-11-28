@@ -34,6 +34,15 @@ const isListDensity = Schema.is(ListDensitySchema);
 export const PreviewLinesSchema = Schema.Literals([0, 1, 2, 3]);
 export type PreviewLines = typeof PreviewLinesSchema.Type;
 const isPreviewLines = Schema.is(PreviewLinesSchema);
+// When opening a message marks it read: Immediately (the default), once it has stayed open 2
+// seconds, or never, leaving it unread until the person chooses Mark as Read.
+export const MarkReadSchema = Schema.Literals([
+  'immediately',
+  'afterTwoSeconds',
+  'manually',
+]);
+export type MarkRead = typeof MarkReadSchema.Type;
+const isMarkRead = Schema.is(MarkReadSchema);
 const isFavoriteEntries = Schema.is(FavoriteEntriesSchema);
 const isSectionFolders = Schema.is(SectionFoldersSchema);
 // The same empty Favorites and folders every read, so a React snapshot of none stays equal.
@@ -50,12 +59,13 @@ const foldersField = (connection: string) => `sectionFolders:${connection}`;
 const ChosenSchema = Schema.Struct({ value: Schema.Json, at: Schema.Finite });
 type Chosen = typeof ChosenSchema.Type;
 // A Favorites or folder change made here also keeps, until Private Sync holds it, `base`: the value
-// it was made from (null for none), and once a pass publishes it, `sent`: what it published.
-// Private Sync holds neither.
+// it was made from (null for none), and once a pass publishes it, `sent`: what it published. A
+// change made here that no pass has published yet is `unpublished`. Private Sync holds none of them.
 const FieldSchema = Schema.Struct({
   ...ChosenSchema.fields,
   base: Schema.optionalKey(Schema.NullOr(ChosenSchema)),
   sent: Schema.optionalKey(ChosenSchema),
+  unpublished: Schema.optionalKey(Schema.Literal(true)),
 });
 type Field = typeof FieldSchema.Type;
 type Fields = Readonly<Record<string, Field>>;
@@ -189,6 +199,18 @@ export interface NativeInboxPreferenceSync {
       expectedUpdatedAt?: number;
     }>,
   ) => Promise<unknown>;
+}
+
+// Each Mail Profile's reading preferences (ADR 0019's `mail-workflow-preferences:reading`), such as
+// when opening a message marks it read: kept and synchronized as the Inbox preferences are, in
+// their own encrypted file and Private Sync record.
+export interface NativeReadingPreferences {
+  readonly openReadingPreferences: NativeInboxPreferences['openInboxPreferences'];
+  readonly commitReadingPreferences: NativeInboxPreferences['commitInboxPreferences'];
+}
+export interface NativeReadingPreferenceSync {
+  readonly pullReadingPreferences: NativeInboxPreferenceSync['pullInboxPreferences'];
+  readonly pushReadingPreferences: NativeInboxPreferenceSync['pushInboxPreferences'];
 }
 
 const report = reportPreference('Inbox preference');
@@ -457,6 +479,34 @@ export function createInboxPreferences(
         })) || conflicted;
     }
     pulled = conflicted ? undefined : { account, known, unreadable };
+    if (
+      !conflicted &&
+      stored.some(({ fields }) =>
+        Object.values(fields).some(({ unpublished }) => unpublished === true),
+      )
+    ) {
+      // Private Sync now holds what this pass published, unless a later change was made meanwhile.
+      yield* changed(account, (profiles) =>
+        stored.filter(sendable).reduce((all, { profile, fields }) => {
+          const kept = fieldsOf(all, profile);
+          const next = Object.fromEntries(
+            Object.entries(kept).map(([name, field]) => {
+              const sent = fields[name];
+              if (
+                field.unpublished === undefined ||
+                sent === undefined ||
+                !same(field, sent)
+              ) {
+                return [name, field];
+              }
+              const { unpublished: _, ...held } = field;
+              return [name, held];
+            }),
+          );
+          return sameFields(kept, next) ? all : withFields(all, profile, next);
+        }, profiles),
+      );
+    }
     return conflicted;
   });
 
@@ -482,6 +532,7 @@ export function createInboxPreferences(
     value:
       | ListDensity
       | PreviewLines
+      | MarkRead
       | boolean
       | ((stored: unknown) => FavoriteEntries | SectionFolders | undefined),
   ) => {
@@ -496,17 +547,21 @@ export function createInboxPreferences(
           const field = fields[name];
           const chosen =
             typeof value === 'function' ? value(field?.value) : value;
-          return chosen === undefined ||
+          if (
+            chosen === undefined ||
             JSON.stringify(field?.value) === JSON.stringify(chosen)
-            ? next
-            : withFields(next, profile, {
-                ...fields,
-                [name]: {
-                  value: chosen,
-                  at: Math.max(Date.now(), (field?.at ?? 0) + 1),
-                  ...(typeof value === 'function' ? madeFrom(field) : {}),
-                },
-              });
+          ) {
+            return next;
+          }
+          return withFields(next, profile, {
+            ...fields,
+            [name]: {
+              value: chosen,
+              at: Math.max(Date.now(), (field?.at ?? 0) + 1),
+              ...(typeof value === 'function' ? madeFrom(field) : {}),
+              ...(sync === undefined ? {} : { unpublished: true as const }),
+            },
+          });
         }, kept),
       ).pipe(
         Effect.as(true),
@@ -631,6 +686,29 @@ export function createInboxPreferences(
     ) =>
       choose([profile], foldersField(connection), (stored) =>
         change(isSectionFolders(stored) ? stored : noFolders),
+      ),
+    // When opening a message of `profile` marks it read: Immediately when none was chosen, when
+    // signed out, or once storage failed to read the choice; undefined until the first read.
+    markRead: (profile: string): MarkRead | undefined => {
+      const account = signedIn();
+      if (account === undefined || failed.has(account)) {
+        return 'immediately';
+      }
+      if (shown.account !== account) {
+        return undefined;
+      }
+      const value = fieldsOf(shown.profiles, profile).markRead?.value;
+      return isMarkRead(value) ? value : 'immediately';
+    },
+    // Chooses when opening a message of `profile` marks it read, as `setListDensity` does.
+    setMarkRead: (profile: string, choice: MarkRead) =>
+      choose([profile], 'markRead', choice),
+    // Whether a choice made here for `profile` waits for Private Sync to publish it.
+    waiting: (profile: string) =>
+      shown.account !== undefined &&
+      shown.account === signedIn() &&
+      Object.values(fieldsOf(shown.profiles, profile)).some(
+        ({ unpublished }) => unpublished === true,
       ),
     // Merges Private Sync into this device's preferences and publishes this device's changes;
     // resolves once no pass is running.

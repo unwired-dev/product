@@ -1,3 +1,5 @@
+import type { MailProfile } from '@private-email/mail-core/registration';
+
 import { messageZooms } from '@private-email/mail-core/message-body';
 import {
   ipadListScale,
@@ -10,6 +12,7 @@ import type { SettingsDestination } from './settings.tsx';
 
 import { MenuButton } from './design.tsx';
 import { useLocalization } from './localization.ts';
+import { MarkReadSettings } from './mark-read.tsx';
 import {
   setFitWideMessages,
   setMessageZoom,
@@ -37,11 +40,15 @@ const styles = StyleSheet.create({
 });
 
 // Settings › Reading: app text follows the system; received formatted mail zooms, and wide mail
-// fits the screen, on this device.
+// fits the screen, on this device; each of `profiles` chooses when opening a message marks it
+// read.
 export function ReadingSettings({
   destination,
+  profiles,
 }: {
   readonly destination: SettingsDestination | undefined;
+  // The Mail Profiles besides the Default Profile.
+  readonly profiles: readonly MailProfile[];
 }) {
   const { t } = useLocalization();
   const colors = usePalette();
@@ -100,6 +107,7 @@ export function ReadingSettings({
           />
         </SettingsRow>
       </SettingsGroup>
+      <MarkReadSettings profiles={profiles} />
     </>
   );
 }

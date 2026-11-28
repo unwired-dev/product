@@ -75,6 +75,8 @@ public final class PrivateInboxStore: @unchecked Sendable {
     "dev.unwired.private-inbox.blocked-senders.v1".utf8)
   private let inboxPreferencesAssociatedData = Data(
     "dev.unwired.private-inbox.inbox-preferences.v1".utf8)
+  private let readingPreferencesAssociatedData = Data(
+    "dev.unwired.private-inbox.reading-preferences.v1".utf8)
   private let pinsAssociatedData = Data("dev.unwired.private-inbox.pins.v1".utf8)
   private let unsubscribeRequestsAssociatedData = Data(
     "dev.unwired.private-inbox.unsubscribe-requests.v1".utf8)
@@ -308,8 +310,9 @@ public final class PrivateInboxStore: @unchecked Sendable {
     if let existing = try keychain.read("encryption-key") { return existing }
     for name in [
       "inbox.enc", "drafts.enc", "draft-assets", "composer-recovery", "mail-templates.enc",
-      "send-reminders.enc", "blocked-senders.enc", "inbox-preferences.enc", "pins.enc",
-      "unsubscribe-requests.enc", "mailbox.enc", "mailboxes", "bodies",
+      "send-reminders.enc", "blocked-senders.enc", "inbox-preferences.enc",
+      "reading-preferences.enc", "pins.enc", "unsubscribe-requests.enc", "mailbox.enc",
+      "mailboxes", "bodies",
     ] {
       guard !FileManager.default.fileExists(atPath: directory.appendingPathComponent(name).path)
       else { throw PrivateInboxError.unavailable }
@@ -437,6 +440,20 @@ public final class PrivateInboxStore: @unchecked Sendable {
   {
     try commitDocument(
       "inbox-preferences.enc", authenticating: inboxPreferencesAssociatedData, owner: owner,
+      expectedRevision: expectedRevision, document: document)
+  }
+
+  // The Product Account's reading preferences, kept like its Inbox presentation preferences.
+  func openReadingPreferenceDocument(owner: String) throws -> (revision: Int, document: String?) {
+    try openDocument(
+      "reading-preferences.enc", authenticating: readingPreferencesAssociatedData, owner: owner)
+  }
+
+  func commitReadingPreferenceDocument(owner: String, expectedRevision: Int, document: String)
+    throws -> Int
+  {
+    try commitDocument(
+      "reading-preferences.enc", authenticating: readingPreferencesAssociatedData, owner: owner,
       expectedRevision: expectedRevision, document: document)
   }
 
@@ -727,7 +744,8 @@ public final class PrivateInboxStore: @unchecked Sendable {
         [
           "mailboxes", "mailbox.enc", "bodies", "drafts.enc", "draft-assets", "composer-recovery",
           "mail-templates.enc", "send-reminders.enc", "blocked-senders.enc",
-          "inbox-preferences.enc", "pins.enc", "unsubscribe-requests.enc",
+          "inbox-preferences.enc", "reading-preferences.enc", "pins.enc",
+          "unsubscribe-requests.enc",
         ].map { directory.appendingPathComponent($0) } + [attachments])
     }
   }

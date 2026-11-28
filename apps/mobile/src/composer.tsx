@@ -44,6 +44,7 @@ import type {
   StyleProp,
   ScrollViewInstance,
   TextInputInstance,
+  TextLayoutEvent,
   TextStyle,
   ViewInstance,
   ViewStyle,
@@ -68,7 +69,7 @@ import {
   applySlashBlock,
   assetStates,
   bodyRecipientQuery,
-  bodyRecipientSuggestions,
+  bodySuggestionSections,
   draftOf,
   entryOf,
   greetingName,
@@ -78,6 +79,7 @@ import {
   recipientLabel,
   draftSummary,
   profileOf,
+  recipientRole,
   recipientSuggestions,
   sameContent,
   sendingMailboxes,
@@ -278,6 +280,7 @@ const fieldInset = 16;
 const fieldLabelWidth = 80;
 const padInset = 32 * ipadListScale;
 export const padFieldInset = spacing.xxl * ipadListScale;
+const padBodyMenuWidth = 320 * ipadListScale;
 const padLabelWidth = 64 * ipadListScale;
 // Compact 44pt and regular 41.4pt field rows reach 44pt targets. Each includes its row's rule:
 // iPhone's 1pt and iPad's 1.15pt, the Mac recipe's point at 1.15×.
@@ -566,6 +569,8 @@ const styles = StyleSheet.create({
     opacity: 0,
     pointerEvents: 'none',
   },
+  // A copy measured for where the query's @ sits, kept out of the layout.
+  bodyProbe: { position: 'absolute', left: 0, right: 0, top: 0 },
   // The body grows to fill the editor through the view taking its arrow keys.
   bodyKeys: { flexGrow: 1 },
   // The body's top padding goes once, before the lines over the query's.
@@ -747,8 +752,8 @@ export const layoutStyles = {
     // The Mac's body suggestions at 1.15, their rows aligned with the text.
     bodySuggestions: {
       marginLeft: padFieldInset,
-      width: 320 * ipadListScale,
-      marginTop: 6 * ipadListScale,
+      width: padBodyMenuWidth,
+      marginTop: 9 * ipadListScale,
       padding: 6 * ipadListScale,
     },
     token: { minHeight: padFieldHeight },
@@ -1135,6 +1140,7 @@ function SuggestionMenu({
   style,
   empty,
   note,
+  roleOf,
   monograms = false,
   scroll,
 }: {
@@ -1148,6 +1154,8 @@ function SuggestionMenu({
   readonly style: StyleProp<ViewStyle>;
   readonly empty?: string | undefined;
   readonly note?: string | undefined;
+  // The field a person already on the Draft is in, shown at the row's trailing edge.
+  readonly roleOf?: ((recipient: Recipient) => string | undefined) | undefined;
   readonly monograms?: boolean;
   // Rows taller than `maxHeight` scroll inside the menu; `onContentHeight` hears their full height.
   // They start at the top for each `query`.
@@ -1238,6 +1246,14 @@ function SuggestionMenu({
                 const secondary = filled
                   ? colors.accentOnFill
                   : colors.textSecondary;
+                const role = roleOf?.(recipient);
+                const label =
+                  recipient.name === undefined
+                    ? recipient.address
+                    : t('drafts.suggestions.named', {
+                        name: recipient.name,
+                        address: recipient.address,
+                      });
                 let highlight = null;
                 if (chosen) {
                   highlight = {
@@ -1250,12 +1266,9 @@ function SuggestionMenu({
                   <Pressable
                     key={recipient.address}
                     accessibilityLabel={
-                      recipient.name === undefined
-                        ? recipient.address
-                        : t('drafts.suggestions.named', {
-                            name: recipient.name,
-                            address: recipient.address,
-                          })
+                      role === undefined
+                        ? label
+                        : t('drafts.suggestions.inRole', { label, role })
                     }
                     accessibilityRole="button"
                     accessibilityState={{ selected: chosen }}
@@ -1314,6 +1327,17 @@ function SuggestionMenu({
                         </Text>
                       )}
                     </View>
+                    {role === undefined ? null : (
+                      <Text
+                        style={[
+                          monograms
+                            ? styles.monogramAddress
+                            : [styles.suggestionName, sized.suggestionName],
+                          { color: secondary },
+                        ]}>
+                        {role}
+                      </Text>
+                    )}
                   </Pressable>
                 );
               })}
@@ -3610,9 +3634,8 @@ function DraftReminder({
 }
 
 // Up to four Recipient Suggestions for an @ in the body: recent correspondents of the Draft's
-// Mail Profile, newest first, then for typed text Apple Contacts, one row kept for a contact.
-// People already on the Draft are left out.
-function bodySuggestionSections(
+// Mail Profile and the people already on the Draft, then for typed text Apple Contacts.
+function bodySuggestions(
   draft: Draft,
   query: BodyRecipientQuery,
   {
@@ -3625,34 +3648,14 @@ function bodySuggestionSections(
     contacts: Iterable<Readonly<{ sender: string; address: string }>>;
   }>,
 ) {
-  const { correspondents, excluded } = correspondentsFor(
-    draft,
-    connections,
-    held,
-  );
-  const recent = bodyRecipientSuggestions(draft, query, {
-    correspondents,
-    excluded,
-    limit: 4,
+  return bodySuggestionSections(draft, query, {
+    ...correspondentsFor(draft, connections, held),
+    contacts,
   });
-  const matched =
-    query.text === ''
-      ? []
-      : bodyRecipientSuggestions(draft, query, {
-          correspondents: contacts,
-          excluded: [...excluded, ...recent.map(({ address }) => address)],
-          limit: 4,
-        });
-  const shown = recent.slice(0, matched.length === 0 ? 4 : 3);
-  return {
-    query,
-    recent: shown,
-    contacts: matched.slice(0, 4 - shown.length),
-  };
 }
 
-// The Body Recipient Shortcut in an editor's body. Typing @ in an otherwise empty body opens
-// Recipient Suggestions under it; a space, a caret move, leaving the body or a choice closes
+// The Body Recipient Shortcut in an editor's body. Typing @ at a paragraph start or after
+// whitespace opens Recipient Suggestions under it; a space, a caret move, leaving the body or a choice closes
 // them, keeping the typed text.
 function useBodyRecipients(
   draft: Draft,
@@ -3696,11 +3699,7 @@ function useBodyRecipients(
     () => bodyRecipientQuery(textOf(draft.body), selection),
     [draft.body, selection],
   );
-  const open =
-    !paused &&
-    armed !== undefined &&
-    query?.start === armed &&
-    onlyQueryIn(textOf(draft.body), query);
+  const open = !paused && armed !== undefined && query?.start === armed;
   // Read once each time an @ arms, never asking for Contacts access.
   const contacts = useContactAddresses(armed !== undefined, false);
   const connections = use(AccountContext)?.mailboxes;
@@ -3708,7 +3707,7 @@ function useBodyRecipients(
   const sections = useMemo(
     () =>
       open && query !== undefined
-        ? bodySuggestionSections(draft, query, {
+        ? bodySuggestions(draft, query, {
             connections: connections ?? [],
             held,
             contacts: contacts.addresses,
@@ -3732,6 +3731,12 @@ function useBodyRecipients(
             contacts.failed && sections.query.text !== ''
               ? t('drafts.bodyRecipient.contactsUnsearchable')
               : undefined,
+          roleOf: ({ address }: Recipient) => {
+            const field = recipientRole(draft, address);
+            return field === undefined
+              ? undefined
+              : t(`drafts.fields.${field}`);
+          },
         }
       : undefined;
   // VoiceOver hears No Matches and the note once each appears, after the typed character, since
@@ -3765,12 +3770,11 @@ function useBodyRecipients(
     if (
       pausedNow.current ||
       current === undefined ||
-      current.start !== armedNow.current ||
-      !onlyQueryIn(textOf(latest.body), current)
+      current.start !== armedNow.current
     ) {
       return undefined;
     }
-    const listed = bodySuggestionSections(latest, current, {
+    const listed = bodySuggestions(latest, current, {
       connections: connections ?? [],
       held,
       contacts: contacts.addresses,
@@ -3780,11 +3784,11 @@ function useBodyRecipients(
   return {
     shown,
     close,
-    // After a body edit inserting `inserted`: typing @ in an empty body opens suggestions, and
-    // leaving its query closes them.
+    // After a body edit inserting `inserted`: typing @ opens suggestions, and leaving its query
+    // closes them.
     typed: (next: SemanticDocument, caret: Selection, inserted: string) => {
       const typed = bodyRecipientQuery(next, caret);
-      if (inserted === '@' && typed?.text === '' && onlyQueryIn(next, typed)) {
+      if (inserted === '@' && typed?.text === '') {
         arm(typed.start);
       } else if (typed?.start === armedNow.current) {
         // The list changed, so the highlight starts over.
@@ -3823,20 +3827,49 @@ function useBodyRecipients(
       candidates(latest, at)?.some((listed) => listed.address === address)
         ? bodyRecipientQuery(textOf(latest.body), at)
         : undefined,
-    // What VoiceOver hears once a choice added the person.
-    added: (recipient: Recipient) =>
-      t('drafts.bodyRecipient.added', {
-        name: recipient.name ?? recipient.address,
-      }),
+    // What VoiceOver hears once a choice added the person, or inserted `text` for a person
+    // already on the Draft.
+    added: (recipient: Recipient, present: boolean, text: string) =>
+      present
+        ? t('drafts.bodyRecipient.inserted', { text })
+        : t('drafts.bodyRecipient.added', {
+            name: recipient.name ?? recipient.address,
+          }),
     greeting: (recipient: Recipient) => {
       const name = greetingName(recipient, contacts.addresses);
       return name === undefined
         ? t('drafts.bodyRecipient.greetingUnnamed')
         : t('drafts.bodyRecipient.greeting', { name });
     },
+    // In written text: the given name, else the display name, else the address.
     name: (recipient: Recipient) =>
       greetingName(recipient, contacts.addresses) ?? recipient.address,
   };
+}
+
+type LaidText = Partial<
+  Record<'query' | 'line' | 'at', TextLayoutEvent['nativeEvent']['lines']>
+>;
+
+const endOf = (each: LaidText['line'] = []) => {
+  const line = each.at(-1);
+  return line === undefined ? 0 : line.x + line.width;
+};
+
+// How far the @ at `offset` in its line sits from the line's start: the line copied through the @
+// ends that far plus the @'s own width, unless typing the query moved the @ onto a later line,
+// which it then starts.
+function atIndent(laid: LaidText, offset: number) {
+  const query = laid.query ?? [];
+  const atLine = query.findIndex(
+    (_, index) =>
+      query
+        .slice(0, index + 1)
+        .reduce((length, { text }) => length + text.length, 0) > offset,
+  );
+  return atLine >= (laid.line?.length ?? 0)
+    ? (query.at(atLine)?.x ?? 0)
+    : Math.max(endOf(laid.line) - endOf(laid.at), 0);
 }
 
 // A menu under the line of the body's query at `start`: a transparent copy of the body up to that
@@ -3870,13 +3903,18 @@ function BodyMenuAnchor({
       origin: string;
       maxHeight: number | undefined;
       onContentHeight: (height: number) => void;
+      // The @'s distance from its line's start, and the line's width once measured.
+      indent: number;
+      width: number | undefined;
     }>,
   ) => ReactNode;
 }) {
   const appearance = useAppearance();
   const queryLine = useRef<ViewInstance>(null);
   const [room, setRoom] =
-    useState<Readonly<{ below: number; above: number; lift: number }>>();
+    useState<
+      Readonly<{ below: number; above: number; lift: number; width: number }>
+    >();
   const [rows, setRows] = useState(0);
   const measure = () => {
     const view = viewport.current?.getBoundingClientRect();
@@ -3892,6 +3930,7 @@ function BodyMenuAnchor({
       below: floor - line.bottom - 24,
       above: line.bottom - lift - view.top - spacing.s - 24,
       lift,
+      width: line.width,
     });
   };
   useEffect(() => {
@@ -3900,44 +3939,65 @@ function BodyMenuAnchor({
       placeRef.current = undefined;
     };
   });
+  // Fabric reports no layout for views inside text, so text measures the @.
+  const [laid, setLaid] = useState<LaidText>({});
+  const layoutOf =
+    (key: keyof LaidText) =>
+    ({ nativeEvent: { lines: each } }: TextLayoutEvent) => {
+      setLaid((current) => ({ ...current, [key]: each }));
+    };
   // The lines up to the caret: text after it may wrap below the line the menu hangs from.
   const lineStart = display.text.lastIndexOf('\n', start - 1) + 1;
-  const lines = display.lines
-    .slice(0, display.text.slice(0, start).split('\n').length)
-    .map((line, index, all) => {
-      if (index < all.length - 1) {
-        return line;
-      }
-      let left = end - lineStart - line.marker.length;
-      const spans = line.spans.flatMap((span) => {
-        const text = span.text.slice(0, Math.max(left, 0));
-        left -= span.text.length;
-        return text === '' ? [] : [{ ...span, text }];
-      });
-      return { ...line, spans };
+  const indent = atIndent(laid, start - lineStart);
+  const lines = display.lines.slice(
+    0,
+    display.text.slice(0, start).split('\n').length,
+  );
+  type Line = (typeof lines)[number];
+  const cut = (spans: Line['spans'], from: number, to: number) => {
+    let offset = 0;
+    return spans.flatMap((span) => {
+      const text = span.text.slice(
+        Math.max(from - offset, 0),
+        Math.max(to - offset, 0),
+      );
+      offset += span.text.length;
+      return text === '' ? [] : [{ ...span, text }];
     });
-  const copy = (each: typeof lines) =>
+  };
+  // Formatted as the body shows them, since formatting can change a line's height.
+  const spanCopy = (spans: Line['spans']) =>
+    spans.map((span, at) => (
+      <Text
+        // oxlint-disable-next-line react/no-array-index-key -- Spans are positional.
+        key={at}
+        style={[
+          markStyle(span.marks, 'link' in span),
+          formatStyleOf(span, appearance),
+        ]}>
+        {span.text}
+      </Text>
+    ));
+  const copy = (each: readonly Line[]) =>
     each.map((line, index) => (
       <Text
         // oxlint-disable-next-line react/no-array-index-key -- Blocks are positional.
         key={index}
         style={kindStyles[line.kind]}>
         {line.marker}
-        {/* Formatted as the body shows them, since formatting can change a line's height. */}
-        {line.spans.map((span, at) => (
-          <Text
-            // oxlint-disable-next-line react/no-array-index-key -- Spans are positional.
-            key={at}
-            style={[
-              markStyle(span.marks, 'link' in span),
-              formatStyleOf(span, appearance),
-            ]}>
-            {span.text}
-          </Text>
-        ))}
+        {spanCopy(line.spans)}
         {index < each.length - 1 ? '\n' : ''}
       </Text>
     ));
+  const last = lines.at(-1);
+  const queryAt = start - lineStart - (last?.marker.length ?? 0);
+  const queryCopy =
+    last === undefined ? null : (
+      <Text style={kindStyles[last.kind]}>
+        {last.marker}
+        {spanCopy(cut(last.spans, 0, queryAt + end - start))}
+      </Text>
+    );
   const above =
     room !== undefined && rows > room.below && room.above > room.below;
   const hidden = {
@@ -3953,10 +4013,32 @@ function BodyMenuAnchor({
       <Text
         ref={queryLine}
         onLayout={measure}
+        onTextLayout={layoutOf('query')}
         {...hidden}
         style={[hidden.style, lines.length > 1 && styles.bodyCopyLine]}>
-        {copy(lines.slice(-1))}
+        {queryCopy}
       </Text>
+      {last === undefined ? null : (
+        <>
+          <Text
+            {...hidden}
+            style={[hidden.style, styles.bodyProbe]}
+            onTextLayout={layoutOf('line')}>
+            <Text style={kindStyles[last.kind]}>
+              {last.marker}
+              {spanCopy(cut(last.spans, 0, queryAt + 1))}
+            </Text>
+          </Text>
+          <Text
+            {...hidden}
+            style={[hidden.style, styles.bodyProbe]}
+            onTextLayout={layoutOf('at')}>
+            <Text style={kindStyles[last.kind]}>
+              {spanCopy(cut(last.spans, queryAt, queryAt + 1))}
+            </Text>
+          </Text>
+        </>
+      )}
       <View
         style={
           above && room !== undefined
@@ -3970,6 +4052,8 @@ function BodyMenuAnchor({
               ? undefined
               : Math.max(above ? room.above : room.below, 0),
           onContentHeight: setRows,
+          indent,
+          width: room?.width,
         })}
       </View>
     </View>
@@ -3994,13 +4078,27 @@ function BodyRecipientMenu({
       start={shown.sections.query.start}
       end={shown.sections.query.end}
       {...anchor}>
-      {({ origin, maxHeight, onContentHeight }) => (
+      {({ origin, maxHeight, onContentHeight, indent, width }) => (
         <SuggestionMenu
           {...shown}
           onAccept={onAccept}
           origin={origin}
           monograms={size === 'compact'}
-          style={layoutStyles[size].bodySuggestions}
+          style={[
+            layoutStyles[size].bodySuggestions,
+            // On iPad under the @, kept inside the editor near its trailing edge.
+            size === 'regular' && {
+              marginLeft:
+                padFieldInset +
+                Math.max(
+                  0,
+                  Math.min(
+                    indent,
+                    (width ?? 0) - 2 * padFieldInset - padBodyMenuWidth,
+                  ),
+                ),
+            },
+          ]}
           scroll={{
             query: shown.sections.query.text,
             maxHeight,
@@ -4983,7 +5081,8 @@ function Editor({
     placeTyping(undefined);
     update(historyNow.current.present);
   };
-  // Choosing a person for the @ replaces it with the greeting and adds them to To, as one edit.
+  // Choosing a person for the @ replaces it with the greeting, or in written text the name, and
+  // adds a person not yet on the Draft to To, as one edit.
   const chooseRecipient = (recipient: Recipient) => {
     const latest = authored.current;
     const query = recipientMenu.choosable(
@@ -4994,11 +5093,15 @@ function Editor({
     if (query === undefined) {
       return;
     }
+    const greeting = recipientMenu.greeting(recipient);
+    const name = recipientMenu.name(recipient);
+    const present = recipientRole(latest, recipient.address) !== undefined;
+    const inserted = onlyQueryIn(textOf(latest.body), query) ? greeting : name;
     const result = addBodyRecipient(latest, {
       query,
       recipient,
-      greeting: recipientMenu.greeting(recipient),
-      name: recipientMenu.name(recipient),
+      greeting,
+      name,
     });
     recipientMenu.close();
     change(result.draft);
@@ -5006,7 +5109,9 @@ function Editor({
     caret.current = result.selection.start;
     selectionNow.current = result.selection;
     setPlaced(result.selection);
-    AccessibilityInfo.announceForAccessibility(recipientMenu.added(recipient));
+    AccessibilityInfo.announceForAccessibility(
+      recipientMenu.added(recipient, present, inserted),
+    );
   };
   // Captures authored text for an explicitly requested translation, text tool, reply suggestion or
   // generated draft.

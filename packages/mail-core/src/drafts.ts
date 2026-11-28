@@ -475,14 +475,6 @@ export const onlyQueryIn = (
     .join('')
     .trim() === `@${query.text}`;
 
-// Up to `limit` recent correspondents for the query, as the To field matches them; a bare @
-// lists the newest.
-export const bodyRecipientSuggestions = (
-  draft: Draft,
-  query: BodyRecipientQuery,
-  options: SuggestionOptions,
-) => suggestionsFor(query.text.toLowerCase(), withoutDraft(draft, options));
-
 // Up to four people for the query, as the To field matches them: recent `correspondents`, newest
 // first, then people already on the Draft, and for typed text the `contacts` left over, one row
 // kept for them. People already on the Draft stay listed, also when only their Contacts name
@@ -501,20 +493,36 @@ export function bodySuggestionSections(
   }>,
 ) {
   const typed = query.text.toLowerCase();
-  const present = [...draft.to, ...draft.cc, ...draft.bcc];
+  const sent = [...correspondents];
   // A Mail Profile address someone put on the Draft, such as a self-Bcc, is listed too.
   const onDraft = new Set(addressesOf(draft).map((each) => each.toLowerCase()));
   const kept = [...excluded].filter(
     (address) => !onDraft.has(address.toLowerCase()),
   );
-  const recent = suggestionsFor(typed, {
-    correspondents: [
-      ...correspondents,
-      ...present.map(({ name = '', address }) => ({ sender: name, address })),
-    ],
-    excluded: kept,
+  const others = suggestionsFor(typed, {
+    correspondents: sent,
+    excluded: [...kept, ...onDraft],
     limit: 4,
   });
+  // Then people already on the Draft, once each, under their newest recent name, else the name
+  // the Draft gives them, matched by either.
+  const people = [...draft.to, ...draft.cc, ...draft.bcc];
+  const present = people.flatMap((person, index) => {
+    const address = person.address.toLowerCase();
+    const sameAs = (each: Recipient) => each.address.toLowerCase() === address;
+    if (people.findIndex(sameAs) !== index) {
+      return [];
+    }
+    const same = people.filter(sameAs);
+    const sentAs = sent
+      .filter((each) => each.address.toLowerCase() === address)
+      .map(({ sender }) =>
+        correspondentOf({ sender, address: person.address }),
+      );
+    const shown = sentAs.find(({ name }) => name !== undefined) ?? person;
+    return [...same, ...sentAs].some(startsWith(typed)) ? [shown] : [];
+  });
+  const recent = [...others, ...present].slice(0, 4);
   const matched =
     typed === ''
       ? []

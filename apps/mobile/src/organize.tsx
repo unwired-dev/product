@@ -67,7 +67,13 @@ import {
   useState,
   useSyncExternalStore,
 } from 'react';
-import { Platform, StyleSheet, useWindowDimensions, View } from 'react-native';
+import {
+  AppState,
+  Platform,
+  StyleSheet,
+  useWindowDimensions,
+  View,
+} from 'react-native';
 
 import type { Destination } from './move-sheet.tsx';
 import type { MessageZoom } from './reading.ts';
@@ -88,8 +94,10 @@ import {
   useInbox,
   useInboxActions,
   useMailbox,
+  useProfile,
   useProviderName,
 } from './mailbox.tsx';
+import { useMarkRead } from './mark-read.tsx';
 import { MovePanel, MoveSheet } from './move-sheet.tsx';
 import { LabelChoices, NewLabel } from './new-label.tsx';
 import { usePinAction, usePinned } from './pins.tsx';
@@ -206,9 +214,34 @@ export type Marked = RefObject<
   Readonly<{ store: object; id: string }> | undefined
 >;
 
-// Opening a message reads it: once the reader can change the message, it marks it read with the
-// change Mark as Read makes. Each opening marks it once, so a later Mark as Unread stands.
-export function ReadWhenOpened<M extends Readonly<{ id: string }>>({
+// After 2 seconds marks a message read once it has stayed open this long with the app in front.
+const markReadDelay = 2000;
+// Each mailbox's opened message's last automatic mark read, numbered, so a reader in another
+// window opened before it leaves a later Mark as Unread alone.
+const markedAt = new WeakMap<object, Map<string, number>>();
+let claims = 0;
+
+// Whether the app is in front.
+function useActive() {
+  const [active, setActive] = useState(AppState.currentState === 'active');
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (state) => {
+      setActive(state === 'active');
+    });
+    return () => {
+      subscription.remove();
+    };
+  }, []);
+  return active;
+}
+
+// Opening a message reads it as its Mail Profile's Mark as Read choice says: Immediately, After 2
+// seconds once it stayed open that long with the app in front, or never when Manually. Once the
+// reader can change the message, it marks it read with the change Mark as Read makes. Each opening
+// marks it once, so a later Mark as Unread stands.
+export function ReadWhenOpened<
+  M extends Readonly<{ id: string; unread: boolean }>,
+>({
   markedRef,
   store,
   message,
@@ -219,20 +252,78 @@ export function ReadWhenOpened<M extends Readonly<{ id: string }>>({
   readonly message: M;
   readonly read: (message: M) => Promise<unknown>;
 }) {
+  const choice = useMarkRead(useProfile());
+  const active = useActive();
+  const { id } = message;
+  // Whether this opening began unread, and the message's last automatic mark then: After 2 seconds
+  // waits only for an opening that began unread and that no window has marked since, so a reader
+  // opened after another window read it, or whose wait leaving the app restarted, leaves a later
+  // Mark as Unread alone.
+  const opened = () => ({
+    store,
+    id,
+    unread: message.unread,
+    marked: markedAt.get(store)?.get(id),
+  });
+  const [began, setBegan] = useState(opened);
+  if (began.store !== store || began.id !== id) {
+    setBegan(opened());
+  }
+  // The opening that has stayed open 2 seconds with the app in front.
+  const [elapsed, setElapsed] =
+    useState<Readonly<{ store: object; id: string }>>();
+  useEffect(() => {
+    if (choice !== 'afterTwoSeconds' || !active || !began.unread) {
+      return undefined;
+    }
+    const timer = setTimeout(() => {
+      if (
+        AppState.currentState === 'active' &&
+        markedAt.get(store)?.get(id) === began.marked
+      ) {
+        setElapsed({ store, id });
+      }
+    }, markReadDelay);
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [choice, active, began.unread, began.marked, store, id]);
+  const due =
+    choice === 'immediately' ||
+    (choice === 'afterTwoSeconds' &&
+      elapsed?.store === store &&
+      elapsed.id === id);
   useEffect(() => {
     const marked = markedRef.current;
-    if (marked?.store !== store || marked.id !== message.id) {
+    if (due && (marked?.store !== store || marked.id !== message.id)) {
       const opening = { store, id: message.id };
       markedRef.current = opening;
-      // A read the mailbox could not save marks it again once the reader can change it.
+      // Claimed before the read is saved, so another window's wait leaves a Mark as Unread made
+      // meanwhile alone; a read the mailbox could not save gives the claim back and marks it again
+      // once the reader can change it.
+      const marks = markedAt.get(store) ?? new Map<string, number>();
+      markedAt.set(store, marks);
+      const before = marks.get(message.id);
+      claims += 1;
+      const at = claims;
+      marks.set(message.id, at);
       const mark = async () => {
-        if ((await read(message)) === false && markedRef.current === opening) {
-          markedRef.current = undefined;
+        if ((await read(message)) === false) {
+          if (marks.get(message.id) === at) {
+            if (before === undefined) {
+              marks.delete(message.id);
+            } else {
+              marks.set(message.id, before);
+            }
+          }
+          if (markedRef.current === opening) {
+            markedRef.current = undefined;
+          }
         }
       };
       void mark();
     }
-  }, [markedRef, store, message, read]);
+  }, [due, markedRef, store, message, read]);
   return null;
 }
 

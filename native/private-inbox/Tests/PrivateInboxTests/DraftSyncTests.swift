@@ -197,6 +197,29 @@ struct DraftSyncTests {
     #expect(preferencesRecords.count == 1)
     #expect(preferencesRecords.first?["preferences"] as? String == preferences)
 
+    // A Profile's reading preferences record is ciphertext under its own identifier, and an Inbox
+    // preferences record moved there does not open.
+    let reading = #"{"profile":"work","fields":{"markRead":{"value":"manually","at":1}}}"#
+    let read = try await phone.push(
+      ReadingPreferencesRecord(id: "work", version: 1, content: reading), expected: nil)
+    #expect(read["committed"] as? Bool == true)
+    let readingIdentifier = try phone.identifier(ReadingPreferencesRecord.self, "work")
+    #expect(
+      readingIdentifier.hasPrefix("profile-reading-preferences.")
+        && !readingIdentifier.contains("work"))
+    let sealedReading = try #require(backend.records[owner]?[readingIdentifier])
+    #expect(
+      try #require(Data(base64Encoded: sealedReading.encryptedPayload.ciphertextBase64))
+        .range(of: Data("manually".utf8)) == nil)
+    let movedReading = try phone.identifier(ReadingPreferencesRecord.self, "home")
+    backend.records[owner]?[movedReading] = StoredPayload(
+      payloadIdentifier: movedReading, encryptedPayload: sealedPreferences.encryptedPayload,
+      updatedAt: updatedAt)
+    let pulledReading = try await mac.pull(ReadingPreferencesRecord.self, known: ["home"])
+    #expect(pulledReading["unreadable"] as? [String] == ["home"])
+    let readingRecords = try #require(pulledReading["records"] as? [[String: Any]])
+    #expect(readingRecords.first?["preferences"] as? String == reading)
+
     // A Send Reminder record is ciphertext under its own opaque identifier; another Draft's record
     // moved there does not open.
     let reminder =

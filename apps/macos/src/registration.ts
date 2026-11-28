@@ -16,6 +16,7 @@ export {
   pins,
   unsubscribe,
   inboxPreferences,
+  readingPreferences,
   outbox,
   wakes,
   freshness,

@@ -77,7 +77,9 @@ Each babysitting pass:
   behavior change made while babysitting before pushing it.
 - Never comments to trigger CodeRabbit or Codex: Codex reviews each push on its
   own, and a comment restarts the merger's 2-hour quiet period.
-- Ends once it has handled the feedback and gate state available now.
+- Ends once it has handled the feedback and gate state available now. The
+  watch stays on until the PR merges or closes; also merge `main` when the head
+  is behind, because the watch does not report that.
 
 A missing credential or permission is a blocker to report, not a reason to stop
 babysitting other gates.

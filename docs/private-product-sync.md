@@ -319,6 +319,10 @@ merge them preference by preference, the later choice winning, in the same way, 
 that a Favorites or folder change made from an order another device has since replaced
 gives way to that device's order
 ([#2628](https://github.com/unwired-dev/product/issues/2628)).
+Each Mail Profile's reading preferences, today when opening a message marks it read
+([#2829](https://github.com/unwired-dev/product/issues/2829)), synchronize the same way
+as their own sealed `profile-reading-preferences.` record, ADR 0019's
+`mail-workflow-preferences:reading`, kept on the device in `reading-preferences.enc`.
 
 Older clients can't keep Profiles apart either: they would show every Profile's
 connections in their only window. Convex fences them out without learning anything about

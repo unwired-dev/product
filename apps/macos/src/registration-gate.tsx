@@ -523,7 +523,9 @@ function SettingsPage({
             />
           </>
         ) : null}
-        {destination === 'reading' ? <ReadingSettings /> : null}
+        {destination === 'reading' ? (
+          <ReadingSettings profiles={profilesOf(snapshot)} />
+        ) : null}
         {destination === 'language' ? <LanguageSettings /> : null}
         <ErrorReportingDestination
           destination={destination}

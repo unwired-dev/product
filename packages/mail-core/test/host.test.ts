@@ -248,6 +248,14 @@ function syntheticHost(reporting?: NativeErrorReporting, productSync = false) {
       Promise.resolve({ owner, records: [], unreadable: [] }),
     pushInboxPreferences: (owner) =>
       Promise.resolve({ owner, committed: false }),
+    openReadingPreferences: () =>
+      Promise.resolve({ owner: 'account', revision: 0, document: null }),
+    commitReadingPreferences: (owner, expectedRevision) =>
+      Promise.resolve({ owner, revision: expectedRevision + 1 }),
+    pullReadingPreferences: (owner) =>
+      Promise.resolve({ owner, records: [], unreadable: [] }),
+    pushReadingPreferences: (owner) =>
+      Promise.resolve({ owner, committed: false }),
     openPins: () => Promise.resolve({ ...pinStorage }),
     commitPins: (owner, expectedRevision, document) => {
       Object.assign(pinStorage, {

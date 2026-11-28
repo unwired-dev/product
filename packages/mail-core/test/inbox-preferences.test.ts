@@ -204,6 +204,40 @@ describe('stored Inbox preferences', () => {
     });
   });
 
+  it("keeps each Profile's Mark as Read choice across a relaunch, unknown until read and Immediately by default", async () => {
+    expect.hasAssertions();
+    const { state, store, relaunch } = storage();
+    const unread = store.markRead('work');
+    await store.load();
+    const initial = store.markRead('work');
+    const stored = await store.setMarkRead('work', 'manually');
+    const relaunched = relaunch();
+    const beforeRead = relaunched.markRead('work');
+    await relaunched.load();
+    state.locked = true;
+    const locked = relaunch();
+    await locked.load();
+    expect({
+      unread,
+      initial,
+      stored,
+      beforeRead,
+      relaunched: [relaunched.markRead('work'), relaunched.markRead('home')],
+      // A read storage refused leaves the default, as signing out does.
+      locked: locked.markRead('work'),
+      waiting: store.waiting('work'),
+    }).toStrictEqual({
+      unread: undefined,
+      initial: 'immediately',
+      stored: true,
+      beforeRead: undefined,
+      relaunched: ['manually', 'immediately'],
+      locked: 'immediately',
+      // Without Private Sync, nothing waits to be published.
+      waiting: false,
+    });
+  });
+
   it('keeps the choice while the device is locked, and shows none of another account', async () => {
     expect.hasAssertions();
     const error = vi.spyOn(console, 'error');
@@ -283,6 +317,37 @@ describe('synchronized Inbox preferences', () => {
     await phone.store.synchronize();
     await mac.store.synchronize();
     expect(mac.store.listDensity('work')).toBe('comfortable');
+  });
+
+  it("carries a Profile's Mark as Read choice to another device, waiting across a relaunch until a pass publishes it", async () => {
+    expect.hasAssertions();
+    const { server, mac, phone } = devices();
+    server.setReachable(false);
+    await mac.store.setMarkRead('work', 'afterTwoSeconds');
+    await mac.store.synchronize();
+    const offline = [mac.store.waiting('work'), mac.store.waiting('home')];
+    const relaunched = mac.relaunch();
+    await relaunched.load();
+    const afterRelaunch = relaunched.waiting('work');
+    server.setReachable(true);
+    await relaunched.synchronize();
+    const published = relaunched.waiting('work');
+    await phone.store.synchronize();
+    // Choosing what is already chosen writes nothing, so nothing waits.
+    await phone.store.setMarkRead('work', 'afterTwoSeconds');
+    expect({
+      offline,
+      afterRelaunch,
+      published,
+      phone: [phone.store.markRead('work'), phone.store.markRead('home')],
+      unchanged: phone.store.waiting('work'),
+    }).toStrictEqual({
+      offline: [true, false],
+      afterRelaunch: true,
+      published: false,
+      phone: ['afterTwoSeconds', 'immediately'],
+      unchanged: false,
+    });
   });
 
   it("sets several Profiles' preview length in one write, kept across a relaunch and carried to another device", async () => {

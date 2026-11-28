@@ -35,6 +35,7 @@ import {
   blockedSenders,
   drafts as defaultDrafts,
   inboxPreferences,
+  readingPreferences,
   mailTemplates as defaultMailTemplates,
   outbox as defaultOutbox,
   sendReminders as defaultSendReminders,
@@ -109,6 +110,7 @@ export function InboxProvider({
     void sendReminders.synchronize();
     void inboxPreferences.load();
     void inboxPreferences.synchronize();
+    void readingPreferences.synchronize();
     // Returning picks up other devices' Draft, Mail Template, Blocked Sender, Send Reminder and Inbox
     // preference changes; leaving publishes this device's.
     return followOnce(drafts, () => {
@@ -119,6 +121,7 @@ export function InboxProvider({
           void blockedSenders.synchronize();
           void sendReminders.synchronize();
           void inboxPreferences.synchronize();
+          void readingPreferences.synchronize();
         }
       });
       return () => {
