@@ -476,7 +476,7 @@ message, or opening another, drops it, and the next message opens at the stored
 Message Zoom. Plain-text messages, provider content and Drafts don't change, and
 Fit Wide Messages to the Screen keeps fitting at any level. Beside the iPhone Reply
 sheet, which offers the other actions, More lists only Message Zoom…. The Mac's
-Message zoom is in the [macOS client](macos-client.md#reading).
+Message zoom and fit are in the [macOS client](macos-client.md#reading).
 
 ## Interface language
 
