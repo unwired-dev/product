@@ -21,6 +21,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import Animated, { css } from 'react-native-reanimated';
@@ -744,6 +745,9 @@ export function ProviderRow({
   readonly last?: boolean;
 }) {
   const colors = usePalette();
+  // A text size changed while the list is open keeps the hosted row's old height; a fresh host
+  // measures the row again.
+  const { fontScale } = useWindowDimensions();
   // The system button, with the row as its label, its spoken name and the detail as its hint. The
   // separator stays outside the button, so a busy step dims only the row.
   return (
@@ -752,7 +756,9 @@ export function ProviderRow({
         borderBottomWidth: last ? 0 : StyleSheet.hairlineWidth,
         borderBottomColor: colors.separator,
       }}>
-      <Host matchContents={{ vertical: true }}>
+      <Host
+        key={fontScale}
+        matchContents={{ vertical: true }}>
         <SwiftUIButton
           onPress={onPress}
           modifiers={[
