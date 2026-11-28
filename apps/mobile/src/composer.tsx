@@ -3847,6 +3847,31 @@ function useBodyRecipients(
   };
 }
 
+type LaidText = Partial<
+  Record<'query' | 'line' | 'at', TextLayoutEvent['nativeEvent']['lines']>
+>;
+
+const endOf = (each: LaidText['line'] = []) => {
+  const line = each.at(-1);
+  return line === undefined ? 0 : line.x + line.width;
+};
+
+// How far the @ at `offset` in its line sits from the line's start: the line copied through the @
+// ends that far plus the @'s own width, unless typing the query moved the @ onto a later line,
+// which it then starts.
+function atIndent(laid: LaidText, offset: number) {
+  const query = laid.query ?? [];
+  const atLine = query.findIndex(
+    (_, index) =>
+      query
+        .slice(0, index + 1)
+        .reduce((length, { text }) => length + text.length, 0) > offset,
+  );
+  return atLine >= (laid.line?.length ?? 0)
+    ? (query.at(atLine)?.x ?? 0)
+    : Math.max(endOf(laid.line) - endOf(laid.at), 0);
+}
+
 // A menu under the line of the body's query at `start`: a transparent copy of the body up to that
 // line, in the body's place and style, holds it there. It ends `reserve` above the bottom of the
 // editor's `viewport`, scrolling inside when taller, and opens over the line when it sits too low
@@ -3914,32 +3939,16 @@ function BodyMenuAnchor({
       placeRef.current = undefined;
     };
   });
-  // How far the query's @ sits from its line's start: the line copied through the @ ends that far
-  // plus the @'s own width, unless typing the query moved the @ onto a later line, which it then
-  // starts. Fabric reports no layout for views inside text, so text measures it.
-  type Laid = TextLayoutEvent['nativeEvent']['lines'];
-  const [laid, setLaid] = useState<
-    Partial<Record<'query' | 'line' | 'at', Laid>>
-  >({});
+  // Fabric reports no layout for views inside text, so text measures the @.
+  const [laid, setLaid] = useState<LaidText>({});
   const layoutOf =
-    (key: 'query' | 'line' | 'at') =>
-    ({ nativeEvent: { lines: each } }: TextLayoutEvent) =>
+    (key: keyof LaidText) =>
+    ({ nativeEvent: { lines: each } }: TextLayoutEvent) => {
       setLaid((current) => ({ ...current, [key]: each }));
-  const endOf = (each: Laid = []) => {
-    const line = each[each.length - 1];
-    return line === undefined ? 0 : line.x + line.width;
-  };
+    };
   // The lines up to the caret: text after it may wrap below the line the menu hangs from.
   const lineStart = display.text.lastIndexOf('\n', start - 1) + 1;
-  let laidOut = 0;
-  const atLine =
-    laid.query?.findIndex(
-      ({ text }) => (laidOut += text.length) > start - lineStart,
-    ) ?? -1;
-  const indent =
-    atLine >= (laid.line?.length ?? 0)
-      ? (laid.query?.[atLine]?.x ?? 0)
-      : Math.max(endOf(laid.line) - endOf(laid.at), 0);
+  const indent = atIndent(laid, start - lineStart);
   const lines = display.lines.slice(
     0,
     display.text.slice(0, start).split('\n').length,
@@ -3980,7 +3989,7 @@ function BodyMenuAnchor({
         {index < each.length - 1 ? '\n' : ''}
       </Text>
     ));
-  const last = lines[lines.length - 1];
+  const last = lines.at(-1);
   const queryAt = start - lineStart - (last?.marker.length ?? 0);
   const queryCopy =
     last === undefined ? null : (

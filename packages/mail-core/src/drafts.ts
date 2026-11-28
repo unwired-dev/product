@@ -514,13 +514,13 @@ export function bodySuggestionSections(
       return [];
     }
     const same = people.filter(sameAs);
-    const named = sent
+    const sentAs = sent
       .filter((each) => each.address.toLowerCase() === address)
       .map(({ sender }) =>
         correspondentOf({ sender, address: person.address }),
       );
-    const shown = named.find(({ name }) => name !== undefined) ?? person;
-    return [...same, ...named].some(startsWith(typed)) ? [shown] : [];
+    const shown = sentAs.find(({ name }) => name !== undefined) ?? person;
+    return [...same, ...sentAs].some(startsWith(typed)) ? [shown] : [];
   });
   const recent = [...others, ...present].slice(0, 4);
   const matched =
