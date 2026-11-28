@@ -68,7 +68,7 @@ import {
   applySlashBlock,
   assetStates,
   bodyRecipientQuery,
-  bodyRecipientSuggestions,
+  bodySuggestionSections,
   draftOf,
   entryOf,
   greetingName,
@@ -78,6 +78,7 @@ import {
   recipientLabel,
   draftSummary,
   profileOf,
+  recipientRole,
   recipientSuggestions,
   sameContent,
   sendingMailboxes,
@@ -1114,6 +1115,7 @@ function SuggestionMenu({
   style,
   empty,
   note,
+  roleOf,
   monograms = false,
   scroll,
 }: {
@@ -1127,6 +1129,8 @@ function SuggestionMenu({
   readonly style: StyleProp<ViewStyle>;
   readonly empty?: string | undefined;
   readonly note?: string | undefined;
+  // The field a person already on the Draft is in, shown at the row's trailing edge.
+  readonly roleOf?: ((recipient: Recipient) => string | undefined) | undefined;
   readonly monograms?: boolean;
   // Rows taller than `maxHeight` scroll inside the menu; `onContentHeight` hears their full height.
   // They start at the top for each `query`.
@@ -1217,6 +1221,14 @@ function SuggestionMenu({
                 const secondary = filled
                   ? colors.accentOnFill
                   : colors.textSecondary;
+                const role = roleOf?.(recipient);
+                const label =
+                  recipient.name === undefined
+                    ? recipient.address
+                    : t('drafts.suggestions.named', {
+                        name: recipient.name,
+                        address: recipient.address,
+                      });
                 let highlight = null;
                 if (chosen) {
                   highlight = {
@@ -1229,12 +1241,9 @@ function SuggestionMenu({
                   <Pressable
                     key={recipient.address}
                     accessibilityLabel={
-                      recipient.name === undefined
-                        ? recipient.address
-                        : t('drafts.suggestions.named', {
-                            name: recipient.name,
-                            address: recipient.address,
-                          })
+                      role === undefined
+                        ? label
+                        : t('drafts.suggestions.inRole', { label, role })
                     }
                     accessibilityRole="button"
                     accessibilityState={{ selected: chosen }}
@@ -1293,6 +1302,16 @@ function SuggestionMenu({
                         </Text>
                       )}
                     </View>
+                    {role === undefined ? null : (
+                      <Text
+                        style={[
+                          styles.suggestionName,
+                          sized.suggestionName,
+                          { color: secondary },
+                        ]}>
+                        {role}
+                      </Text>
+                    )}
                   </Pressable>
                 );
               })}
@@ -3441,9 +3460,8 @@ function DraftReminder({
 }
 
 // Up to four Recipient Suggestions for an @ in the body: recent correspondents of the Draft's
-// Mail Profile, newest first, then for typed text Apple Contacts, one row kept for a contact.
-// People already on the Draft are left out.
-function bodySuggestionSections(
+// Mail Profile and the people already on the Draft, then for typed text Apple Contacts.
+function bodySuggestions(
   draft: Draft,
   query: BodyRecipientQuery,
   {
@@ -3456,34 +3474,14 @@ function bodySuggestionSections(
     contacts: Iterable<Readonly<{ sender: string; address: string }>>;
   }>,
 ) {
-  const { correspondents, excluded } = correspondentsFor(
-    draft,
-    connections,
-    held,
-  );
-  const recent = bodyRecipientSuggestions(draft, query, {
-    correspondents,
-    excluded,
-    limit: 4,
+  return bodySuggestionSections(draft, query, {
+    ...correspondentsFor(draft, connections, held),
+    contacts,
   });
-  const matched =
-    query.text === ''
-      ? []
-      : bodyRecipientSuggestions(draft, query, {
-          correspondents: contacts,
-          excluded: [...excluded, ...recent.map(({ address }) => address)],
-          limit: 4,
-        });
-  const shown = recent.slice(0, matched.length === 0 ? 4 : 3);
-  return {
-    query,
-    recent: shown,
-    contacts: matched.slice(0, 4 - shown.length),
-  };
 }
 
-// The Body Recipient Shortcut in an editor's body. Typing @ in an otherwise empty body opens
-// Recipient Suggestions under it; a space, a caret move, leaving the body or a choice closes
+// The Body Recipient Shortcut in an editor's body. Typing @ at a paragraph start or after
+// whitespace opens Recipient Suggestions under it; a space, a caret move, leaving the body or a choice closes
 // them, keeping the typed text.
 function useBodyRecipients(
   draft: Draft,
@@ -3527,11 +3525,7 @@ function useBodyRecipients(
     () => bodyRecipientQuery(textOf(draft.body), selection),
     [draft.body, selection],
   );
-  const open =
-    !paused &&
-    armed !== undefined &&
-    query?.start === armed &&
-    onlyQueryIn(textOf(draft.body), query);
+  const open = !paused && armed !== undefined && query?.start === armed;
   // Read once each time an @ arms, never asking for Contacts access.
   const contacts = useContactAddresses(armed !== undefined, false);
   const connections = use(AccountContext)?.mailboxes;
@@ -3539,7 +3533,7 @@ function useBodyRecipients(
   const sections = useMemo(
     () =>
       open && query !== undefined
-        ? bodySuggestionSections(draft, query, {
+        ? bodySuggestions(draft, query, {
             connections: connections ?? [],
             held,
             contacts: contacts.addresses,
@@ -3563,6 +3557,12 @@ function useBodyRecipients(
             contacts.failed && sections.query.text !== ''
               ? t('drafts.bodyRecipient.contactsUnsearchable')
               : undefined,
+          roleOf: ({ address }: Recipient) => {
+            const field = recipientRole(draft, address);
+            return field === undefined
+              ? undefined
+              : t(`drafts.fields.${field}`);
+          },
         }
       : undefined;
   // VoiceOver hears No Matches and the note once each appears, after the typed character, since
@@ -3596,12 +3596,11 @@ function useBodyRecipients(
     if (
       pausedNow.current ||
       current === undefined ||
-      current.start !== armedNow.current ||
-      !onlyQueryIn(textOf(latest.body), current)
+      current.start !== armedNow.current
     ) {
       return undefined;
     }
-    const listed = bodySuggestionSections(latest, current, {
+    const listed = bodySuggestions(latest, current, {
       connections: connections ?? [],
       held,
       contacts: contacts.addresses,
@@ -3611,11 +3610,11 @@ function useBodyRecipients(
   return {
     shown,
     close,
-    // After a body edit inserting `inserted`: typing @ in an empty body opens suggestions, and
-    // leaving its query closes them.
+    // After a body edit inserting `inserted`: typing @ opens suggestions, and leaving its query
+    // closes them.
     typed: (next: SemanticDocument, caret: Selection, inserted: string) => {
       const typed = bodyRecipientQuery(next, caret);
-      if (inserted === '@' && typed?.text === '' && onlyQueryIn(next, typed)) {
+      if (inserted === '@' && typed?.text === '') {
         arm(typed.start);
       } else if (typed?.start === armedNow.current) {
         // The list changed, so the highlight starts over.
@@ -3654,17 +3653,21 @@ function useBodyRecipients(
       candidates(latest, at)?.some((listed) => listed.address === address)
         ? bodyRecipientQuery(textOf(latest.body), at)
         : undefined,
-    // What VoiceOver hears once a choice added the person.
-    added: (recipient: Recipient) =>
-      t('drafts.bodyRecipient.added', {
-        name: recipient.name ?? recipient.address,
-      }),
+    // What VoiceOver hears once a choice added the person, or inserted `text` for a person
+    // already on the Draft.
+    added: (recipient: Recipient, present: boolean, text: string) =>
+      present
+        ? t('drafts.bodyRecipient.inserted', { text })
+        : t('drafts.bodyRecipient.added', {
+            name: recipient.name ?? recipient.address,
+          }),
     greeting: (recipient: Recipient) => {
       const name = greetingName(recipient, contacts.addresses);
       return name === undefined
         ? t('drafts.bodyRecipient.greetingUnnamed')
         : t('drafts.bodyRecipient.greeting', { name });
     },
+    // In written text: the given name, else the display name, else the address.
     name: (recipient: Recipient) =>
       greetingName(recipient, contacts.addresses) ?? recipient.address,
   };
@@ -4814,7 +4817,8 @@ function Editor({
     placeTyping(undefined);
     update(historyNow.current.present);
   };
-  // Choosing a person for the @ replaces it with the greeting and adds them to To, as one edit.
+  // Choosing a person for the @ replaces it with the greeting, or in written text the name, and
+  // adds a person not yet on the Draft to To, as one edit.
   const chooseRecipient = (recipient: Recipient) => {
     const latest = authored.current;
     const query = recipientMenu.choosable(
@@ -4825,11 +4829,15 @@ function Editor({
     if (query === undefined) {
       return;
     }
+    const greeting = recipientMenu.greeting(recipient);
+    const name = recipientMenu.name(recipient);
+    const present = recipientRole(latest, recipient.address) !== undefined;
+    const inserted = onlyQueryIn(textOf(latest.body), query) ? greeting : name;
     const result = addBodyRecipient(latest, {
       query,
       recipient,
-      greeting: recipientMenu.greeting(recipient),
-      name: recipientMenu.name(recipient),
+      greeting,
+      name,
     });
     recipientMenu.close();
     change(result.draft);
@@ -4837,7 +4845,9 @@ function Editor({
     caret.current = result.selection.start;
     selectionNow.current = result.selection;
     setPlaced(result.selection);
-    AccessibilityInfo.announceForAccessibility(recipientMenu.added(recipient));
+    AccessibilityInfo.announceForAccessibility(
+      recipientMenu.added(recipient, present, inserted),
+    );
   };
   // Captures authored text for an explicitly requested translation, text tool, reply suggestion or
   // generated draft.

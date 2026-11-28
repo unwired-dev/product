@@ -30,7 +30,6 @@ import {
   applySlashBlock,
   assetsOf,
   bodyRecipientQuery,
-  bodyRecipientSuggestions,
   bodySuggestionSections,
   recipientRole,
   createDrafts,
@@ -1457,34 +1456,7 @@ describe('entering Draft recipients', () => {
       ),
     ).toBe(false);
 
-    // A bare @ lists the newest correspondents; typed text filters them as To does.
-    const correspondents = [
-      { sender: 'Anna Svobodová', address: 'anna@example.com' },
-      { sender: 'Tomáš Dvořák', address: 'tomas@example.com' },
-      { sender: 'Ana Kovač', address: 'ana@example.com' },
-    ];
     const withTomas = { ...draft, to: [{ address: 'tomas@example.com' }] };
-    expect(
-      bodyRecipientSuggestions(
-        withTomas,
-        { start: 0, end: 1, text: '' },
-        {
-          correspondents,
-        },
-      ),
-    ).toStrictEqual([
-      { name: 'Anna Svobodová', address: 'anna@example.com' },
-      { name: 'Ana Kovač', address: 'ana@example.com' },
-    ]);
-    expect(
-      bodyRecipientSuggestions(
-        withTomas,
-        { start: 0, end: 4, text: 'kov' },
-        {
-          correspondents,
-        },
-      ),
-    ).toStrictEqual([{ name: 'Ana Kovač', address: 'ana@example.com' }]);
 
     // The greeting uses a recorded given name, else the display name; never the address.
     const anna = { name: 'Anna Svobodová', address: 'anna@example.com' };

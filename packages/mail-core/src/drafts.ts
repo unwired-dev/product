@@ -475,14 +475,6 @@ export const onlyQueryIn = (
     .join('')
     .trim() === `@${query.text}`;
 
-// Up to `limit` recent correspondents for the query, as the To field matches them; a bare @
-// lists the newest.
-export const bodyRecipientSuggestions = (
-  draft: Draft,
-  query: BodyRecipientQuery,
-  options: SuggestionOptions,
-) => suggestionsFor(query.text.toLowerCase(), withoutDraft(draft, options));
-
 // Up to four people for the query, as the To field matches them: recent `correspondents`, newest
 // first, then people already on the Draft, and for typed text the `contacts` left over, one row
 // kept for them. People already on the Draft stay listed, also when only their Contacts name
