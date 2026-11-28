@@ -128,6 +128,18 @@ export const rateLimited = Schema.decodeUnknownOption(
     }),
   ),
 );
+// Gmail's refusal of a request for a scope the grant does not include.
+export const missingScope = Schema.decodeUnknownOption(
+  Schema.fromJsonString(
+    Schema.Struct({
+      error: Schema.Struct({
+        errors: Schema.NonEmptyArray(
+          Schema.Struct({ reason: Schema.Literal('insufficientPermissions') }),
+        ),
+      }),
+    }),
+  ),
+);
 // The time a usage limit's message asks to wait until, as Gmail words it: "Retry after <instant>".
 const retryAfter = (body: string) =>
   Schema.decodeOption(
@@ -223,7 +235,7 @@ export const malformed = (
   new SyncFailure({ kind, cause: error, diagnostic: decodeDiagnostic(error) });
 
 // One Gmail request's `{ status, body }`; a rejected or malformed reply may pass on a later try.
-const gmailResponse = (
+export const gmailResponse = (
   request: (signal: Readonly<AbortSignal>) => Promise<unknown>,
 ) =>
   Effect.tryPromise({

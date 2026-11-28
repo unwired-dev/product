@@ -314,10 +314,12 @@ shows it yet, and nothing asks for `gmail.settings.basic` yet.
   Gmail stores now: a named field takes its value, `null` leaves it out, and every other field,
   including one Unwired does not read, goes back as Gmail sent it. Gmail replaces the whole
   responder, so native code sends the result as the one `PUT settings/vacation`, the only Gmail
-  write it accepts there. Gmail's answer is the saved responder. Nothing is cached.
-- **Save failures.** The read just succeeded under the mail grant, so a 403 on the save that is
-  not a usage limit answers `permission`: the grant lacks `gmail.settings.basic`. The Inbox stays
-  open and nothing asks for Gmail again. Gmail refusing the values (400) answers `failed`. Other
+  write it accepts there. Gmail's answer is the saved responder. Nothing is cached. Saves run one
+  at a time, each over what the one before saved, and a save the Inbox closed before it read or
+  wrote Gmail sends nothing more.
+- **Save failures.** A 403 on the save whose reason is `insufficientPermissions` answers
+  `permission`: the grant lacks `gmail.settings.basic`. The Inbox stays open and nothing asks for
+  Gmail again. Any other 403 answers as a read's does. Gmail refusing the values (400) answers `failed`. Other
   failures, and a read that fails first and sends no save, answer as the read does. A Microsoft
   mailbox saves nothing.
 

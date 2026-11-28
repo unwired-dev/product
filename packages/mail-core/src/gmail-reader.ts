@@ -5,7 +5,11 @@ import * as Option from 'effect/Option';
 import * as Order from 'effect/Order';
 import * as Schema from 'effect/Schema';
 
-import type { GmailLabel, GmailVacationChange } from './gmail-actions.ts';
+import type {
+  GmailLabel,
+  GmailVacation,
+  GmailVacationChange,
+} from './gmail-actions.ts';
 import type {
   GmailMessage,
   MailboxDocument,
@@ -59,6 +63,8 @@ import {
 } from './mailbox-document.ts';
 import {
   GmailMissingScope,
+  gmailResponse,
+  missingScope,
   providerRead,
   providerWrite,
   SyncFailure,
@@ -1031,27 +1037,38 @@ export function createGmailReader(
       metadata(scope, id, true).pipe(Effect.map(([, message]) => message)),
     vacation: (scope: MailboxScope) =>
       gmail(scope)('settings/vacation', [], decodeVacation),
-    // Gmail replaces the whole responder, so the save writes over what Gmail stores now.
-    saveVacation: (scope: MailboxScope, change: GmailVacationChange) =>
-      gmail(scope)('settings/vacation', [], decodeStoredVacation).pipe(
-        Effect.flatMap((stored) =>
-          providerWrite(
-            () =>
-              native.gmailSaveVacation(changedVacation(stored, change), scope),
-            (status) => status === 200,
-            decodeVacation,
-          ).pipe(
-            // The mail grant has just read the responder, so a 403 that is not a usage limit
-            // refuses the settings scope, not the grant.
-            Effect.catchIf(
-              (failure) =>
-                failure instanceof SyncFailure &&
-                failure.kind === 'authentication' &&
-                failure.cause === 403,
-              () => Effect.fail(new GmailMissingScope()),
-            ),
-          ),
-        ),
-      ),
+    // Gmail replaces the whole responder, so the save writes over what Gmail stores now. Nothing is
+    // read or written once `current` says the save is no longer wanted.
+    saveVacation: Effect.fnUntraced(function* (
+      scope: MailboxScope,
+      change: GmailVacationChange,
+      current: () => boolean,
+    ) {
+      if (!current()) {
+        return Option.none<GmailVacation>();
+      }
+      const stored = yield* gmail(scope)(
+        'settings/vacation',
+        [],
+        decodeStoredVacation,
+      );
+      if (!current()) {
+        return Option.none<GmailVacation>();
+      }
+      const response = yield* gmailResponse(() =>
+        native.gmailSaveVacation(changedVacation(stored, change), scope),
+      );
+      if (
+        response.status === 403 &&
+        Option.isSome(missingScope(response.body))
+      ) {
+        return yield* new GmailMissingScope();
+      }
+      return yield* providerWrite(
+        () => Promise.resolve(response),
+        (status) => status === 200,
+        decodeVacation,
+      );
+    }),
   } satisfies ProviderReader;
 }

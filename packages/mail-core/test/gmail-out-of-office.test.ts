@@ -213,7 +213,7 @@ describe("saving a Gmail mailbox's Out of Office", () => {
     expect.hasAssertions();
     const { inbox, answers, saveAnswers, saves } = vacationInbox();
     await inbox.load();
-    answers.push(answer({}), answer({}));
+    answers.push(answer({}), answer({}), answer({}));
     saveAnswers.push(
       answer(
         {
@@ -236,6 +236,15 @@ describe("saving a Gmail mailbox's Out of Office", () => {
     ).resolves.toStrictEqual({ kind: 'unavailable', reason: 'offline' });
     expect(saves).toHaveLength(2);
     expect(inbox.getSnapshot()).toMatchObject({ sync: 'current' });
+
+    // A domain policy refusal is not a scope the user can grant.
+    vi.spyOn(console, 'error').mockReturnValue();
+    saveAnswers.push(
+      answer({ error: { errors: [{ reason: 'domainPolicy' }] } }, 403),
+    );
+    await expect(
+      inbox.saveOutOfOffice({ enableAutoReply: true }),
+    ).resolves.toStrictEqual({ kind: 'unavailable', reason: 'authentication' });
   });
 
   it('says why Gmail did not save, and a refused grant asks for Gmail again', async () => {
@@ -299,5 +308,36 @@ describe("saving a Gmail mailbox's Out of Office", () => {
     inbox.forget();
     resolve(answer({ enableAutoReply: true }));
     await expect(saving).resolves.toBeUndefined();
+  });
+
+  it('sends no save that the Inbox closed before, while it waited or read Gmail', async () => {
+    expect.hasAssertions();
+    const { inbox, answers, requests, saveAnswers, saves } = vacationInbox();
+    await inbox.load();
+    answers.push(answer({}));
+    const { promise, resolve } = Promise.withResolvers<unknown>();
+    saveAnswers.push(promise);
+    const first = inbox.saveOutOfOffice({ enableAutoReply: true });
+    const queued = inbox.saveOutOfOffice({ responseSubject: 'Away' });
+    await vi.waitFor(() => {
+      expect(saves).toHaveLength(1);
+    });
+    inbox.forget();
+    resolve(answer({ enableAutoReply: true }));
+    await expect(first).resolves.toBeUndefined();
+    await expect(queued).resolves.toBeUndefined();
+    expect(requests).toHaveLength(1);
+
+    await inbox.load();
+    const read = Promise.withResolvers<unknown>();
+    answers.push(read.promise);
+    const reading = inbox.saveOutOfOffice({ enableAutoReply: true });
+    await vi.waitFor(() => {
+      expect(requests).toHaveLength(2);
+    });
+    inbox.forget();
+    read.resolve(answer({}));
+    await expect(reading).resolves.toBeUndefined();
+    expect(saves).toHaveLength(1);
   });
 });

@@ -4460,36 +4460,45 @@ export function createInboxStore(
         return Promise.resolve(undefined);
       }
       return runLogged(
-        vacationSaves.withPermit(saveVacation(scope, change)).pipe(
-          Effect.map(
-            Option.match({
-              onNone: (): OutOfOfficeSave | undefined =>
-                searchUnavailable('failed'),
-              onSome: (vacation): OutOfOfficeSave | undefined => ({
-                kind: 'saved',
-                vacation,
+        vacationSaves
+          .withPermit(
+            saveVacation(
+              scope,
+              change,
+              () => owner === reading && state.kind === 'ready',
+            ),
+          )
+          .pipe(
+            Effect.map(
+              Option.match({
+                onNone: (): OutOfOfficeSave | undefined =>
+                  searchUnavailable('failed'),
+                onSome: (vacation): OutOfOfficeSave | undefined => ({
+                  kind: 'saved',
+                  vacation,
+                }),
               }),
+            ),
+            Effect.catchTags({
+              SyncFailure: (failure) =>
+                searchFailed(
+                  failure,
+                  reading,
+                  'Out of Office could not be saved:',
+                ),
+              GmailMissingScope: () =>
+                Effect.succeed<OutOfOfficeSave>({
+                  kind: 'unavailable',
+                  reason: 'permission',
+                }),
+              GmailNotFound: () => Effect.succeed(searchUnavailable('failed')),
+              GmailInvalidPage: () =>
+                Effect.succeed(searchUnavailable('failed')),
             }),
+            Effect.map((result) =>
+              owner === reading && state.kind === 'ready' ? result : undefined,
+            ),
           ),
-          Effect.catchTags({
-            SyncFailure: (failure) =>
-              searchFailed(
-                failure,
-                reading,
-                'Out of Office could not be saved:',
-              ),
-            GmailMissingScope: () =>
-              Effect.succeed<OutOfOfficeSave>({
-                kind: 'unavailable',
-                reason: 'permission',
-              }),
-            GmailNotFound: () => Effect.succeed(searchUnavailable('failed')),
-            GmailInvalidPage: () => Effect.succeed(searchUnavailable('failed')),
-          }),
-          Effect.map((result) =>
-            owner === reading && state.kind === 'ready' ? result : undefined,
-          ),
-        ),
       );
     },
     // Loads an opened message's Remote Message Content: from the Authorized Remote Content Cache,
