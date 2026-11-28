@@ -3,7 +3,7 @@ import { useEffect, useSyncExternalStore } from 'react';
 import { Settings } from 'react-native';
 
 // A value the app shares, read once and then followed; `keep` keeps each change.
-const shared = <A>(read: () => A, keep: (value: A) => void = () => {}) => {
+const shared = <A>(read: () => A, keep?: (value: A) => void) => {
   let current: { readonly value: A } | undefined = undefined;
   const listeners = new Set<() => void>();
   const snapshot = () => {
@@ -19,7 +19,7 @@ const shared = <A>(read: () => A, keep: (value: A) => void = () => {}) => {
   return {
     get: snapshot,
     set: (value: A) => {
-      keep(value);
+      keep?.(value);
       current = { value };
       for (const listener of listeners) {
         listener();

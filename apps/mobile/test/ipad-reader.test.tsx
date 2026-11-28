@@ -437,8 +437,10 @@ describe('iPad reader', () => {
     const zoom = async () => {
       const webview = await screen.findByTestId('message-webview');
       const html: string = webview.props.source.html;
-      const scale = /<style>body\{zoom:([\d.]+)\}/u.exec(html)?.[1];
-      return scale === undefined ? 100 : Math.round(Number(scale) * 100);
+      const { scale = '1' } = {
+        .../<style>body\{zoom:(?<scale>[\d.]+)\}/u.exec(html)?.groups,
+      };
+      return Math.round(Number(scale) * 100);
     };
     const press = async (name: string) => {
       await fireEvent.press(screen.getByRole('button', { name }));

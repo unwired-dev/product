@@ -30,6 +30,8 @@ import {
   font,
   foregroundStyle,
   frame,
+  lineLimit,
+  minimumScaleFactor,
   padding,
   presentationBackground,
   presentationDetents,
@@ -57,7 +59,7 @@ import {
 } from '@private-email/mail-core/inbox-store';
 import { gmailViewName } from '@private-email/mail-core/mailboxes';
 import { messageZooms } from '@private-email/mail-core/message-body';
-import { ipadListScale, spacing } from '@private-email/mail-core/theme';
+import { ipadListScale, radius, spacing } from '@private-email/mail-core/theme';
 import {
   useEffect,
   useLayoutEffect,
@@ -68,6 +70,7 @@ import {
 import { Platform, StyleSheet, View } from 'react-native';
 
 import type { Destination } from './move-sheet.tsx';
+import type { MessageZoom } from './reading.ts';
 import type { ThreadAction } from './reply-sheet.tsx';
 
 import { RegisterCommands } from './command-palette.tsx';
@@ -91,7 +94,6 @@ import { MovePanel, MoveSheet } from './move-sheet.tsx';
 import { LabelChoices, NewLabel } from './new-label.tsx';
 import { usePinAction, usePinned } from './pins.tsx';
 import {
-  type MessageZoom,
   setMessageZoom,
   useFormatted,
   useMessageZoom,
@@ -572,70 +574,81 @@ function MoreButton({
       onClose={() => {
         setZooming(false);
       }}>
-      <MenuButton
-        accessibilityLabel={t('message.more')}
-        hitSlop={compact ? undefined : scaledToolbarSlop}
-        sections={[
-          {
-            items: [
-              ...items([
-                ...(compact ? (['pin', 'unpin'] as const) : []),
-                'read',
-                'unread',
-                'notSpam',
-                'spam',
-              ]),
-              ...(folders === undefined
-                ? []
-                : [
-                    {
-                      key: 'move',
-                      title: t('contextMenu.moveTo'),
-                      symbol: 'folder',
-                      run: folders.show.run,
-                    },
-                  ]),
-            ],
-          },
-          {
-            items: [
-              ...items(['restore']),
-              ...(more.renderLabels === undefined
-                ? []
-                : [
-                    {
-                      key: 'labels',
-                      title: t('gmailActions.labels'),
-                      symbol: 'tag',
-                      run: more.toggle,
-                    },
-                  ]),
-            ],
-          },
-          { items: more.unsubscribe ?? [] },
-          ...(compact ? [{ items: items(['trash']) }] : []),
-          {
-            items: [
-              {
-                key: 'zoom',
-                title: t('reading.zoomMenu'),
-                subtitle: t('reading.percent', { value: zoom }),
-                symbol: 'plus.magnifyingglass',
-                disabled: !formatted,
-                run: () => {
-                  setZooming(true);
+      {/* The P2 frames highlight More while its zoom panel is open. The native menu view would
+          paint a background of its own as well, so a plain view draws it. */}
+      <View
+        style={
+          !compact &&
+          zooming && {
+            backgroundColor: colors.fillQuiet,
+            borderRadius: radius.control * ipadListScale,
+          }
+        }>
+        <MenuButton
+          accessibilityLabel={t('message.more')}
+          hitSlop={compact ? undefined : scaledToolbarSlop}
+          sections={[
+            {
+              items: [
+                ...items([
+                  ...(compact ? (['pin', 'unpin'] as const) : []),
+                  'read',
+                  'unread',
+                  'notSpam',
+                  'spam',
+                ]),
+                ...(folders === undefined
+                  ? []
+                  : [
+                      {
+                        key: 'move',
+                        title: t('contextMenu.moveTo'),
+                        symbol: 'folder',
+                        run: folders.show.run,
+                      },
+                    ]),
+              ],
+            },
+            {
+              items: [
+                ...items(['restore']),
+                ...(more.renderLabels === undefined
+                  ? []
+                  : [
+                      {
+                        key: 'labels',
+                        title: t('gmailActions.labels'),
+                        symbol: 'tag',
+                        run: more.toggle,
+                      },
+                    ]),
+              ],
+            },
+            { items: more.unsubscribe ?? [] },
+            ...(compact ? [{ items: items(['trash']) }] : []),
+            {
+              items: [
+                {
+                  key: 'zoom',
+                  title: t('reading.zoomMenu'),
+                  subtitle: t('reading.percent', { value: zoom }),
+                  symbol: 'plus.magnifyingglass',
+                  disabled: !formatted,
+                  run: () => {
+                    setZooming(true);
+                  },
                 },
-              },
-            ],
-          },
-        ]}
-        style={compact ? styles.compactMoreButton : styles.moreButton}>
-        <SFSymbol
-          name="ellipsis"
-          size={compact ? 20 : scaledToolbar.symbol}
-          color={colors.textPrimary}
-        />
-      </MenuButton>
+              ],
+            },
+          ]}
+          style={compact ? styles.compactMoreButton : styles.moreButton}>
+          <SFSymbol
+            name="ellipsis"
+            size={compact ? 20 : scaledToolbar.symbol}
+            color={colors.textPrimary}
+          />
+        </MenuButton>
+      </View>
     </MessageZoomPanel>
   );
 }
@@ -658,7 +671,8 @@ function MessageZoomPanel({
 }) {
   const { t } = useLocalization();
   const colors = usePalette();
-  const level = messageZooms.findIndex((each) => each === zoom);
+  const appearance = useAppearance();
+  const level = messageZooms.indexOf(zoom);
   const row = (label: string, to: MessageZoom | undefined) => (
     <SwiftUIButton
       onPress={() => {
@@ -705,6 +719,10 @@ function MessageZoomPanel({
             modifiers={[
               padding({ vertical: 20, horizontal: compact ? 20 : 16 }),
               frame({ width: compact ? 300 : 274 }),
+              // The Dark frames draw the panel as the glass panel surface; Light keeps the system's.
+              ...(appearance === 'dark'
+                ? [presentationBackground(colors.surfacePanel)]
+                : []),
             ]}>
             <SwiftUIText
               modifiers={[
@@ -732,9 +750,13 @@ function MessageZoomPanel({
                 ),
               ]}>
               {row(t('reading.zoomIn'), messageZooms[level + 1])}
-              <Divider modifiers={[padding({ leading: compact ? 16 : 14 })]} />
+              <Divider
+                modifiers={[padding({ horizontal: compact ? 16 : 14 })]}
+              />
               {row(t('reading.zoomOut'), messageZooms[level - 1])}
-              <Divider modifiers={[padding({ leading: compact ? 16 : 14 })]} />
+              <Divider
+                modifiers={[padding({ horizontal: compact ? 16 : 14 })]}
+              />
               {row(t('reading.actualSize'), 100)}
             </VStack>
             <SwiftUIButton
@@ -745,12 +767,14 @@ function MessageZoomPanel({
                 buttonStyle('bordered'),
                 buttonBorderShape('capsule'),
                 controlSize('large'),
-                tint(colors.textPrimary),
+                tint(colors.accentInk),
               ]}>
               <SwiftUIText
                 modifiers={[
                   font({ textStyle: 'body', weight: 'semibold' }),
                   frame({ maxWidth: Infinity }),
+                  // The iPad frame keeps the title on one line in the system's capsule insets.
+                  ...(compact ? [] : [lineLimit(1), minimumScaleFactor(0.85)]),
                 ]}>
                 {t('reading.zoomAll', { value: zoom })}
               </SwiftUIText>
@@ -868,12 +892,14 @@ const withPin = <More extends Readonly<{ actions: readonly Named[] }>>(
     : more;
 
 // The toolbar's last group: Pin on iPad, then More, which always offers Message Zoom….
-const lastGroup = (
-  id: string,
-  pin: PinAction | undefined,
-  more: Parameters<typeof MoreButton>[0]['more'],
-  folders: Parameters<typeof MoreButton>[0]['folders'],
-) => [
+const lastGroup = ({
+  id,
+  pin,
+  more,
+  folders,
+}: Pick<Parameters<typeof MoreButton>[0], 'id' | 'more' | 'folders'> & {
+  readonly pin: PinAction | undefined;
+}) => [
   compact || pin === undefined ? null : (
     <ToolbarButton
       key="pin"
@@ -980,13 +1006,13 @@ function Toolbar({
             // Beside the iPhone Reply sheet, which offers the other actions, More lists only
             // Message Zoom….
             replySheet
-              ? lastGroup(
+              ? lastGroup({
                   id,
                   pin,
-                  { toggle: more.toggle, actions: [] },
-                  undefined,
-                )
-              : lastGroup(id, pin, more, folders)
+                  more: { toggle: more.toggle, actions: [] },
+                  folders: undefined,
+                })
+              : lastGroup({ id, pin, more, folders })
           }
         />
       </View>
