@@ -25,8 +25,10 @@ fallback and nothing is downloaded by the app.
   is sent until **Translate** or a language is chosen. On Mac the control sits in
   the reader header and the menu reads the language list once assistance is on, so
   it can open with it. On iPhone and iPad it sits in the translation panel, under
-  **Translate this message** on iPhone and beside the on-device symbol on iPad, and
-  the system menu opens from the arrow.
+  **Translate this message** on iPhone and beside the on-device symbol on iPad;
+  **Translate** is a system button
+  ([#3129](https://github.com/unwired-dev/product/issues/3129)) and the system menu
+  opens from the arrow.
 - When the device's Translation fails to list its languages, the reader says
   **Translation languages didn’t load. Choose Try Again to load them again.** with
   **Try Again**, which asks the device again. On Mac this banner takes the place of **Translate** and stays
