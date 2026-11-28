@@ -48,7 +48,7 @@ export function ActionButton({
             padding({ horizontal: 14 }),
             frame({
               minWidth: 44,
-              maxWidth: fill ? Infinity : undefined,
+              ...(fill ? { maxWidth: Infinity } : {}),
               minHeight: 44,
               alignment: 'leading',
             }),
