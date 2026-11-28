@@ -4667,8 +4667,15 @@ final class InboxTests: XCTestCase {
       XCTAssertTrue(shown.waitForExistence(timeout: 10), "\(sheet) did not open again")
     }
     swipes("Reply sheet", from: replyAll, shown: replyAll, open: openReply)
-    // #3077: a swipe released early fires nothing from Close, a Pressable that #3074 makes a
-    // SwiftUI button, or from New Label…, a SwiftUI button; a tap on Close still closes.
+    // #3077, #3074: a swipe released early fires none of the SwiftUI buttons, Close, the tiles,
+    // the rows or New Label…; a tap on Close still closes.
+    // A row sits too low for the completed swipe's drag, so it takes only the early release.
+    let spam = app.buttons["Move to Spam"]
+    let rest = settledFrame(of: spam)
+    swipeReleasedEarly(from: spam.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)))
+    XCTAssertEqual(settledFrame(of: spam), rest, "Reply sheet moved after a swipe released early")
+    XCTAssertTrue(replyAll.exists, "Move to Spam closed the Reply sheet at a swipe released early")
+    attachScreen("Reply sheet from Move to Spam after a swipe released early", of: app, to: self)
     let close = app.buttons["Close"]
     swipes("Reply sheet from Close", from: close, shown: replyAll) {
       if !replyAll.exists { openReply() }
