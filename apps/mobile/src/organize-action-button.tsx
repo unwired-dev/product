@@ -1,57 +1,45 @@
-import { radius, spacing } from '@private-email/mail-core/theme';
-import { Pressable, StyleSheet, Text } from 'react-native';
+import { Host, Button as SwiftUIButton } from '@expo/ui/swift-ui';
+import {
+  background,
+  buttonStyle,
+  contentShape,
+  font,
+  foregroundStyle,
+  frame,
+  padding,
+  shapes,
+} from '@expo/ui/swift-ui/modifiers';
+import { radius } from '@private-email/mail-core/theme';
 
-import { SFSymbol } from './design.tsx';
-import { textStyles, usePalette } from './theme.ts';
+import { usePalette } from './theme.ts';
 
-const styles = StyleSheet.create({
-  button: {
-    minHeight: 44,
-    minWidth: 44,
-    maxWidth: '100%',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.xs,
-    paddingHorizontal: 14,
-    borderRadius: radius.control,
-    borderCurve: 'continuous',
-  },
-  label: { ...textStyles.subheadline, flexShrink: 1 },
-});
-
-// A keyboard-focusable control; a checked state makes it a checkbox.
+// The system button on the quiet fill, with the system's press feedback (#3140).
 export function ActionButton({
   label,
   onPress,
-  checked,
 }: {
   readonly label: string;
   readonly onPress: () => void;
-  readonly checked?: boolean;
 }) {
   const colors = usePalette();
   return (
-    <Pressable
-      accessibilityLabel={label}
-      accessibilityRole={checked === undefined ? 'button' : 'checkbox'}
-      accessibilityState={checked === undefined ? undefined : { checked }}
-      focusable
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.button,
-        {
-          backgroundColor: pressed
-            ? colors.accentSelectionSubtle
-            : colors.fillQuiet,
-        },
-      ]}>
-      {checked === true ? (
-        <SFSymbol
-          name="checkmark"
-          color={colors.textPrimary}
-        />
-      ) : null}
-      <Text style={[styles.label, { color: colors.textPrimary }]}>{label}</Text>
-    </Pressable>
+    <Host matchContents>
+      <SwiftUIButton
+        label={label}
+        onPress={onPress}
+        modifiers={[
+          buttonStyle('plain'),
+          font({ textStyle: 'subheadline' }),
+          foregroundStyle(colors.textPrimary),
+          padding({ horizontal: 14 }),
+          frame({ minWidth: 44, minHeight: 44 }),
+          background(
+            colors.fillQuiet,
+            shapes.roundedRectangle({ cornerRadius: radius.control }),
+          ),
+          contentShape(shapes.rectangle()),
+        ]}
+      />
+    </Host>
   );
 }
