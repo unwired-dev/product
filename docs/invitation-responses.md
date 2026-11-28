@@ -163,7 +163,14 @@ through the Gmail journey above, sent directly through the owning connection.
 - The card names an Outlook.com, Hotmail, Live or MSN address's provider
   **Outlook.com** and any other Microsoft address's **Microsoft 365**, as in
   **{address} · Outlook.com** and **Outlook.com confirmed it sent your
-  response…**. Other states keep the Gmail copy with that name.
+  response…**. Other states keep the Gmail copy with that name, except one.
+- When Microsoft refused the mailbox's grant, for a response or for the mailbox,
+  the card reads **{provider} needs your permission** and **Sign in to {address}
+  again and allow sending mail. Nothing has been sent.**, with **Sign In…**
+  ([#3136](https://github.com/unwired-dev/product/issues/3136)), as the
+  connection's **Microsoft needs your permission again** does. An organization's
+  restriction on sending (state M4 on the #1278 boards) is not told apart: Graph
+  answers it with the same 403 as a missing grant.
 
 ## IMAP
 

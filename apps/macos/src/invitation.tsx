@@ -362,11 +362,8 @@ function Responding({
   readonly current: () => boolean;
 }) {
   const { t } = useLocalization();
-  const provider = invitationProvider(
-    t,
-    useMailbox()?.provider,
-    invitation.address,
-  );
+  const mailProvider = useMailbox()?.provider;
+  const provider = invitationProvider(t, mailProvider, invitation.address);
   const account = use(AccountContext);
   const anchor = useRef<View>(null);
   // Leaving the message closes a Respond Again question asked in it.
@@ -405,6 +402,7 @@ function Responding({
     provider,
     others,
     earlier,
+    mailProvider,
   });
   const respondAgain = async (choice: InvitationChoice) => {
     if (!current()) {
