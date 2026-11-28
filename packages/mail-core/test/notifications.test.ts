@@ -5,6 +5,7 @@ import type {
   NativeNotifications,
   OpenedNotification,
 } from '../src/notifications.ts';
+import type { Registration } from '../src/registration.ts';
 
 import {
   commandTarget,
@@ -424,6 +425,81 @@ describe('the App Icon Badge across Product Accounts', () => {
       });
     },
   );
+});
+
+describe('the Badge and sound choices after a launch that signed out', () => {
+  it('shows none read at launch once another Product Account signs in', async () => {
+    expect.hasAssertions();
+    const signedOut = Schema.decodeSync(RegistrationSnapshotSchema)({
+      kind: 'signed-out',
+    });
+    let state: ReturnType<Registration['getSnapshot']> = {
+      snapshot: signedOut,
+      busy: false,
+      failed: false,
+      restoring: true,
+    };
+    const listeners = new Set<() => void>();
+    const changed = () => {
+      for (const listener of listeners) {
+        listener();
+      }
+    };
+    const settings = (badgeSoundOff: readonly string[]) => ({
+      authorization: 'authorized',
+      previews: true,
+      badge: 'inbox',
+      sound: 'default',
+      badgeSoundOff,
+    });
+    const nextRead = Promise.withResolvers<unknown>();
+    const reads = vi
+      .fn<() => Promise<unknown>>()
+      .mockResolvedValueOnce(settings([defaultProfile]))
+      .mockReturnValueOnce(nextRead.promise);
+    const notifications = createNotifications(
+      {
+        notificationSettings: reads,
+        postNotifications: unused,
+        requestNotifications: unused,
+        setNotificationPreviews: unused,
+        setNotificationBadge: unused,
+        setNotificationSound: unused,
+        setNotificationProfile: unused,
+        setBadgeCount: () => Promise.resolve(null),
+        openNotificationSettings: unused,
+      },
+      () => english,
+    );
+    notifications.followBadge({
+      registration: {
+        getSnapshot: () => state,
+        subscribe: (listener) => {
+          listeners.add(listener);
+          return () => listeners.delete(listener);
+        },
+      },
+      mailboxes: {
+        getConnections: () => [],
+        subscribe: () => () => undefined,
+      },
+    });
+    await vi.waitFor(() => {
+      expect(notifications.getSnapshot()?.badgeSoundOff).toStrictEqual([
+        defaultProfile,
+      ]);
+    });
+    // The restore finds the stored Product Account revoked and purges it; another signs in.
+    state = { snapshot: signedOut, busy: false, failed: false };
+    changed();
+    state = { snapshot: connected([], 'b'), busy: false, failed: false };
+    changed();
+    expect(notifications.getSnapshot()).toBeUndefined();
+    nextRead.resolve(settings([]));
+    await vi.waitFor(() => {
+      expect(notifications.getSnapshot()?.badgeSoundOff).toStrictEqual([]);
+    });
+  });
 });
 
 describe('a queued App Icon Badge count', () => {

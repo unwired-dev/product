@@ -465,18 +465,21 @@ export function createNotifications(
           : snapshot.productAccountId;
       };
       let following = owner();
+      // Until registration has restored, the choices read belong to the account it restores.
+      let restored = sources.registration.getSnapshot().restoring !== true;
       settings.subscribe(follow);
       sources.registration.subscribe(() => {
         if (owner() !== following) {
-          // The choices read while a Product Account was signed in are not the next one's; the
-          // device keeps none from before sign-in, so a launch's restore keeps what it read.
-          if (following !== undefined) {
+          // The choices read while a Product Account was signed in, or since a restore that found
+          // none, are not the next one's.
+          if (following !== undefined || restored) {
             account += 1;
             settings.set(undefined);
           }
           following = owner();
           void load();
         }
+        restored = sources.registration.getSnapshot().restoring !== true;
         follow();
       });
       sources.mailboxes.subscribe(follow);
