@@ -634,7 +634,11 @@ Two frame sizes differ from the device on purpose. Here the system wins:
   instances also set SF Pro's letter spacing to 0, where the system applies the
   font's own tracking, so a label on the device runs a few points narrower,
   about 5pt across Delete Unwired Account…
-  ([#3045](https://github.com/unwired-dev/product/issues/3045)).
+  ([#3045](https://github.com/unwired-dev/product/issues/3045)). The iPhone
+  frames' text sets it to 0 too, so a line can wrap a word later on the device:
+  the still-importing reason's "Wait" ends its first line on iPhone, where R2 of
+  #2092 starts the second with it
+  ([#2795](https://github.com/unwired-dev/product/issues/2795)).
 
 These frames show a decision the app has not built yet. The frame wins, and the
 app follows under the issue named:

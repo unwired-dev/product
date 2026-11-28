@@ -7619,16 +7619,9 @@ describe('adding files and images to a Draft', () => {
     expect(
       screen.getByLabelText('large.mov, Not added: cancelled'),
     ).toBeOnTheScreen();
-    expect(
-      screen.getByText(
-        'Files that were not added are not sent with this Draft. Remove them and add them again.',
-      ),
-    ).toBeOnTheScreen();
     expect(storage.assets()).toHaveLength(2);
     await press('Remove large.mov');
-    expect(
-      screen.queryByText('Files that were not added', { exact: false }),
-    ).toBeNull();
+    expect(screen.queryByLabelText('large.mov', { exact: false })).toBeNull();
 
     // Editing while an import completes neither loses the edit nor creates a conflicting copy.
     storage.holdImports();
@@ -7686,6 +7679,113 @@ describe('adding files and images to a Draft', () => {
     expect(
       screen.queryByRole('button', { name: 'Cancel adding late.txt' }),
     ).toBeNull();
+  });
+
+  it('says why a file was not added, and Try Again adds it again with its progress', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(
+      {
+        ...storage.native,
+        // Native code reports the fraction it has read as soon as the read begins, before the row
+        // renders as importing; another import's report changes nothing.
+        importDraftAsset: async (owner, id, source) => {
+          DeviceEventEmitter.emit('draftImportProgress', {
+            id,
+            fraction: 0.64,
+          });
+          DeviceEventEmitter.emit('draftImportProgress', {
+            id: 'another-import',
+            fraction: 0.9,
+          });
+          return storage.native.importDraftAsset(owner, id, source);
+        },
+      },
+      registration,
+    );
+    await render(
+      <App
+        drafts={drafts}
+        registration={registration}
+      />,
+    );
+    await press('New Message');
+    storage.addFile('file:///notes.txt', 'notes');
+    storage.pickNext('files', [
+      { uri: 'file:///notes.txt', name: 'notes.txt', type: 'text/plain' },
+    ]);
+    storage.failNextImport('locked');
+    await press('Attach File');
+    // R3: an unknown reason reads "Wasn't added", and the picked copy stays for Try Again.
+    await expect(
+      screen.findByLabelText('notes.txt, Wasn’t added'),
+    ).resolves.toBeOnTheScreen();
+    expect(storage.discardedPicks()).toStrictEqual([]);
+    storage.holdImports();
+    await press('Try Again to add notes.txt');
+    // R2: the same file imports again, without a picker, and Send waits for it.
+    await expect(
+      screen.findByLabelText('notes.txt, Importing… 64%'),
+    ).resolves.toBeOnTheScreen();
+    expect(screen.getByLabelText('Cancel adding notes.txt')).toBeOnTheScreen();
+    expect(screen.queryByLabelText('Try Again to add notes.txt')).toBeNull();
+    const importing =
+      '“notes.txt” is still importing. Wait for it, or remove it, to send.';
+    expect(screen.getByText(importing)).toBeOnTheScreen();
+    // Send's hint names the file after the missing recipient.
+    expect(screen.getByRole('button', { name: 'Send' })).toHaveProp(
+      'accessibilityHint',
+      `Add a recipient to send. ${importing}`,
+    );
+    await act(async () => {
+      storage.releaseImports();
+    });
+    await expect(
+      screen.findByLabelText('notes.txt, 5 bytes'),
+    ).resolves.toBeOnTheScreen();
+    expect(
+      screen.queryByText('is still importing', { exact: false }),
+    ).toBeNull();
+    expect(storage.discardedPicks()).toStrictEqual([]);
+  });
+
+  it('shows a new file’s progress reported before its row is shown', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(
+      {
+        ...storage.native,
+        importDraftAsset: async (owner, id, source) => {
+          DeviceEventEmitter.emit('draftImportProgress', { id, fraction: 0.5 });
+          return storage.native.importDraftAsset(owner, id, source);
+        },
+      },
+      registration,
+    );
+    await render(
+      <App
+        drafts={drafts}
+        registration={registration}
+      />,
+    );
+    await press('New Message');
+    storage.addFile('file:///notes.txt', 'notes');
+    storage.pickNext('files', [
+      { uri: 'file:///notes.txt', name: 'notes.txt', type: 'text/plain' },
+    ]);
+    storage.holdImports();
+    await press('Attach File');
+    await expect(
+      screen.findByLabelText('notes.txt, Importing… 50%'),
+    ).resolves.toBeOnTheScreen();
+    await act(async () => {
+      storage.releaseImports();
+    });
+    await expect(
+      screen.findByLabelText('notes.txt, 5 bytes'),
+    ).resolves.toBeOnTheScreen();
   });
 
   it('keeps verified inline bytes without a thumbnail available after reopening', async () => {
@@ -8293,7 +8393,7 @@ describe('adding files and images to a Draft', () => {
       { uri: 'file:///chart.png', name: 'chart.png', type: 'image/png' },
     ]);
     await press('Insert Image');
-    await screen.findByLabelText('chart.png, Adding…');
+    await screen.findByLabelText('chart.png, Importing…');
     await fireEvent.changeText(screen.getByLabelText('Message body'), '');
     await act(async () => {
       storage.releaseImports();
@@ -9201,6 +9301,65 @@ describe('replying to and forwarding from the reader', () => {
     expect(announce.mock.calls).toStrictEqual([[refusal]]);
     expect(screen.queryByLabelText('Try Again to get writing help')).toBeNull();
     expect(asked).toHaveLength(0);
+  });
+
+  it('names a forwarded file that couldn’t be downloaded, and Try Again downloads it again', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const gmail = createSyntheticGmail({ messages: 0 });
+    const message = gmail.deliver({
+      subject: 'Invoice',
+      content: {
+        text: 'Invoice attached.',
+        attachments: [
+          {
+            filename: 'invoice.pdf',
+            mimeType: 'application/pdf',
+            bytes: [...Buffer.from('%PDF invoice')],
+          },
+        ],
+      },
+    });
+    // The Downloaded Attachment is gone until Try Again downloads it again.
+    let available = false;
+    const drafts = createDrafts(
+      {
+        ...storage.native,
+        importDraftAsset: async (owner, id, source) => {
+          // oxlint-disable-next-line vitest/no-conditional-in-test -- Only received sources read a download.
+          if (source.kind === 'received' && available) {
+            const downloaded = gmail.savedFiles.get(source.file);
+            ok(downloaded, 'Expected the Downloaded Attachment');
+            storage.addFile(
+              source.file,
+              Buffer.from(downloaded.bytes).toString('latin1'),
+            );
+          }
+          return storage.native.importDraftAsset(owner, id, source);
+        },
+      },
+      registration,
+    );
+    await render(
+      <ReaderApp
+        drafts={drafts}
+        gmail={gmail}
+        message={message}
+        registration={registration}
+      />,
+    );
+    await press('Reply');
+    await press('Forward');
+    // R1: the reason is named, with Try Again.
+    await expect(
+      screen.findByLabelText('invoice.pdf, Couldn’t be downloaded'),
+    ).resolves.toBeOnTheScreen();
+    available = true;
+    await press('Try Again to add invoice.pdf');
+    await expect(
+      screen.findByLabelText('invoice.pdf, 12 bytes'),
+    ).resolves.toBeOnTheScreen();
   });
 
   it('shows a rejected response in scrolling content and permits retry', async () => {

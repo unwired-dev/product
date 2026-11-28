@@ -358,6 +358,8 @@ function AttachToNewMessage({
         mailbox: mailbox.id,
         mailboxes,
         saved,
+        // Try Again keeps a file that wasn't added.
+        keep: true,
       });
       if (mounted.current && draft !== undefined) {
         onCompose?.(draft);
@@ -652,6 +654,7 @@ function ResponseActions({
               ? current
               : undefined;
           },
+          keep: true,
         },
         t,
         {
