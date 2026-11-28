@@ -1,3 +1,5 @@
+import type { Registration } from '@private-email/mail-core/registration';
+
 import { english } from '@private-email/localization';
 import * as Schema from 'effect/Schema';
 
@@ -5,7 +7,6 @@ import type {
   NativeNotifications,
   OpenedNotification,
 } from '../src/notifications.ts';
-import type { Registration } from '../src/registration.ts';
 
 import {
   commandTarget,
@@ -425,6 +426,85 @@ describe('the App Icon Badge across Product Accounts', () => {
       });
     },
   );
+
+  it('tries the refused sign-out clear again once the next settings are read', async () => {
+    expect.hasAssertions();
+    let snapshot = connected([], 'a');
+    let connections: ReadonlyArray<{
+      profile: string;
+      state: { kind: string; messages?: Array<{ unread: boolean }> };
+    }> = [
+      {
+        profile: defaultProfile,
+        state: { kind: 'ready', messages: [{ unread: true }] },
+      },
+    ];
+    const listeners = new Set<() => void>();
+    const changed = () => {
+      for (const listener of listeners) {
+        listener();
+      }
+    };
+    const nextRead = Promise.withResolvers<unknown>();
+    const applied: number[] = [];
+    const reads = vi
+      .fn<() => Promise<unknown>>()
+      .mockResolvedValueOnce(settings)
+      .mockResolvedValueOnce(settings)
+      .mockReturnValueOnce(nextRead.promise);
+    const accept = async (count: number) => {
+      applied.push(count);
+      return null;
+    };
+    const refuse = () => Promise.reject(new Error('refused'));
+    let respond: (count: number) => Promise<unknown> = accept;
+    const notifications = createNotifications(
+      {
+        notificationSettings: reads,
+        postNotifications: unused,
+        requestNotifications: unused,
+        setNotificationPreviews: unused,
+        setNotificationBadge: unused,
+        setNotificationSound: unused,
+        setNotificationProfile: unused,
+        setBadgeCount: (count) => respond(count),
+        openNotificationSettings: unused,
+      },
+      () => english,
+    );
+    notifications.followBadge({
+      registration: {
+        getSnapshot: () => ({ snapshot, busy: false, failed: false }),
+        subscribe: (listener) => {
+          listeners.add(listener);
+          return () => listeners.delete(listener);
+        },
+      },
+      mailboxes: {
+        getConnections: () => connections,
+        subscribe: () => () => undefined,
+      },
+    });
+    await vi.waitFor(() => {
+      expect(applied).toStrictEqual([1]);
+    });
+    // The system refuses the clear at sign-out and again when account B signs in.
+    respond = refuse;
+    snapshot = signedOut;
+    connections = [];
+    changed();
+    snapshot = connected([], 'b');
+    connections = [{ profile: defaultProfile, state: { kind: 'loading' } }];
+    changed();
+    await vi.waitFor(() => {
+      expect(reads).toHaveBeenCalledTimes(3);
+    });
+    respond = accept;
+    nextRead.resolve(settings);
+    await vi.waitFor(() => {
+      expect(applied).toStrictEqual([1, 0]);
+    });
+  });
 });
 
 describe('the Badge and sound choices after a launch that signed out', () => {

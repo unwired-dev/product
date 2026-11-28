@@ -448,7 +448,7 @@ export function createNotifications(
         // to open: after sign-out it stays queued while the next Product Account's settings and
         // Inbox open.
         wanted = count ?? (signedOut ? 0 : undefined);
-        if (count === undefined) {
+        if (wanted === undefined) {
           return;
         }
         if (!writing && wanted !== shown) {
