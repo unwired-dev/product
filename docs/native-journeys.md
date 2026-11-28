@@ -910,7 +910,7 @@ keyboard up: its first completed swipe lowers the keyboard and keeps the sheet, 
 closes **New Label**. The Move sheet, opened from the Reply sheet's **Move to…**, takes the same
 swipes from **Close** and **Back**, system buttons
 ([#3073](https://github.com/unwired-dev/product/issues/3073)), from its **Move to Travel** row, a
-pressable row until [#3077](https://github.com/unwired-dev/product/issues/3077), and, on its
+system button since [#3125](https://github.com/unwired-dev/product/issues/3125), and, on its
 Accounts page, from **Cancel**; no swipe may press its button, so after **Cancel** the message is
 still open and offers no **Undo**. UIKit's sheet owns
 the drag, the return after an early release and the keyboard's lowering; the app owns the

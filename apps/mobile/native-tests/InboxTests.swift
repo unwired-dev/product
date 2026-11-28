@@ -4697,8 +4697,8 @@ final class InboxTests: XCTestCase {
     _ = settledFrame(of: cancel)
     cancel.tap()
     XCTAssertTrue(name.waitForNonExistence(timeout: 10))
-    // #3073: Back, Close and Cancel are system buttons and the folder rows pressable rows (#3077);
-    // no swipe presses one.
+    // #3073, #3125: Back, Close, Cancel and the folder rows are system buttons; no swipe presses
+    // one.
     let caption = app.staticTexts["Move this message to another folder."].firstMatch
     let openMove = {
       if caption.exists { return }
