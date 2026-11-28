@@ -1,5 +1,5 @@
 import type { SendReminder } from '@private-email/mail-core/send-reminders';
-import type { ReactElement } from 'react';
+import type { ReactElement, ReactNode } from 'react';
 
 import {
   BottomSheet,
@@ -28,6 +28,7 @@ import {
   presentationDetents,
   presentationDragIndicator,
   shapes,
+  accessibilityLabel as spokenLabel,
   tint,
 } from '@expo/ui/swift-ui/modifiers';
 import {
@@ -44,6 +45,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  useWindowDimensions,
   View,
 } from 'react-native';
 
@@ -118,6 +120,40 @@ function CancelButton({ onPress }: { readonly onPress: () => void }) {
           ]}>
           {t('common.cancel')}
         </SwiftUIText>
+      </SwiftUIButton>
+    </Host>
+  );
+}
+
+// A row of the choices as the system button's label, so the system draws its press (#3135). A text
+// size changed while the choices are open keeps the hosted row's old height; a fresh host measures
+// it again.
+function RowButton({
+  label,
+  onPress,
+  children,
+}: {
+  readonly label: string;
+  readonly onPress: () => void;
+  readonly children: ReactNode;
+}) {
+  const { fontScale } = useWindowDimensions();
+  return (
+    <Host
+      key={fontScale}
+      matchContents={{ vertical: true }}>
+      <SwiftUIButton
+        onPress={onPress}
+        modifiers={[buttonStyle('plain'), spokenLabel(label)]}>
+        <RNHostView
+          boundedByHost
+          matchContents={{ vertical: true }}>
+          <View
+            accessibilityElementsHidden
+            style={styles.row}>
+            {children}
+          </View>
+        </RNHostView>
       </SwiftUIButton>
     </Host>
   );
@@ -396,50 +432,61 @@ function ReminderChoices({
     if (popover) {
       symbol = checked ? 'largecircle.fill.circle' : 'circle';
     }
+    const content = (
+      <>
+        <SFSymbol
+          name={symbol}
+          color={colors.textPrimary}
+        />
+        <View style={styles.rowText}>
+          <Text style={[textStyles.body, { color: colors.textPrimary }]}>
+            {title}
+          </Text>
+          {popover ? (
+            <Text
+              style={[textStyles.footnote, { color: colors.textSecondary }]}>
+              {when}
+            </Text>
+          ) : null}
+        </View>
+        {popover ? null : (
+          <Text style={[textStyles.body, { color: colors.textSecondary }]}>
+            {when}
+          </Text>
+        )}
+      </>
+    );
     return (
       <Fragment key={choice}>
         {separator(index)}
-        <Pressable
-          accessibilityLabel={`${title}, ${when}`}
-          accessibilityRole={popover ? 'radio' : 'button'}
-          accessibilityState={popover ? { checked } : undefined}
-          onPress={() => {
-            if (popover) {
+        {popover ? (
+          <Pressable
+            accessibilityLabel={`${title}, ${when}`}
+            accessibilityRole="radio"
+            accessibilityState={{ checked }}
+            onPress={() => {
               setSelected(dueAt);
-            } else {
+            }}
+            style={({ pressed }) => [
+              styles.row,
+              {
+                backgroundColor:
+                  pressed || checked
+                    ? colors.accentSelectionSubtle
+                    : 'transparent',
+              },
+            ]}>
+            {content}
+          </Pressable>
+        ) : (
+          <RowButton
+            label={`${title}, ${when}`}
+            onPress={() => {
               choose(dueAt);
-            }
-          }}
-          style={({ pressed }) => [
-            styles.row,
-            {
-              backgroundColor:
-                pressed || (popover && checked)
-                  ? colors.accentSelectionSubtle
-                  : 'transparent',
-            },
-          ]}>
-          <SFSymbol
-            name={symbol}
-            color={colors.textPrimary}
-          />
-          <View style={styles.rowText}>
-            <Text style={[textStyles.body, { color: colors.textPrimary }]}>
-              {title}
-            </Text>
-            {popover ? (
-              <Text
-                style={[textStyles.footnote, { color: colors.textSecondary }]}>
-                {when}
-              </Text>
-            ) : null}
-          </View>
-          {popover ? null : (
-            <Text style={[textStyles.body, { color: colors.textSecondary }]}>
-              {when}
-            </Text>
-          )}
-        </Pressable>
+            }}>
+            {content}
+          </RowButton>
+        )}
       </Fragment>
     );
   });
@@ -472,21 +519,13 @@ function ReminderChoices({
         ]}>
         {rows}
         {separator(times.length)}
-        <Pressable
-          accessibilityRole="button"
+        <RowButton
+          label={t('drafts.reminder.chooseDateAndTime')}
           onPress={() => {
             // Let the picker handle Return instead of the focused composer field.
             Keyboard.dismiss();
             onPicking(true);
-          }}
-          style={({ pressed }) => [
-            styles.row,
-            {
-              backgroundColor: pressed
-                ? colors.accentSelectionSubtle
-                : 'transparent',
-            },
-          ]}>
+          }}>
           <SFSymbol
             name={popover ? 'calendar' : 'calendar.badge.clock'}
             scale={popover ? 'small' : undefined}
@@ -500,7 +539,7 @@ function ReminderChoices({
             ]}>
             {t('drafts.reminder.chooseDateAndTime')}
           </Text>
-        </Pressable>
+        </RowButton>
       </View>
       {zone(selected)}
       {popover ? (

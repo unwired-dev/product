@@ -1732,6 +1732,11 @@ final class InboxTests: XCTestCase {
       app.buttons["Set Reminder"].tap()
     } else {
       capture("Remind Me to Send sheet")
+      // #3135, #3077: the times are system buttons; a swipe released early from one sets nothing.
+      let rest = settledFrame(of: tomorrow)
+      swipeReleasedEarly(from: tomorrow.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)))
+      XCTAssertEqual(settledFrame(of: tomorrow), rest, "Remind Me to Send moved after a swipe released early")
+      XCTAssertFalse(labelled("Reminder for ").exists, "A swipe released early set a reminder")
       tomorrow.tap()
     }
     let banner = labelled("Reminder for tomorrow, ")

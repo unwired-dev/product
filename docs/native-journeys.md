@@ -1082,7 +1082,9 @@ menu, **Remind Me to Send…** lists **Next Week**, and **This Weekend** from Su
 ([#3001](https://github.com/unwired-dev/product/issues/3001)) and sets **Tomorrow Morning** from the iPhone sheet or with
 the iPad popover's **Set Reminder**, and the composer stays open with the Draft's
 banner, **Change** and **Remove Reminder**
-([#2144](https://github.com/unwired-dev/product/issues/2144)). The choices' last
+([#2144](https://github.com/unwired-dev/product/issues/2144)). Before that, a downward swipe on
+the iPhone sheet released early from **Tomorrow Morning**, a system button, leaves the sheet in
+place and sets no reminder ([#3135](https://github.com/unwired-dev/product/issues/3135)). The choices' last
 line must name the device's time zone in full, such as "Times in Central European
 Standard Time (Prague)" ([#2147](https://github.com/unwired-dev/product/issues/2147)). The captures are
 named "Send menu", "Remind Me to Send sheet" or "popover" and "Draft with a Send
