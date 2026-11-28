@@ -2061,7 +2061,8 @@ describe('product registration', () => {
         },
         setNotificationProfile: (owner, profile, on) => {
           profileChoices.push({ owner, profile, on });
-          device.badgeSoundOff = on ? [] : [profile];
+          // The test only switches a Profile off.
+          device.badgeSoundOff = [profile];
           return Promise.resolve({ ...device });
         },
         setBadgeCount: () => Promise.resolve(null),

@@ -61,6 +61,13 @@ function Authorization({
   return settings === undefined ? null : shown[settings.authorization]();
 }
 
+// Default, the Mac's alert sounds and None, each in its own section of the pop-up.
+const soundSections: ReadonlyArray<readonly SoundChoice[]> = [
+  ['default'],
+  macAlertSounds,
+  ['none'],
+];
+
 // What the Dock badge counts and the sound a shown New Mail Notification plays. While
 // notifications are off, the choices stay, dimmed, until they are allowed again.
 function BadgeAndSound({
@@ -117,18 +124,16 @@ function BadgeAndSound({
             accessibilityLabel={t('notifications.sound', { context: 'mac' })}
             label={soundTitle(settings.sound)}
             disabled={denied}
-            sections={[['default'], macAlertSounds, ['none']].map(
-              (sounds: readonly SoundChoice[]) => ({
-                items: sounds.map((sound) => ({
-                  key: sound,
-                  title: soundTitle(sound),
-                  checked: sound === settings.sound,
-                  run: () => {
-                    void device.setSound(sound);
-                  },
-                })),
-              }),
-            )}
+            sections={soundSections.map((sounds) => ({
+              items: sounds.map((sound) => ({
+                key: sound,
+                title: soundTitle(sound),
+                checked: sound === settings.sound,
+                run: () => {
+                  void device.setSound(sound);
+                },
+              })),
+            }))}
           />
         )}
       </SettingsRow>

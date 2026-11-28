@@ -158,7 +158,8 @@ function BadgeAndSound({
         {settings === undefined ? null : (
           <PopUpChoice
             label={t('notifications.sound', { context })}
-            selected={settings.sound}
+            // Only the Mac offers its alert sounds.
+            selected={settings.sound === 'none' ? 'none' : 'default'}
             choices={['default', 'none']}
             title={(sound) => t(`notifications.sounds.${sound}`)}
             disabled={denied}
