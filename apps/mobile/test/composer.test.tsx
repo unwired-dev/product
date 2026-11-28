@@ -239,6 +239,14 @@ function isScrollable(
 }
 
 const ignore = () => undefined;
+// The titles the reader's More menu lists.
+const moreTitles = () =>
+  screen
+    .getByLabelText('More')
+    .props.sections.flatMap(
+      ({ items }: { items: ReadonlyArray<{ title: string }> }) =>
+        items.map(({ title }) => title),
+    );
 
 // A save that throws once, as when storage fails unexpectedly, then saves normally.
 const failingOnce = (save: () => Promise<boolean>) => {
@@ -8646,8 +8654,8 @@ describe('replying to and forwarding from the reader', () => {
       />,
     );
     await screen.findByRole('button', { name: 'Reply' });
-    // The Reply sheet offers More's actions, so the toolbar has no More.
-    expect(screen.queryByLabelText('More')).toBeNull();
+    // The Reply sheet offers More's other actions, so More beside it lists only Message Zoom….
+    expect(moreTitles()).toStrictEqual(['Message Zoom…']);
     await press('Reply');
     expect(
       screen.getAllByRole('button', { name: 'Move to Spam' }),
@@ -8766,21 +8774,21 @@ describe('replying to and forwarding from the reader', () => {
       await screen.findByLabelText('Loading message…');
       // Each prerequisite keeps Reply unavailable when it is the last one still loading.
       expect(screen.getByRole('button', { name: 'Reply' })).toBeDisabled();
-      expect(screen.queryByLabelText('More')).toBeNull();
+      expect(moreTitles()).toStrictEqual(['Message Zoom…']);
       expect(screen.getByRole('button', { name: 'Archive' })).toBeEnabled();
       await act(() => {
         prerequisites[first].release(undefined);
       });
       await prerequisites[first].wait();
       expect(screen.getByRole('button', { name: 'Reply' })).toBeDisabled();
-      expect(screen.queryByLabelText('More')).toBeNull();
+      expect(moreTitles()).toStrictEqual(['Message Zoom…']);
       await act(() => {
         prerequisites[last].release(undefined);
       });
       await waitFor(() => {
         expect(screen.getByRole('button', { name: 'Reply' })).toBeEnabled();
       });
-      expect(screen.queryByLabelText('More')).toBeNull();
+      expect(moreTitles()).toStrictEqual(['Message Zoom…']);
     },
   );
 

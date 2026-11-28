@@ -109,6 +109,7 @@ import {
   ReaderBar,
   ReaderHeader,
 } from './reader-chrome.tsx';
+import { closeMessageZoom } from './reading.ts';
 import { AccountContext } from './registration-gate.tsx';
 import { ReplySheet } from './reply-sheet.tsx';
 import { SidebarToggleContext } from './sidebar-toggle.tsx';
@@ -1083,6 +1084,13 @@ function MailboxMessage({
   const inset = usePortraitInset();
   const [responseStatus, setResponseStatus] = useState<ResponseStatus>();
   const [panel, setPanel] = useState<ReaderPanel>();
+  // Closing the message, or opening another, drops its own zoom.
+  useEffect(
+    () => () => {
+      closeMessageZoom(id);
+    },
+    [id],
+  );
   const colors = usePalette();
   const { t } = useLocalization();
   // An IMAP message can come from any folder this mailbox has read, not only its Inbox.

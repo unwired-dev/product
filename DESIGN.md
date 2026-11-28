@@ -666,7 +666,18 @@ app follows under the issue named:
 - **Mail Views:** the row of Mail View chips in the Inbox list waits for #2131.
 - **Reader More menu:** on iPad More lists Move to Spam after Mark as Unread
   (#2662), and the iPhone Reply sheet lists it; in Spam it reads Not Spam. The
-  Mac menu waits for #2132.
+  Mac menu waits for #2132. Message Zoom… (#2806) ends the menu with its level
+  as the system menu's subtitle, where the #2804 P1 frame draws it trailing; on
+  iPhone, More beside the Reply sheet lists only Message Zoom…, since the Reply
+  sheet offers the I1 frame's other actions. Its zoom panel is the system
+  popover. On iPhone it opens above the toolbar, centred on More, where the I2
+  frame overlaps the toolbar's trailing end; the popover there also keeps a
+  13 pt band at its bottom edge and sits its content about 6 pt higher
+  (#3103). On iPad it sits 13 pt below More, as every arrowless popover does,
+  where P2 draws 17 pt, keeps UIKit's 10 pt margin from the window's trailing
+  edge, where P2 draws 16 pt, and at the default text size its Use … for All
+  Messages title scales down to stay on one line in the system capsule's
+  insets. Its dividers separate the three actions, as I2 draws them.
 - **Unsubscribe banner:** the Mac, iPhone and iPad banners leave out the line
   under the list name that counts the list's messages and how many were
   opened ("17 since August, opened 2."), so it is one line shorter, until
