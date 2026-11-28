@@ -67,7 +67,7 @@ import {
   useState,
   useSyncExternalStore,
 } from 'react';
-import { Platform, StyleSheet, View } from 'react-native';
+import { Platform, StyleSheet, useWindowDimensions, View } from 'react-native';
 
 import type { Destination } from './move-sheet.tsx';
 import type { MessageZoom } from './reading.ts';
@@ -672,6 +672,7 @@ function MessageZoomPanel({
   const { t } = useLocalization();
   const colors = usePalette();
   const appearance = useAppearance();
+  const { fontScale } = useWindowDimensions();
   const level = messageZooms.indexOf(zoom);
   const row = (label: string, to: MessageZoom | undefined) => (
     <SwiftUIButton
@@ -773,8 +774,11 @@ function MessageZoomPanel({
                 modifiers={[
                   font({ textStyle: 'body', weight: 'semibold' }),
                   frame({ maxWidth: Infinity }),
-                  // The iPad frame keeps the title on one line in the system's capsule insets.
-                  ...(compact ? [] : [lineLimit(1), minimumScaleFactor(0.85)]),
+                  // The iPad frame keeps the title on one line in the system's capsule insets; larger
+                  // text sizes wrap it instead.
+                  ...(compact || fontScale > 1
+                    ? []
+                    : [lineLimit(1), minimumScaleFactor(0.85)]),
                 ]}>
                 {t('reading.zoomAll', { value: zoom })}
               </SwiftUIText>
