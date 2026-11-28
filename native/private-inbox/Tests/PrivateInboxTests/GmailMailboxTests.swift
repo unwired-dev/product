@@ -728,7 +728,7 @@ extension PrivateInboxTests {
           ran = true
         }
       }
-      for _ in 0..<100 where !ran { await Task.yield() }
+      for _ in 0..<1000 where !ran { try await Task.sleep(for: .milliseconds(10)) }
       #expect(ran)
       answering.resume()
       try await other.value
