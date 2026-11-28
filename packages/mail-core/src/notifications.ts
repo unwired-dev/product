@@ -3,6 +3,7 @@ import type { Translate } from '@private-email/localization';
 import * as Effect from 'effect/Effect';
 import * as Option from 'effect/Option';
 import * as Schema from 'effect/Schema';
+import * as Semaphore from 'effect/Semaphore';
 
 import type { Draft, OutboxEntry } from './draft-model.ts';
 import type { Drafts, DraftsState } from './drafts.ts';
@@ -29,13 +30,18 @@ import { createSubscribable } from './subscribable.ts';
 
 // What the operating system lets this device show, whether a New Mail Notification may show its
 // sender and subject, what the App Icon Badge counts and the sound a shown New Mail Notification
-// plays. Native code keeps the choices as Device-Local Preferences; previews and the badge start
-// off, the sound at the system's default.
+// plays, and the Mail Profiles whose Badge and sound switch is off: their mail adds nothing to the
+// badge and their notifications play no sound. Native code keeps the choices as Device-Local
+// Preferences; previews and the badge start off, the sound at the system's default and every
+// Profile's switch on.
 const Settings = Schema.Struct({
   authorization: Schema.Literals(['undetermined', 'denied', 'authorized']),
   previews: Schema.Boolean,
   badge: Schema.Literals(['off', 'inbox']),
   sound: Schema.Literals(['default', 'none']),
+  badgeSoundOff: Schema.Array(Schema.NonEmptyString).pipe(
+    Schema.withDecodingDefaultKey(Effect.succeed([])),
+  ),
 });
 export type NotificationSettings = typeof Settings.Type;
 export type BadgeChoice = NotificationSettings['badge'];
@@ -138,6 +144,13 @@ export interface NativeNotifications {
   readonly setNotificationPreviews: (previews: boolean) => Promise<unknown>;
   readonly setNotificationBadge: (badge: BadgeChoice) => Promise<unknown>;
   readonly setNotificationSound: (sound: SoundChoice) => Promise<unknown>;
+  // Turns one of the Product Account `owner`'s Mail Profiles' Badge and sound switch on or off;
+  // after that account is gone, nothing changes.
+  readonly setNotificationProfile: (
+    owner: string,
+    profile: string,
+    on: boolean,
+  ) => Promise<unknown>;
   // Shows `count` on the application's icon; 0 removes the badge.
   readonly setBadgeCount: (count: number) => Promise<unknown>;
   // Opens this application's notification settings in the system's settings.
@@ -211,6 +224,7 @@ type BadgeSources = Readonly<{
   mailboxes: Readonly<{
     getConnections: () => ReadonlyArray<
       Readonly<{
+        profile: string;
         state: Readonly<{
           kind: string;
           messages?: ReadonlyArray<Readonly<{ unread: boolean }>>;
@@ -223,8 +237,12 @@ type BadgeSources = Readonly<{
 
 // The unread messages this device lists in the Inbox of every open connection, as the sidebar's
 // Inbox rows count them, or undefined while saved registration or an Inbox has not opened yet.
-// Without an Inbox to open, after sign-out or the last removal, nothing is unread.
-const inboxUnread = ({ registration, mailboxes }: BadgeSources) => {
+// Without an Inbox to open, after sign-out or the last removal, nothing is unread. Connections of
+// the Profiles in `off` are left out.
+const inboxUnread = (
+  { registration, mailboxes }: BadgeSources,
+  off: readonly string[],
+) => {
   const { snapshot, restoring, locked } = registration.getSnapshot();
   if (restoring === true || locked === true) {
     return undefined;
@@ -232,8 +250,18 @@ const inboxUnread = ({ registration, mailboxes }: BadgeSources) => {
   if (!canOpenInbox(snapshot)) {
     return 0;
   }
+  const connections = mailboxes.getConnections();
+  // A mailbox whose Profile this device cannot read may be in one switched off.
+  if (
+    off.length > 0 &&
+    connections.some(({ profile }) => profile === unavailableProfile)
+  ) {
+    return undefined;
+  }
   let unread = 0;
-  for (const { state } of mailboxes.getConnections()) {
+  for (const { state } of connections.filter(
+    ({ profile }) => !off.includes(profile),
+  )) {
     if (state.kind === 'loading' || state.kind === 'locked') {
       return undefined;
     }
@@ -281,32 +309,58 @@ export function createNotifications(
   const settings = createSubscribable<NotificationSettings | undefined>(
     undefined,
   );
-  const update = (request: () => Promise<unknown>, failure: string) =>
-    runLogged(
-      logged(
-        failure,
-        settingsOf(request).pipe(
-          Effect.tap((next) =>
-            Effect.sync(() => {
-              settings.set(next);
-            }),
-          ),
+  // One settings request runs at a time, so each publishes in the order it was made: a read
+  // cannot settle after a later read or a later saved choice and bring back what it found.
+  // A request made before the Product Account changed publishes nothing, and one that belongs to
+  // that Product Account does not run either.
+  const requests = Semaphore.makeUnsafe(1);
+  let account = 0;
+  const queued = (
+    request: () => Promise<unknown>,
+    failure: string,
+    owned = false,
+  ) => {
+    const made = account;
+    return logged(
+      failure,
+      requests.withPermit(
+        Effect.suspend(() =>
+          !owned || made === account
+            ? settingsOf(request).pipe(
+                Effect.tap((next) =>
+                  Effect.sync(() => {
+                    if (made === account) {
+                      settings.set(next);
+                    }
+                  }),
+                ),
+              )
+            : Effect.void,
         ),
       ),
     );
+  };
+  const update = (request: () => Promise<unknown>, failure: string) =>
+    runLogged(queued(request, failure));
+  const read = () =>
+    queued(
+      () => native.notificationSettings(),
+      'Notification settings could not be read:',
+    );
+  const load = () => runLogged(read());
   return {
     getSnapshot: settings.getSnapshot,
     subscribe: settings.subscribe,
     // Also after activation: the person can change permission in the system's settings.
-    load: () =>
-      update(
-        () => native.notificationSettings(),
-        'Notification settings could not be read:',
-      ),
+    load,
+    // The system prompt waits for the person, so it holds no request back; the settings are read
+    // once it settles.
     request: () =>
-      update(
-        () => native.requestNotifications(),
-        'Notification permission could not be requested:',
+      runLogged(
+        logged(
+          'Notification permission could not be requested:',
+          call(() => native.requestNotifications()),
+        ).pipe(Effect.andThen(Effect.suspend(read))),
       ),
     setPreviews: (previews: boolean) =>
       update(
@@ -323,8 +377,17 @@ export function createNotifications(
         () => native.setNotificationSound(sound),
         'The New Mail Sound choice could not be saved:',
       ),
-    // Keeps the App Icon Badge on the unread Inbox count while the badge counts it and the system
-    // allows notifications, and removes it otherwise. A count is applied only once every source
+    setProfileBadgeSound: (owner: string, profile: string, on: boolean) =>
+      runLogged(
+        queued(
+          () => native.setNotificationProfile(owner, profile, on),
+          'A Profile Badge and sound choice could not be saved:',
+          true,
+        ),
+      ),
+    // Keeps the App Icon Badge on the unread Inbox count of the Profiles whose Badge and sound
+    // switch is on while the badge counts it and the system allows notifications, and removes it
+    // otherwise. A count is applied only once every source
     // has settled, so while it counts, a launch that has not opened saved registration or an
     // Inbox yet keeps the badge it found.
     followBadge: (sources: BadgeSources) => {
@@ -334,6 +397,8 @@ export function createNotifications(
       let shown: number | undefined = undefined;
       let wanted: number | undefined = undefined;
       let writing = false;
+      // Whether the last count was taken without an Inbox to open, as after sign-out.
+      let signedOut = false;
       const apply = (count: number) =>
         logged(
           'The App Icon Badge could not be set:',
@@ -362,31 +427,63 @@ export function createNotifications(
           }),
         ),
       );
-      const follow = () => {
-        const current = settings.getSnapshot();
+      const countOf = (current: NotificationSettings | undefined) => {
         if (current === undefined) {
+          // Until the settings are known, only nothing unread, as after sign-out, is counted.
+          return inboxUnread(sources, []) === 0 ? 0 : undefined;
+        }
+        return current.authorization === 'authorized' &&
+          current.badge === 'inbox'
+          ? inboxUnread(sources, current.badgeSoundOff)
+          : 0;
+      };
+      const follow = () => {
+        const count = countOf(settings.getSnapshot());
+        if (count !== undefined) {
+          signedOut = !canOpenInbox(
+            sources.registration.getSnapshot().snapshot,
+          );
+        }
+        // Until it can count, no queued count is applied either, except the clear without an Inbox
+        // to open: after sign-out it stays queued while the next Product Account's settings and
+        // Inbox open.
+        wanted = count ?? (signedOut ? 0 : undefined);
+        if (wanted === undefined) {
           return;
         }
-        const count =
-          current.authorization === 'authorized' && current.badge === 'inbox'
-            ? inboxUnread(sources)
-            : 0;
-        if (count === undefined) {
-          return;
-        }
-        wanted = count;
         if (!writing && wanted !== shown) {
           writing = true;
           void runLogged(write);
         }
       };
+      // A purge removes the Profiles' Badge and sound choices, whose ids another Product Account
+      // reuses, so the settings are read again whenever the Product Account changes.
+      const owner = () => {
+        const { snapshot } = sources.registration.getSnapshot();
+        return snapshot.kind === 'signed-out'
+          ? undefined
+          : snapshot.productAccountId;
+      };
+      let following = owner();
+      // Until registration has restored, the choices read belong to the account it restores.
+      let restored = sources.registration.getSnapshot().restoring !== true;
       settings.subscribe(follow);
-      sources.registration.subscribe(follow);
+      sources.registration.subscribe(() => {
+        if (owner() !== following) {
+          // The choices read while a Product Account was signed in, or since a restore that found
+          // none, are not the next one's.
+          if (following !== undefined || restored) {
+            account += 1;
+            settings.set(undefined);
+          }
+          following = owner();
+          void load();
+        }
+        restored = sources.registration.getSnapshot().restoring !== true;
+        follow();
+      });
       sources.mailboxes.subscribe(follow);
-      void update(
-        () => native.notificationSettings(),
-        'Notification settings could not be read:',
-      );
+      void load();
     },
     openSettings: () =>
       runLogged(

@@ -74,6 +74,12 @@ const listedGmail = (
 
 // A host over a native module whose vault, Gmail and Drafts are synthetic. Attachment reads wait
 // until native code cancels them by name; the counts are the native reads the host made.
+// The signed-in Product Account a Badge and sound choice is made under.
+function ownerOf(host: ReturnType<typeof syntheticHost>['host']) {
+  const { snapshot } = host.registration.getSnapshot();
+  return snapshot.kind === 'signed-out' ? '' : snapshot.productAccountId;
+}
+
 function syntheticHost(reporting?: NativeErrorReporting, productSync = false) {
   const gmail = createSyntheticGmail();
   const shared = createSyntheticDevice();
@@ -109,6 +115,7 @@ function syntheticHost(reporting?: NativeErrorReporting, productSync = false) {
     previews: false,
     badge: 'off',
     sound: 'default',
+    badgeSoundOff: [] as readonly string[],
   };
   const badges: number[] = [];
   // How the system answers each App Icon Badge write.
@@ -277,6 +284,13 @@ function syntheticHost(reporting?: NativeErrorReporting, productSync = false) {
     },
     setNotificationSound: (sound) => {
       device.sound = sound;
+      return Promise.resolve({ ...device });
+    },
+    setNotificationProfile: (_owner, profile, on) => {
+      device.badgeSoundOff = [
+        ...device.badgeSoundOff.filter((off) => off !== profile),
+        ...(on ? [] : [profile]),
+      ];
       return Promise.resolve({ ...device });
     },
     setBadgeCount: (count) => {
@@ -858,15 +872,319 @@ describe('the host assembly', () => {
     });
   });
 
+  it('leaves a Profile whose Badge and sound switch is off out of the App Icon Badge', async () => {
+    expect.hasAssertions();
+    const { host, gmail, badges, device } = syntheticHost(undefined, true);
+    host.followBadge();
+    const steps: Array<readonly [string, readonly number[]]> = [];
+    const step = (name: string) => {
+      steps.push([name, badges.splice(0)]);
+    };
+    await host.start();
+    gmail.deliver({ subject: 'Unread', unread: true });
+    await host.registration.register('google');
+    await host.registration.addMailbox();
+    await host.gmailMailboxes.load();
+    await host.notifications.request();
+    await host.notifications.setBadge('inbox');
+    badges.splice(0);
+    await host.notifications.setProfileBadgeSound(
+      ownerOf(host),
+      defaultProfile,
+      false,
+    );
+    step('off');
+    // New mail in a Profile switched off does not count.
+    gmail.deliver({ subject: 'Arrived', unread: true });
+    await host.gmailMailboxes.load();
+    step('arrived while off');
+    // Moved to a Profile whose switch is on, its mail counts again.
+    await host.registration.createProfile('Work');
+    const work = required(
+      profilesOf(host.registration.getSnapshot().snapshot).find(
+        ({ name }) => name === 'Work',
+      ),
+    ).id;
+    await host.registration.moveMailbox(
+      syntheticMailboxes['alex@example.invalid'],
+      work,
+    );
+    step('moved to Work');
+    // Each Profile's switch counts only its own mail.
+    await host.notifications.setProfileBadgeSound(
+      ownerOf(host),
+      defaultProfile,
+      true,
+    );
+    step('Primary on');
+    await host.notifications.setProfileBadgeSound(ownerOf(host), work, false);
+    step('Work off');
+    await host.notifications.setProfileBadgeSound(ownerOf(host), work, true);
+    step('Work on');
+    expect({ steps, off: device.badgeSoundOff }).toStrictEqual({
+      steps: [
+        ['off', [0]],
+        ['arrived while off', []],
+        ['moved to Work', [2]],
+        ['Primary on', []],
+        ['Work off', [0]],
+        ['Work on', [2]],
+      ],
+      off: [],
+    });
+  });
+
+  it('leaves the App Icon Badge unchanged while a muted Profile’s mailboxes cannot be told apart', async () => {
+    expect.hasAssertions();
+    const { host, native, gmail, shared, badges } = syntheticHost(
+      undefined,
+      true,
+    );
+    host.followBadge();
+    await host.start();
+    gmail.deliver({ subject: 'Unread', unread: true });
+    await host.registration.register('google');
+    await host.registration.addMailbox();
+    await host.gmailMailboxes.load();
+    await host.notifications.request();
+    await host.notifications.setBadge('inbox');
+    await host.registration.createProfile('Work');
+    const work = required(
+      profilesOf(host.registration.getSnapshot().snapshot).find(
+        ({ name }) => name === 'Work',
+      ),
+    ).id;
+    await host.registration.moveMailbox(
+      syntheticMailboxes['alex@example.invalid'],
+      work,
+    );
+    await host.notifications.setProfileBadgeSound(ownerOf(host), work, false);
+    const muted = badges.at(-1);
+    // Relaunched while its Profile state cannot be read, the mailbox is in no known Profile.
+    shared.device.productSync.unreadable = true;
+    const launched = createHost(() => native);
+    launched.followBadge();
+    await launched.start();
+    gmail.deliver({ subject: 'Arrived', unread: true });
+    await launched.gmailMailboxes.load();
+    await launched.notifications.load();
+    expect({ muted, after: badges.at(-1) }).toStrictEqual({
+      muted: 0,
+      after: 0,
+    });
+  });
+
+  it('applies no queued App Icon Badge count once a muted Profile’s mailboxes cannot be told apart', async () => {
+    expect.hasAssertions();
+    const { host, gmail, shared, badges, badgeWrites } = syntheticHost(
+      undefined,
+      true,
+    );
+    host.followBadge();
+    await host.start();
+    gmail.deliver({ subject: 'Unread', unread: true });
+    await host.registration.register('google');
+    await host.registration.addMailbox();
+    await host.gmailMailboxes.load();
+    await host.notifications.request();
+    await host.notifications.setBadge('inbox');
+    await host.registration.createProfile('Work');
+    const work = required(
+      profilesOf(host.registration.getSnapshot().snapshot).find(
+        ({ name }) => name === 'Work',
+      ),
+    ).id;
+    await host.registration.moveMailbox(
+      syntheticMailboxes['alex@example.invalid'],
+      work,
+    );
+    await host.notifications.setProfileBadgeSound(
+      ownerOf(host),
+      defaultProfile,
+      false,
+    );
+    badges.splice(0);
+    // The write of 2 is still running when 3 is wanted.
+    const written = Promise.withResolvers<null>();
+    badgeWrites.answer = () => written.promise;
+    gmail.deliver({ subject: 'Second', unread: true });
+    await host.gmailMailboxes.load();
+    gmail.deliver({ subject: 'Third', unread: true });
+    await host.gmailMailboxes.load();
+    // Then which Profile the mailbox is in cannot be read.
+    shared.device.productSync.unreadable = true;
+    await host.registration.restore();
+    badgeWrites.answer = () => Promise.resolve(null);
+    written.resolve(null);
+    await host.notifications.load();
+    const unreadable = badges.splice(0);
+    shared.device.productSync.unreadable = false;
+    await host.registration.restore();
+    await vi.waitFor(() => {
+      expect({ unreadable, readable: badges }).toStrictEqual({
+        unreadable: [2],
+        readable: [3],
+      });
+    });
+  });
+
+  it('reads the Badge and sound choices again once the Product Account changes', async () => {
+    expect.hasAssertions();
+    const { host, device } = syntheticHost(undefined, true);
+    host.followBadge();
+    await host.start();
+    await host.registration.register('google');
+    await host.notifications.setProfileBadgeSound(
+      ownerOf(host),
+      defaultProfile,
+      false,
+    );
+    // Signing out purges the choices, whose Profile ids another Product Account reuses.
+    await host.registration.signOut();
+    device.badgeSoundOff = [];
+    await host.registration.register('google');
+    await vi.waitFor(() => {
+      expect(host.notifications.getSnapshot()?.badgeSoundOff).toStrictEqual([]);
+    });
+  });
+
+  it('shows no choices read for the previous Product Account once it changes', async () => {
+    expect.hasAssertions();
+    const { host, native, device } = syntheticHost(undefined, true);
+    host.followBadge();
+    await host.start();
+    await host.registration.register('google');
+    await host.notifications.setProfileBadgeSound(
+      ownerOf(host),
+      defaultProfile,
+      false,
+    );
+    // A read for this Product Account settles only after another one signed in.
+    const held = Promise.withResolvers<undefined>();
+    vi.spyOn(native, 'notificationSettings').mockImplementationOnce(
+      async () => {
+        await held.promise;
+        return { ...device, badgeSoundOff: [defaultProfile] };
+      },
+    );
+    const stale = host.notifications.load();
+    await host.registration.signOut();
+    device.badgeSoundOff = [];
+    await host.registration.register('google');
+    const seen: unknown[] = [];
+    host.notifications.subscribe(() => {
+      seen.push(host.notifications.getSnapshot()?.badgeSoundOff);
+    });
+    held.resolve(undefined);
+    await stale;
+    await vi.waitFor(() => {
+      expect(host.notifications.getSnapshot()?.badgeSoundOff).toStrictEqual([]);
+    });
+    expect(seen).not.toContainEqual([defaultProfile]);
+  });
+
+  it('clears the App Icon Badge at sign-out while the notification settings are read', async () => {
+    expect.hasAssertions();
+    const { host, native, device, gmail, badges, badgeWrites } = syntheticHost(
+      undefined,
+      true,
+    );
+    host.followBadge();
+    await host.start();
+    gmail.deliver({ subject: 'Unread', unread: true });
+    await host.registration.register('google');
+    await host.registration.addMailbox();
+    await host.gmailMailboxes.load();
+    await host.notifications.request();
+    await host.notifications.setBadge('inbox');
+    // The write of 2 is still running, and the next settings read waits, as the person signs out.
+    const written = Promise.withResolvers<null>();
+    badgeWrites.answer = () => written.promise;
+    gmail.deliver({ subject: 'Second', unread: true });
+    await host.gmailMailboxes.load();
+    const held = Promise.withResolvers<undefined>();
+    vi.spyOn(native, 'notificationSettings').mockImplementation(async () => {
+      await held.promise;
+      return { ...device };
+    });
+    await host.registration.signOut();
+    badgeWrites.answer = () => Promise.resolve(null);
+    written.resolve(null);
+    await vi.waitFor(() => {
+      expect(badges.at(-1)).toBe(0);
+    });
+    held.resolve(undefined);
+  });
+
+  it('saves a choice for this device made while the person signs out', async () => {
+    expect.hasAssertions();
+    const { host, native, device } = syntheticHost(undefined, true);
+    host.followBadge();
+    await host.start();
+    await host.registration.register('google');
+    await host.notifications.setPreviews(true);
+    const held = Promise.withResolvers<undefined>();
+    vi.spyOn(native, 'notificationSettings').mockImplementationOnce(
+      async () => {
+        await held.promise;
+        return { ...device };
+      },
+    );
+    const reading = host.notifications.load();
+    const choice = host.notifications.setPreviews(false);
+    await host.registration.signOut();
+    held.resolve(undefined);
+    await Promise.all([reading, choice]);
+    await host.notifications.load();
+    expect({
+      saved: device.previews,
+      shown: host.notifications.getSnapshot()?.previews,
+    }).toStrictEqual({ saved: false, shown: false });
+  });
+
+  it('saves no Profile choice that waited while the person signed out and back in', async () => {
+    expect.hasAssertions();
+    const { host, native, device } = syntheticHost(undefined, true);
+    host.followBadge();
+    await host.start();
+    await host.registration.register('google');
+    const held = Promise.withResolvers<undefined>();
+    vi.spyOn(native, 'notificationSettings').mockImplementationOnce(
+      async () => {
+        await held.promise;
+        return { ...device };
+      },
+    );
+    const reading = host.notifications.load();
+    // Queued behind the read, the choice is made before sign-out purges the choices.
+    const choice = host.notifications.setProfileBadgeSound(
+      ownerOf(host),
+      defaultProfile,
+      false,
+    );
+    await host.registration.signOut();
+    await host.registration.register('google');
+    held.resolve(undefined);
+    await Promise.all([reading, choice]);
+    await host.notifications.load();
+    expect({
+      saved: device.badgeSoundOff,
+      shown: host.notifications.getSnapshot()?.badgeSoundOff,
+    }).toStrictEqual({ saved: [], shown: [] });
+  });
+
   it('sets the App Icon Badge again after the system refused a write', async () => {
     expect.hasAssertions();
     const { host, badges, badgeWrites } = syntheticHost(undefined, true);
     badgeWrites.answer = () => Promise.reject(new Error('refused'));
     host.followBadge();
     await host.notifications.load();
+    const refused = badges.length;
     badgeWrites.answer = () => Promise.resolve(null);
     await host.notifications.load();
-    expect(badges).toStrictEqual([0, 0]);
+    // Tried again at the next change, then left alone once the system applied it.
+    await host.notifications.load();
+    expect([refused > 0, badges.length - refused]).toStrictEqual([true, 1]);
   });
 
   it('logs why New Mail Notifications were or were not posted, never what or whose', async () => {

@@ -259,13 +259,18 @@ final class UnwiredNotifications: NSObject, UNUserNotificationCenterDelegate, Se
 }
 
 extension UnwiredRegistration {
-  // Sender and subject previews, the App Icon Badge and the New Mail Sound are Device-Local
-  // Preferences; previews and the badge are off and the sound is the system's until chosen here.
+  // Sender and subject previews, the App Icon Badge, the New Mail Sound and each Mail Profile's
+  // Badge and sound switch are Device-Local Preferences; previews and the badge are off, the sound
+  // is the system's and every Profile's switch is on until chosen here.
   private static let notificationPreviewsKey = "dev.unwired.notification-previews"
   private static let notificationBadgeKey = "dev.unwired.notification-badge"
   private static let notificationSoundKey = "dev.unwired.notification-sound"
   private static var newMailSound: String {
     UserDefaults.standard.string(forKey: notificationSoundKey) == "none" ? "none" : "default"
+  }
+  // The Profiles whose Badge and sound switch is off.
+  private static var badgeSoundOff: [String] {
+    UserDefaults.standard.stringArray(forKey: RegistrationStore.notificationProfilesOffKey) ?? []
   }
 
   private static func notificationSettings() async -> [String: Any] {
@@ -282,6 +287,7 @@ extension UnwiredRegistration {
       "badge": UserDefaults.standard.string(forKey: notificationBadgeKey) == "inbox"
         ? "inbox" : "off",
       "sound": newMailSound,
+      "badgeSoundOff": badgeSoundOff,
     ]
   }
 
@@ -353,6 +359,28 @@ extension UnwiredRegistration {
     }
   }
 
+  // Turns one of the Product Account `owner`'s Mail Profiles' Badge and sound switch on or off.
+  // Runs in the registration operation gate: a choice that waited behind a purge, or behind one
+  // that stopped partway, changes nothing, since another Product Account reuses the Profile ids.
+  @objc(setNotificationProfile:profile:on:resolver:rejecter:)
+  func setNotificationProfile(
+    _ owner: String, profile: String, on: Bool, resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    perform("setNotificationProfile", resolve, reject: reject) { store in
+      guard let saved = try store.load(), saved.accountRemoval == nil,
+        saved.product?.productAccountId == owner
+      else {
+        return await Self.notificationSettings()
+      }
+      let others = Self.badgeSoundOff.filter { $0 != profile }
+      UserDefaults.standard.set(
+        on || profile.isEmpty ? others : others + [profile],
+        forKey: RegistrationStore.notificationProfilesOffKey)
+      return await Self.notificationSettings()
+    }
+  }
+
   // Shows `count` on the application's icon; 0 removes the badge.
   @objc(setBadgeCount:resolver:rejecter:)
   func setBadgeCount(
@@ -414,6 +442,7 @@ extension UnwiredRegistration {
       }
       await UnwiredNotifications.register(Array(categories.values))
       let sound: UNNotificationSound? = Self.newMailSound == "none" ? nil : .default
+      let silent = Self.badgeSoundOff
       var skipped: [String: Int] = [:]
       var added = 0
       for notification in notifications {
@@ -442,7 +471,7 @@ extension UnwiredRegistration {
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body
-        content.sound = sound
+        content.sound = silent.contains(profile) ? nil : sound
         content.categoryIdentifier = "new-mail.\(connection)"
         content.threadIdentifier = profile
         content.userInfo = ["account": account, "epoch": epoch, "connection": connection, "message": message]
