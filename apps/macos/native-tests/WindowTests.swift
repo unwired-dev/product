@@ -3832,6 +3832,65 @@ final class WindowTests: XCTestCase {
     XCTAssertTrue(text("No Blocked Senders.", in: settings).waitForExistence(timeout: 10))
   }
 
+  // #2829: Settings › Reading offers each Mail Profile's Mark as Read pop-up, Immediately by default,
+  // and keeps a Work Profile's After 2 seconds, in each appearance.
+  func testMarkAsRead() throws {
+    try markAsRead(appearance: "Light")
+  }
+
+  func testMarkAsReadDark() throws {
+    try markAsRead(appearance: "Dark")
+  }
+
+  private func markAsRead(appearance: String) throws {
+    continueAfterFailure = false
+    let environment = ProcessInfo.processInfo.environment
+    XCTAssertEqual(environment["UNWIRED_TEST_SCENARIO"], "registration-performance")
+    let app = XCUIApplication(url: URL(fileURLWithPath: try XCTUnwrap(environment["UNWIRED_APP_PATH"])))
+    app.launchArguments += [
+      "-ApplePersistenceIgnoreState", "YES", "-interfaceLanguage", "en",
+      "-UnwiredAppearance", appearance.lowercased(),
+    ]
+    app.launch()
+    addTeardownBlock { if app.state != .notRunning { app.terminate() } }
+    performanceSetup(app, window: app.windows["Inbox 1"])
+    let settings = app.windows["settings-window"]
+    func popUp(_ profile: String) -> XCUIElement {
+      settings.popUpButtons["Mark as Read for \(profile)"]
+    }
+    func attach(_ screenshot: XCUIScreenshot, _ name: String) {
+      let attachment = XCTAttachment(screenshot: screenshot)
+      attachment.name = "\(name) (\(appearance))"
+      attachment.lifetime = .keepAlways
+      add(attachment)
+    }
+
+    app.typeKey(",", modifierFlags: .command)
+    XCTAssertTrue(settings.waitForExistence(timeout: 15))
+    settings.buttons["Profiles"].click()
+    settings.buttons["Add Profile…"].click()
+    let sheet = settings.sheets.firstMatch
+    XCTAssertTrue(sheet.waitForExistence(timeout: 10))
+    sheet.textFields.firstMatch.click()
+    sheet.typeText("Work")
+    sheet.buttons["Create"].click()
+    XCTAssertTrue(settings.buttons["Work"].waitForExistence(timeout: 15))
+    settings.buttons["Reading"].click()
+    XCTAssertTrue(popUp("Work").waitForExistence(timeout: 15))
+    XCTAssertEqual(popUp("Primary Profile").value as? String, "Immediately")
+    popUp("Work").click()
+    XCTAssertTrue(app.menuItems["After 2 seconds"].waitForExistence(timeout: 5))
+    app.menuItems["After 2 seconds"].click()
+    waitUntil { popUp("Work").value as? String == "After 2 seconds" }
+    attach(settings.screenshot(), "Settings › Reading")
+    popUp("Primary Profile").click()
+    XCTAssertTrue(app.menuItems["Manually"].waitForExistence(timeout: 5))
+    // The menu is outside the window, so the screen is captured.
+    attach(XCUIScreen.main.screenshot(), "Mark as Read choices")
+    app.typeKey(.escape, modifierFlags: [])
+    XCTAssertEqual(popUp("Primary Profile").value as? String, "Immediately")
+  }
+
   // #2280: the reader's Pin pins the message's Thread, and its row shows the pinned marker until
   // Unpin.
   func testPinThread() throws {

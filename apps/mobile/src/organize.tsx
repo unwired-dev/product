@@ -249,20 +249,26 @@ export function ReadWhenOpened<M extends Readonly<{ id: string }>>({
     if (due && (marked?.store !== store || marked.id !== message.id)) {
       const opening = { store, id: message.id };
       markedRef.current = opening;
-      // A read the mailbox could not save marks it again once the reader can change it.
+      // Claimed before the read is saved, so another window's wait leaves a Mark as Unread made
+      // meanwhile alone; a read the mailbox could not save gives the claim back and marks it again
+      // once the reader can change it.
+      const marks = markedAt.get(store) ?? new Map<string, number>();
+      markedAt.set(store, marks);
+      const before = marks.get(message.id);
+      const at = Date.now();
+      marks.set(message.id, at);
       const mark = async () => {
         if ((await read(message)) === false) {
+          if (marks.get(message.id) === at) {
+            if (before === undefined) {
+              marks.delete(message.id);
+            } else {
+              marks.set(message.id, before);
+            }
+          }
           if (markedRef.current === opening) {
             markedRef.current = undefined;
           }
-        } else {
-          markedAt.set(
-            store,
-            (markedAt.get(store) ?? new Map<string, number>()).set(
-              message.id,
-              Date.now(),
-            ),
-          );
         }
       };
       void mark();

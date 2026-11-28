@@ -479,7 +479,12 @@ export function createInboxPreferences(
         })) || conflicted;
     }
     pulled = conflicted ? undefined : { account, known, unreadable };
-    if (!conflicted) {
+    if (
+      !conflicted &&
+      stored.some(({ fields }) =>
+        Object.values(fields).some(({ unpublished }) => unpublished === true),
+      )
+    ) {
       // Private Sync now holds what this pass published, unless a later change was made meanwhile.
       yield* changed(account, (profiles) =>
         stored.filter(sendable).reduce((all, { profile, fields }) => {

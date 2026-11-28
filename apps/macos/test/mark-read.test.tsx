@@ -171,7 +171,20 @@ describe('settings › Reading › Mark as Read on the Mac', () => {
     await store.setMarkRead(defaultProfile, 'afterTwoSeconds');
     const gmail = createSyntheticGmail();
     const id = gmail.deliver({ subject: 'Report' });
-    const inbox = createInboxStore(gmail.native);
+    // Gmail answers the first change only once `release` runs.
+    let release: () => void = () => undefined;
+    // oxlint-disable-next-line promise/avoid-new -- Hold Gmail's answer until the test releases it.
+    const answered = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const held = [answered];
+    const inbox = createInboxStore({
+      ...gmail.native,
+      gmailModify: async (change, owner) => {
+        await held.shift();
+        return gmail.native.gmailModify(change, owner);
+      },
+    });
     await inbox.load();
     // A reader window for each test ID.
     const windows = (ids: readonly string[]) => (
@@ -194,8 +207,8 @@ describe('settings › Reading › Mark as Read on the Mac', () => {
     await wait(1000);
     // A second window opens the message a second later.
     await app.rerender(windows(['first', 'second']));
-    // The first window's wait ends and reads it; the person marks it unread before the second
-    // window's wait ends.
+    // The first window's wait ends and reads it; while Gmail has not answered, the person marks
+    // it unread before the second window's wait ends.
     await wait(1100);
     await fireEvent.press(
       within(app.getByTestId('first')).getByRole('button', {
@@ -203,6 +216,8 @@ describe('settings › Reading › Mark as Read on the Mac', () => {
       }),
     );
     await wait(1500);
+    release();
+    await wait(100);
     const reads = gmail.modifies.filter(({ remove }) =>
       remove.includes('UNREAD'),
     ).length;
