@@ -45,6 +45,7 @@
     "registration-sync-status-paused",
     "registration-invitation",
     "registration-imap-folders",
-    "registration-unsubscribe"
+    "registration-unsubscribe",
+    "registration-forward"
   ]
 }
