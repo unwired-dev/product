@@ -405,10 +405,11 @@ export function createNotifications(
           current.authorization === 'authorized' && current.badge === 'inbox'
             ? inboxUnread(sources, current.badgeSoundOff)
             : 0;
+        // Until it can count, no queued count is applied either.
+        wanted = count;
         if (count === undefined) {
           return;
         }
-        wanted = count;
         if (!writing && wanted !== shown) {
           writing = true;
           void runLogged(write);
