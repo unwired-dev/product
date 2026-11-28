@@ -230,7 +230,8 @@ transport and known native exit gaps.
   to place the menu. On iPhone and iPad, Expo Contacts reads them, and a
   transparent copy of the body up to the query's line holds the menu under it,
   while a native view around the body takes the arrow keys ahead of its caret;
-  the iPhone menu spans the sheet and leads each row with a monogram. It is drawn
+  the iPhone menu spans the sheet and leads each row with a monogram, and the
+  iPad menu starts under the @, kept inside the editor. It is drawn
   by the app rather than as a system menu, which would close as typing continues
   to filter it. `@private-email/mail-core` owns the query, matching, the
   suggestions with each present person's role, the greeting's name and the

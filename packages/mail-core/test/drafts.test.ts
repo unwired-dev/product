@@ -1550,6 +1550,17 @@ describe('entering Draft recipients', () => {
         { correspondents, contacts: [], excluded: ['me@example.com'] },
       ).recent,
     ).toStrictEqual([{ name: 'Me', address: 'me@example.com' }]);
+    // A recent message that gave no name leaves the name the Draft gives them.
+    expect(
+      bodySuggestionSections(
+        { ...draft, cc: [{ name: 'Ana Kovač', address: 'kovac@example.com' }] },
+        { start: 0, end: 3, text: 'an' },
+        {
+          correspondents: [{ sender: '', address: 'KOVAC@example.com' }],
+          contacts: [],
+        },
+      ).recent,
+    ).toStrictEqual([{ name: 'Ana Kovač', address: 'KOVAC@example.com' }]);
     expect(
       recipientSuggestions({ ...onDraft, entries: { to: 't' } }, 'to', {
         correspondents,

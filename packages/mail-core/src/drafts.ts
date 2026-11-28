@@ -499,9 +499,18 @@ export function bodySuggestionSections(
   const kept = [...excluded].filter(
     (address) => !onDraft.has(address.toLowerCase()),
   );
+  // People on the Draft keep the name it gives them, also when a recent message gave none.
+  const named = new Map(
+    present.flatMap(({ name, address }) =>
+      name === undefined ? [] : [[address.toLowerCase(), name] as const],
+    ),
+  );
   const recent = suggestionsFor(typed, {
     correspondents: [
-      ...correspondents,
+      ...[...correspondents].map(({ sender, address }) => ({
+        sender: named.get(address.toLowerCase()) ?? sender,
+        address,
+      })),
       ...present.map(({ name = '', address }) => ({ sender: name, address })),
     ],
     excluded: kept,

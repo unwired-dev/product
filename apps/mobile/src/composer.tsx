@@ -277,6 +277,7 @@ const fieldInset = 16;
 const fieldLabelWidth = 80;
 const padInset = 32 * ipadListScale;
 export const padFieldInset = spacing.xxl * ipadListScale;
+const padBodyMenuWidth = 320 * ipadListScale;
 const padLabelWidth = 64 * ipadListScale;
 // Compact 44pt and regular 41.4pt field rows reach 44pt targets. Each includes its row's rule:
 // iPhone's 1pt and iPad's 1.15pt, the Mac recipe's point at 1.15×.
@@ -736,7 +737,7 @@ export const layoutStyles = {
     // The Mac's body suggestions at 1.15, their rows aligned with the text.
     bodySuggestions: {
       marginLeft: padFieldInset,
-      width: 320 * ipadListScale,
+      width: padBodyMenuWidth,
       marginTop: 6 * ipadListScale,
       padding: 6 * ipadListScale,
     },
@@ -3704,13 +3705,18 @@ function BodyMenuAnchor({
       origin: string;
       maxHeight: number | undefined;
       onContentHeight: (height: number) => void;
+      // The @'s distance from its line's start, and the line's width once measured.
+      indent: number;
+      width: number | undefined;
     }>,
   ) => ReactNode;
 }) {
   const appearance = useAppearance();
   const queryLine = useRef<ViewInstance>(null);
   const [room, setRoom] =
-    useState<Readonly<{ below: number; above: number; lift: number }>>();
+    useState<
+      Readonly<{ below: number; above: number; lift: number; width: number }>
+    >();
   const [rows, setRows] = useState(0);
   const measure = () => {
     const view = viewport.current?.getBoundingClientRect();
@@ -3726,6 +3732,7 @@ function BodyMenuAnchor({
       below: floor - line.bottom - 24,
       above: line.bottom - lift - view.top - spacing.s - 24,
       lift,
+      width: line.width,
     });
   };
   useEffect(() => {
@@ -3734,44 +3741,71 @@ function BodyMenuAnchor({
       placeRef.current = undefined;
     };
   });
+  // How far the query's @ sits from its line's start, from two empty views in the copied line.
+  const probes = useRef({ line: 0, query: 0 });
+  const [indent, setIndent] = useState(0);
+  const probe = (key: 'line' | 'query') => (x: number) => {
+    probes.current[key] = x;
+    setIndent(probes.current.query - probes.current.line);
+  };
   // The lines up to the caret: text after it may wrap below the line the menu hangs from.
   const lineStart = display.text.lastIndexOf('\n', start - 1) + 1;
-  const lines = display.lines
-    .slice(0, display.text.slice(0, start).split('\n').length)
-    .map((line, index, all) => {
-      if (index < all.length - 1) {
-        return line;
-      }
-      let left = end - lineStart - line.marker.length;
-      const spans = line.spans.flatMap((span) => {
-        const text = span.text.slice(0, Math.max(left, 0));
-        left -= span.text.length;
-        return text === '' ? [] : [{ ...span, text }];
-      });
-      return { ...line, spans };
+  const lines = display.lines.slice(
+    0,
+    display.text.slice(0, start).split('\n').length,
+  );
+  type Line = (typeof lines)[number];
+  const cut = (spans: Line['spans'], from: number, to: number) => {
+    let offset = 0;
+    return spans.flatMap((span) => {
+      const text = span.text.slice(
+        Math.max(from - offset, 0),
+        Math.max(to - offset, 0),
+      );
+      offset += span.text.length;
+      return text === '' ? [] : [{ ...span, text }];
     });
-  const copy = (each: typeof lines) =>
+  };
+  // Formatted as the body shows them, since formatting can change a line's height.
+  const spanCopy = (spans: Line['spans']) =>
+    spans.map((span, at) => (
+      <Text
+        // oxlint-disable-next-line react/no-array-index-key -- Spans are positional.
+        key={at}
+        style={[
+          markStyle(span.marks, 'link' in span),
+          formatStyleOf(span, appearance),
+        ]}>
+        {span.text}
+      </Text>
+    ));
+  const copy = (each: readonly Line[]) =>
     each.map((line, index) => (
       <Text
         // oxlint-disable-next-line react/no-array-index-key -- Blocks are positional.
         key={index}
         style={kindStyles[line.kind]}>
         {line.marker}
-        {/* Formatted as the body shows them, since formatting can change a line's height. */}
-        {line.spans.map((span, at) => (
-          <Text
-            // oxlint-disable-next-line react/no-array-index-key -- Spans are positional.
-            key={at}
-            style={[
-              markStyle(span.marks, 'link' in span),
-              formatStyleOf(span, appearance),
-            ]}>
-            {span.text}
-          </Text>
-        ))}
+        {spanCopy(line.spans)}
         {index < each.length - 1 ? '\n' : ''}
       </Text>
     ));
+  const last = lines[lines.length - 1];
+  const queryAt = start - lineStart - (last?.marker.length ?? 0);
+  const queryCopy =
+    last === undefined ? null : (
+      <Text style={kindStyles[last.kind]}>
+        <View
+          onLayout={({ nativeEvent }) => probe('line')(nativeEvent.layout.x)}
+        />
+        {last.marker}
+        {spanCopy(cut(last.spans, 0, queryAt))}
+        <View
+          onLayout={({ nativeEvent }) => probe('query')(nativeEvent.layout.x)}
+        />
+        {spanCopy(cut(last.spans, queryAt, queryAt + end - start))}
+      </Text>
+    );
   const above =
     room !== undefined && rows > room.below && room.above > room.below;
   const hidden = {
@@ -3789,7 +3823,7 @@ function BodyMenuAnchor({
         onLayout={measure}
         {...hidden}
         style={[hidden.style, lines.length > 1 && styles.bodyCopyLine]}>
-        {copy(lines.slice(-1))}
+        {queryCopy}
       </Text>
       <View
         style={
@@ -3804,6 +3838,8 @@ function BodyMenuAnchor({
               ? undefined
               : Math.max(above ? room.above : room.below, 0),
           onContentHeight: setRows,
+          indent,
+          width: room?.width,
         })}
       </View>
     </View>
@@ -3828,13 +3864,27 @@ function BodyRecipientMenu({
       start={shown.sections.query.start}
       end={shown.sections.query.end}
       {...anchor}>
-      {({ origin, maxHeight, onContentHeight }) => (
+      {({ origin, maxHeight, onContentHeight, indent, width }) => (
         <SuggestionMenu
           {...shown}
           onAccept={onAccept}
           origin={origin}
           monograms={size === 'compact'}
-          style={layoutStyles[size].bodySuggestions}
+          style={[
+            layoutStyles[size].bodySuggestions,
+            // On iPad under the @, kept inside the editor near its trailing edge.
+            size === 'regular' && {
+              marginLeft:
+                padFieldInset +
+                Math.max(
+                  0,
+                  Math.min(
+                    indent,
+                    (width ?? 0) - 2 * padFieldInset - padBodyMenuWidth,
+                  ),
+                ),
+            },
+          ]}
           scroll={{
             query: shown.sections.query.text,
             maxHeight,
