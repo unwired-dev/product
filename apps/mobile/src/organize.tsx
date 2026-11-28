@@ -91,7 +91,6 @@ import { MovePanel, MoveSheet } from './move-sheet.tsx';
 import { LabelChoices, NewLabel } from './new-label.tsx';
 import { usePinAction, usePinned } from './pins.tsx';
 import {
-  closeMessageZoom,
   type MessageZoom,
   setMessageZoom,
   useFormatted,
@@ -943,13 +942,6 @@ function Toolbar({
     ...withPin(organizing, pin),
     unsubscribe: useUnsubscribeItems(id),
   };
-  // Closing the message, or moving to another, drops its own zoom.
-  useEffect(
-    () => () => {
-      closeMessageZoom(id);
-    },
-    [id],
-  );
   // The reader's open panel lasts only while this toolbar shows it. Closing it, Move or organizing
   // becoming unavailable, or the toolbar leaving clears it, so no dismissal stays behind.
   const shown = more.open || folders?.open === true || labeling === true;

@@ -464,6 +464,9 @@ describe('iPad reader', () => {
     await press('Zoom In');
     await screen.rerender(reader(second));
     const next = await zoom();
+    await screen.rerender(reader(first));
+    const reopenedFirst = await zoom();
+    await screen.rerender(reader(second));
     await act(async () => {
       await fireEvent(screen.getByLabelText('More'), 'select', {
         nativeEvent: { id: 'zoom' },
@@ -478,6 +481,7 @@ describe('iPad reader', () => {
       zoomedOut,
       actual,
       next,
+      reopenedFirst,
       stored: Settings.get('UnwiredMessageZoom'),
       reopened: await zoom(),
     }).toStrictEqual({
@@ -485,6 +489,7 @@ describe('iPad reader', () => {
       zoomedOut: 115,
       actual: 100,
       next: 100,
+      reopenedFirst: 100,
       stored: 85,
       reopened: 85,
     });
