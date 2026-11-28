@@ -298,6 +298,7 @@ jest.mock('@expo/ui/swift-ui', () => {
     BottomSheet,
     Button,
     DatePicker,
+    Divider: () => null,
     Form: Passthrough,
     Popover,
     Group,

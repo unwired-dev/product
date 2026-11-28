@@ -1137,6 +1137,7 @@ describe('product registration', () => {
       'Mark as Unread',
       'Move to…',
       'Delete',
+      'Message Zoom…',
     ]);
     await fromPalette('Star');
     await waitFor(() => {
@@ -1154,6 +1155,7 @@ describe('product registration', () => {
       'Mark as Unread',
       'Move to…',
       'Delete',
+      'Message Zoom…',
     ]);
 
     // Archive moves it to the folder the server declares, closes the reader and offers Undo.

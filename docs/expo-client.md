@@ -463,9 +463,20 @@ WebKit's own scroll, one that grows past the reader's 20,000-point height cap sc
 WebKit by the excess, and otherwise the measurement reports how far it moved, and the
 reader moves its offset by as much. The reader's WebView uses WebKit's mobile content
 mode, so iPad, too, leaves a wide document to this fit instead of zooming it out
-with an unscaled height. The switch is kept in `UnwiredFitWideMessages`. Zooming one message
-from the reader follows in its own slice; the Mac's Message zoom is in the
-[macOS client](macos-client.md#reading).
+with an unscaled height. The switch is kept in `UnwiredFitWideMessages`.
+
+**Message Zoom…** ([#2806](https://github.com/unwired-dev/product/issues/2806)),
+the last item of the reader's More menu, zooms the open message alone. It shows
+the current level and is dimmed while the reader shows no received formatted
+document. It opens a system popover on More, as the approved I2 and P2 frames draw
+it: **Zoom In** and **Zoom Out** step through the Message Zoom levels and stop at
+50% and 300%, **Actual Size** returns to 100%, and **Use … for All Messages** keeps
+the level as Message Zoom. The open message's own zoom lives in memory: closing the
+message, or opening another, drops it, and the next message opens at the stored
+Message Zoom. Plain-text messages, provider content and Drafts don't change, and
+Fit Wide Messages to the Screen keeps fitting at any level. Beside the iPhone Reply
+sheet, which offers the other actions, More lists only Message Zoom…. The Mac's
+Message zoom is in the [macOS client](macos-client.md#reading).
 
 ## Interface language
 

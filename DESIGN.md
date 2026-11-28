@@ -662,7 +662,10 @@ app follows under the issue named:
 - **Mail Views:** the row of Mail View chips in the Inbox list waits for #2131.
 - **Reader More menu:** on iPad More lists Move to Spam after Mark as Unread
   (#2662), and the iPhone Reply sheet lists it; in Spam it reads Not Spam. The
-  Mac menu waits for #2132.
+  Mac menu waits for #2132. Message Zoom… (#2806) ends the menu with its level
+  as the system menu's subtitle, where the #2804 P1 frame draws it trailing; on
+  iPhone, More beside the Reply sheet lists only Message Zoom…, since the Reply
+  sheet offers the I1 frame's other actions.
 - **Unsubscribe banner:** the Mac, iPhone and iPad banners leave out the line
   under the list name that counts the list's messages and how many were
   opened ("17 since August, opened 2."), so it is one line shorter, until

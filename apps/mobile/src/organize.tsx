@@ -10,14 +10,31 @@ import type { ReactElement, ReactNode, RefObject } from 'react';
 
 import {
   BottomSheet,
+  Divider,
   Group,
   Host,
   Popover,
   RNHostView,
+  Button as SwiftUIButton,
+  Text as SwiftUIText,
+  VStack,
 } from '@expo/ui/swift-ui';
 import {
+  accessibilityAddTraits,
+  background,
+  buttonBorderShape,
+  buttonStyle,
+  contentShape,
+  controlSize,
+  disabled,
+  font,
+  foregroundStyle,
+  frame,
+  padding,
   presentationBackground,
   presentationDetents,
+  shapes,
+  tint,
 } from '@expo/ui/swift-ui/modifiers';
 import {
   commandTarget,
@@ -39,6 +56,7 @@ import {
   viewMessage,
 } from '@private-email/mail-core/inbox-store';
 import { gmailViewName } from '@private-email/mail-core/mailboxes';
+import { messageZooms } from '@private-email/mail-core/message-body';
 import { ipadListScale, spacing } from '@private-email/mail-core/theme';
 import {
   useEffect,
@@ -72,6 +90,14 @@ import {
 import { MovePanel, MoveSheet } from './move-sheet.tsx';
 import { LabelChoices, NewLabel } from './new-label.tsx';
 import { usePinAction, usePinned } from './pins.tsx';
+import {
+  closeMessageZoom,
+  type MessageZoom,
+  setMessageZoom,
+  useFormatted,
+  useMessageZoom,
+  zoomMessage,
+} from './reading.ts';
 import { ThreadActionsContext } from './reply-sheet.tsx';
 import { useAppearance, usePalette } from './theme.ts';
 import { useUnsubscribeItems } from './unsubscribe.tsx';
@@ -497,11 +523,15 @@ const menuActions = (t: ReturnType<typeof useLocalization>['t']) =>
 
 // More: the system menu the iPad frames draw: read state, Move to Spam (Not Spam in Spam) and
 // Move to…, then Trash's Move to Inbox and Gmail's Labels, which open in their own sheet. The
-// iPhone toolbar has no Delete or Pin, so its menu ends with Delete and starts with Pin.
+// iPhone toolbar has no Delete or Pin, so its menu ends with Delete and starts with Pin. Its last
+// group's Message Zoom…, dimmed until the message shows formatted mail, opens Zooming one message
+// on More.
 function MoreButton({
+  id,
   more,
   folders,
 }: {
+  readonly id: string;
   readonly more: Readonly<{
     toggle: () => void;
     actions: readonly Named[];
@@ -516,6 +546,9 @@ function MoreButton({
 }) {
   const { t } = useLocalization();
   const colors = usePalette();
+  const zoom = useMessageZoom(id);
+  const formatted = useFormatted(id);
+  const [zooming, setZooming] = useState(false);
   const titled = menuActions(t);
   const items = (names: ReadonlyArray<keyof typeof titled>) =>
     names.flatMap((name) =>
@@ -533,56 +566,200 @@ function MoreButton({
         }),
     );
   return (
-    <MenuButton
-      accessibilityLabel={t('message.more')}
-      hitSlop={compact ? undefined : scaledToolbarSlop}
-      sections={[
-        {
-          items: [
-            ...items([
-              ...(compact ? (['pin', 'unpin'] as const) : []),
-              'read',
-              'unread',
-              'notSpam',
-              'spam',
-            ]),
-            ...(folders === undefined
-              ? []
-              : [
-                  {
-                    key: 'move',
-                    title: t('contextMenu.moveTo'),
-                    symbol: 'folder',
-                    run: folders.show.run,
-                  },
-                ]),
-          ],
-        },
-        {
-          items: [
-            ...items(['restore']),
-            ...(more.renderLabels === undefined
-              ? []
-              : [
-                  {
-                    key: 'labels',
-                    title: t('gmailActions.labels'),
-                    symbol: 'tag',
-                    run: more.toggle,
-                  },
-                ]),
-          ],
-        },
-        { items: more.unsubscribe ?? [] },
-        ...(compact ? [{ items: items(['trash']) }] : []),
-      ]}
-      style={compact ? styles.compactMoreButton : styles.moreButton}>
-      <SFSymbol
-        name="ellipsis"
-        size={compact ? 20 : scaledToolbar.symbol}
-        color={colors.textPrimary}
-      />
-    </MenuButton>
+    <MessageZoomPanel
+      id={id}
+      zoom={zoom}
+      open={zooming}
+      onClose={() => {
+        setZooming(false);
+      }}>
+      <MenuButton
+        accessibilityLabel={t('message.more')}
+        hitSlop={compact ? undefined : scaledToolbarSlop}
+        sections={[
+          {
+            items: [
+              ...items([
+                ...(compact ? (['pin', 'unpin'] as const) : []),
+                'read',
+                'unread',
+                'notSpam',
+                'spam',
+              ]),
+              ...(folders === undefined
+                ? []
+                : [
+                    {
+                      key: 'move',
+                      title: t('contextMenu.moveTo'),
+                      symbol: 'folder',
+                      run: folders.show.run,
+                    },
+                  ]),
+            ],
+          },
+          {
+            items: [
+              ...items(['restore']),
+              ...(more.renderLabels === undefined
+                ? []
+                : [
+                    {
+                      key: 'labels',
+                      title: t('gmailActions.labels'),
+                      symbol: 'tag',
+                      run: more.toggle,
+                    },
+                  ]),
+            ],
+          },
+          { items: more.unsubscribe ?? [] },
+          ...(compact ? [{ items: items(['trash']) }] : []),
+          {
+            items: [
+              {
+                key: 'zoom',
+                title: t('reading.zoomMenu'),
+                subtitle: t('reading.percent', { value: zoom }),
+                symbol: 'plus.magnifyingglass',
+                disabled: !formatted,
+                run: () => {
+                  setZooming(true);
+                },
+              },
+            ],
+          },
+        ]}
+        style={compact ? styles.compactMoreButton : styles.moreButton}>
+        <SFSymbol
+          name="ellipsis"
+          size={compact ? 20 : scaledToolbar.symbol}
+          color={colors.textPrimary}
+        />
+      </MenuButton>
+    </MessageZoomPanel>
+  );
+}
+
+// Zooming one message, in a system popover on More as the I2 and P2 frames draw it: the message's
+// zoom steps through the Message Zoom levels, or returns to 100%, until the message closes, and
+// Use … for All Messages keeps it as Settings › Reading's Message Zoom.
+function MessageZoomPanel({
+  id,
+  zoom,
+  open,
+  onClose,
+  children,
+}: {
+  readonly id: string;
+  readonly zoom: MessageZoom;
+  readonly open: boolean;
+  readonly onClose: () => void;
+  readonly children: ReactElement;
+}) {
+  const { t } = useLocalization();
+  const colors = usePalette();
+  const level = messageZooms.findIndex((each) => each === zoom);
+  const row = (label: string, to: MessageZoom | undefined) => (
+    <SwiftUIButton
+      onPress={() => {
+        if (to !== undefined) {
+          zoomMessage(id, to);
+        }
+      }}
+      modifiers={[
+        buttonStyle('plain'),
+        disabled(to === undefined || to === zoom),
+      ]}>
+      <SwiftUIText
+        modifiers={[
+          font({ textStyle: compact ? 'body' : 'subheadline' }),
+          foregroundStyle(colors.textPrimary),
+          frame({
+            maxWidth: Infinity,
+            minHeight: compact ? 52 : 46,
+            alignment: 'leading',
+          }),
+          padding({ horizontal: compact ? 16 : 14 }),
+          contentShape(shapes.rectangle()),
+        ]}>
+        {label}
+      </SwiftUIText>
+    </SwiftUIButton>
+  );
+  return (
+    <Host matchContents>
+      <Popover
+        isPresented={open}
+        onIsPresentedChange={(presented) => {
+          if (!presented) {
+            onClose();
+          }
+        }}>
+        <Popover.Trigger>
+          <RNHostView matchContents>{children}</RNHostView>
+        </Popover.Trigger>
+        <Popover.Content>
+          <VStack
+            alignment="leading"
+            spacing={10}
+            modifiers={[
+              padding({ vertical: 20, horizontal: compact ? 20 : 16 }),
+              frame({ width: compact ? 300 : 274 }),
+            ]}>
+            <SwiftUIText
+              modifiers={[
+                font({ textStyle: 'headline' }),
+                foregroundStyle(colors.textPrimary),
+                accessibilityAddTraits(['isHeader']),
+              ]}>
+              {t('reading.zoomTitle', { value: zoom })}
+            </SwiftUIText>
+            <SwiftUIText
+              modifiers={[
+                font({ textStyle: 'subheadline' }),
+                foregroundStyle(colors.textSecondary),
+              ]}>
+              {t('reading.zoomResets')}
+            </SwiftUIText>
+            <VStack
+              spacing={0}
+              modifiers={[
+                background(
+                  colors.fillQuiet,
+                  shapes.roundedRectangle({
+                    cornerRadius: compact ? 17 : 11.5,
+                  }),
+                ),
+              ]}>
+              {row(t('reading.zoomIn'), messageZooms[level + 1])}
+              <Divider modifiers={[padding({ leading: compact ? 16 : 14 })]} />
+              {row(t('reading.zoomOut'), messageZooms[level - 1])}
+              <Divider modifiers={[padding({ leading: compact ? 16 : 14 })]} />
+              {row(t('reading.actualSize'), 100)}
+            </VStack>
+            <SwiftUIButton
+              onPress={() => {
+                setMessageZoom(zoom);
+              }}
+              modifiers={[
+                buttonStyle('bordered'),
+                buttonBorderShape('capsule'),
+                controlSize('large'),
+                tint(colors.textPrimary),
+              ]}>
+              <SwiftUIText
+                modifiers={[
+                  font({ textStyle: 'body', weight: 'semibold' }),
+                  frame({ maxWidth: Infinity }),
+                ]}>
+                {t('reading.zoomAll', { value: zoom })}
+              </SwiftUIText>
+            </SwiftUIButton>
+          </VStack>
+        </Popover.Content>
+      </Popover>
+    </Host>
   );
 }
 
@@ -691,37 +868,30 @@ const withPin = <More extends Readonly<{ actions: readonly Named[] }>>(
     ? { ...more, actions: [pin, ...more.actions] }
     : more;
 
-// The toolbar's last group: Pin on iPad, then More, which mail with no organizing actions, such as
-// saved mail without organizing permission, lacks.
+// The toolbar's last group: Pin on iPad, then More, which always offers Message Zoom….
 const lastGroup = (
+  id: string,
   pin: PinAction | undefined,
   more: Parameters<typeof MoreButton>[0]['more'],
   folders: Parameters<typeof MoreButton>[0]['folders'],
-) => {
-  const buttons = [
-    compact || pin === undefined ? null : (
-      <ToolbarButton
-        key="pin"
-        icon={actionIcons[pin.name] ?? 'pin'}
-        label={pin.label}
-        onPress={() => {
-          pin.run();
-        }}
-      />
-    ),
-    more.actions.length === 0 &&
-    more.renderLabels === undefined &&
-    folders === undefined &&
-    (more.unsubscribe ?? []).length === 0 ? null : (
-      <MoreButton
-        key="more"
-        more={more}
-        folders={folders}
-      />
-    ),
-  ];
-  return buttons.every((button) => button === null) ? null : buttons;
-};
+) => [
+  compact || pin === undefined ? null : (
+    <ToolbarButton
+      key="pin"
+      icon={actionIcons[pin.name] ?? 'pin'}
+      label={pin.label}
+      onPress={() => {
+        pin.run();
+      }}
+    />
+  ),
+  <MoreButton
+    key="more"
+    id={id}
+    more={more}
+    folders={folders}
+  />,
+];
 
 // The toolbar and the panel or sheet one of its buttons opened. iPad shows Pin first in the last
 // group, before More; iPhone lists it in More and the Reply sheet, with the read state.
@@ -773,6 +943,13 @@ function Toolbar({
     ...withPin(organizing, pin),
     unsubscribe: useUnsubscribeItems(id),
   };
+  // Closing the message, or moving to another, drops its own zoom.
+  useEffect(
+    () => () => {
+      closeMessageZoom(id);
+    },
+    [id],
+  );
   // The reader's open panel lasts only while this toolbar shows it. Closing it, Move or organizing
   // becoming unavailable, or the toolbar leaving clears it, so no dismissal stays behind.
   const shown = more.open || folders?.open === true || labeling === true;
@@ -807,7 +984,18 @@ function Toolbar({
               </ThreadActionsContext>
             )
           }
-          more={replySheet ? null : lastGroup(pin, more, folders)}
+          more={
+            // Beside the iPhone Reply sheet, which offers the other actions, More lists only
+            // Message Zoom….
+            replySheet
+              ? lastGroup(
+                  id,
+                  pin,
+                  { toggle: more.toggle, actions: [] },
+                  undefined,
+                )
+              : lastGroup(id, pin, more, folders)
+          }
         />
       </View>
       {folders !== undefined && 'sheet' in folders ? folders.sheet : null}

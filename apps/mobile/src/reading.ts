@@ -1,13 +1,13 @@
 import { messageZooms } from '@private-email/mail-core/message-body';
-import { useSyncExternalStore } from 'react';
+import { useEffect, useSyncExternalStore } from 'react';
 import { Settings } from 'react-native';
 
-// A choice kept in user defaults under `key`, on this device only, read once and then followed.
-const deviceSetting = <A>(key: string, read: (stored: unknown) => A) => {
+// A value the app shares, read once and then followed; `keep` keeps each change.
+const shared = <A>(read: () => A, keep: (value: A) => void = () => {}) => {
   let current: { readonly value: A } | undefined = undefined;
   const listeners = new Set<() => void>();
   const snapshot = () => {
-    current ??= { value: read(Settings.get(key)) };
+    current ??= { value: read() };
     return current.value;
   };
   const subscribe = (listener: () => void) => {
@@ -17,8 +17,9 @@ const deviceSetting = <A>(key: string, read: (stored: unknown) => A) => {
     };
   };
   return {
+    get: snapshot,
     set: (value: A) => {
-      Settings.set({ [key]: value });
+      keep(value);
       current = { value };
       for (const listener of listeners) {
         listener();
@@ -28,13 +29,59 @@ const deviceSetting = <A>(key: string, read: (stored: unknown) => A) => {
   };
 };
 
+// A choice kept in user defaults under `key`, on this device only.
+const deviceSetting = <A>(key: string, read: (stored: unknown) => A) =>
+  shared(
+    () => read(Settings.get(key)),
+    (value) => {
+      Settings.set({ [key]: value });
+    },
+  );
+
 const messageZoom = deviceSetting(
   'UnwiredMessageZoom',
   (stored) => messageZooms.find((each) => each === stored) ?? 100,
 );
 export const setMessageZoom = messageZoom.set;
-// The reader's Message Zoom, in percent.
-export const useMessageZoom = messageZoom.useValue;
+export type MessageZoom = (typeof messageZooms)[number];
+
+// Zooming one message: the open message's own zoom, in memory until the message closes.
+const ownZoom = shared<Readonly<{ id: string; zoom: MessageZoom }> | undefined>(
+  () => undefined,
+);
+export const zoomMessage = (id: string, zoom: MessageZoom) => {
+  ownZoom.set({ id, zoom });
+};
+// Closing message `id` drops its own zoom, so it opens again at the stored Message Zoom.
+export const closeMessageZoom = (id: string) => {
+  if (ownZoom.get()?.id === id) {
+    ownZoom.set(undefined);
+  }
+};
+
+// The reader's Message Zoom, in percent: message `id`'s own zoom, otherwise the stored one.
+export const useMessageZoom = (id?: string) => {
+  const stored = messageZoom.useValue();
+  const own = ownZoom.useValue();
+  return own !== undefined && own.id === id ? own.zoom : stored;
+};
+
+// The messages whose formatted document the reader shows, the ones a zoom changes.
+const formatted = shared<ReadonlySet<string>>(() => new Set());
+export const useShowsFormatted = (id: string, shown: boolean) => {
+  useEffect(() => {
+    if (!shown) {
+      return undefined;
+    }
+    formatted.set(new Set([...formatted.get(), id]));
+    return () => {
+      formatted.set(
+        new Set([...formatted.get()].filter((each) => each !== id)),
+      );
+    };
+  }, [id, shown]);
+};
+export const useFormatted = (id: string) => formatted.useValue().has(id);
 
 // Fit Wide Messages to the Screen; on until turned off.
 const fitWideMessages = deviceSetting(
