@@ -767,7 +767,9 @@ export function ProviderRow({
             spokenLabel(name),
             accessibilityHint(detail),
           ]}>
-          <RNHostView matchContents={{ vertical: true }}>
+          <RNHostView
+            boundedByHost
+            matchContents={{ vertical: true }}>
             <View
               accessibilityElementsHidden
               style={[styles.provider, ipad && styles.ipadProvider]}>
