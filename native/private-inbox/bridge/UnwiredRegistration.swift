@@ -871,11 +871,15 @@ extension UnwiredRegistration {
   private static let topicPattern =
     "^projects/[a-z][a-z0-9-]{4,28}[a-z0-9]/topics/[A-Za-z][A-Za-z0-9._~%+-]{2,254}$"
 
-  // Mailbox preflight and registration changes share custody across all suspension points.
+  // Mailbox preflight and registration changes share custody across all suspension points, except
+  // that a Gmail or Graph read releases it while its token renews and the provider answers. A
+  // `transfer`, an IMAP message's bytes, obtains only the store under the gate, so a Draft save or
+  // its recovery write never waits behind a download; the read checks its connection's generation
+  // after the network wait, as ungated work does.
   private func mailbox(
     _ name: String, _ resolve: @escaping RCTPromiseResolveBlock,
     reject: @escaping RCTPromiseRejectBlock,
-    request: String? = nil,
+    request: String? = nil, transfer: Bool = false,
     operation: @escaping @MainActor (RegistrationStore) async throws -> [String: Any]
   ) {
     DispatchQueue.main.async {
@@ -886,10 +890,17 @@ extension UnwiredRegistration {
       let task = Task { @MainActor in
         defer { if let request { Self.reads.removeValue(forKey: request) } }
         do {
-          let reply = try await Self.operations.perform {
-            try Task.checkCancellation()
-            return try await operation(self.store())
-          }
+          let reply =
+            try await transfer
+            ? operation(
+              Self.operations.perform {
+                try Task.checkCancellation()
+                return try await self.store()
+              })
+            : Self.operations.perform {
+              try Task.checkCancellation()
+              return try await operation(self.store())
+            }
           #if UNWIRED_REGISTRATION_MOCK
             try await SyntheticThreadBodyBarrier.wait(name, reply: reply)
           #endif
@@ -1245,7 +1256,8 @@ extension UnwiredRegistration {
     mailbox("graphRequest", resolve, reject: reject, request: request) {
       let (connection, address, generation) = try Self.scope(scope)
       return try await $0.graph(
-        url: url, connection: connection, address: address, generation: generation)
+        url: url, connection: connection, address: address, generation: generation,
+        gate: Self.operations)
     }
   }
 
@@ -1275,7 +1287,7 @@ extension UnwiredRegistration {
       }
       return try await $0.gmail(
         path: path, query: items, connection: connection, address: address,
-        generation: generation)
+        generation: generation, gate: Self.operations)
     }
   }
 
@@ -1616,7 +1628,7 @@ extension UnwiredRegistration {
       reject("unavailable", "The mailbox could not be reached.", nil)
       return
     }
-    mailbox("imapMessage", resolve, reject: reject, request: request) {
+    mailbox("imapMessage", resolve, reject: reject, request: request, transfer: true) {
       let (connection, address, generation) = try Self.scope(scope)
       guard let folder = message["folder"] as? String,
         let validity = (message["uidValidity"] as? Double).flatMap({ UInt32(exactly: $0) }),

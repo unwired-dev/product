@@ -704,10 +704,55 @@ extension PrivateInboxTests {
       await #expect(throws: PrivateInboxError.mailboxInvalidated) { _ = try await reading.value }
       #expect(google.gmailRequests.count == (stage == "response" ? 1 : 0))
     }
-    // A revocation preflight queues behind captured registration writes, then purges their result.
     _ = try await store.purge()
     _ = try await store.signIn()
     _ = try await store.authorizeGmail()
+    // A read releases the operation gate while Google renews its token and while Gmail answers, so
+    // other work, such as a Draft save, runs meanwhile; a removal in either window, even one whose
+    // renewal then fails, still invalidates the read once it takes the gate back.
+    let operations = RegistrationOperationGate()
+    for stage in ["renewal", "response", "remove", "remove-renewal"] {
+      let answering = MailboxPause()
+      if stage.hasSuffix("renewal") {
+        google.beforeRefresh = { await answering.wait() }
+      } else {
+        google.beforeGmail = { await answering.wait() }
+      }
+      let reading = Task {
+        try await operations.perform {
+          try await store.gmail(
+            path: "profile", query: [], connection: current, address: google.address,
+            generation: store.generation(currentSubject), gate: operations)["status"] as? Int
+        }
+      }
+      await answering.reached()
+      var ran = false
+      let other = Task {
+        try await operations.perform {
+          if stage.hasPrefix("remove") { _ = try await store.flowRemoveMailbox(current) }
+          if stage == "remove-renewal" { google.refreshFailure = RegistrationError.gmailUnavailable }
+          ran = true
+        }
+      }
+      for _ in 0..<1000 where !ran { try await Task.sleep(for: .milliseconds(10)) }
+      #expect(ran)
+      answering.resume()
+      try await other.value
+      if stage.hasPrefix("remove") {
+        await #expect(throws: PrivateInboxError.mailboxInvalidated) { _ = try await reading.value }
+      } else {
+        #expect(try await reading.value == 200)
+      }
+      google.refreshFailure = nil
+      if stage.hasPrefix("remove") {
+        _ = try await store.signIn()
+        _ = try await store.authorizeGmail()
+      }
+    }
+    _ = try await store.purge()
+    _ = try await store.signIn()
+    _ = try await store.authorizeGmail()
+    // A revocation preflight queues behind captured registration writes, then purges their result.
     let gate = RegistrationOperationGate()
     let restoring = MailboxPause()
     google.beforeRefresh = { await restoring.wait() }

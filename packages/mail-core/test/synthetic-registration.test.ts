@@ -979,3 +979,72 @@ describe('the sync status mailbox', () => {
     ).toHaveLength(messagesTotal);
   });
 });
+
+describe('the forward mailbox', () => {
+  it('lists an attachment it serves only after holding it, at its declared size', async () => {
+    expect.hasAssertions();
+    const ask = launch('registration-forward', { state: null });
+    const gmail = (path: string) =>
+      ask('google.gmail', {
+        subject: 'synthetic-alternate-mailbox',
+        url: `https://gmail.googleapis.com/gmail/v1/users/me/${path}`,
+        body: null,
+      });
+    const exchange = <
+      S extends Schema.Top & { readonly DecodingServices: never },
+    >(
+      body: S,
+    ) => Schema.Struct({ status: Schema.Finite, body });
+    const Part = Schema.Struct({
+      filename: Schema.optionalKey(Schema.String),
+      body: Schema.Struct({
+        size: Schema.Finite,
+        attachmentId: Schema.optionalKey(Schema.String),
+      }),
+    });
+    const { payload } = decoded(
+      exchange(
+        Schema.fromJsonString(
+          Schema.Struct({
+            payload: Schema.Struct({ parts: Schema.Array(Part) }),
+          }),
+        ),
+      ),
+      await gmail('messages/19a0c0ffee000051?format=full'),
+    ).body;
+    const file = payload.parts.find(
+      ({ filename }) => filename === 'budget.csv',
+    );
+    expect(file?.body.attachmentId).toBeDefined();
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      let answered = false;
+      const held = (async () => {
+        const outcome = await gmail(
+          `messages/19a0c0ffee000051/attachments/${file?.body.attachmentId}`,
+        );
+        answered = true;
+        return outcome;
+      })();
+      await vi.advanceTimersByTimeAsync(29_000);
+      expect(answered).toBe(false);
+      await vi.advanceTimersByTimeAsync(1000);
+      const served = decoded(
+        exchange(
+          Schema.fromJsonString(
+            Schema.Struct({ size: Schema.Finite, data: Schema.String }),
+          ),
+        ),
+        await held,
+      ).body;
+      expect(served.size).toBe(file?.body.size);
+      expect(
+        new TextDecoder().decode(
+          Result.getOrThrow(Base64Url.decode(served.data)),
+        ),
+      ).toContain('Engineering,48000');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

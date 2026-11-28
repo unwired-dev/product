@@ -8156,6 +8156,51 @@ describe('replying to and forwarding from the reader', () => {
     expect(asked).toHaveLength(0);
   });
 
+  it('opens a forward at once while its file downloads, and Send waits for it', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const gmail = createSyntheticGmail({ messages: 0 });
+    const message = gmail.deliver({
+      subject: 'Notes',
+      content: { text: 'Notes attached.' },
+    });
+    storage.readSavedAttachments(gmail.savedFiles);
+    // The original file's download stays open until released.
+    const save = gmail.native.saveAttachment;
+    const saveHeld = deferred();
+    gmail.native.saveAttachment = async (...args) => {
+      await saveHeld.promise;
+      return save(...args);
+    };
+    const drafts = createDrafts(storage.native, registration);
+    await render(
+      <ReaderApp
+        drafts={drafts}
+        gmail={gmail}
+        message={message}
+        registration={registration}
+      />,
+    );
+    await press('Forward');
+    await expect(screen.findByLabelText('Subject')).resolves.toHaveProp(
+      'value',
+      'Fwd: Notes',
+    );
+    expect(screen.getByLabelText('notes.txt, Importing…')).toBeOnTheScreen();
+    expect(
+      screen.getByLabelText(
+        '“notes.txt” is still importing. Wait for it, or remove it, to send.',
+      ),
+    ).toBeOnTheScreen();
+    await act(async () => {
+      saveHeld.resolve(undefined);
+    });
+    await expect(
+      screen.findByLabelText('notes.txt, 12 bytes'),
+    ).resolves.toBeOnTheScreen();
+  });
+
   it('shows a rejected response in scrolling content and permits retry', async () => {
     expect.hasAssertions();
     const registration = account(connected(['alex@example.invalid']));
@@ -8185,7 +8230,6 @@ describe('replying to and forwarding from the reader', () => {
       );
       expect(isScrollable(failure)).toBe(true);
       expect(screen.getByRole('alert')).toBeVisible();
-      expect(screen.queryByText('Preparing to forward…')).toBeNull();
       await press('Forward');
       await expect(screen.findByLabelText('Subject')).resolves.toHaveProp(
         'value',
@@ -8224,13 +8268,7 @@ describe('replying to and forwarding from the reader', () => {
       reply();
       forward();
     });
-    try {
-      expect(
-        isScrollable(await screen.findByText('Preparing to forward…')),
-      ).toBe(true);
-    } finally {
-      storage.release();
-    }
+    storage.release();
     await expect(screen.findByLabelText('Subject')).resolves.toHaveProp(
       'value',
       'Fwd: Plans',

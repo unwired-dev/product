@@ -193,6 +193,10 @@ from Trail Notes, Market Weekly and City Bulletin, each with a one-click
 [unsubscribe offer](unsubscribe.md). Every mock build's one-click request answers
 with the last segment of its URL (`sent`, `failed` or `uncertain`), and `failed`
 for any other URL, without reaching a server.
+In `registration-forward`, the synthetic Gmail Inbox also lists Priya Natarajan's
+Q4 budget, whose `budget.csv` attachment Gmail serves only after 30 seconds, so a
+[forward](drafts.md#replies-and-forwards) of it opens while the file is still importing
+([#3119](https://github.com/unwired-dev/product/issues/3119)).
 In `registration-sync-status`, the synthetic Gmail mailbox downloads its history
 slowly: Gmail reports the mailbox's message count, lists two messages, then holds
 the next page for two minutes and fails it once with a server error before listing

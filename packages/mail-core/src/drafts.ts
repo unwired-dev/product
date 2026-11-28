@@ -2747,20 +2747,23 @@ export function createDrafts(
   ) {
     const { download } = options;
     const read = yield* downloadAgain(asset.id, options);
+    // Cancel Import, or the account leaving, while it downloaded copies nothing.
+    if (!live(current) || cancelled.has(asset.id)) {
+      stopImporting(current, asset.id);
+      return undefined;
+    }
     const failure = unreadable(read);
     if (failure === undefined && staysInProfile(asset.id, read)) {
       return read;
     }
-    // Cancel Import may have stopped Try Again while it downloaded.
-    if (stopImporting(current, asset.id)) {
-      yield* failAsset(current, asset, {
-        ...failure,
-        retry:
-          failure?.notDownloaded === true && download !== undefined
-            ? { source: read, download, again: true }
-            : undefined,
-      });
-    }
+    stopImporting(current, asset.id);
+    yield* failAsset(current, asset, {
+      ...failure,
+      retry:
+        failure?.notDownloaded === true && download !== undefined
+          ? { source: read, download, again: true }
+          : undefined,
+    });
     return undefined;
   });
 
@@ -2922,9 +2925,11 @@ export function createDrafts(
       if (unhold !== undefined) {
         holders.add({ id: asset.id, release: unhold });
       }
-      // Only a client offering Try Again downloads a forwarded file again.
+      // Only a client offering Try Again downloads a forwarded file, first when it isn't on the
+      // device yet.
       void importThenPublish(asset, source, {
         download: keep === true ? download : undefined,
+        again: source.kind === 'unavailable',
         keep: keep === true,
       });
     }
