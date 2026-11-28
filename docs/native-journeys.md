@@ -481,6 +481,15 @@ wraps, and at each width chooses **More › Labels › New Label…** and types
 with the typed name is kept as an attachment, which shows no placeholder under
 the name. It sets Light; `testNewLabelPopoverDark` runs it in Dark.
 
+`testMessageZoom` uses the same build and sign-in
+([#2808](https://github.com/unwired-dev/product/issues/2808)). In plain-text Gmail
+update 001, **More › Message Zoom…** and View's zoom items are dimmed. In
+formatted Gmail update 002, Command-= and Command-+ twice make it read 150%; its
+panel then reads `Message zoom · 150%`, Command-+ with the panel open makes it
+175%, and **Actual Size** returns it to 100%. Command-+ and Command-0 leave it at
+100% again. The More menu, the panel and the View menu are kept as attachments.
+It sets Light; `testMessageZoomDark` runs it in Dark.
+
 On iPhone and iPad, the default Gmail registration journey
 ([#2166](https://github.com/unwired-dev/product/issues/2166)) long-presses the
 open message's sender, chooses **Block Sender…**, and confirms

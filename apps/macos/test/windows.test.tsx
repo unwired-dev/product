@@ -3675,10 +3675,12 @@ describe('mac windows over a connected Gmail mailbox', () => {
         addListener: () => void;
         removeListeners: () => void;
         setWindowProfile: () => void;
+        setMessageZoomable: ReturnType<typeof jest.fn>;
       }> = {
       addListener: () => undefined,
       removeListeners: () => undefined,
       setWindowProfile: () => undefined,
+      setMessageZoomable: jest.fn(),
     };
     const commands = commandModule(host);
     const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
@@ -3724,6 +3726,11 @@ describe('mac windows over a connected Gmail mailbox', () => {
         await window.findByRole('button', { name: oliver }),
       );
       await expect(zoomed()).resolves.toBe(1);
+      // View offers the zoom items while the window's reader shows formatted mail.
+      expect(host.setMessageZoomable).toHaveBeenLastCalledWith(
+        'inbox-window-first',
+        true,
+      );
       // View › Zoom In steps to the next Message zoom level; another window's choice changes nothing.
       await choose('in');
       await expect(zoomed()).resolves.toBe(1.15);
@@ -3799,6 +3806,11 @@ describe('mac windows over a connected Gmail mailbox', () => {
         await Promise.resolve();
       });
       await expect(zoomed()).resolves.toBe(1.75);
+      await app.unmount();
+      expect(host.setMessageZoomable).toHaveBeenLastCalledWith(
+        'inbox-window-first',
+        false,
+      );
     } finally {
       await app.unmount();
       commands.mockRestore();

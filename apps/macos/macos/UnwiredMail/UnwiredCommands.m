@@ -56,6 +56,20 @@ void UnwiredRecordWindowProfile(NSString *identifier, NSString *profile)
   if (identifier != nil && profile != nil) windowProfiles()[identifier] = profile;
 }
 
+// The Inbox windows whose reader shows formatted mail, which View's zoom items zoom.
+static NSMutableSet<NSString *> *zoomableWindows(void)
+{
+  static NSMutableSet<NSString *> *windows;
+  static dispatch_once_t once;
+  dispatch_once(&once, ^{ windows = [NSMutableSet set]; });
+  return windows;
+}
+
+BOOL UnwiredMessageZoomable(NSString *identifier)
+{
+  return identifier != nil && [zoomableWindows() containsObject:identifier];
+}
+
 // Which of Decrease Indent and Increase Indent each composer body's selected list items allow.
 static NSMutableDictionary<NSString *, NSArray<NSNumber *> *> *composerIndents(void)
 {
@@ -320,6 +334,16 @@ RCT_EXPORT_METHOD(setComposerIndents:(NSString *)body outdent:(BOOL)outdent inde
     composerIndents()[body] = @[@(outdent), @(indent)];
   } else {
     [composerIndents() removeObjectForKey:body];
+  }
+}
+
+// An Inbox window's reader reports whether it shows formatted mail, and not once it closes.
+RCT_EXPORT_METHOD(setMessageZoomable:(NSString *)identifier zoomable:(BOOL)zoomable)
+{
+  if (zoomable) {
+    [zoomableWindows() addObject:identifier];
+  } else {
+    [zoomableWindows() removeObject:identifier];
   }
 }
 

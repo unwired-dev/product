@@ -41,6 +41,9 @@ const commandOrder = [
   'read',
   'unread',
   'spam',
+  'zoomIn',
+  'zoomOut',
+  'actualSize',
   'compose',
   'search',
   'favorites',
@@ -321,6 +324,9 @@ const icons: Record<CommandId, string> = {
   read: 'envelope.open',
   unread: 'envelope.badge',
   spam: 'xmark.bin',
+  zoomIn: 'plus.magnifyingglass',
+  zoomOut: 'minus.magnifyingglass',
+  actualSize: '1.magnifyingglass',
   compose: 'square.and.pencil',
   search: 'magnifyingglass',
   favorites: 'pencil',
@@ -451,6 +457,36 @@ export const organizeCommands = <A>(
         }),
       ]),
 ];
+
+/**
+ * Zoom In, Zoom Out and Actual Size for the open formatted message, as View
+ * offers them.
+ *
+ * @param {Translate} t The current translation.
+ * @param {Function} zoom Zooms that message one Message zoom level in or out,
+ *   or back to 100%.
+ * @returns {readonly Command[]} The three zoom commands.
+ */
+export const zoomCommands = (
+  t: Translate,
+  zoom: (direction: 'in' | 'out' | 'actual') => void,
+): readonly Command[] =>
+  (
+    [
+      ['zoomIn', 'in'],
+      ['zoomOut', 'out'],
+      ['actualSize', 'actual'],
+    ] as const
+  ).map(([id, direction]) =>
+    command(t, {
+      id,
+      section: 'selection',
+      title: t(`reading.${id}`),
+      run: () => {
+        zoom(direction);
+      },
+    }),
+  );
 
 /**
  * The Inbox's app-wide and navigation commands, each offered while its control

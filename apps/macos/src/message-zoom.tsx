@@ -1,5 +1,6 @@
 import type { Dispatch, ReactNode, SetStateAction } from 'react';
 
+import { zoomCommands } from '@private-email/mail-core/commands';
 import { messageZooms } from '@private-email/mail-core/message-body';
 import { spacing } from '@private-email/mail-core/theme';
 import { createContext, use, useEffect, useRef, useState } from 'react';
@@ -7,12 +8,17 @@ import { StyleSheet, Text, View } from 'react-native';
 
 import type { PopUpItem } from './composer-controls.tsx';
 
-import { useMenuCommand } from './command-palette.tsx';
+import {
+  RegisterCommands,
+  useMenuCommand,
+  useWindowIdentifier,
+} from './command-palette.tsx';
 import { Button, Popover } from './design.tsx';
 import { Label } from './label.tsx';
 import { useLocalization } from './localization.ts';
 import { Row } from './new-label.tsx';
 import { setMessageZoom, useMessageZoom } from './reading.ts';
+import { windowHost } from './settings-window-client.ts';
 import { textStyles, usePalette } from './theme.ts';
 
 // Zooming one message, the Mac M2 frame: a 300pt panel with a 20pt inset and 10pt rhythm.
@@ -95,11 +101,24 @@ const steps = (zoom: Zoom) => ({
   actual: 100,
 });
 
-// View › Zoom In (Command-+), Zoom Out (Command-−) and Actual Size (Command-0) zoom the open message.
+// View › Zoom In (Command-+), Zoom Out (Command-−) and Actual Size (Command-0), and the same
+// Command Palette commands, zoom the open formatted message; View offers them only then.
 function Keys() {
+  const { t } = useLocalization();
   const reader = use(OneMessageZoom);
   const stored = useMessageZoom();
-  useMenuCommand('zoom', (direction) => {
+  const window = useWindowIdentifier();
+  const formatted = reader?.formatted === true;
+  useEffect(() => {
+    if (!formatted) {
+      return undefined;
+    }
+    windowHost()?.setMessageZoomable(window, true);
+    return () => {
+      windowHost()?.setMessageZoomable(window, false);
+    };
+  }, [window, formatted]);
+  const zoom = (direction: string | undefined) => {
     if (
       reader?.formatted !== true ||
       (direction !== 'in' && direction !== 'out' && direction !== 'actual')
@@ -111,8 +130,11 @@ function Keys() {
       const to = steps(own?.id === reader.id ? own.zoom : stored)[direction];
       return to === undefined ? own : { id: reader.id, zoom: to };
     });
-  });
-  return null;
+  };
+  useMenuCommand('zoom', zoom);
+  return formatted ? (
+    <RegisterCommands offer={() => zoomCommands(t, zoom)} />
+  ) : null;
 }
 
 // More's Message Zoom…, dimmed while the message is not formatted mail, and the panel it opens

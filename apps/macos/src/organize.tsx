@@ -321,8 +321,9 @@ function Toolbar({
   readonly ref?: Ref<View>;
 }) {
   const { t } = useLocalization();
+  // Message Zoom… follows More's other items, after a separator.
   const zoom = useZoomMenu();
-  const items = [...more, ...zoom.items];
+  const sections = [{ items: more }, { items: zoom.items }];
   const button = ({ name, label, onPress }: Named) => (
     <ToolbarButton
       key={name}
@@ -366,11 +367,11 @@ function Toolbar({
       <GlassGroup style={styles.group}>
         {pin === undefined ? null : button(pin)}
         {rest.map(button)}
-        {items.length === 0 ? null : (
+        {more.length + zoom.items.length === 0 ? null : (
           <PopUp
             accessibilityLabel={t('message.more')}
             icon="ellipsis"
-            items={items}
+            sections={sections}
             variant="toolbar"
           />
         )}

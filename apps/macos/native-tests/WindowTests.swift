@@ -3942,6 +3942,88 @@ final class WindowTests: XCTestCase {
     }
   }
 
+  // #2808: More › Message Zoom… is dimmed for plain text and names the formatted message's zoom,
+  // which View › Zoom In, Zoom Out and Actual Size change; its panel opens below More. The
+  // captures are the More menu, the panel and the View menu of #2804's M1–M3 frames.
+  func testMessageZoom() throws {
+    try messageZoom(appearance: "Light")
+  }
+
+  func testMessageZoomDark() throws {
+    try messageZoom(appearance: "Dark")
+  }
+
+  private func messageZoom(appearance: String) throws {
+    continueAfterFailure = false
+    let environment = ProcessInfo.processInfo.environment
+    XCTAssertEqual(environment["UNWIRED_TEST_SCENARIO"], "registration-performance")
+    let app = XCUIApplication(url: URL(fileURLWithPath: try XCTUnwrap(environment["UNWIRED_APP_PATH"])))
+    app.launchArguments += [
+      "-ApplePersistenceIgnoreState", "YES", "-interfaceLanguage", "en",
+      "-UnwiredAppearance", appearance.lowercased(),
+    ]
+    app.launch()
+    addTeardownBlock { if app.state != .notRunning { app.terminate() } }
+    let window = app.windows["Inbox 1"]
+    performanceSetup(app, window: window)
+    func attach(_ shot: XCUIScreenshot, _ name: String) {
+      let attachment = XCTAttachment(screenshot: shot)
+      attachment.name = "\(name) (\(appearance))"
+      attachment.lifetime = .keepAlways
+      add(attachment)
+    }
+    func open(_ subject: String) {
+      window.buttons.matching(NSPredicate(format: "label CONTAINS %@", subject)).firstMatch.click()
+    }
+    let more = window.menuButtons["More"]
+    let zoom = app.menuItems.matching(NSPredicate(format: "label BEGINSWITH %@", "Message Zoom…"))
+      .firstMatch
+    // Gmail update 001 is plain text, 002 formatted.
+    open("Gmail update 001")
+    XCTAssertTrue(more.waitForExistence(timeout: 15))
+    more.click()
+    XCTAssertTrue(zoom.waitForExistence(timeout: 10))
+    XCTAssertFalse(zoom.isEnabled)
+    app.typeKey(.escape, modifierFlags: [])
+    // View's zoom items are dimmed there too.
+    app.menuBars.menuBarItems["View"].click()
+    XCTAssertTrue(app.menuItems["Zoom In"].waitForExistence(timeout: 10))
+    XCTAssertFalse(app.menuItems["Zoom In"].isEnabled)
+    app.typeKey(.escape, modifierFlags: [])
+    open("Gmail update 002")
+    XCTAssertTrue(window.webViews.firstMatch.waitForExistence(timeout: 15))
+    // Command-= zooms in as Command-+ does.
+    app.typeKey("=", modifierFlags: .command)
+    app.typeKey("+", modifierFlags: .command)
+    app.typeKey("+", modifierFlags: .command)
+    more.click()
+    XCTAssertTrue(zoom.waitForExistence(timeout: 10))
+    XCTAssertTrue(zoom.isEnabled)
+    XCTAssertEqual(zoom.label, "Message Zoom…, 150%")
+    attach(XCUIScreen.main.screenshot(), "More with Message Zoom…")
+    zoom.click()
+    let panel = app.popovers.firstMatch
+    XCTAssertTrue(panel.staticTexts["Message zoom · 150%"].waitForExistence(timeout: 10))
+    attach(window.screenshot(), "Message Zoom panel")
+    // The shortcuts also work while the panel is open, and it follows them.
+    app.typeKey("+", modifierFlags: .command)
+    XCTAssertTrue(panel.staticTexts["Message zoom · 175%"].waitForExistence(timeout: 10))
+    panel.buttons["Actual Size"].click()
+    XCTAssertTrue(panel.staticTexts["Message zoom · 100%"].waitForExistence(timeout: 10))
+    app.typeKey(.escape, modifierFlags: [])
+    XCTAssertTrue(panel.waitForNonExistence(timeout: 10))
+    app.typeKey("+", modifierFlags: .command)
+    app.typeKey("0", modifierFlags: .command)
+    app.menuBars.menuBarItems["View"].click()
+    XCTAssertTrue(app.menuItems["Actual Size"].waitForExistence(timeout: 10))
+    attach(XCUIScreen.main.screenshot(), "View menu")
+    app.typeKey(.escape, modifierFlags: [])
+    more.click()
+    XCTAssertTrue(zoom.waitForExistence(timeout: 10))
+    XCTAssertEqual(zoom.label, "Message Zoom…, 100%")
+    app.typeKey(.escape, modifierFlags: [])
+  }
+
   // #2359: with the German test catalog, the Inbox with a Thread open, the Command Palette, a New
   // Message window and Settings › Notifications lay out as #2096's frames draw them.
   func testGermanStrings() throws {
