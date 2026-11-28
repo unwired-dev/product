@@ -463,12 +463,14 @@ export const organizeCommands = <A>(
  * offers them.
  *
  * @param {Translate} t The current translation.
+ * @param {CommandTarget} target The open message.
  * @param {Function} zoom Zooms that message one Message zoom level in or out,
  *   or back to 100%.
  * @returns {readonly Command[]} The three zoom commands.
  */
 export const zoomCommands = (
   t: Translate,
+  target: CommandTarget,
   zoom: (direction: 'in' | 'out' | 'actual') => void,
 ): readonly Command[] =>
   (
@@ -482,6 +484,7 @@ export const zoomCommands = (
       id,
       section: 'selection',
       title: t(`reading.${id}`),
+      target,
       run: () => {
         zoom(direction);
       },

@@ -88,9 +88,13 @@ describe('command palette matching', () => {
   it('finds the open message’s zoom commands by name and runs each direction', () => {
     expect.hasAssertions();
     const chosen: string[] = [];
-    const zoom = zoomCommands(english, (direction) => {
-      chosen.push(direction);
-    });
+    const zoom = zoomCommands(
+      english,
+      { id: 'gmail\n1', subject: 'Quarterly planning' },
+      (direction) => {
+        chosen.push(direction);
+      },
+    );
     expect(matchCommands('zoom', zoom).map(({ title }) => title)).toStrictEqual(
       ['Zoom In', 'Zoom Out', 'Actual Size'],
     );
@@ -101,6 +105,13 @@ describe('command palette matching', () => {
       void run?.();
     }
     expect(chosen).toStrictEqual(['in', 'out', 'actual']);
+    // Chosen after another message opened, a zoom command no longer runs.
+    const next = zoomCommands(
+      english,
+      { id: 'gmail\n2', subject: 'Notes' },
+      () => undefined,
+    );
+    expect(offeredCommand(next, zoom[0]!)).toBeUndefined();
   });
 
   it('ignores accents in the query and the command', () => {

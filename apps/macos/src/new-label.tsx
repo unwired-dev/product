@@ -44,7 +44,12 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderRadius: 10,
   },
-  separator: { height: StyleSheet.hairlineWidth, marginHorizontal: 12 },
+  // Drawn over the next row's top edge, so each row keeps the frame's 40pt.
+  separator: {
+    height: StyleSheet.hairlineWidth,
+    marginHorizontal: 12,
+    marginBottom: -StyleSheet.hairlineWidth,
+  },
   header: {
     ...textStyles.subheadlineEmphasized,
     paddingLeft: 12,

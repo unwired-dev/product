@@ -478,7 +478,8 @@ while the reader shows plain text. Its panel names the level, says it resets whe
 message closes, and offers Zoom In, Zoom Out, Actual Size and **Use … for All Messages**,
 which keeps that level as Message zoom. View › Zoom In (Command-+), Zoom Out
 (Command-−) and Actual Size (Command-0) do the same in the focused window, one
-Message zoom level at a time. The message's own zoom lives in the reader, so opening
+Message zoom level at a time, also while the panel is open. For plain text, View
+keeps them listed and dimmed, and the Command Palette leaves them out. The message's own zoom lives in the reader, so opening
 another message drops it. Show Inbox moved to Shift-Command-0 for Actual Size.
 
 ## Settings

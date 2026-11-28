@@ -70,7 +70,7 @@ import {
   SaveOutcomeContext,
 } from './message-body.tsx';
 import { MessageSummary } from './message-summary.tsx';
-import { MessageZoomScope } from './message-zoom.tsx';
+import { MessageZoomScope, ZoomCommands } from './message-zoom.tsx';
 import { MessageActions, MessageActionsNotice } from './organize.tsx';
 import { AccountContext } from './registration-gate.tsx';
 import { textStyles, usePalette } from './theme.ts';
@@ -647,6 +647,7 @@ function MailboxMessage({
     'openFolder' in actions ? actions.message(id) : undefined,
   );
   const message = folderMessage ?? shownMessage(state, id);
+  const connection = mailbox?.id;
   const saving = useSaveOutcome(id, readable(state, message));
   const downloads = useRememberedDownloads(use(AccountContext), useProfile());
   const applied = new Set(
@@ -715,11 +716,12 @@ function MailboxMessage({
             <RegisterCommands
               offer={() =>
                 expectedCommands(t, {
-                  target: commandTarget(mailbox?.id, message),
+                  target: commandTarget(connection, message),
                   disabled: t('commands.unavailable'),
                 })
               }
             />
+            <ZoomCommands target={commandTarget(connection, message)} />
             <View style={styles.toolbar}>
               <ToolbarWidth>
                 <MessageActions
@@ -741,7 +743,7 @@ function MailboxMessage({
                 style={[styles.subject, { color: colors.textPrimary }]}>
                 {message.subject}
               </Text>
-              <MessageMenu target={commandTarget(mailbox?.id, message)}>
+              <MessageMenu target={commandTarget(connection, message)}>
                 <View
                   ref={blockAnchor}
                   collapsable={false}
@@ -783,7 +785,7 @@ function MailboxMessage({
                         {
                           items: blockItems(
                             message,
-                            mailbox?.id ?? '',
+                            connection ?? '',
                             message.id,
                           ),
                         },
@@ -847,7 +849,7 @@ function MailboxMessage({
                     key={message.id}
                     inbox={actions}
                     message={message}
-                    connection={mailbox?.id}
+                    connection={connection}
                   />
                 </DownloadsContext>
               </SaveOutcomeContext>

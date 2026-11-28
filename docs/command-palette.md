@@ -19,8 +19,12 @@ results never appear in the palette. The vocabulary lives in the
   pins the open message's Thread, as the reader's toolbar or menu does
   ([#2280](https://github.com/unwired-dev/product/issues/2280),
   [#2343](https://github.com/unwired-dev/product/issues/2343)); it is product
-  state, offered whatever the provider allows. The preview Inbox's reader offers its
-  Mark as Read or Unread. The palette never chooses a message on its own.
+  state, offered whatever the provider allows. On the Mac, **Zoom In**, **Zoom
+  Out** and **Actual Size** zoom the open message alone while the reader shows
+  formatted mail, as View's items do
+  ([#2808](https://github.com/unwired-dev/product/issues/2808)). The preview
+  Inbox's reader offers its Mark as Read or Unread. The palette never chooses a
+  message on its own.
 - **Draft commands** act on the open Draft, under a Draft section named for its
   subject. On the Mac, the composer offers the handlers its controls use: Send,
   Attach File…, Add Cc and Bcc until Cc and Bcc are shown, and Discard Draft,

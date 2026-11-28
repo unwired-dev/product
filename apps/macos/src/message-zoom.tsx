@@ -1,3 +1,4 @@
+import type { CommandTarget } from '@private-email/mail-core/commands';
 import type { Dispatch, ReactNode, SetStateAction } from 'react';
 
 import { zoomCommands } from '@private-email/mail-core/commands';
@@ -101,24 +102,11 @@ const steps = (zoom: Zoom) => ({
   actual: 100,
 });
 
-// View › Zoom In (Command-+), Zoom Out (Command-−) and Actual Size (Command-0), and the same
-// Command Palette commands, zoom the open formatted message; View offers them only then.
-function Keys() {
-  const { t } = useLocalization();
+// Steps the open formatted message's zoom in, out or back to 100%; nothing for other mail.
+function useZoom() {
   const reader = use(OneMessageZoom);
   const stored = useMessageZoom();
-  const window = useWindowIdentifier();
-  const formatted = reader?.formatted === true;
-  useEffect(() => {
-    if (!formatted) {
-      return undefined;
-    }
-    windowHost()?.setMessageZoomable(window, true);
-    return () => {
-      windowHost()?.setMessageZoomable(window, false);
-    };
-  }, [window, formatted]);
-  const zoom = (direction: string | undefined) => {
+  return (direction: string | undefined) => {
     if (
       reader?.formatted !== true ||
       (direction !== 'in' && direction !== 'out' && direction !== 'actual')
@@ -131,9 +119,34 @@ function Keys() {
       return to === undefined ? own : { id: reader.id, zoom: to };
     });
   };
-  useMenuCommand('zoom', zoom);
+}
+
+// View › Zoom In (Command-+), Zoom Out (Command-−) and Actual Size (Command-0) zoom the open
+// formatted message; View offers them only then.
+function Keys() {
+  const reader = use(OneMessageZoom);
+  const window = useWindowIdentifier();
+  const formatted = reader?.formatted === true;
+  useEffect(() => {
+    if (!formatted) {
+      return undefined;
+    }
+    windowHost()?.setMessageZoomable(window, true);
+    return () => {
+      windowHost()?.setMessageZoomable(window, false);
+    };
+  }, [window, formatted]);
+  useMenuCommand('zoom', useZoom());
+  return null;
+}
+
+// The Command Palette's Zoom In, Zoom Out and Actual Size for `target`, the open formatted message.
+export function ZoomCommands({ target }: { readonly target: CommandTarget }) {
+  const { t } = useLocalization();
+  const formatted = use(OneMessageZoom)?.formatted === true;
+  const zoom = useZoom();
   return formatted ? (
-    <RegisterCommands offer={() => zoomCommands(t, zoom)} />
+    <RegisterCommands offer={() => zoomCommands(t, target, zoom)} />
   ) : null;
 }
 
@@ -214,8 +227,7 @@ export function useZoomMenu(): {
             ]}>
             {t('reading.zoomTitle', { value: zoom })}
           </Label>
-          <Label
-            style={[textStyles.subheadline, { color: colors.textSecondary }]}>
+          <Label style={[textStyles.body, { color: colors.textSecondary }]}>
             {t('reading.zoomResets')}
           </Label>
           <View style={[styles.group, { backgroundColor: colors.fillQuiet }]}>

@@ -3978,6 +3978,18 @@ final class WindowTests: XCTestCase {
     let more = window.menuButtons["More"]
     let zoom = app.menuItems.matching(NSPredicate(format: "label BEGINSWITH %@", "Message Zoom…"))
       .firstMatch
+    // The frames' 1280×800 window, where More ends the toolbar's single row.
+    let first = window.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Gmail update 001"))
+      .firstMatch
+    XCTAssertTrue(first.waitForExistence(timeout: 60))
+    let corner = window.coordinate(withNormalizedOffset: CGVector(dx: 1, dy: 1))
+      .withOffset(CGVector(dx: -2, dy: -2))
+    corner.click(
+      forDuration: 0.2,
+      thenDragTo: corner.withOffset(
+        CGVector(dx: 1280 - window.frame.width, dy: 800 - window.frame.height)),
+      withVelocity: .slow, thenHoldForDuration: 0.5)
+    XCTAssertEqual(window.frame.width, 1280, accuracy: 5)
     // Gmail update 001 is plain text, 002 formatted.
     open("Gmail update 001")
     XCTAssertTrue(more.waitForExistence(timeout: 15))
@@ -4005,15 +4017,19 @@ final class WindowTests: XCTestCase {
     let panel = app.popovers.firstMatch
     XCTAssertTrue(panel.staticTexts["Message zoom · 150%"].waitForExistence(timeout: 10))
     attach(window.screenshot(), "Message Zoom panel")
-    // The shortcuts also work while the panel is open, and it follows them.
+    // The shortcuts also work while the panel is open, and it follows each of them.
     app.typeKey("+", modifierFlags: .command)
     XCTAssertTrue(panel.staticTexts["Message zoom · 175%"].waitForExistence(timeout: 10))
+    app.typeKey("-", modifierFlags: .command)
+    XCTAssertTrue(panel.staticTexts["Message zoom · 150%"].waitForExistence(timeout: 10))
+    app.typeKey("0", modifierFlags: .command)
+    XCTAssertTrue(panel.staticTexts["Message zoom · 100%"].waitForExistence(timeout: 10))
+    panel.buttons["Zoom In"].click()
+    XCTAssertTrue(panel.staticTexts["Message zoom · 115%"].waitForExistence(timeout: 10))
     panel.buttons["Actual Size"].click()
     XCTAssertTrue(panel.staticTexts["Message zoom · 100%"].waitForExistence(timeout: 10))
     app.typeKey(.escape, modifierFlags: [])
     XCTAssertTrue(panel.waitForNonExistence(timeout: 10))
-    app.typeKey("+", modifierFlags: .command)
-    app.typeKey("0", modifierFlags: .command)
     app.menuBars.menuBarItems["View"].click()
     XCTAssertTrue(app.menuItems["Actual Size"].waitForExistence(timeout: 10))
     attach(XCUIScreen.main.screenshot(), "View menu")
