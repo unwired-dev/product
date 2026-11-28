@@ -397,6 +397,8 @@ export function createNotifications(
       let shown: number | undefined = undefined;
       let wanted: number | undefined = undefined;
       let writing = false;
+      // Whether the last count was taken without an Inbox to open, as after sign-out.
+      let signedOut = false;
       const apply = (count: number) =>
         logged(
           'The App Icon Badge could not be set:',
@@ -437,9 +439,15 @@ export function createNotifications(
       };
       const follow = () => {
         const count = countOf(settings.getSnapshot());
-        // Until it can count, no queued count is applied either, except a clear: after sign-out it
-        // stays queued while the next Product Account's settings and Inbox open.
-        wanted = count ?? (wanted === 0 ? 0 : undefined);
+        if (count !== undefined) {
+          signedOut = !canOpenInbox(
+            sources.registration.getSnapshot().snapshot,
+          );
+        }
+        // Until it can count, no queued count is applied either, except the clear without an Inbox
+        // to open: after sign-out it stays queued while the next Product Account's settings and
+        // Inbox open.
+        wanted = count ?? (signedOut ? 0 : undefined);
         if (count === undefined) {
           return;
         }

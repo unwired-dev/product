@@ -426,6 +426,87 @@ describe('the App Icon Badge across Product Accounts', () => {
   );
 });
 
+describe('a queued App Icon Badge count', () => {
+  it('applies no queued zero once the Inbox can no longer be counted', async () => {
+    expect.hasAssertions();
+    type Connection = {
+      profile: string;
+      state: { kind: string; messages?: Array<{ unread: boolean }> };
+    };
+    const ready = (unread: number): Connection => ({
+      profile: defaultProfile,
+      state: {
+        kind: 'ready',
+        messages: Array.from({ length: unread }, () => ({ unread: true })),
+      },
+    });
+    let connections: readonly Connection[] = [ready(2)];
+    const listeners = new Set<() => void>();
+    const changed = () => {
+      for (const listener of listeners) {
+        listener();
+      }
+    };
+    const heldWrite = Promise.withResolvers<unknown>();
+    const badges: number[] = [];
+    const notifications = createNotifications(
+      {
+        notificationSettings: () =>
+          Promise.resolve({
+            authorization: 'authorized',
+            previews: true,
+            badge: 'inbox',
+            sound: 'default',
+            badgeSoundOff: [],
+          }),
+        postNotifications: unused,
+        requestNotifications: unused,
+        setNotificationPreviews: unused,
+        setNotificationBadge: unused,
+        setNotificationSound: unused,
+        setNotificationProfile: unused,
+        setBadgeCount: vi
+          .fn<(count: number) => Promise<unknown>>()
+          .mockImplementationOnce((count) => {
+            badges.push(count);
+            return heldWrite.promise;
+          })
+          .mockImplementation((count) => {
+            badges.push(count);
+            return Promise.resolve(null);
+          }),
+        openNotificationSettings: unused,
+      },
+      () => english,
+    );
+    const snapshot = connected([], 'a');
+    notifications.followBadge({
+      registration: {
+        getSnapshot: () => ({ snapshot, busy: false, failed: false }),
+        subscribe: () => () => undefined,
+      },
+      mailboxes: {
+        getConnections: () => connections,
+        subscribe: (listener) => {
+          listeners.add(listener);
+          return () => listeners.delete(listener);
+        },
+      },
+    });
+    await vi.waitFor(() => {
+      expect(badges).toStrictEqual([2]);
+    });
+    // The messages are read while 2 is written, then the Inbox loads again.
+    connections = [ready(0)];
+    changed();
+    connections = [{ profile: defaultProfile, state: { kind: 'loading' } }];
+    changed();
+    heldWrite.resolve(null);
+    await notifications.load();
+    expect(badges).toStrictEqual([2]);
+  });
+});
+
 describe('posting a New Mail Notification', () => {
   it('checks the Profile the connection is in as it posts, after a move meanwhile', async () => {
     expect.hasAssertions();
