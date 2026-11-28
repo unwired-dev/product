@@ -67,6 +67,7 @@ import {
   useMailbox,
   useProviderName,
 } from './mailbox.tsx';
+import { useZoomMenu } from './message-zoom.tsx';
 import { NewLabel } from './new-label.tsx';
 import { usePinAction, usePinned } from './pins.tsx';
 import { textStyles, usePalette } from './theme.ts';
@@ -320,6 +321,8 @@ function Toolbar({
   readonly ref?: Ref<View>;
 }) {
   const { t } = useLocalization();
+  const zoom = useZoomMenu();
+  const items = [...more, ...zoom.items];
   const button = ({ name, label, onPress }: Named) => (
     <ToolbarButton
       key={name}
@@ -363,15 +366,16 @@ function Toolbar({
       <GlassGroup style={styles.group}>
         {pin === undefined ? null : button(pin)}
         {rest.map(button)}
-        {more.length === 0 ? null : (
+        {items.length === 0 ? null : (
           <PopUp
             accessibilityLabel={t('message.more')}
             icon="ellipsis"
-            items={more}
+            items={items}
             variant="toolbar"
           />
         )}
         {below}
+        {zoom.panel}
       </GlassGroup>
     </View>
   );

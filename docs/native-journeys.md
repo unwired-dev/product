@@ -317,7 +317,7 @@ the count line is one text element between the rewrite and the row
 ([#1902](https://github.com/unwired-dev/product/issues/1902)),
 and Keep Original closes it with the reply unchanged. Both states are audited and
 kept as `Writing tools W1` and `Writing tools W2` attachments. Option-Command-N opens a second Inbox with no
-selection; Command-backtick, Command-0 and Command-W then move between and close
+selection; Command-backtick, Shift-Command-0 and Command-W then move between and close
 windows while the first window keeps its Draft. Expand then moves that saved
 Draft into a New Message window, removes the overlay and omits Expand there;
 closing that window with Save Draft brings the Draft back into the Inbox

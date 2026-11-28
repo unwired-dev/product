@@ -9,6 +9,8 @@
 NSNotificationName const UnwiredOpenCommandPalette = @"UnwiredOpenCommandPalette";
 // View › Refresh, Command-R, tells the key window's JavaScript to synchronize its Inbox.
 NSNotificationName const UnwiredRefresh = @"UnwiredRefresh";
+// View › Zoom In, Zoom Out and Actual Size tell the key window's JavaScript to zoom its open message.
+NSNotificationName const UnwiredZoom = @"UnwiredZoom";
 // File › New Message, Command-N, tells an Inbox window's JavaScript to start a Draft.
 NSNotificationName const UnwiredNewMessage = @"UnwiredNewMessage";
 // Edit › Undo, Command-Z, tells an Inbox window's JavaScript to undo its last organizing action.
@@ -112,7 +114,7 @@ RCT_EXPORT_MODULE()
 
 + (BOOL)requiresMainQueueSetup { return YES; }
 - (dispatch_queue_t)methodQueue { return dispatch_get_main_queue(); }
-- (NSArray<NSString *> *)supportedEvents { return @[@"openCommandPalette", @"refresh", @"newMessage", @"undo", @"indent", @"windowShouldClose", @"settingsClosed"]; }
+- (NSArray<NSString *> *)supportedEvents { return @[@"openCommandPalette", @"refresh", @"zoom", @"newMessage", @"undo", @"indent", @"windowShouldClose", @"settingsClosed"]; }
 
 - (void)startObserving
 {
@@ -120,6 +122,8 @@ RCT_EXPORT_MODULE()
       name:UnwiredOpenCommandPalette object:nil];
   [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(refresh:)
       name:UnwiredRefresh object:nil];
+  [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(zoom:)
+      name:UnwiredZoom object:nil];
   [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(newMessage:)
       name:UnwiredNewMessage object:nil];
   [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(undo:)
@@ -145,6 +149,12 @@ RCT_EXPORT_MODULE()
 - (void)refresh:(NSNotification *)notification
 {
   [self sendEventWithName:@"refresh" body:@{@"window": notification.object ?: @""}];
+}
+
+- (void)zoom:(NSNotification *)notification
+{
+  [self sendEventWithName:@"zoom" body:@{@"window": notification.object ?: @"",
+      @"direction": notification.userInfo[@"direction"]}];
 }
 
 - (void)newMessage:(NSNotification *)notification

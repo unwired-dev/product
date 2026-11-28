@@ -52,7 +52,7 @@ import { useLocalization } from './localization.ts';
 import { textStyles, usePalette } from './theme.ts';
 
 // The menu items whose events name the window they were chosen in.
-type MenuEvent = 'refresh' | 'newMessage' | 'undo';
+type MenuEvent = 'refresh' | 'newMessage' | 'undo' | 'zoom';
 
 const PaletteContext = createContext<
   Readonly<{
@@ -353,8 +353,12 @@ export function useCloseGuard(leave: (quitting: boolean) => Promise<boolean>) {
 }
 
 // While mounted, a menu item chosen in this window runs `run`: View › Refresh (Command-R),
-// File › New Message (Command-N) or Edit › Undo (Command-Z).
-export function useMenuCommand(event: MenuEvent, run: () => void) {
+// File › New Message (Command-N), Edit › Undo (Command-Z) or one of View's zoom items, which name
+// their `direction`.
+export function useMenuCommand(
+  event: MenuEvent,
+  run: (direction: string | undefined) => void,
+) {
   const { identifier, takePending } = use(PaletteContext);
   const runNow = useRef(run);
   useLayoutEffect(() => {
@@ -367,14 +371,20 @@ export function useMenuCommand(event: MenuEvent, run: () => void) {
     }
     const subscription = new NativeEventEmitter(menu).addListener(
       event,
-      ({ window }: { readonly window: string }) => {
+      ({
+        window,
+        direction,
+      }: {
+        readonly window: string;
+        readonly direction?: string;
+      }) => {
         if (window === identifier) {
-          runNow.current();
+          runNow.current(direction);
         }
       },
     );
     if (takePending(event)) {
-      runNow.current();
+      runNow.current(undefined);
     }
     return () => {
       subscription.remove();

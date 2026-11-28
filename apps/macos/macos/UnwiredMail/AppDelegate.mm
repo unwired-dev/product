@@ -493,6 +493,16 @@ extern "C" void UnwiredInstallComposerFormatting(void);
   [NSNotificationCenter.defaultCenter postNotificationName:@"UnwiredRefresh" object:window.identifier];
 }
 
+// View › Zoom In (Command-+), Zoom Out (Command-−) and Actual Size (Command-0) zoom the key window's
+// open message; its JavaScript listens for the window and ignores a window with none.
+- (void)zoomMessage:(NSMenuItem *)item
+{
+  NSWindow *window = NSApp.keyWindow;
+  if (window.identifier == nil) return;
+  [NSNotificationCenter.defaultCenter postNotificationName:@"UnwiredZoom" object:window.identifier
+                                                  userInfo:@{@"direction": item.representedObject}];
+}
+
 - (void)focusInbox:(id)sender
 {
   if (self.inboxWindows.count == 0) {
@@ -687,11 +697,21 @@ extern "C" void UnwiredInstallComposerFormatting(void);
   commands.target = self;
   NSMenuItem *refresh = [view addItemWithTitle:UnwiredNativeText(@"refresh") action:@selector(refresh:) keyEquivalent:@"r"];
   refresh.target = self;
+  [view addItem:[NSMenuItem separatorItem]];
+  NSArray<NSArray<NSString *> *> *zooms = @[@[@"zoomIn", @"+", @"in"], @[@"zoomOut", @"-", @"out"],
+                                           @[@"actualSize", @"0", @"actual"]];
+  for (NSArray<NSString *> *zoom in zooms) {
+    NSMenuItem *item = [view addItemWithTitle:UnwiredNativeText(zoom[0]) action:@selector(zoomMessage:) keyEquivalent:zoom[1]];
+    item.target = self;
+    item.representedObject = zoom[2];
+  }
 
   NSMenuItem *windowItem = [main addItemWithTitle:UnwiredNativeText(@"window") action:nil keyEquivalent:@""];
   NSMenu *windows = [[NSMenu alloc] initWithTitle:UnwiredNativeText(@"window")];
   windowItem.submenu = windows;
+  // Command-0 is Actual Size, as in Safari and Preview.
   NSMenuItem *focus = [windows addItemWithTitle:UnwiredNativeText(@"showInbox") action:@selector(focusInbox:) keyEquivalent:@"0"];
+  focus.keyEquivalentModifierMask = NSEventModifierFlagCommand | NSEventModifierFlagShift;
   focus.target = self;
   [windows addItemWithTitle:UnwiredNativeText(@"minimize") action:@selector(performMiniaturize:) keyEquivalent:@"m"];
   NSMenuItem *next = [windows addItemWithTitle:UnwiredNativeText(@"nextWindow") action:@selector(nextWindow:) keyEquivalent:@"`"];

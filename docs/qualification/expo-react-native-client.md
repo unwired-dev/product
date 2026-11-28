@@ -486,7 +486,7 @@ temporary capture journey that was not committed.
   seconds) and `testKeyboardAndAccessibilityDark` (352.1 seconds) passed.
   Command-K opens the Command Palette and Escape closes it; Command-A, -X
   and -V edit the search field and Command-A, -C and -V the reply body; Command-Option-N,
-  Command-` and Command-0 open, cycle and show Inbox windows, and Command-W
+  Command-` and Shift-Command-0 open, cycle and show Inbox windows, and Command-W
   closes them. A new Inbox window opens with nothing selected while the first
   keeps its open reply Draft. The reply's Close asks before saving and the saved reply
   survives relaunch. **Expand** (#1266) moves the Draft into its own New

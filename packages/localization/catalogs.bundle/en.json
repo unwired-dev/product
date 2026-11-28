@@ -117,7 +117,14 @@
     "percent": "{{value}}%",
     "footer_iphone": "Zooms formatted mail as you read it on this iPhone. The message and your Drafts don’t change.",
     "footer_ipad": "Zooms formatted mail as you read it on this iPad. The message and your Drafts don’t change.",
-    "footer_mac": "Zooms formatted mail as you read it on this Mac. The message and your Drafts don’t change."
+    "footer_mac": "Zooms formatted mail as you read it on this Mac. The message and your Drafts don’t change.",
+    "zoomMenu": "Message Zoom…",
+    "zoomTitle": "Message zoom · {{value}}%",
+    "zoomResets": "Resets when you close this message.",
+    "zoomIn": "Zoom In",
+    "zoomOut": "Zoom Out",
+    "actualSize": "Actual Size",
+    "zoomAll": "Use {{value}}% for All Messages"
   },
   "listDensity": {
     "title": "List density",
@@ -167,6 +174,9 @@
     "view": "View",
     "commands": "Commands…",
     "refresh": "Refresh",
+    "zoomIn": "Zoom In",
+    "zoomOut": "Zoom Out",
+    "actualSize": "Actual Size",
     "settings": "Settings…",
     "settingsTitle": "Settings",
     "newMessageTitle": "New Message"

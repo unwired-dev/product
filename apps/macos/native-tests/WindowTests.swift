@@ -4531,7 +4531,7 @@ final class WindowTests: XCTestCase {
     front("inbox-window-1")
     app.typeKey("`", modifierFlags: .command)
     front("inbox-window-2")
-    app.typeKey("0", modifierFlags: .command)
+    app.typeKey("0", modifierFlags: [.command, .shift])
     front("inbox-window-1")
     app.typeKey("`", modifierFlags: .command)
     front("inbox-window-2")

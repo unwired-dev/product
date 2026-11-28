@@ -60,7 +60,7 @@ const styles = StyleSheet.create({
 });
 
 // A clickable row of a grouped list that shows keyboard focus.
-function Row({
+export function Row({
   label,
   separated = false,
   disabled,

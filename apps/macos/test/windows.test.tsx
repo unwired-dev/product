@@ -54,6 +54,7 @@ import {
   AppState,
   DeviceEventEmitter,
   ScrollView,
+  Settings,
   StyleSheet,
   TurboModuleRegistry,
   View,
@@ -3618,7 +3619,8 @@ describe('mac windows over a connected Gmail mailbox', () => {
       const more = await window.findByRole('button', { name: 'More' });
       expect(window.queryByRole('button', { name: 'Labels' })).toBeNull();
       await fireEvent.press(more);
-      // Mark as Read and Move to are the toolbar's own buttons, so More holds only Labels.
+      // Mark as Read and Move to are the toolbar's own buttons, so More holds Labels and Message
+      // Zoom…, which a plain-text message dims.
       expect(menuItems()).toMatchObject([
         {
           title: 'Labels',
@@ -3632,6 +3634,7 @@ describe('mac windows over a connected Gmail mailbox', () => {
             { items: [{ title: 'New Label…' }] },
           ],
         },
+        { title: 'Message Zoom…', subtitle: '100%', disabled: true },
       ]);
       await chooseSubmenuItem('Labels', 'Receipts');
       await waitFor(() => {
@@ -3660,6 +3663,132 @@ describe('mac windows over a connected Gmail mailbox', () => {
       ).toBeVisible();
     } finally {
       await app.unmount();
+    }
+  });
+
+  it('zooms the open message alone from More and the View menu, and drops it with the message', async () => {
+    expect.hasAssertions();
+    // The stored Message zoom is 100% until Use … for All Messages keeps another.
+    Settings.set({ UnwiredMessageZoom: 100 });
+    const host: TurboModule &
+      Readonly<{
+        addListener: () => void;
+        removeListeners: () => void;
+        setWindowProfile: () => void;
+      }> = {
+      addListener: () => undefined,
+      removeListeners: () => undefined,
+      setWindowProfile: () => undefined,
+    };
+    const commands = commandModule(host);
+    const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
+    gmail.deliver({
+      from: 'Oliver Park <oliver@example.invalid>',
+      subject: 'Saturday, by the river?',
+      content: { html: '<p>Saturday <b>at ten</b>.</p>' },
+    });
+    gmail.deliver({
+      from: 'Mara Novak <mara@example.invalid>',
+      subject: 'Invoice 2026-114',
+      content: { html: '<p>Total <b>48 000 CZK</b>.</p>' },
+    });
+    const { registration } = await connectedRegistration();
+    const list = createMailboxes(
+      syntheticConnections({ [alex]: { native: gmail.native } }),
+      registration,
+    );
+    showMailboxes(list);
+    const app = await render(
+      <RegistrationGate
+        store={started(registration)}
+        preview={false}>
+        <InboxWindow windowId="first" />
+      </RegistrationGate>,
+    );
+    const zoomed = async () => {
+      const webview = await app.findByTestId('message-webview');
+      return webview.props.nativeConfig.props.messageZoom;
+    };
+    const choose = async (direction: string) => {
+      await act(async () => {
+        DeviceEventEmitter.emit('zoom', {
+          window: 'inbox-window-first',
+          direction,
+        });
+        await Promise.resolve();
+      });
+    };
+    try {
+      const window = within(await app.findByTestId('inbox-window-first'));
+      await fireEvent.press(
+        await window.findByRole('button', { name: oliver }),
+      );
+      await expect(zoomed()).resolves.toBe(1);
+      // View › Zoom In steps to the next Message zoom level; another window's choice changes nothing.
+      await choose('in');
+      await expect(zoomed()).resolves.toBe(1.15);
+      await act(async () => {
+        DeviceEventEmitter.emit('zoom', {
+          window: 'inbox-window-other',
+          direction: 'in',
+        });
+        await Promise.resolve();
+      });
+      await expect(zoomed()).resolves.toBe(1.15);
+      // More's Message Zoom… names the level and opens the panel.
+      await fireEvent.press(
+        await window.findByRole('button', { name: 'More' }),
+      );
+      expect(menuItems().at(-1)).toMatchObject({
+        title: 'Message Zoom…',
+        subtitle: '115%',
+        disabled: false,
+      });
+      await chooseMenuItem('Message Zoom…');
+      await fireEvent.press(
+        await window.findByRole('button', { name: 'Zoom In' }),
+      );
+      await expect(zoomed()).resolves.toBe(1.25);
+      await fireEvent.press(window.getByRole('button', { name: 'Zoom In' }));
+      await expect(zoomed()).resolves.toBe(1.5);
+      expect(window.getByText('Message zoom · 150%')).toBeVisible();
+      await fireEvent.press(window.getByRole('button', { name: 'Zoom Out' }));
+      await expect(zoomed()).resolves.toBe(1.25);
+      // Use … for All Messages keeps the level on this Mac, and the panel then has nothing to add.
+      await fireEvent.press(
+        window.getByRole('button', { name: 'Use 125% for All Messages' }),
+      );
+      expect(Settings.get('UnwiredMessageZoom')).toBe(125);
+      await fireEvent.press(
+        window.getByRole('button', { name: 'Actual Size' }),
+      );
+      await expect(zoomed()).resolves.toBe(1);
+      // The levels stop at 50% and 300%.
+      for (let step = 0; step < 7; step += 1) {
+        await choose('in');
+      }
+      await expect(zoomed()).resolves.toBe(3);
+      await choose('in');
+      await expect(zoomed()).resolves.toBe(3);
+      // Another message opens at the stored Message zoom, and so does this one when it returns.
+      await fireEvent.press(
+        await window.findByRole('button', {
+          name: 'Unread. Mara Novak. Invoice 2026-114',
+        }),
+      );
+      await waitFor(() => {
+        expect(
+          window.getByRole('header', { name: 'Invoice 2026-114' }),
+        ).toBeVisible();
+      });
+      await expect(zoomed()).resolves.toBe(1.25);
+      await fireEvent.press(
+        await window.findByRole('button', { name: /Oliver Park/u }),
+      );
+      await expect(zoomed()).resolves.toBe(1.25);
+    } finally {
+      await app.unmount();
+      commands.mockRestore();
     }
   });
 

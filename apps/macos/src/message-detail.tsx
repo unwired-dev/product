@@ -70,6 +70,7 @@ import {
   SaveOutcomeContext,
 } from './message-body.tsx';
 import { MessageSummary } from './message-summary.tsx';
+import { MessageZoomScope } from './message-zoom.tsx';
 import { MessageActions, MessageActionsNotice } from './organize.tsx';
 import { AccountContext } from './registration-gate.tsx';
 import { textStyles, usePalette } from './theme.ts';
@@ -320,12 +321,14 @@ export function MessageDetail({
     return <EmptyDetail id={id} />;
   }
   const message = (
-    <MailboxMessage
-      id={id}
-      folder={folder}
-      onClose={onClose}
-      onCompose={onCompose}
-    />
+    <MessageZoomScope id={`${mailbox}/${id}`}>
+      <MailboxMessage
+        id={id}
+        folder={folder}
+        onClose={onClose}
+        onCompose={onCompose}
+      />
+    </MessageZoomScope>
   );
   return (
     <MailboxScope
