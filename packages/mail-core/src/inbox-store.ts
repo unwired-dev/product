@@ -4509,9 +4509,9 @@ export function createInboxStore(
       const reading = owner;
       const current = () => owner === reading && state.kind === 'ready';
       const { saveVacation, saveAutomaticReplies } = providerReader;
-      const save:
+      const saving:
         | ((
-            scope: MailboxScope,
+            mailbox: MailboxScope,
           ) => Effect.Effect<
             Option.Option<OutOfOfficeSave>,
             SyncFailure | GmailMissingScope | GmailNotFound | GmailInvalidPage
@@ -4519,8 +4519,8 @@ export function createInboxStore(
         | undefined =
         'vacation' in change
           ? saveVacation &&
-            ((scope: MailboxScope) =>
-              saveVacation(scope, change.vacation, current).pipe(
+            ((mailbox: MailboxScope) =>
+              saveVacation(mailbox, change.vacation, current).pipe(
                 Effect.map(
                   Option.map((vacation): OutOfOfficeSave => ({
                     kind: 'saved',
@@ -4529,9 +4529,9 @@ export function createInboxStore(
                 ),
               ))
           : saveAutomaticReplies &&
-            ((scope: MailboxScope) =>
+            ((mailbox: MailboxScope) =>
               saveAutomaticReplies(
-                scope,
+                mailbox,
                 change.automaticReplies,
                 current,
               ).pipe(
@@ -4542,11 +4542,15 @@ export function createInboxStore(
                   })),
                 ),
               ));
-      if (scope === undefined || state.kind !== 'ready' || save === undefined) {
+      if (
+        scope === undefined ||
+        state.kind !== 'ready' ||
+        saving === undefined
+      ) {
         return Promise.resolve(undefined);
       }
       return runLogged(
-        vacationSaves.withPermit(save(scope)).pipe(
+        vacationSaves.withPermit(saving(scope)).pipe(
           Effect.map(
             Option.getOrElse((): OutOfOfficeSave | undefined =>
               searchUnavailable('failed'),
