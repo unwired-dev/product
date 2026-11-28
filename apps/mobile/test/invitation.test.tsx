@@ -317,6 +317,32 @@ describe('meeting invitations in the iPhone and iPad reader', () => {
     }
   });
 
+  it('asks for Microsoft permission when Outlook.com refuses the response', async () => {
+    expect.hasAssertions();
+    const { graph, app } = await openedOutlook();
+    try {
+      graph.failSend({ status: 403 });
+      await fireEvent.press(
+        await screen.findByRole('button', { name: 'Accept' }),
+      );
+
+      await expect(
+        screen.findByText('Outlook.com needs your permission'),
+      ).resolves.toBeOnTheScreen();
+      expect(
+        screen.getByText(
+          'Sign in to alex@outlook.com again and allow sending mail. Nothing has been sent.',
+        ),
+      ).toBeOnTheScreen();
+      expect(
+        screen.getByRole('button', { name: 'Sign In…' }),
+      ).toBeOnTheScreen();
+      expect(graph.sends).toHaveLength(0);
+    } finally {
+      await app.unmount();
+    }
+  });
+
   it('sends nothing more once the mailbox is removed while sending', async () => {
     expect.hasAssertions();
     const { gmail, app } = await opened(invitation('alex@example.invalid'));

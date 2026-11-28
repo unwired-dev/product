@@ -533,11 +533,8 @@ function Responding({
   readonly current: () => boolean;
 }) {
   const { t } = useLocalization();
-  const provider = invitationProvider(
-    t,
-    useMailbox()?.provider,
-    invitation.address,
-  );
+  const mailProvider = useMailbox()?.provider;
+  const provider = invitationProvider(t, mailProvider, invitation.address);
   const account = use(AccountContext);
   // The choice a Respond Again alert asks about; leaving the message unmounts the alert.
   const [asking, setAsking] = useState<InvitationChoice>();
@@ -569,6 +566,7 @@ function Responding({
     provider,
     others,
     earlier,
+    mailProvider,
   });
   useStatusAnnouncement(shown);
   // One sign-in at a time: a second tap while the mailbox reloads starts nothing.

@@ -1745,6 +1745,8 @@ type StatusContext = Readonly<{
   earlier?: InvitationChoice | undefined;
   // An IMAP mailbox's mail server, as a sentence opens with it; its responses go through the Outbox.
   server?: string | undefined;
+  // The mailbox's provider: Microsoft asks for permission where Gmail asks to sign in.
+  mailProvider?: MailProvider | undefined;
 }>;
 
 type Kind = ResponseState['kind'];
@@ -1890,11 +1892,18 @@ const statuses: {
     title: t('invitation.offline'),
     detail: t('invitation.offlineDetail'),
   }),
-  authentication: (_, { t, address, provider }) => ({
+  authentication: (_, { t, address, provider, mailProvider }) => ({
     icon: 'exclamationmark.triangle.fill',
     tone: 'statusWarning',
-    title: t('invitation.authentication', { provider }),
-    detail: t('invitation.authenticationDetail', { address }),
+    ...(mailProvider === 'microsoft-graph'
+      ? {
+          title: t('invitation.authentication_microsoft', { provider }),
+          detail: t('invitation.authenticationDetail_microsoft', { address }),
+        }
+      : {
+          title: t('invitation.authentication', { provider }),
+          detail: t('invitation.authenticationDetail', { address }),
+        }),
   }),
 };
 
@@ -1955,6 +1964,7 @@ export const invitationResponding = (
     others,
     earlier,
     server,
+    mailProvider,
   }: Readonly<{
     invitation: Invitation;
     state: ResponseState;
@@ -1966,6 +1976,7 @@ export const invitationResponding = (
     earlier: EarlierResponse | undefined;
     // An IMAP mailbox's mail server, from `imapServer`.
     server?: string | undefined;
+    mailProvider?: MailProvider | undefined;
   }>,
 ) => {
   const blocked =
@@ -1988,6 +1999,7 @@ export const invitationResponding = (
         alsoInvited: others,
         earlier: earlier?.choice,
         server,
+        mailProvider,
       },
     ),
   };

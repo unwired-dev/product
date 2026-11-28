@@ -2304,6 +2304,46 @@ describe('meeting invitations', () => {
       ]);
     });
 
+    it('asks a Microsoft mailbox for permission where Gmail asks to sign in', () => {
+      expect.hasAssertions();
+      const invitation = offered(calendar(meeting));
+      const microsoft = (state: ResponseState, sync: string) =>
+        invitationResponding(english, formats, {
+          invitation,
+          state,
+          sync,
+          provider: 'Microsoft 365',
+          others: 0,
+          earlier: undefined,
+          mailProvider: 'microsoft-graph',
+        });
+      const permission = {
+        icon: 'exclamationmark.triangle.fill',
+        tone: 'statusWarning',
+        title: 'Microsoft 365 needs your permission',
+        detail: `Sign in to ${me} again and allow sending mail. Nothing has been sent.`,
+      };
+
+      expect([
+        microsoft({ kind: 'authentication', choice: 'accepted' }, 'idle'),
+        microsoft({ kind: 'unanswered' }, 'authentication'),
+      ]).toStrictEqual([
+        { blocked: undefined, status: permission },
+        { blocked: 'authentication', status: permission },
+      ]);
+      expect(
+        invitationResponding(english, formats, {
+          invitation,
+          state: { kind: 'authentication', choice: 'accepted' },
+          sync: 'idle',
+          provider: 'Gmail',
+          others: 0,
+          earlier: undefined,
+          mailProvider: 'gmail',
+        }).status.title,
+      ).toBe('Gmail needs you to sign in again');
+    });
+
     it('says which address responds when the Profile is invited at several', () => {
       expect.hasAssertions();
       const context = {
