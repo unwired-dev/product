@@ -311,22 +311,28 @@ export function createNotifications(
   );
   // One settings request runs at a time, so each publishes in the order it was made: a read
   // cannot settle after a later read or a later saved choice and bring back what it found.
+  // A request made before the Product Account changed publishes nothing.
   const requests = Semaphore.makeUnsafe(1);
-  const update = (request: () => Promise<unknown>, failure: string) =>
-    runLogged(
+  let account = 0;
+  const update = (request: () => Promise<unknown>, failure: string) => {
+    const made = account;
+    return runLogged(
       logged(
         failure,
         requests.withPermit(
           settingsOf(request).pipe(
             Effect.tap((next) =>
               Effect.sync(() => {
-                settings.set(next);
+                if (made === account) {
+                  settings.set(next);
+                }
               }),
             ),
           ),
         ),
       ),
     );
+  };
   const load = () =>
     update(
       () => native.notificationSettings(),
@@ -337,10 +343,14 @@ export function createNotifications(
     subscribe: settings.subscribe,
     // Also after activation: the person can change permission in the system's settings.
     load,
+    // The system prompt waits for the person, so it holds no request back; the settings are read
+    // once it settles.
     request: () =>
-      update(
-        () => native.requestNotifications(),
-        'Notification permission could not be requested:',
+      runLogged(
+        logged(
+          'Notification permission could not be requested:',
+          call(() => native.requestNotifications()),
+        ).pipe(Effect.andThen(Effect.promise(load))),
       ),
     setPreviews: (previews: boolean) =>
       update(
@@ -405,6 +415,8 @@ export function createNotifications(
       const follow = () => {
         const current = settings.getSnapshot();
         if (current === undefined) {
+          // Until the settings are known, no queued count is applied either.
+          wanted = undefined;
           return;
         }
         const count =
@@ -429,11 +441,14 @@ export function createNotifications(
           ? undefined
           : snapshot.productAccountId;
       };
-      let account = owner();
+      let following = owner();
       settings.subscribe(follow);
       sources.registration.subscribe(() => {
-        if (owner() !== account) {
-          account = owner();
+        if (owner() !== following) {
+          following = owner();
+          // The previous Product Account's choices are not this one's.
+          account += 1;
+          settings.set(undefined);
           void load();
         }
         follow();

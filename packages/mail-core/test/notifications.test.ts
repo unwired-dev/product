@@ -239,15 +239,41 @@ describe('opening a tapped New Mail Notification', () => {
 const unused = () => Promise.reject(new Error('Not used here'));
 
 describe('notification settings', () => {
+  const read = (badgeSoundOff: readonly string[]) => ({
+    authorization: 'authorized',
+    previews: true,
+    badge: 'inbox',
+    sound: 'default',
+    badgeSoundOff,
+  });
+
+  it('saves a choice while the system permission prompt waits', async () => {
+    expect.hasAssertions();
+    const prompt = Promise.withResolvers<unknown>();
+    const notifications = createNotifications(
+      {
+        notificationSettings: () => Promise.resolve(read([])),
+        postNotifications: unused,
+        requestNotifications: () => prompt.promise,
+        setNotificationPreviews: unused,
+        setNotificationBadge: () => Promise.resolve(read(['saved'])),
+        setNotificationSound: unused,
+        setNotificationProfile: unused,
+        setBadgeCount: unused,
+        openNotificationSettings: unused,
+      },
+      () => english,
+    );
+    const asked = notifications.request();
+    await notifications.setBadge('inbox');
+    const saved = notifications.getSnapshot()?.badgeSoundOff;
+    prompt.resolve(read([]));
+    await asked;
+    expect(saved).toStrictEqual(['saved']);
+  });
+
   it('reads the settings only once a pending choice is saved', async () => {
     expect.hasAssertions();
-    const read = (badgeSoundOff: readonly string[]) => ({
-      authorization: 'authorized',
-      previews: true,
-      badge: 'inbox',
-      sound: 'default',
-      badgeSoundOff,
-    });
     // The device's saved choices; a read reports them as they were when it started.
     let off: readonly string[] = [];
     const saved = Promise.withResolvers<null>();

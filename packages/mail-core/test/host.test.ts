@@ -1040,6 +1040,41 @@ describe('the host assembly', () => {
     });
   });
 
+  it('shows no choices read for the previous Product Account once it changes', async () => {
+    expect.hasAssertions();
+    const { host, native, device } = syntheticHost(undefined, true);
+    host.followBadge();
+    await host.start();
+    await host.registration.register('google');
+    await host.notifications.setProfileBadgeSound(
+      ownerOf(host),
+      defaultProfile,
+      false,
+    );
+    // A read for this Product Account settles only after another one signed in.
+    const held = Promise.withResolvers<undefined>();
+    vi.spyOn(native, 'notificationSettings').mockImplementationOnce(
+      async () => {
+        await held.promise;
+        return { ...device, badgeSoundOff: [defaultProfile] };
+      },
+    );
+    const stale = host.notifications.load();
+    await host.registration.signOut();
+    device.badgeSoundOff = [];
+    await host.registration.register('google');
+    const seen: unknown[] = [];
+    host.notifications.subscribe(() => {
+      seen.push(host.notifications.getSnapshot()?.badgeSoundOff);
+    });
+    held.resolve(undefined);
+    await stale;
+    await vi.waitFor(() => {
+      expect(host.notifications.getSnapshot()?.badgeSoundOff).toStrictEqual([]);
+    });
+    expect(seen).not.toContainEqual([defaultProfile]);
+  });
+
   it('sets the App Icon Badge again after the system refused a write', async () => {
     expect.hasAssertions();
     const { host, badges, badgeWrites } = syntheticHost(undefined, true);
