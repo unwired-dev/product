@@ -35,8 +35,8 @@ const styles = StyleSheet.create({
 });
 
 // The Message zoom levels, as the reader's setting holds them.
-const levels: readonly number[] = messageZooms;
-type Zoom = number;
+type Zoom = (typeof messageZooms)[number];
+const levels: readonly Zoom[] = messageZooms;
 type Own = Readonly<{ id: string; zoom: Zoom }> | undefined;
 
 // The open message's own zoom, kept until it closes, and whether the reader shows formatted mail,
@@ -96,7 +96,9 @@ export function useShowsFormatted(shown: boolean) {
 }
 
 // The zoom steps: to a neighbouring Message zoom level, stopping at 50% and 300%, or to 100%.
-const steps = (zoom: Zoom) => ({
+const steps = (
+  zoom: Zoom,
+): Readonly<Record<'in' | 'out' | 'actual', Zoom | undefined>> => ({
   in: levels[levels.indexOf(zoom) + 1],
   out: levels[levels.indexOf(zoom) - 1],
   actual: 100,
