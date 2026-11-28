@@ -110,7 +110,7 @@ describe('settings › Reading', () => {
     await inbox.load();
     const app = await render(
       <>
-        <ReadingSettings />
+        <ReadingSettings profiles={[]} />
         <MessageBody
           inbox={inbox}
           id={id}
