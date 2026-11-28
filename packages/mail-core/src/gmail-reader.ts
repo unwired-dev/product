@@ -154,23 +154,27 @@ const decodeCreatedLabel = json(GmailLabelSchema);
 
 const decodeVacation = json(GmailVacationSchema);
 
-// The vacation responder as Gmail stores it, with the fields Unwired does not read.
-const decodeStoredVacation = json(Schema.Record(Schema.String, Schema.Unknown));
+// The vacation responder as Gmail stores it, with the fields Unwired does not read; a known field
+// that does not decode refuses it, as a read does.
+const decodeStoredVacation = (body: unknown) =>
+  decodeVacation(body).pipe(
+    Effect.andThen(json(Schema.Record(Schema.String, Schema.Unknown))(body)),
+  );
 
 // The stored responder with `change` applied: a named value replaces Gmail's, null leaves the field
 // out, and every other field keeps what Gmail has.
 const changedVacation = (
   stored: Readonly<Record<string, unknown>>,
   change: GmailVacationChange,
-): Record<string, unknown> =>
-  Object.fromEntries(
-    Object.entries({ ...stored, ...change })
-      .map(([field, value]): [string, unknown] => [
-        field,
-        value === undefined ? stored[field] : value,
-      ])
-      .filter(([, value]) => value !== null && value !== undefined),
+): Record<string, unknown> => {
+  const named = new Map<string, unknown>(
+    Object.entries(change).filter(([, value]) => value !== undefined),
   );
+  return Object.fromEntries([
+    ...Object.entries(stored).filter(([field]) => !named.has(field)),
+    ...[...named].filter(([, value]) => value !== null),
+  ]);
+};
 
 const mailbox = /^\s*(?:"?(?<name>[^"<]*?)"?\s*)?<(?<address>[^<>]+)>\s*$/u;
 

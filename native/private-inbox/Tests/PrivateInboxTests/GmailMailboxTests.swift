@@ -411,7 +411,17 @@ extension PrivateInboxTests {
     let stored = try JSONSerialization.jsonObject(
       with: try #require(google.gmailBodies.last ?? nil))
     #expect(stored as? NSDictionary == vacation)
-    #expect(revocationQueries == queriesBeforeReads + 3)
+    // Gmail's refusal comes back as Gmail sent it, so TypeScript can tell a missing scope apart.
+    let answered = google.gmailResponse
+    let refusal = #"{"error":{"code":403,"errors":[{"reason":"insufficientPermissions"}]}}"#
+    google.gmailResponse = (403, Data(refusal.utf8))
+    let refusedSave = try await store.gmailSaveVacation(
+      vacation: [:], connection: first, address: google.address,
+      generation: store.generation(firstSubject))
+    #expect(refusedSave["status"] as? Int == 403)
+    #expect(refusedSave["body"] as? String == refusal)
+    google.gmailResponse = answered
+    #expect(revocationQueries == queriesBeforeReads + 4)
     // Failed revalidation leaves the action unsent; cached read availability cannot authorize it.
     validationUnavailable = true
     let writesBeforeFailure = google.gmailRequests.count

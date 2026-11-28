@@ -140,8 +140,9 @@ describe("saving a Gmail mailbox's Out of Office", () => {
         responseBodyHtml: '<p>Away.</p>',
         restrictToDomain: true,
         startTime: '1795392000000',
-        // A field Unwired does not read goes back as Gmail sent it.
+        // A field Unwired does not read goes back as Gmail sent it, even when it is null.
         laterField: { kept: true },
+        laterNull: null,
       }),
     );
     const saved = {
@@ -161,7 +162,51 @@ describe("saving a Gmail mailbox's Out of Office", () => {
       }),
     ).resolves.toStrictEqual({ kind: 'saved', vacation: saved });
     expect(requests).toStrictEqual([[]]);
-    expect(saves).toStrictEqual([{ ...saved, laterField: { kept: true } }]);
+    expect(saves).toStrictEqual([
+      { ...saved, laterField: { kept: true }, laterNull: null },
+    ]);
+  });
+
+  it('saves one change after another, each over what the one before saved', async () => {
+    expect.hasAssertions();
+    const { inbox, answers, requests, saveAnswers, saves } = vacationInbox();
+    await inbox.load();
+    answers.push(
+      answer({ responseSubject: 'Away', responseBodyPlainText: 'Hi' }),
+    );
+    const first = Promise.withResolvers<unknown>();
+    saveAnswers.push(first.promise);
+    const subject = inbox.saveOutOfOffice({ responseSubject: 'Back Monday' });
+    const body = inbox.saveOutOfOffice({ responseBodyPlainText: 'Thanks' });
+    await vi.waitFor(() => {
+      expect(saves).toHaveLength(1);
+    });
+    // The second save has not read Gmail yet.
+    expect(requests).toHaveLength(1);
+    const afterFirst = {
+      responseSubject: 'Back Monday',
+      responseBodyPlainText: 'Hi',
+    };
+    answers.push(answer(afterFirst));
+    saveAnswers.push(
+      answer({
+        responseSubject: 'Back Monday',
+        responseBodyPlainText: 'Thanks',
+      }),
+    );
+    first.resolve(answer(afterFirst));
+    await expect(subject).resolves.toMatchObject({ kind: 'saved' });
+    await expect(body).resolves.toStrictEqual({
+      kind: 'saved',
+      vacation: {
+        responseSubject: 'Back Monday',
+        responseBodyPlainText: 'Thanks',
+      },
+    });
+    expect(saves).toStrictEqual([
+      afterFirst,
+      { responseSubject: 'Back Monday', responseBodyPlainText: 'Thanks' },
+    ]);
   });
 
   it('answers permission when Gmail refuses the settings scope, and keeps the Inbox', async () => {
@@ -198,9 +243,14 @@ describe("saving a Gmail mailbox's Out of Office", () => {
     vi.spyOn(console, 'error').mockReturnValue();
     const { inbox, answers, saveAnswers, saves } = vacationInbox();
     await inbox.load();
-    // A read that fails sends no save.
-    answers.push(answer([]), answer({}, 503), answer({}, 404));
-    for (const reason of ['offline', 'offline', 'failed']) {
+    // A read that fails, or holds a field Unwired reads that does not decode, sends no save.
+    answers.push(
+      answer([]),
+      answer({ startTime: 'impossible' }),
+      answer({}, 503),
+      answer({}, 404),
+    );
+    for (const reason of ['offline', 'offline', 'offline', 'failed']) {
       await expect(
         inbox.saveOutOfOffice({ enableAutoReply: true }),
       ).resolves.toStrictEqual({ kind: 'unavailable', reason });

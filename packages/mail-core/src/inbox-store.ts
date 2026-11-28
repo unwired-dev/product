@@ -1303,6 +1303,8 @@ export function createInboxStore(
   // both permits so it cannot interleave with either writer's commit, pruning and publication.
   // Each page releases its permit before provider work, so body saves never wait for a whole sync.
   const publication = Semaphore.makeUnsafe(2);
+  // Each Out of Office save reads what the one before it saved.
+  const vacationSaves = Semaphore.makeUnsafe(1);
   let state: GmailInboxState = { kind: 'loading' };
   // An already-running metadata sync cannot dismiss a newer body grant rejection.
   let authenticationRejected = false;
@@ -4458,7 +4460,7 @@ export function createInboxStore(
         return Promise.resolve(undefined);
       }
       return runLogged(
-        saveVacation(scope, change).pipe(
+        vacationSaves.withPermit(saveVacation(scope, change)).pipe(
           Effect.map(
             Option.match({
               onNone: (): OutOfOfficeSave | undefined =>
