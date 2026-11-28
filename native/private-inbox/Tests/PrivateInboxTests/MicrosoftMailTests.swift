@@ -512,6 +512,22 @@ extension PrivateInboxTests {
     }
   }
 
+  // Of Outlook's own resources, reads reach only the category list (#3091).
+  @Test @MainActor func graphReadsReachOnlyTheOutlookCategoryList() throws {
+    #expect(
+      try RegistrationStore.graphURL("https://graph.microsoft.com/v1.0/me/outlook/masterCategories")
+        .host == "graph.microsoft.com")
+    for path in [
+      "/v1.0/me/outlook", "/v1.0/me/outlook/masterCategories/x",
+      "/v1.0/me/outlook/masterCategories%2Fx", "/v1.0/me/outlook/supportedLanguages",
+      "/v1.0/users/me/outlook/masterCategories",
+    ] {
+      #expect(throws: RegistrationError.unavailable) {
+        _ = try RegistrationStore.graphURL("https://graph.microsoft.com" + path)
+      }
+    }
+  }
+
   // A message too large for one sendMail request becomes an Outlook draft before its handoff: the
   // drafts an interrupted attempt left under its Message-ID are deleted, its MIME without files is
   // saved, a small file is attached in one request and a large one through an upload session,

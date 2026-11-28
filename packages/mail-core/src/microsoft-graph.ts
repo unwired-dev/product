@@ -52,6 +52,8 @@ export const graphPlacement = (id: string) =>
 // A well-known folder's own ID, which a message's parentFolderId names.
 // The mailbox's automatic replies, Outlook's Out of Office, which `MailboxSettings.Read` reads.
 export const graphAutomaticReplies = `${graphRoot}/me/mailboxSettings/automaticRepliesSetting`;
+// The mailbox's Outlook category list, which `MailboxSettings.Read` also reads.
+export const graphMasterCategories = `${graphRoot}/me/outlook/masterCategories`;
 
 export const graphWellKnownFolder = (name: WellKnownFolder) =>
   `${graphRoot}/me/mailFolders/${name}?$select=id`;
@@ -397,6 +399,46 @@ const GraphAutomaticRepliesSchema = Schema.Struct({
 });
 export type GraphAutomaticReplies = typeof GraphAutomaticRepliesSchema.Type;
 export const decodeGraphAutomaticReplies = json(GraphAutomaticRepliesSchema);
+// The category list as Graph stores it: each name with its colour preset, which each Outlook
+// client maps to a colour of its own.
+const GraphCategoriesSchema = Schema.Struct({
+  value: Schema.Array(
+    Schema.Struct({
+      displayName: Schema.String,
+      color: graphEnum([
+        'none',
+        'preset0',
+        'preset1',
+        'preset2',
+        'preset3',
+        'preset4',
+        'preset5',
+        'preset6',
+        'preset7',
+        'preset8',
+        'preset9',
+        'preset10',
+        'preset11',
+        'preset12',
+        'preset13',
+        'preset14',
+        'preset15',
+        'preset16',
+        'preset17',
+        'preset18',
+        'preset19',
+        'preset20',
+        'preset21',
+        'preset22',
+        'preset23',
+        'preset24',
+      ]),
+    }),
+  ),
+});
+export type GraphCategory =
+  (typeof GraphCategoriesSchema.Type)['value'][number];
+export const decodeGraphCategories = json(GraphCategoriesSchema);
 export const decodeGraphTotal = json(
   Schema.Struct({
     totalItemCount: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),

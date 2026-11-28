@@ -25,6 +25,13 @@ matches content, grouping and actions to the design.
   **Unread in Inbox**. It starts **Off**, belongs to this device and never synchronizes.
   While notifications are off in the system's settings, the choice stays, dimmed, and
   applies once they are allowed. See [App Icon Badge](#app-icon-badge).
+- **New Mail Sound**, under App Icon Badge in the **On this iPhone** (or iPad) group, chooses **Default** (the
+  system's notification sound) or **None**
+  ([#2812](https://github.com/unwired-dev/product/issues/2812)). A New Mail Notification the
+  system shows plays the chosen sound, or none; Send Reminder notifications keep the system's
+  sound. It starts at **Default**, belongs to this device and never synchronizes, and
+  like the badge stays, dimmed, while notifications are off. The Mac's alert-sound choice
+  comes with [#2811](https://github.com/unwired-dev/product/issues/2811).
 - **Per Mailbox** has a switch for each Mailbox Connection, named by its provider
   and address. Every connection starts off. Turning one on the first time also asks for permission. The switch is
   a Mail Workflow Preference of the Profile that owns the connection: it
@@ -130,7 +137,7 @@ the device leaves the badge it found unchanged rather than showing a partial cou
 push wake, or an Archive or Mark as Read on a notification, that launches the app works on
 its own mailbox and opens every other connection's saved Inbox listing without reading mail from its provider, so the badge counts them
 all. Snooze and Profile Lock do not exist
-yet; the per-Profile **Badge and sound** switches and **New Mail Sound** come with
+yet; the per-Profile **Badge and sound** switches come with
 [#1723](https://github.com/unwired-dev/product/issues/1723).
 
 ## How a notification looks
