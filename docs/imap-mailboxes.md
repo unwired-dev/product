@@ -2365,6 +2365,40 @@ password manager by running
   Mac for these values and the Outlook.com password found none in what it completed: 41 of
   45 Simulators, a plain search with ripgrep of 91 of 93 checkouts' `artifacts`, and a
   separate one-process zstd search of their 299 result bundles in place of the script's.
+- **2026-11-28, iPhone meeting invitation responses
+  ([#3089](https://github.com/unwired-dev/product/issues/3089)).** Target, toolchain and
+  operator as in the record above, on a new iPhone 18 Pro Simulator on iOS 27.0. Build:
+  the app source of `65a4d1ad98c0a5e0be0adef0de5082462926da5b`. Google Product Sign-In
+  found the certification Product Account, the app unlocked with its Recovery Key, and
+  both certification mailboxes were connected through the app as in the first record,
+  each credential pasted through the steps above. Each mailbox, as organizer, sent the
+  other one meeting request over SMTP from outside the app, with one
+  `text/calendar; method=REQUEST` part. Result: the invitation responses pass; credential
+  entry did not follow step 1, as the limitations say. In each mailbox the request opened
+  in the reader with the invitation card, **Invited, You, {address} · IMAP**, **Not
+  answered yet** and **Accept**, **Maybe** and **Decline**. In iCloud Mail, **Accept**
+  went through the Outbox and the card then read **Accepted. iCloud’s mail server
+  accepted your response…**. In Seznam Email, **Maybe** went through the Outbox and the
+  card then read **Tentatively accepted. The mail server accepted your response…**. Over
+  IMAP, each organizer's mailbox received exactly one `METHOD:REPLY`, with the
+  invitation's UID, the attendee's address and `PARTSTAT=ACCEPTED` or
+  `PARTSTAT=TENTATIVE`, and each responder's Sent folder (`Sent Messages`, `sent`) held
+  exactly one copy. Afterwards no run message remained in any folder of either mailbox,
+  **Sign Out of This Device** returned the app to Welcome, and the Simulator was
+  deleted. `simulator-credentials.zsh scan` then found none of the three passwords or the
+  Recovery Key in `~/.agent-device`, `~/Library/Logs`, T3 Code's device directory, the
+  shell history, the operator's scratch files, this checkout's `artifacts` with this
+  run's DerivedData, this run's session transcripts, or the 17,475 files written to the
+  temporary directories since the run began that still existed. Limitations: against step 1,
+  accessibility snapshots ran and one screenshot was taken while the keyboard was open
+  after the Seznam Email password was copied; the screenshot showed no suggestion bar
+  and the driver saved no screenshot of its own, but a text scan cannot show that no
+  credential was captured in an image. In the Other IMAP Account form the
+  keyboard covered **Password** and **Connect**, so the form was dragged up by hand and
+  **Return** ended editing ([#3090](https://github.com/unwired-dev/product/issues/3090)).
+  **Decline**, refused and unconfirmed responses, Undo, offline and relaunch, cancelled
+  invitations and series revisions on a live mailbox, the controlled standards server,
+  Add to Calendar, Mac and iPad were not run.
 
 Real iCloud Mail and Seznam Email organizing, IDLE and Sent filing qualification, through
 the app on both hosts, remains required before release

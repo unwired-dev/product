@@ -431,6 +431,8 @@ export function createHost(
       graphModify: (change, mailbox) => native().graphModify(change, mailbox),
       gmailCreateLabel: (name, mailbox) =>
         native().gmailCreateLabel(name, mailbox),
+      gmailSaveVacation: (vacation, mailbox) =>
+        native().gmailSaveVacation(vacation, mailbox),
       gmailSend: (message, mailbox) =>
         observe('send', 'send-failed', () =>
           native().gmailSend(message, mailbox),

@@ -206,6 +206,17 @@ Microsoft has them. The write uses the existing `Mail.ReadWrite` grant.
 The hosts don't offer categories yet: the approved Categories panel, the category
 list in Settings and its `MailboxSettings` consent are later #1684 slices.
 
+Mail-core also reads the mailbox's category list, Outlook's master list of names
+and colours ([#3091](https://github.com/unwired-dev/product/issues/3091)). The
+open Inbox's `outlookCategories()` asks Graph for `/me/outlook/masterCategories`,
+the only Outlook resource native code lets a Graph read reach, and decodes each
+category's name and colour preset (`none`, or `preset0` to `preset24`, which each
+Outlook client maps to a colour of its own) in any letter case Graph uses. Nothing
+is cached. The read needs the same settings grant as [Out of Office](#out-of-office)
+and fails as that read does: a 403 answers unavailable with the reason
+`permission` and leaves the Inbox as it is. Gmail and IMAP mailboxes have no
+category list.
+
 Online search covers every folder of each Microsoft mailbox beside Gmail's.
 Microsoft orders its results by sent time and returns up to 1,000 matches; the
 Inbox lists all returned results newest first.

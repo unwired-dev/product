@@ -3,14 +3,14 @@ import Foundation
 // Microsoft own-mailbox access, including native-only preparation and attachment uploads.
 extension RegistrationStore {
   // Only reads of the signed-in person's own mail reach a Microsoft credential: its folders, their
-  // own folders, messages and delta rounds, its messages, their search, MIME and attachments, and
-  // its automatic replies, the one mailbox setting. The path is checked decoded, so an encoded
-  // separator cannot add a segment.
+  // own folders, messages and delta rounds, its messages, their search, MIME and attachments, its
+  // automatic replies, the one mailbox setting, and its Outlook category list. The path is checked
+  // decoded, so an encoded separator cannot add a segment.
   static func graphURL(_ value: String) throws -> URL {
     guard let url = URL(string: value), url.scheme == "https", url.host == "graph.microsoft.com",
       url.port == nil, url.user == nil, url.password == nil, url.fragment == nil,
       url.path.range(
-        of: #"^/v1\.0/me/(mail[Ff]olders((/[\w=-]+|\('[\w=-]+'\))(/messages(/delta|/[\w=-]+)?|/childFolders)?)?|messages(/[\w=-]+(/\$value|/attachments(/[\w=-]+)?)?)?|mailboxSettings/automaticRepliesSetting)$"#,
+        of: #"^/v1\.0/me/(mail[Ff]olders((/[\w=-]+|\('[\w=-]+'\))(/messages(/delta|/[\w=-]+)?|/childFolders)?)?|messages(/[\w=-]+(/\$value|/attachments(/[\w=-]+)?)?)?|mailboxSettings/automaticRepliesSetting|outlook/masterCategories)$"#,
         options: .regularExpression) != nil
     else { throw RegistrationError.unavailable }
     return url

@@ -103,11 +103,12 @@ import os
   }
 
   func gmail(
-    _ identity: GoogleRegistrationIdentity, url: URL, body: Data?, contentType: String
+    _ identity: GoogleRegistrationIdentity, url: URL, body: Data?, contentType: String,
+    method: String
   ) async throws -> (Int, Data) {
     try await GmailTransport.send(
       token: identity.accessToken, url: url, body: body, session: mailSession,
-      contentType: contentType)
+      contentType: contentType, method: method)
   }
 }
 
@@ -1305,6 +1306,20 @@ extension UnwiredRegistration {
       let (connection, address, generation) = try Self.scope(scope)
       return try await $0.gmailCreateLabel(
         name: name, connection: connection, address: address, generation: generation)
+    }
+  }
+
+  // `vacation` is the whole vacation responder to store, as Gmail's updateVacation takes it.
+  @objc(gmailSaveVacation:mailbox:resolver:rejecter:)
+  func gmailSaveVacation(
+    _ vacation: [String: Any], mailbox scope: [String: Any],
+    resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    mailbox("gmailSaveVacation", resolve, reject: reject) {
+      let (connection, address, generation) = try Self.scope(scope)
+      return try await $0.gmailSaveVacation(
+        vacation: vacation, connection: connection, address: address, generation: generation)
     }
   }
 

@@ -63,6 +63,7 @@ import { calendarPart, partText } from './message-body.ts';
 import {
   decodeGraphAttachments,
   decodeGraphAutomaticReplies,
+  decodeGraphCategories,
   decodeGraphCopies,
   decodeGraphDelta,
   decodeGraphFile,
@@ -99,6 +100,7 @@ import {
   graphSentCopies,
   graphUnavailableActions,
   graphAutomaticReplies,
+  graphMasterCategories,
   graphWellKnownFolder,
   GraphFoldersLink,
   GraphInboxLink,
@@ -1238,6 +1240,10 @@ export function createGraphReader(
     invitations: true,
     automaticReplies: (scope: MailboxScope) =>
       graphRead(scope)(graphAutomaticReplies, decodeGraphAutomaticReplies),
+    outlookCategories: (scope: MailboxScope) =>
+      graphRead(scope)(graphMasterCategories, decodeGraphCategories).pipe(
+        Effect.map(({ value }) => value),
+      ),
     labels,
     readLabels,
     modify,

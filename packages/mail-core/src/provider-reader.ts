@@ -5,6 +5,7 @@ import type {
   GmailAction,
   GmailLabel,
   GmailVacation,
+  GmailVacationChange,
 } from './gmail-actions.ts';
 import type {
   GmailMessage,
@@ -14,11 +15,15 @@ import type {
 } from './mailbox-document.ts';
 import type {
   GmailInvalidPage,
+  GmailMissingScope,
   GmailNotFound,
   SyncFailure,
 } from './mailbox-read.ts';
 import type { GmailPart } from './message-body.ts';
-import type { GraphAutomaticReplies } from './microsoft-graph.ts';
+import type {
+  GraphAutomaticReplies,
+  GraphCategory,
+} from './microsoft-graph.ts';
 import type { DraftFile, OutgoingSend } from './outgoing-message.ts';
 
 export type ViewEntry = NonNullable<MailboxDocument['views']>[number];
@@ -180,8 +185,23 @@ export interface ProviderReader {
   readonly automaticReplies?: (
     scope: MailboxScope,
   ) => Effect.Effect<GraphAutomaticReplies, ReadFailure>;
+  // The mailbox's Outlook category list as Microsoft stores it, when the provider offers one.
+  readonly outlookCategories?: (
+    scope: MailboxScope,
+  ) => Effect.Effect<readonly GraphCategory[], ReadFailure>;
   // The mailbox's Out of Office as the provider stores it, when the provider offers one.
   readonly vacation?: (
     scope: MailboxScope,
   ) => Effect.Effect<GmailVacation, ReadFailure>;
+  // Applies `change` to the Out of Office the provider stores now and saves the result, keeping
+  // every field the change does not name. None when the provider refuses the values, or when
+  // `current` says the save is no longer wanted before the provider is read or written.
+  readonly saveVacation?: (
+    scope: MailboxScope,
+    change: GmailVacationChange,
+    current: () => boolean,
+  ) => Effect.Effect<
+    Option.Option<GmailVacation>,
+    ReadFailure | GmailMissingScope
+  >;
 }

@@ -163,6 +163,20 @@ extension RegistrationStore {
       url: url, body: body, connection: connection, address: address, generation: generation)
   }
 
+  // The vacation responder TypeScript changed over the one Gmail stores, sent whole as
+  // updateVacation replaces it. Only a JSON object of at most 1 MiB crosses.
+  func gmailSaveVacation(
+    vacation: [String: Any], connection: String, address: String, generation: String
+  ) async throws -> [String: Any] {
+    guard JSONSerialization.isValidJSONObject(vacation),
+      let body = try? JSONSerialization.data(withJSONObject: vacation),
+      body.count <= 1024 * 1024
+    else { throw RegistrationError.unavailable }
+    return try await gmail(
+      url: Self.gmailURL(path: "settings/vacation", query: []), body: body, method: "PUT",
+      connection: connection, address: address, generation: generation)
+  }
+
   // Gmail's largest message through its messages.send upload.
   static let gmailMessageLimit = 35 * 1024 * 1024
 
@@ -237,8 +251,9 @@ extension RegistrationStore {
   // While `sending`, a failure once the request starts is deliveryUnknown, and Gmail's answer is
   // returned whatever changed meanwhile, as the message may already be sent.
   private func gmail(
-    url: URL, body: Data?, contentType: String = "application/json", connection id: String,
-    address: String, generation expectedGeneration: String, sending: Bool = false
+    url: URL, body: Data?, contentType: String = "application/json", method: String = "POST",
+    connection id: String, address: String, generation expectedGeneration: String,
+    sending: Bool = false
   ) async throws -> [String: Any] {
     let generation = mailboxGeneration(id)
     // Work from before a removal or another verification is stale, whatever the connection's
@@ -300,7 +315,7 @@ extension RegistrationStore {
     }
     do {
       (status, data) = try await provider.gmail(
-        identity, url: url, body: body, contentType: contentType)
+        identity, url: url, body: body, contentType: contentType, method: method)
     } catch RegistrationError.unavailable where sending {
       // It never left this device, so it is safe to try again.
       throw RegistrationError.unavailable

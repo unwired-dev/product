@@ -1,7 +1,7 @@
 import type { Command, Update } from '@private-email/draft-editor/messages';
 import type { DraftTextPurpose } from '@private-email/mail-core/assistance';
 import type { Draft, PickSource } from '@private-email/mail-core/drafts';
-import type { Link } from '@private-email/mail-core/semantic-document';
+import type { Asset, Link } from '@private-email/mail-core/semantic-document';
 import type { ReactNode, RefObject } from 'react';
 import type { ViewInstance } from 'react-native';
 
@@ -479,6 +479,7 @@ export function DraftFields({
 export function EditorHeader({
   subject,
   busy,
+  waiting,
   closeOpen,
   closeAnchor,
   sender,
@@ -490,6 +491,8 @@ export function EditorHeader({
   readonly subject: string;
   // Save Draft, Delete Draft or Send is running.
   readonly busy: boolean;
+  // A file still importing, which Send waits for.
+  readonly waiting: Asset | undefined;
   readonly closeOpen: boolean;
   readonly closeAnchor: RefObject<ViewInstance | null>;
   readonly sender: ReactNode;
@@ -553,7 +556,12 @@ export function EditorHeader({
         <View style={styles.headerTrailing}>
           {regular ? <View style={styles.sender}>{sender}</View> : null}
           <SendButton
-            disabled={busy}
+            disabled={busy || waiting !== undefined}
+            hint={
+              waiting === undefined
+                ? undefined
+                : t('drafts.assets.stillImporting', { name: waiting.name })
+            }
             onPress={onSend}
           />
         </View>
