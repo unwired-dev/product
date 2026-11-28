@@ -468,10 +468,13 @@ export function createNotifications(
       settings.subscribe(follow);
       sources.registration.subscribe(() => {
         if (owner() !== following) {
+          // The choices read while a Product Account was signed in are not the next one's; the
+          // device keeps none from before sign-in, so a launch's restore keeps what it read.
+          if (following !== undefined) {
+            account += 1;
+            settings.set(undefined);
+          }
           following = owner();
-          // The previous Product Account's choices are not this one's.
-          account += 1;
-          settings.set(undefined);
           void load();
         }
         follow();
