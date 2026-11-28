@@ -912,7 +912,7 @@ swipes from **Close** and **Back**, system buttons
 ([#3073](https://github.com/unwired-dev/product/issues/3073)), from its **Move to Travel** row, a
 system button since [#3125](https://github.com/unwired-dev/product/issues/3125), and, on its
 Accounts page, from **Cancel**; no swipe may press its button, so after **Cancel** the message is
-still open and offers no **Undo**. UIKit's sheet owns
+still open and offers no **Undo**. A tap on **Move to Travel** then moves it and offers **Undo** ([#3125](https://github.com/unwired-dev/product/issues/3125)). UIKit's sheet owns
 the drag, the return after an early release and the keyboard's lowering; the app owns the
 presented state, which a completed swipe must clear, so a sheet that does not open again points to
 the app.
