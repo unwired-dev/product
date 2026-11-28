@@ -59,12 +59,13 @@ const foldersField = (connection: string) => `sectionFolders:${connection}`;
 const ChosenSchema = Schema.Struct({ value: Schema.Json, at: Schema.Finite });
 type Chosen = typeof ChosenSchema.Type;
 // A Favorites or folder change made here also keeps, until Private Sync holds it, `base`: the value
-// it was made from (null for none), and once a pass publishes it, `sent`: what it published.
-// Private Sync holds neither.
+// it was made from (null for none), and once a pass publishes it, `sent`: what it published. A
+// change made here that no pass has published yet is `unpublished`. Private Sync holds none of them.
 const FieldSchema = Schema.Struct({
   ...ChosenSchema.fields,
   base: Schema.optionalKey(Schema.NullOr(ChosenSchema)),
   sent: Schema.optionalKey(ChosenSchema),
+  unpublished: Schema.optionalKey(Schema.Literal(true)),
 });
 type Field = typeof FieldSchema.Type;
 type Fields = Readonly<Record<string, Field>>;
@@ -137,8 +138,6 @@ const PulledSchema = Schema.Struct({
   ),
   unreadable: Schema.Array(Schema.NonEmptyString),
 });
-const waitingKey = (account: string, profile: string) =>
-  JSON.stringify([account, profile]);
 // Native code accepts a Private Sync record identifier of at most 200 characters.
 const publishable = (profile: string) => profile.length <= 200;
 
@@ -200,6 +199,18 @@ export interface NativeInboxPreferenceSync {
       expectedUpdatedAt?: number;
     }>,
   ) => Promise<unknown>;
+}
+
+// Each Mail Profile's reading preferences (ADR 0019's `mail-workflow-preferences:reading`), such as
+// when opening a message marks it read: kept and synchronized as the Inbox preferences are, in
+// their own encrypted file and Private Sync record.
+export interface NativeReadingPreferences {
+  readonly openReadingPreferences: NativeInboxPreferences['openInboxPreferences'];
+  readonly commitReadingPreferences: NativeInboxPreferences['commitInboxPreferences'];
+}
+export interface NativeReadingPreferenceSync {
+  readonly pullReadingPreferences: NativeInboxPreferenceSync['pullInboxPreferences'];
+  readonly pushReadingPreferences: NativeInboxPreferenceSync['pushInboxPreferences'];
 }
 
 const report = reportPreference('Inbox preference');
@@ -304,10 +315,6 @@ export function createInboxPreferences(
   // The Product Accounts whose last read storage failed, so which of their connections are muted is
   // unknown.
   const failed = new Set<string | undefined>();
-  // Each Profile, by Product Account, with a choice stored here that no pass has published yet, and
-  // the number of that choice, so a pass that read before it does not count it as published.
-  const waiting = new Map<string, number>();
-  let choices = 0;
   // The Profiles the last pass asked Private Sync about for `account`, and those whose records it
   // could not read, once a pass merged what it pulled and no other device's write overtook it;
   // none since a pass failed or was overtaken.
@@ -428,7 +435,6 @@ export function createInboxPreferences(
     if (account === undefined) {
       return false;
     }
-    const started = choices;
     const before = yield* opened(account);
     // Every Profile stored here, registered or holding a connection, so a record of one that does
     // not open is reported unreadable rather than absent.
@@ -474,13 +480,27 @@ export function createInboxPreferences(
     }
     pulled = conflicted ? undefined : { account, known, unreadable };
     if (!conflicted) {
-      for (const { profile } of stored.filter(sendable)) {
-        const key = waitingKey(account, profile);
-        if ((waiting.get(key) ?? Infinity) <= started) {
-          waiting.delete(key);
-          notify();
-        }
-      }
+      // Private Sync now holds what this pass published, unless a later change was made meanwhile.
+      yield* changed(account, (profiles) =>
+        stored.filter(sendable).reduce((all, { profile, fields }) => {
+          const kept = fieldsOf(all, profile);
+          const next = Object.fromEntries(
+            Object.entries(kept).map(([name, field]) => {
+              const sent = fields[name];
+              if (
+                field.unpublished === undefined ||
+                sent === undefined ||
+                !same(field, sent)
+              ) {
+                return [name, field];
+              }
+              const { unpublished: _, ...held } = field;
+              return [name, held];
+            }),
+          );
+          return sameFields(kept, next) ? all : withFields(all, profile, next);
+        }, profiles),
+      );
     }
     return conflicted;
   });
@@ -515,11 +535,8 @@ export function createInboxPreferences(
     if (scopes.length === 0) {
       return false;
     }
-    const account = signedIn();
-    // The Profiles whose field the write changed.
-    const written = new Set<string>();
     const stored = await runLogged(
-      changed(account, (kept) =>
+      changed(signedIn(), (kept) =>
         scopes.reduce((next, profile) => {
           const fields = fieldsOf(next, profile);
           const field = fields[name];
@@ -531,13 +548,13 @@ export function createInboxPreferences(
           ) {
             return next;
           }
-          written.add(profile);
           return withFields(next, profile, {
             ...fields,
             [name]: {
               value: chosen,
               at: Math.max(Date.now(), (field?.at ?? 0) + 1),
               ...(typeof value === 'function' ? madeFrom(field) : {}),
+              ...(sync === undefined ? {} : { unpublished: true as const }),
             },
           });
         }, kept),
@@ -548,13 +565,6 @@ export function createInboxPreferences(
         ),
       ),
     );
-    if (stored && sync !== undefined && account !== undefined) {
-      choices += 1;
-      for (const profile of written) {
-        waiting.set(waitingKey(account, profile), choices);
-      }
-      notify();
-    }
     if (stored) {
       void synchronize();
     }
@@ -689,10 +699,12 @@ export function createInboxPreferences(
     setMarkRead: (profile: string, choice: MarkRead) =>
       choose([profile], 'markRead', choice),
     // Whether a choice made here for `profile` waits for Private Sync to publish it.
-    waiting: (profile: string) => {
-      const account = signedIn();
-      return account !== undefined && waiting.has(waitingKey(account, profile));
-    },
+    waiting: (profile: string) =>
+      shown.account !== undefined &&
+      shown.account === signedIn() &&
+      Object.values(fieldsOf(shown.profiles, profile)).some(
+        ({ unpublished }) => unpublished === true,
+      ),
     // Merges Private Sync into this device's preferences and publishes this device's changes;
     // resolves once no pass is running.
     synchronize,

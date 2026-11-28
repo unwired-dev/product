@@ -2,11 +2,17 @@ import type { MarkRead } from '@private-email/mail-core/inbox-preferences';
 import type { MailProfile } from '@private-email/mail-core/registration';
 
 import { defaultProfile } from '@private-email/mail-core/registration';
-import { use, useEffect, useState, useSyncExternalStore } from 'react';
+import {
+  createContext,
+  use,
+  useEffect,
+  useState,
+  useSyncExternalStore,
+} from 'react';
 import { Text } from 'react-native';
 
-import { InboxPreferencesContext } from './list-density.tsx';
 import { useLocalization } from './localization.ts';
+import { readingPreferences } from './registration.ts';
 import {
   PopUpChoice,
   settingsButton,
@@ -17,6 +23,8 @@ import {
 } from './settings.tsx';
 import { textStyles, usePalette } from './theme.ts';
 
+// Each Mail Profile's reading preferences, which tests replace.
+export const ReadingPreferencesContext = createContext(readingPreferences);
 const choices: readonly MarkRead[] = [
   'immediately',
   'afterTwoSeconds',
@@ -26,7 +34,7 @@ const choices: readonly MarkRead[] = [
 // When opening a message of `profile` marks it read, which its other Trusted Devices share;
 // undefined until the choice is read.
 export function useMarkRead(profile: string) {
-  const store = use(InboxPreferencesContext);
+  const store = use(ReadingPreferencesContext);
   const choice = useSyncExternalStore(store.subscribe, () =>
     store.markRead(profile),
   );
@@ -47,7 +55,7 @@ export function MarkReadSettings({
 }) {
   const { t } = useLocalization();
   const colors = usePalette();
-  const store = use(InboxPreferencesContext);
+  const store = use(ReadingPreferencesContext);
   const all = [
     { id: defaultProfile, name: t('profiles.primary') },
     ...profiles,

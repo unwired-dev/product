@@ -18,6 +18,8 @@ import type { NativeWakes } from './freshness.ts';
 import type {
   NativeInboxPreferenceSync,
   NativeInboxPreferences,
+  NativeReadingPreferenceSync,
+  NativeReadingPreferences,
 } from './inbox-preferences.ts';
 import type {
   NativeMailTemplateSync,
@@ -102,6 +104,8 @@ export interface NativeHostModule
     NativeBlockedSenderSync,
     NativeInboxPreferences,
     NativeInboxPreferenceSync,
+    NativeReadingPreferences,
+    NativeReadingPreferenceSync,
     NativePins,
     NativeDeliveryClaim,
     NativeWakes,
@@ -384,6 +388,27 @@ export function createHost(
     },
   );
 
+  // Each Mail Profile's reading preferences, such as when opening a message marks it read, kept and
+  // synchronized as its Inbox preferences are, in their own file and record.
+  const readingPreferences = createInboxPreferences(
+    {
+      openInboxPreferences: () => native().openReadingPreferences(),
+      commitInboxPreferences: (owner, expectedRevision, document) =>
+        native().commitReadingPreferences(owner, expectedRevision, document),
+    },
+    registration,
+    {
+      removed,
+      adoptKeyRotation: () => registration.adoptKeyRotation(),
+      native: {
+        pullInboxPreferences: (owner, known) =>
+          native().pullReadingPreferences(owner, known),
+        pushInboxPreferences: (owner, record) =>
+          native().pushReadingPreferences(owner, record),
+      },
+    },
+  );
+
   // One Inbox per Mailbox Connection, from Gmail or Microsoft Graph; each forgets its mail when its
   // connection or owner leaves.
   const gmailMailboxes = createMailboxes(
@@ -648,6 +673,7 @@ export function createHost(
     sendReminders,
     blockedSenders,
     inboxPreferences,
+    readingPreferences,
     pins,
     outbox,
     wakes,

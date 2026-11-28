@@ -53,6 +53,7 @@ export const {
   pins,
   unsubscribe,
   inboxPreferences,
+  readingPreferences,
   outbox,
   freshness,
   remoteContent,

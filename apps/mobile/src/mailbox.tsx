@@ -39,6 +39,7 @@ import {
   useAllMailboxes,
   useMailboxList,
 } from './mailbox-state.ts';
+import { ReadingPreferencesContext } from './mark-read.tsx';
 import { mailboxes as defaultMailboxes } from './private-storage.ts';
 import { AccountContext } from './registration-gate.tsx';
 import {
@@ -94,6 +95,7 @@ export function InboxProvider({
 }) {
   const account = use(AccountContext);
   const inboxPreferences = use(InboxPreferencesContext);
+  const readingPreferences = use(ReadingPreferencesContext);
   const navigation = useMemo(() => createComposerNavigation(), []);
   useEffect(() => {
     mountedNavigation = navigation;
@@ -110,6 +112,7 @@ export function InboxProvider({
     void sendReminders.synchronize();
     void inboxPreferences.load();
     void inboxPreferences.synchronize();
+    void readingPreferences.synchronize();
     // Returning picks up other devices' Draft, Mail Template, Blocked Sender, Send Reminder and Inbox
     // preference changes; leaving publishes this device's.
     const subscription = AppState.addEventListener('change', (state) => {
@@ -119,12 +122,19 @@ export function InboxProvider({
         void blockedSenders.synchronize();
         void sendReminders.synchronize();
         void inboxPreferences.synchronize();
+        void readingPreferences.synchronize();
       }
     });
     return () => {
       subscription.remove();
     };
-  }, [drafts, mailTemplates, inboxPreferences, sendReminders]);
+  }, [
+    drafts,
+    mailTemplates,
+    inboxPreferences,
+    readingPreferences,
+    sendReminders,
+  ]);
   useEffect(() => {
     void mailboxes.load();
     const subscription = AppState.addEventListener('change', (state) => {

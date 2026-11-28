@@ -16,9 +16,11 @@ import { createSyntheticImap } from '@private-email/mail-core/testing/imap-mailb
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { AppState } from 'react-native';
 
-import { InboxPreferencesContext } from '../src/list-density.tsx';
 import { InboxProvider } from '../src/mailbox.tsx';
-import { MarkReadSettings } from '../src/mark-read.tsx';
+import {
+  MarkReadSettings,
+  ReadingPreferencesContext,
+} from '../src/mark-read.tsx';
 import { MessageDetail, ThreadView } from '../src/message-detail.tsx';
 
 // oxlint-disable-next-line vitest/prefer-import-in-mock -- Jest's host adapter boundary.
@@ -138,9 +140,9 @@ describe('settings › Reading › Mark as Read', () => {
     expect.hasAssertions();
     const { store } = preferences();
     await render(
-      <InboxPreferencesContext value={store}>
+      <ReadingPreferencesContext value={store}>
         <MarkReadSettings profiles={[{ id: 'work', name: 'Work' }]} />
-      </InboxPreferencesContext>,
+      </ReadingPreferencesContext>,
     );
     await act(store.load);
     const primary = /^Mark as Read for Primary Profile: /u;
@@ -196,9 +198,9 @@ describe('settings › Reading › Mark as Read', () => {
     jest.spyOn(console, 'error').mockReturnValue(undefined);
     const { store, storage } = preferences();
     await render(
-      <InboxPreferencesContext value={store}>
+      <ReadingPreferencesContext value={store}>
         <MarkReadSettings profiles={[]} />
-      </InboxPreferencesContext>,
+      </ReadingPreferencesContext>,
     );
     await act(store.load);
     storage.refusing = true;
@@ -239,14 +241,14 @@ describe('opening a message with each Mark as Read choice', () => {
     const opened = await mailbox(provider);
     const Reader = provider === 'imap' ? MessageDetail : ThreadView;
     const app = await render(
-      <InboxPreferencesContext value={store}>
+      <ReadingPreferencesContext value={store}>
         <InboxProvider mailboxes={singleMailbox(opened.inbox, 'mailbox')}>
           <Reader
             id={opened.id}
             mailbox="mailbox"
           />
         </InboxProvider>
-      </InboxPreferencesContext>,
+      </ReadingPreferencesContext>,
     );
     await act(async () => {
       await Promise.resolve();
@@ -289,8 +291,13 @@ describe('opening a message with each Mark as Read choice', () => {
           listeners.push(listener);
           return { remove: () => undefined };
         });
+      const initial = AppState.currentState;
+      // The person is using Unwired.
+      AppState.currentState = 'active';
+      // As React Native does, the state changes before listeners hear of it.
       const leave = async (state: 'active' | 'background') => {
         await act(async () => {
+          AppState.currentState = state;
           for (const listener of listeners) {
             listener(state);
           }
@@ -314,6 +321,7 @@ describe('opening a message with each Mark as Read choice', () => {
       await wait(100);
       const marked = reader.read();
       jest.useRealTimers();
+      AppState.currentState = initial;
       expect({
         afterClosing,
         whileAway,

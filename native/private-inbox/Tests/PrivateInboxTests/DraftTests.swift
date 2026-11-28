@@ -623,6 +623,55 @@ struct DraftTests {
     #expect(!session.exists("pins.enc"))
   }
 
+  // Reading preferences are kept like Inbox preferences, in their own sealed file that the Inbox
+  // preferences document does not open as.
+  @Test @MainActor func readingPreferencesStayEncryptedWithTheirProductAccount() async throws {
+    let session = AssetSession()
+    defer { session.remove() }
+    let (store, cache) = (session.store, session.cache)
+    await #expect(throws: PrivateInboxError.mailboxInvalidated) {
+      _ = try await store.openReadingPreferences()
+    }
+    let owner = try await session.owner()
+    let opened = try await store.openReadingPreferences()
+    #expect(opened["owner"] as? String == owner && opened["revision"] as? Int == 0)
+    #expect(opened["document"] is NSNull)
+    let document = #"{"profiles":[{"profile":"private-profile-id","fields":{}}]}"#
+    await #expect(throws: PrivateInboxError.mailboxInvalidated) {
+      _ = try await store.commitReadingPreferences(
+        owner: "another-account", expectedRevision: 0, document: document)
+    }
+    let committed = try await store.commitReadingPreferences(
+      owner: owner, expectedRevision: 0, document: document)
+    #expect(committed["revision"] as? Int == 1)
+    await #expect(throws: PrivateInboxError.conflict) {
+      _ = try await store.commitReadingPreferences(owner: owner, expectedRevision: 0, document: "{}")
+    }
+    let file = session.directory.appendingPathComponent("reading-preferences.enc")
+    #expect(try Data(contentsOf: file).range(of: Data("private-profile-id".utf8)) == nil)
+    #expect(try cache.openInboxPreferenceDocument(owner: owner).document == nil)
+
+    let tmp = session.directory.appendingPathComponent("tmp")
+    let relaunched = PrivateInboxStore(
+      directory: session.directory, service: session.service, attachments: tmp,
+      protectedDataAvailable: { true })
+    #expect(try relaunched.openReadingPreferenceDocument(owner: owner) == (1, document))
+    #expect(try relaunched.openReadingPreferenceDocument(owner: "another-account") == (1, nil))
+
+    // The Inbox preferences document served in its place does not open.
+    _ = try cache.commitInboxPreferenceDocument(
+      owner: owner, expectedRevision: 0, document: document)
+    try FileManager.default.removeItem(at: file)
+    try FileManager.default.copyItem(
+      at: session.directory.appendingPathComponent("inbox-preferences.enc"), to: file)
+    #expect(throws: PrivateInboxError.invalidStore) {
+      _ = try relaunched.openReadingPreferenceDocument(owner: owner)
+    }
+
+    _ = try await store.purge(notice: "signed-out")
+    #expect(!session.exists("reading-preferences.enc"))
+  }
+
   // Sent unsubscribe requests are kept like Pins, in their own sealed file that the Pins document
   // does not open as.
   @Test @MainActor func unsubscribeRequestsStayEncryptedWithTheirProductAccount() async throws {

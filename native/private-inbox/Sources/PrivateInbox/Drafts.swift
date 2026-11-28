@@ -102,6 +102,23 @@ extension RegistrationStore {
     return ["owner": owner, "revision": revision]
   }
 
+  // Reading preferences stay on this device until Product Sync carries them.
+  func openReadingPreferences() async throws -> [String: Any] {
+    let (owner, opened) = try await draftWork { try $0.openReadingPreferenceDocument(owner: $1) }
+    return ["owner": owner, "revision": opened.revision, "document": opened.document ?? NSNull()]
+  }
+
+  func commitReadingPreferences(owner: String, expectedRevision: Int, document: String) async throws
+    -> [String: Any]
+  {
+    let (_, revision) = try await draftWork { store, current in
+      guard owner == current else { throw PrivateInboxError.mailboxInvalidated }
+      return try store.commitReadingPreferenceDocument(
+        owner: owner, expectedRevision: expectedRevision, document: document)
+    }
+    return ["owner": owner, "revision": revision]
+  }
+
   // Pins stay on this device until Product Sync carries them.
   func openPins() async throws -> [String: Any] {
     let (owner, opened) = try await draftWork { try $0.openPinDocument(owner: $1) }

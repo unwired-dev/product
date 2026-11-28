@@ -1150,6 +1150,34 @@ extension UnwiredRegistration {
     }
   }
 
+  @objc(pullReadingPreferences:known:resolver:rejecter:)
+  func pullReadingPreferences(
+    _ owner: String, known: [String],
+    resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
+  ) {
+    syncDrafts("pullReadingPreferences", owner: owner, resolve, reject: reject) { _, sync in
+      try await sync.pull(ReadingPreferencesRecord.self, known: known)
+    }
+  }
+
+  // `record` carries the Mail Profile's identifier, the record's write count, its JSON and the
+  // revision it replaces.
+  @objc(pushReadingPreferences:record:resolver:rejecter:)
+  func pushReadingPreferences(
+    _ owner: String, record: [String: Any],
+    resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
+  ) {
+    syncDrafts("pushReadingPreferences", owner: owner, resolve, reject: reject) { _, sync in
+      guard let id = record["id"] as? String, !id.isEmpty, id.count <= 200,
+        let version = (record["version"] as? Double).flatMap({ Int(exactly: $0) }), version >= 1,
+        let preferences = record["preferences"] as? String
+      else { throw RegistrationError.unavailable }
+      return try await sync.push(
+        ReadingPreferencesRecord(id: id, version: version, content: preferences),
+        expected: record["expectedUpdatedAt"] as? Double)
+    }
+  }
+
   @objc(uploadDraftAsset:asset:resolver:rejecter:)
   func uploadDraftAsset(
     _ owner: String, asset: [String: Any],
@@ -1946,6 +1974,29 @@ extension UnwiredRegistration {
         throw RegistrationError.unavailable
       }
       return try await $0.commitInboxPreferences(
+        owner: owner, expectedRevision: revision, document: document)
+    }
+  }
+
+  @objc(openReadingPreferences:rejecter:)
+  func openReadingPreferences(
+    _ resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
+  ) {
+    mailbox("openReadingPreferences", resolve, reject: reject) {
+      try await $0.openReadingPreferences()
+    }
+  }
+
+  @objc(commitReadingPreferences:expectedRevision:document:resolver:rejecter:)
+  func commitReadingPreferences(
+    _ owner: String, expectedRevision: Double, document: String,
+    resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
+  ) {
+    mailbox("commitReadingPreferences", resolve, reject: reject) {
+      guard let revision = Int(exactly: expectedRevision), revision >= 0 else {
+        throw RegistrationError.unavailable
+      }
+      return try await $0.commitReadingPreferences(
         owner: owner, expectedRevision: revision, document: document)
     }
   }

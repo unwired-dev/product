@@ -8,13 +8,21 @@ import { createInboxStore } from '@private-email/mail-core/inbox-store';
 import { singleMailbox } from '@private-email/mail-core/mailboxes';
 import { defaultProfile } from '@private-email/mail-core/registration';
 import { createSyntheticGmail } from '@private-email/mail-core/testing/gmail-mailbox';
-import { act, fireEvent, render, screen } from '@testing-library/react-native';
-import { AppState } from 'react-native';
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from '@testing-library/react-native';
+import { AppState, View } from 'react-native';
 
 import { InboxProvider } from '../src/mailbox.tsx';
-import { MarkReadSettings } from '../src/mark-read.tsx';
+import {
+  MarkReadSettings,
+  ReadingPreferencesContext,
+} from '../src/mark-read.tsx';
 import { MessageDetail } from '../src/message-detail.tsx';
-import { InboxPreferencesContext } from '../src/preview-lines.tsx';
 import { chooseMenuItem, menuItems } from './native-menu.ts';
 
 // oxlint-disable-next-line vitest/prefer-import-in-mock -- Jest's host adapter boundary.
@@ -52,9 +60,9 @@ describe('settings › Reading › Mark as Read on the Mac', () => {
     expect.hasAssertions();
     const store = preferences();
     await render(
-      <InboxPreferencesContext value={store}>
+      <ReadingPreferencesContext value={store}>
         <MarkReadSettings profiles={[{ id: 'work', name: 'Work' }]} />
-      </InboxPreferencesContext>,
+      </ReadingPreferencesContext>,
     );
     await act(store.load);
     await fireEvent.press(
@@ -114,14 +122,14 @@ describe('settings › Reading › Mark as Read on the Mac', () => {
       const inbox = createInboxStore(gmail.native);
       await inbox.load();
       const app = await render(
-        <InboxPreferencesContext value={store}>
+        <ReadingPreferencesContext value={store}>
           <InboxProvider mailboxes={singleMailbox(inbox, 'mailbox')}>
             <MessageDetail
               mailbox="mailbox"
               id={id}
             />
           </InboxProvider>
-        </InboxPreferencesContext>,
+        </ReadingPreferencesContext>,
       );
       await wait(open);
       // The mailbox holds only this message.
@@ -145,5 +153,62 @@ describe('settings › Reading › Mark as Read on the Mac', () => {
       afterTwoSeconds: true,
       manually: false,
     });
+  });
+
+  it('leaves a Mark as Unread alone when another window opened the message earlier', async () => {
+    expect.hasAssertions();
+    const initial = AppState.currentState;
+    AppState.currentState = 'active';
+    jest.useFakeTimers({
+      doNotFake: ['nextTick', 'setImmediate', 'queueMicrotask'],
+    });
+    const wait = async (milliseconds: number) => {
+      await act(async () => {
+        await jest.advanceTimersByTimeAsync(milliseconds);
+      });
+    };
+    const store = preferences();
+    await store.setMarkRead(defaultProfile, 'afterTwoSeconds');
+    const gmail = createSyntheticGmail();
+    const id = gmail.deliver({ subject: 'Report' });
+    const inbox = createInboxStore(gmail.native);
+    await inbox.load();
+    // A reader window for each test ID.
+    const windows = (ids: readonly string[]) => (
+      <ReadingPreferencesContext value={store}>
+        <InboxProvider mailboxes={singleMailbox(inbox, 'mailbox')}>
+          {ids.map((testID) => (
+            <View
+              key={testID}
+              testID={testID}>
+              <MessageDetail
+                mailbox="mailbox"
+                id={id}
+              />
+            </View>
+          ))}
+        </InboxProvider>
+      </ReadingPreferencesContext>
+    );
+    const app = await render(windows(['first']));
+    await wait(1000);
+    // A second window opens the message a second later.
+    await app.rerender(windows(['first', 'second']));
+    // The first window's wait ends and reads it; the person marks it unread before the second
+    // window's wait ends.
+    await wait(1100);
+    await fireEvent.press(
+      within(app.getByTestId('first')).getByRole('button', {
+        name: 'Mark as Unread',
+      }),
+    );
+    await wait(1500);
+    const reads = gmail.modifies.filter(({ remove }) =>
+      remove.includes('UNREAD'),
+    ).length;
+    await app.unmount();
+    jest.useRealTimers();
+    AppState.currentState = initial;
+    expect(reads).toBe(1);
   });
 });

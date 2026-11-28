@@ -319,26 +319,31 @@ describe('synchronized Inbox preferences', () => {
     expect(mac.store.listDensity('work')).toBe('comfortable');
   });
 
-  it("carries a Profile's Mark as Read choice to another device, waiting until a pass publishes it", async () => {
+  it("carries a Profile's Mark as Read choice to another device, waiting across a relaunch until a pass publishes it", async () => {
     expect.hasAssertions();
     const { server, mac, phone } = devices();
     server.setReachable(false);
     await mac.store.setMarkRead('work', 'afterTwoSeconds');
     await mac.store.synchronize();
     const offline = [mac.store.waiting('work'), mac.store.waiting('home')];
+    const relaunched = mac.relaunch();
+    await relaunched.load();
+    const afterRelaunch = relaunched.waiting('work');
     server.setReachable(true);
-    await mac.store.synchronize();
-    const published = mac.store.waiting('work');
+    await relaunched.synchronize();
+    const published = relaunched.waiting('work');
     await phone.store.synchronize();
     // Choosing what is already chosen writes nothing, so nothing waits.
     await phone.store.setMarkRead('work', 'afterTwoSeconds');
     expect({
       offline,
+      afterRelaunch,
       published,
       phone: [phone.store.markRead('work'), phone.store.markRead('home')],
       unchanged: phone.store.waiting('work'),
     }).toStrictEqual({
       offline: [true, false],
+      afterRelaunch: true,
       published: false,
       phone: ['afterTwoSeconds', 'immediately'],
       unchanged: false,
