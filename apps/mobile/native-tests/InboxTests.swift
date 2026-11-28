@@ -4697,8 +4697,8 @@ final class InboxTests: XCTestCase {
     _ = settledFrame(of: cancel)
     cancel.tap()
     XCTAssertTrue(name.waitForNonExistence(timeout: 10))
-    // #3073: Back, Close and Cancel are system buttons and the folder rows pressable rows (#3077);
-    // no swipe presses one.
+    // #3073, #3125: Back, Close, Cancel and the folder rows are system buttons; no swipe presses
+    // one.
     let caption = app.staticTexts["Move this message to another folder."].firstMatch
     let openMove = {
       if caption.exists { return }
@@ -4723,6 +4723,13 @@ final class InboxTests: XCTestCase {
     let moved = "A Move sheet swipe moved the message"
     XCTAssertTrue(header("rowan@example.invalid", in: app).exists, moved)
     XCTAssertFalse(app.buttons["Undo"].exists, moved)
+    // #3125: the folder row the swipe left alone still moves the message at a tap.
+    openMove()
+    let travel = app.buttons["Move to Travel"]
+    XCTAssertTrue(travel.waitForExistence(timeout: 10))
+    _ = settledFrame(of: travel)
+    travel.tap()
+    XCTAssertTrue(app.buttons["Undo"].waitForExistence(timeout: 15), "Move to Travel moved nothing")
   }
 
   // A downward swipe on a sheet, held short and released at rest, which leaves the sheet in place.

@@ -103,16 +103,6 @@ condition holds.
 
 ### Recorded exceptions
 
-**iPhone Move sheet folder rows.** The Move picker's folder rows should be
-system buttons (#3073). `@expo/ui` 58.0.30 `Button` (`swift-ui/Button`) inside
-the `BottomSheet`'s React Native content (`RNHostView` → `Host`) fires at a
-downward sheet swipe released at rest, which moves the message: `testSheetSwipes`
-failed from **Move to Travel** in Light and Dark, while the header's **Close**
-held (#3077). So `SheetRow` in `move-sheet.tsx` keeps a `Pressable` row in the
-iPhone sheet; the iPad popover's rows are system buttons. Make them system
-buttons once a supported SwiftUI button there survives that swipe and still
-fires at a tap.
-
 **iOS SF Symbols.** `expo-symbols` `SymbolView` has no point-size prop (checked
 through 58.0.4), so `SFSymbol` in `apps/mobile/src/design.tsx` keeps the iOS
 `UnwiredSymbolView` and `UnwiredSymbolManager` in `native/design/UnwiredDesign.m`;
