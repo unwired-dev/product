@@ -1833,13 +1833,23 @@
     "openSettings": "Open Settings…",
     "previews": "Show Sender and Subject",
     "previewsDetail": "Sender and subject appear only on this device after you choose them.",
+    "thisDevice_iphone": "On this iPhone",
+    "thisDevice_ipad": "On this iPad",
     "badge": "App Icon Badge",
+    "badge_ipad": "App icon badge",
     "dockBadge": "Dock badge",
     "badges": {
       "off": "Off",
       "inbox": "Unread in Inbox"
     },
     "badgeDetail": "Counts unread mail in Inbox.",
+    "sound": "New Mail Sound",
+    "sound_ipad": "New mail sound",
+    "sounds": {
+      "default": "Default",
+      "none": "None"
+    },
+    "badgeSoundDetail": "Counts unread mail in Inbox. Sounds play only for notifications that are shown.",
     "badgeKept": "Your choices are kept and apply as soon as notifications are allowed.",
     "perMailbox": "Per Mailbox",
     "mailbox": "{{provider}} · {{address}}",
