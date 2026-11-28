@@ -8,6 +8,12 @@ const repliesInbox = () => {
   const graph = createSyntheticGraph();
   const answers: unknown[] = [];
   const requests: string[] = [];
+  const saveAnswers: unknown[] = [];
+  const saves: unknown[] = [];
+  const reply = (replies: unknown[]) => {
+    const next = replies.shift();
+    return next instanceof Error ? Promise.reject(next) : Promise.resolve(next);
+  };
   const inbox = createInboxStore(
     {
       ...graph.native,
@@ -16,15 +22,16 @@ const repliesInbox = () => {
           return graph.native.graphRequest(url, owner);
         }
         requests.push(url);
-        const answer = answers.shift();
-        return answer instanceof Error
-          ? Promise.reject(answer)
-          : Promise.resolve(answer);
+        return reply(answers);
+      },
+      graphSaveAutomaticReplies: (automaticReplies) => {
+        saves.push(automaticReplies);
+        return reply(saveAnswers);
       },
     },
     { provider: 'microsoft-graph' },
   );
-  return { inbox, answers, requests };
+  return { inbox, answers, requests, saveAnswers, saves };
 };
 
 const answer = (body: unknown, status = 200) => ({
@@ -144,14 +151,15 @@ describe("reading a Microsoft mailbox's automatic replies", () => {
     expect(inbox.getSnapshot()).toMatchObject({ sync: 'authentication' });
   });
 
-  it('saves nothing, as Gmail does', async () => {
+  it('saves no Gmail change', async () => {
     expect.hasAssertions();
-    const { inbox, requests } = repliesInbox();
+    const { inbox, requests, saves } = repliesInbox();
     await inbox.load();
     await expect(
-      inbox.saveOutOfOffice({ enableAutoReply: true }),
+      inbox.saveOutOfOffice({ vacation: { enableAutoReply: true } }),
     ).resolves.toBeUndefined();
     expect(requests).toHaveLength(0);
+    expect(saves).toHaveLength(0);
   });
 
   it('reads nothing before the Inbox opens', async () => {
@@ -174,5 +182,166 @@ describe("reading a Microsoft mailbox's automatic replies", () => {
       await expect(reading).resolves.toBeUndefined();
     }
     expect(requests).toHaveLength(2);
+  });
+});
+
+// Saving the automatic replies; the MailboxSettings.ReadWrite grant it needs is asked for later
+// (#3124).
+describe("saving a Microsoft mailbox's automatic replies", () => {
+  const stored = {
+    status: 'scheduled',
+    externalAudience: 'all',
+    internalReplyMessage: '<p>Away.</p>',
+    externalReplyMessage: '<p>Away.</p>',
+    scheduledStartDateTime: {
+      dateTime: '2026-11-30T07:00:00.0000000',
+      timeZone: 'UTC',
+    },
+    scheduledEndDateTime: {
+      dateTime: '2026-12-07T07:00:00.0000000',
+      timeZone: 'UTC',
+    },
+  } as const;
+  const saved = (automaticRepliesSetting: unknown) =>
+    answer({
+      '@odata.context':
+        'https://graph.microsoft.com/v1.0/$metadata#Me/mailboxSettings',
+      automaticRepliesSetting,
+    });
+
+  it("sends only the named fields, and Graph's answer is what it saved", async () => {
+    expect.hasAssertions();
+    const { inbox, requests, saveAnswers, saves } = repliesInbox();
+    await inbox.load();
+    saveAnswers.push(saved({ ...stored, status: 'Scheduled' }));
+    const change = {
+      status: 'scheduled',
+      scheduledStartDateTime: stored.scheduledStartDateTime,
+      scheduledEndDateTime: stored.scheduledEndDateTime,
+    } as const;
+
+    await expect(
+      inbox.saveOutOfOffice({ automaticReplies: change }),
+    ).resolves.toStrictEqual({ kind: 'saved', automaticReplies: stored });
+    // Graph keeps what it is not sent, so nothing is read first.
+    expect(requests).toHaveLength(0);
+    expect(saves).toStrictEqual([change]);
+  });
+
+  it('saves one change after another', async () => {
+    expect.hasAssertions();
+    const { inbox, saveAnswers, saves } = repliesInbox();
+    await inbox.load();
+    const first = Promise.withResolvers<unknown>();
+    saveAnswers.push(first.promise, saved({ ...stored, status: 'disabled' }));
+    const on = inbox.saveOutOfOffice({
+      automaticReplies: { status: 'alwaysEnabled' },
+    });
+    const off = inbox.saveOutOfOffice({
+      automaticReplies: { status: 'disabled' },
+    });
+    await vi.waitFor(() => {
+      expect(saves).toHaveLength(1);
+    });
+    first.resolve(saved({ ...stored, status: 'alwaysEnabled' }));
+    await expect(on).resolves.toMatchObject({
+      automaticReplies: { status: 'alwaysEnabled' },
+    });
+    await expect(off).resolves.toMatchObject({
+      automaticReplies: { status: 'disabled' },
+    });
+    expect(saves).toStrictEqual([
+      { status: 'alwaysEnabled' },
+      { status: 'disabled' },
+    ]);
+  });
+
+  it('says why Graph did not save, and asks for mail again only when mail is refused', async () => {
+    expect.hasAssertions();
+    vi.spyOn(console, 'error').mockReturnValue();
+    const { inbox, saveAnswers, saves } = repliesInbox();
+    await inbox.load();
+    saveAnswers.push(
+      // A grant without MailboxSettings.ReadWrite; mail itself still works.
+      answer({ error: { code: 'ErrorAccessDenied' } }, 403),
+      // Graph refuses the values, as for an end before the start.
+      answer({ error: { code: 'ErrorInvalidRequest' } }, 400),
+      answer({}, 404),
+      answer({}, 503),
+      answer({}, 429),
+      new Error('The request never left this device.'),
+      saved({ status: 'sometimes' }),
+      answer({
+        '@odata.context': 'https://graph.microsoft.com/v1.0/$metadata',
+      }),
+    );
+    for (const reason of [
+      'permission',
+      'failed',
+      'failed',
+      'offline',
+      'offline',
+      'offline',
+      'offline',
+      'offline',
+    ]) {
+      await expect(
+        inbox.saveOutOfOffice({ automaticReplies: { status: 'disabled' } }),
+      ).resolves.toStrictEqual({ kind: 'unavailable', reason });
+    }
+    expect(saves).toHaveLength(8);
+    expect(inbox.getSnapshot()).toMatchObject({ sync: 'current' });
+
+    saveAnswers.push(answer({}, 401));
+    await expect(
+      inbox.saveOutOfOffice({ automaticReplies: { status: 'disabled' } }),
+    ).resolves.toStrictEqual({ kind: 'unavailable', reason: 'authentication' });
+    expect(inbox.getSnapshot()).toMatchObject({ sync: 'authentication' });
+  });
+
+  it('saves nothing before the Inbox opens, and drops an answer after it closed', async () => {
+    expect.hasAssertions();
+    const { inbox, saveAnswers, saves } = repliesInbox();
+    await expect(
+      inbox.saveOutOfOffice({ automaticReplies: { status: 'disabled' } }),
+    ).resolves.toBeUndefined();
+    expect(saves).toHaveLength(0);
+
+    for (const [index, late] of [saved(stored), answer({}, 403)].entries()) {
+      await inbox.load();
+      const { promise, resolve } = Promise.withResolvers<unknown>();
+      saveAnswers.push(promise);
+      const saving = inbox.saveOutOfOffice({
+        automaticReplies: { status: 'disabled' },
+      });
+      await vi.waitFor(() => {
+        expect(saves).toHaveLength(index + 1);
+      });
+      inbox.forget();
+      resolve(late);
+      await expect(saving).resolves.toBeUndefined();
+    }
+  });
+
+  it('sends no save that the Inbox closed before, while it waited', async () => {
+    expect.hasAssertions();
+    const { inbox, saveAnswers, saves } = repliesInbox();
+    await inbox.load();
+    const { promise, resolve } = Promise.withResolvers<unknown>();
+    saveAnswers.push(promise);
+    const first = inbox.saveOutOfOffice({
+      automaticReplies: { status: 'alwaysEnabled' },
+    });
+    const queued = inbox.saveOutOfOffice({
+      automaticReplies: { status: 'disabled' },
+    });
+    await vi.waitFor(() => {
+      expect(saves).toHaveLength(1);
+    });
+    inbox.forget();
+    resolve(saved(stored));
+    await expect(first).resolves.toBeUndefined();
+    await expect(queued).resolves.toBeUndefined();
+    expect(saves).toHaveLength(1);
   });
 });

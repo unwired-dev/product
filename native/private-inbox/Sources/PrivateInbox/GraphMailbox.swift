@@ -58,6 +58,37 @@ extension RegistrationStore {
       address: address, generation: generation)
   }
 
+  // The automatic-reply fields the read decodes, the only mailbox settings TypeScript may change:
+  // text, or a date and time with its time zone.
+  static func automaticReplyField(_ field: String, _ value: Any) -> Bool {
+    switch field {
+    case "status", "externalAudience", "internalReplyMessage", "externalReplyMessage":
+      return value is String
+    case "scheduledStartDateTime", "scheduledEndDateTime":
+      guard let time = value as? [String: Any] else { return false }
+      return Set(time.keys) == ["dateTime", "timeZone"] && time.values.allSatisfy { $0 is String }
+    default:
+      return false
+    }
+  }
+
+  // The one mailbox settings write: Graph merges `automaticReplies` into the stored automatic
+  // replies. This file wraps them, so no other mailbox setting can be written; only the known
+  // fields, of at most 1 MiB, cross.
+  func graphSaveAutomaticReplies(
+    automaticReplies: [String: Any], connection: String, address: String, generation: String
+  ) async throws -> [String: Any] {
+    guard automaticReplies.allSatisfy({ Self.automaticReplyField($0.key, $0.value) }),
+      let body = try? JSONSerialization.data(
+        withJSONObject: ["automaticRepliesSetting": automaticReplies]),
+      body.count <= 1024 * 1024,
+      let url = URL(string: "https://graph.microsoft.com/v1.0/me/mailboxSettings")
+    else { throw RegistrationError.unavailable }
+    return try await graphCall(
+      url: url, method: "PATCH", body: body, connection: connection, address: address,
+      generation: generation)
+  }
+
   // Graph's sendMail takes the whole message base64 encoded in one request of at most 4 MB.
   static let graphMessageLimit = 3_000_000
   // Graph attaches a file of at least 3 MB only through an upload session, and a smaller one in one

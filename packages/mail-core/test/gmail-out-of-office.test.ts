@@ -155,10 +155,12 @@ describe("saving a Gmail mailbox's Out of Office", () => {
 
     await expect(
       inbox.saveOutOfOffice({
-        enableAutoReply: true,
-        responseSubject: 'Back on Monday',
-        restrictToDomain: null,
-        startTime: undefined,
+        vacation: {
+          enableAutoReply: true,
+          responseSubject: 'Back on Monday',
+          restrictToDomain: null,
+          startTime: undefined,
+        },
       }),
     ).resolves.toStrictEqual({ kind: 'saved', vacation: saved });
     expect(requests).toStrictEqual([[]]);
@@ -176,8 +178,12 @@ describe("saving a Gmail mailbox's Out of Office", () => {
     );
     const first = Promise.withResolvers<unknown>();
     saveAnswers.push(first.promise);
-    const subject = inbox.saveOutOfOffice({ responseSubject: 'Back Monday' });
-    const body = inbox.saveOutOfOffice({ responseBodyPlainText: 'Thanks' });
+    const subject = inbox.saveOutOfOffice({
+      vacation: { responseSubject: 'Back Monday' },
+    });
+    const body = inbox.saveOutOfOffice({
+      vacation: { responseBodyPlainText: 'Thanks' },
+    });
     await vi.waitFor(() => {
       expect(saves).toHaveLength(1);
     });
@@ -229,10 +235,10 @@ describe("saving a Gmail mailbox's Out of Office", () => {
       answer({ error: { errors: [{ reason: 'rateLimitExceeded' }] } }, 403),
     );
     await expect(
-      inbox.saveOutOfOffice({ enableAutoReply: true }),
+      inbox.saveOutOfOffice({ vacation: { enableAutoReply: true } }),
     ).resolves.toStrictEqual({ kind: 'unavailable', reason: 'permission' });
     await expect(
-      inbox.saveOutOfOffice({ enableAutoReply: true }),
+      inbox.saveOutOfOffice({ vacation: { enableAutoReply: true } }),
     ).resolves.toStrictEqual({ kind: 'unavailable', reason: 'offline' });
     expect(saves).toHaveLength(2);
     expect(inbox.getSnapshot()).toMatchObject({ sync: 'current' });
@@ -243,7 +249,7 @@ describe("saving a Gmail mailbox's Out of Office", () => {
       answer({ error: { errors: [{ reason: 'domainPolicy' }] } }, 403),
     );
     await expect(
-      inbox.saveOutOfOffice({ enableAutoReply: true }),
+      inbox.saveOutOfOffice({ vacation: { enableAutoReply: true } }),
     ).resolves.toStrictEqual({ kind: 'unavailable', reason: 'authentication' });
   });
 
@@ -261,7 +267,7 @@ describe("saving a Gmail mailbox's Out of Office", () => {
     );
     for (const reason of ['offline', 'offline', 'offline', 'failed']) {
       await expect(
-        inbox.saveOutOfOffice({ enableAutoReply: true }),
+        inbox.saveOutOfOffice({ vacation: { enableAutoReply: true } }),
       ).resolves.toStrictEqual({ kind: 'unavailable', reason });
     }
     expect(saves).toHaveLength(0);
@@ -276,24 +282,35 @@ describe("saving a Gmail mailbox's Out of Office", () => {
     );
     for (const reason of ['failed', 'offline', 'offline', 'offline']) {
       await expect(
-        inbox.saveOutOfOffice({ enableAutoReply: true }),
+        inbox.saveOutOfOffice({ vacation: { enableAutoReply: true } }),
       ).resolves.toStrictEqual({ kind: 'unavailable', reason });
     }
     expect(inbox.getSnapshot()).toMatchObject({ sync: 'current' });
 
     answers.push(answer({}, 403));
     await expect(
-      inbox.saveOutOfOffice({ enableAutoReply: true }),
+      inbox.saveOutOfOffice({ vacation: { enableAutoReply: true } }),
     ).resolves.toStrictEqual({ kind: 'unavailable', reason: 'authentication' });
     expect(saves).toHaveLength(4);
     expect(inbox.getSnapshot()).toMatchObject({ sync: 'authentication' });
+  });
+
+  it('saves no change to Microsoft automatic replies', async () => {
+    expect.hasAssertions();
+    const { inbox, requests, saves } = vacationInbox();
+    await inbox.load();
+    await expect(
+      inbox.saveOutOfOffice({ automaticReplies: { status: 'disabled' } }),
+    ).resolves.toBeUndefined();
+    expect(requests).toHaveLength(0);
+    expect(saves).toHaveLength(0);
   });
 
   it('saves nothing before the Inbox opens, and drops an answer after it closed', async () => {
     expect.hasAssertions();
     const { inbox, answers, saveAnswers, saves } = vacationInbox();
     await expect(
-      inbox.saveOutOfOffice({ enableAutoReply: true }),
+      inbox.saveOutOfOffice({ vacation: { enableAutoReply: true } }),
     ).resolves.toBeUndefined();
     expect(saves).toHaveLength(0);
 
@@ -301,7 +318,9 @@ describe("saving a Gmail mailbox's Out of Office", () => {
     answers.push(answer({}));
     const { promise, resolve } = Promise.withResolvers<unknown>();
     saveAnswers.push(promise);
-    const saving = inbox.saveOutOfOffice({ enableAutoReply: true });
+    const saving = inbox.saveOutOfOffice({
+      vacation: { enableAutoReply: true },
+    });
     await vi.waitFor(() => {
       expect(saves).toHaveLength(1);
     });
@@ -317,8 +336,12 @@ describe("saving a Gmail mailbox's Out of Office", () => {
     answers.push(answer({}));
     const { promise, resolve } = Promise.withResolvers<unknown>();
     saveAnswers.push(promise);
-    const first = inbox.saveOutOfOffice({ enableAutoReply: true });
-    const queued = inbox.saveOutOfOffice({ responseSubject: 'Away' });
+    const first = inbox.saveOutOfOffice({
+      vacation: { enableAutoReply: true },
+    });
+    const queued = inbox.saveOutOfOffice({
+      vacation: { responseSubject: 'Away' },
+    });
     await vi.waitFor(() => {
       expect(saves).toHaveLength(1);
     });
@@ -331,7 +354,9 @@ describe("saving a Gmail mailbox's Out of Office", () => {
     await inbox.load();
     const read = Promise.withResolvers<unknown>();
     answers.push(read.promise);
-    const reading = inbox.saveOutOfOffice({ enableAutoReply: true });
+    const reading = inbox.saveOutOfOffice({
+      vacation: { enableAutoReply: true },
+    });
     await vi.waitFor(() => {
       expect(requests).toHaveLength(2);
     });

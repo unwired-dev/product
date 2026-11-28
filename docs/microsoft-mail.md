@@ -225,10 +225,12 @@ Inbox lists all returned results newest first.
 
 [#3050](https://github.com/unwired-dev/product/issues/3050), the first slice of
 [#1698](https://github.com/unwired-dev/product/issues/1698), reads a Microsoft
-mailbox's automatic replies, Outlook's name for Out of Office. No screen shows it yet.
+mailbox's automatic replies, Outlook's name for Out of Office, and
+[#3124](https://github.com/unwired-dev/product/issues/3124) saves a change to them. No screen
+shows them yet.
 
 - **Grant.** The read needs delegated `MailboxSettings.Read` or `MailboxSettings.ReadWrite`,
-  which the sign-in does not ask for. The owner decided on 26 November 2026 that Microsoft is asked for it only
+  and the save `MailboxSettings.ReadWrite`; the sign-in asks for neither. The owner decided on 26 November 2026 that Microsoft is asked for it only
   when the person opens the feature, and for `MailboxSettings.ReadWrite` only on an
   explicit edit; both are later slices. A refresh keeps a settings scope that the
   connection was granted.
@@ -243,6 +245,18 @@ mailbox's automatic replies, Outlook's name for Out of Office. No screen shows i
   with the reason `permission` and leaves the Inbox as it is, because mail still works
   without the settings grant; any other refused token asks for Microsoft again, as every
   read does. An answer for an Inbox that closed meanwhile is dropped.
+- **Save.** `saveOutOfOffice({ automaticReplies })` sends only the fields the change names,
+  as the `automaticRepliesSetting` of one `PATCH /me/mailboxSettings`, and Graph keeps the
+  others ([Update mailboxSettings](https://learn.microsoft.com/en-us/graph/api/user-update-mailboxsettings?view=graph-rest-1.0)).
+  Native code builds that body, so only the six fields the read decodes cross and no other
+  mailbox setting can be written. Graph's answer, decoded as the read is, is the saved state.
+  Nothing is cached. Saves run one at a time. A save still waiting when the Inbox closes sends
+  nothing; one already handed to native code is sent, as the person asked, and its answer is
+  dropped. Native code still refuses it for a connection that was removed or verified again.
+- **Save failures.** A 403 answers `permission`. The usual cause is a grant without `MailboxSettings.ReadWrite`, but a conditional-access policy can refuse the save too.
+  The Inbox stays as it is and nothing asks for Microsoft again. Graph refusing the values
+  (400), as for an end before the start, answers `failed`; other failures answer as the read's
+  do. A Gmail mailbox saves no automatic replies, and a Microsoft one no Gmail change.
 
 ## Sending
 

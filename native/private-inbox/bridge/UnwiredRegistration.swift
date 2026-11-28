@@ -1323,6 +1323,22 @@ extension UnwiredRegistration {
     }
   }
 
+  // `automaticReplies` holds the automatic-reply fields to change, as Graph's mailboxSettings takes
+  // them.
+  @objc(graphSaveAutomaticReplies:mailbox:resolver:rejecter:)
+  func graphSaveAutomaticReplies(
+    _ automaticReplies: [String: Any], mailbox scope: [String: Any],
+    resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    mailbox("graphSaveAutomaticReplies", resolve, reject: reject) {
+      let (connection, address, generation) = try Self.scope(scope)
+      return try await $0.graphSaveAutomaticReplies(
+        automaticReplies: automaticReplies, connection: connection, address: address,
+        generation: generation)
+    }
+  }
+
   // `change` names a Microsoft message and exactly one of `read`, `folder` or `categories`.
   @objc(graphModify:mailbox:resolver:rejecter:)
   func graphModify(
