@@ -249,10 +249,18 @@ const inboxUnread = (
   if (!canOpenInbox(snapshot)) {
     return 0;
   }
+  const connections = mailboxes.getConnections();
+  // A mailbox whose Profile this device cannot read may be in one switched off.
+  if (
+    off.length > 0 &&
+    connections.some(({ profile }) => profile === unavailableProfile)
+  ) {
+    return undefined;
+  }
   let unread = 0;
-  for (const { state } of mailboxes
-    .getConnections()
-    .filter(({ profile }) => !off.includes(profile))) {
+  for (const { state } of connections.filter(
+    ({ profile }) => !off.includes(profile),
+  )) {
     if (state.kind === 'loading' || state.kind === 'locked') {
       return undefined;
     }

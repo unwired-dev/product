@@ -926,6 +926,46 @@ describe('the host assembly', () => {
     });
   });
 
+  it('leaves the App Icon Badge unchanged while a muted Profile’s mailboxes cannot be told apart', async () => {
+    expect.hasAssertions();
+    const { host, native, gmail, shared, badges } = syntheticHost(
+      undefined,
+      true,
+    );
+    host.followBadge();
+    await host.start();
+    gmail.deliver({ subject: 'Unread', unread: true });
+    await host.registration.register('google');
+    await host.registration.addMailbox();
+    await host.gmailMailboxes.load();
+    await host.notifications.request();
+    await host.notifications.setBadge('inbox');
+    await host.registration.createProfile('Work');
+    const work = required(
+      profilesOf(host.registration.getSnapshot().snapshot).find(
+        ({ name }) => name === 'Work',
+      ),
+    ).id;
+    await host.registration.moveMailbox(
+      syntheticMailboxes['alex@example.invalid'],
+      work,
+    );
+    await host.notifications.setProfileBadgeSound(ownerOf(host), work, false);
+    const muted = badges.at(-1);
+    // Relaunched while its Profile state cannot be read, the mailbox is in no known Profile.
+    shared.device.productSync.unreadable = true;
+    const launched = createHost(() => native);
+    launched.followBadge();
+    await launched.start();
+    gmail.deliver({ subject: 'Arrived', unread: true });
+    await launched.gmailMailboxes.load();
+    await launched.notifications.load();
+    expect({ muted, after: badges.at(-1) }).toStrictEqual({
+      muted: 0,
+      after: 0,
+    });
+  });
+
   it('reads the Badge and sound choices again once the Product Account changes', async () => {
     expect.hasAssertions();
     const { host, device } = syntheticHost(undefined, true);

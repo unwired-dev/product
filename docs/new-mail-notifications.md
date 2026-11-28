@@ -138,8 +138,9 @@ The badge is removed when the choice is **Off**, when notifications are not allo
 when no Inbox can open (after the last connection is removed or the person signs out)
 and when there is no unread listed mail. The badge is checked again whenever the app
 becomes active, since permission can change in the system's settings. While it counts,
-until saved registration has been read and while any Inbox it counts is still opening or
-locked, the device leaves the badge it found unchanged rather than showing a partial count. A
+until saved registration has been read, while any Inbox it counts is still opening or
+locked, and, while a Profile's **Badge and sound** switch is off, while this device cannot read
+which Profile a mailbox is in, the device leaves the badge it found unchanged rather than showing a partial count. A
 push wake, or an Archive or Mark as Read on a notification, that launches the app works on
 its own mailbox and opens every other connection's saved Inbox listing without reading mail from its provider, so the badge counts
 every Profile whose **Badge and sound** switch is on. Snooze and Profile Lock do not exist
