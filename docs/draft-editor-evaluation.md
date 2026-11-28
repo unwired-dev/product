@@ -281,7 +281,8 @@ again, and **Remove**.
   current composer's [display sizes](drafts.md#files-and-images), in an
   **Image Size** submenu on the Mac, each running the page's `resize` command,
   and its **Remove** reads **Remove Image**. The page still shows every image at its thumbnail size.
-- **Imports.** While native code imports a file, its row shows **Importing…**. Editing
+- **Imports.** While native code imports a file, its row shows **Importing…**, and
+  Send waits for it, naming the file above the body and in its hint. Editing
   continues, and an import that completes meanwhile neither loses the edit nor
   creates a conflicting copy. A cancelled, failed or interrupted import stays listed
   as not added. An import still running when **Save Draft** closes the editor

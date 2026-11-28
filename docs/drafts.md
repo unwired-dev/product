@@ -671,8 +671,9 @@ controls:
 - **iPhone and iPad:** **Attach File** (the Files picker), **Attach Photo** (the
   Photos picker), **Insert Image** (a photo placed inline at the caret) and
   **Paste Image** (images on the pasteboard, placed inline). The pickers copy the
-  chosen files into a protected temporary folder that import completion or failure,
-  an abandoned picker result, or the next launch removes.
+  chosen files into a protected temporary folder. A copy is removed once its file
+  is added or removed, with an abandoned picker result, or at the next launch; a
+  file that wasn't added keeps its copy for **Try Again**.
 - **Mac:** **Attach Files…** and **Insert Image…** open the system open panel.
   Files dropped anywhere on the composer are attached. Pasting an image into the
   body places it inline at the caret; pasting a file attaches it, and text pastes
@@ -747,8 +748,9 @@ with the reason. The row names the reason ("Couldn’t be downloaded"), or says
 [#2795](https://github.com/unwired-dev/product/issues/2795)): a failed import keeps
 its source on the device while it can be retried, and Try Again
 (`retryImport`, listed by `getRetries`) reads the same file, pasted image or
-Downloaded Attachment again without a picker. A picked or dropped file is read again at
-its original location, so a file replaced there meanwhile is the one Try Again adds. Each received attachment's file stays on the
+Downloaded Attachment again without a picker. On the Mac, a picked or dropped file is read
+again at its original location, so a file replaced there meanwhile is the one Try Again adds;
+on iPhone and iPad, Try Again reads the protected copy the picker made. Each received attachment's file stays on the
 device while it can be retried; Try Again downloads a forwarded one again, from its
 mailbox's current Inbox, when it wasn't downloaded or went missing, and only while the
 message lists it alone in its place: another file, or several alike in name, type and

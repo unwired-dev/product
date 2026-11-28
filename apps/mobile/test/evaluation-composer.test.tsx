@@ -1111,6 +1111,13 @@ describe('the Tiptap evaluation composer', () => {
       attachments: [],
     });
     await screen.findByLabelText('chart.png, Importing…');
+    // Send waits for the file and says so.
+    const send = screen.getByRole('button', { name: 'Send' });
+    expect(send).toBeDisabled();
+    expect(send).toHaveProp(
+      'accessibilityHint',
+      '“chart.png” is still importing. Wait for it, or remove it, to send.',
+    );
     // Typing while the import completes keeps the edit, and the page's older copy of the asset
     // cannot undo its completion.
     await report({

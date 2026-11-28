@@ -1671,13 +1671,19 @@ const assetStatus = (
 };
 
 // A running import's fraction read so far, as native code reports it; undefined before its first
-// report, such as for pasted bytes, which report none.
+// report, such as for pasted bytes, which report none. The row listens while shown, so a report sent
+// as Try Again starts the read arrives before the row renders it as importing.
 function useImportProgress(id: string, running: boolean) {
   const [progress, setProgress] = useState<number>();
-  useEffect(() => {
+  // An import that stops forgets its reports, so a later Try Again starts without a percentage.
+  const [wasRunning, setWasRunning] = useState(running);
+  if (wasRunning !== running) {
+    setWasRunning(running);
     if (!running) {
-      return undefined;
+      setProgress(undefined);
     }
+  }
+  useEffect(() => {
     const subscription = new NativeEventEmitter(native()).addListener(
       'draftImportProgress',
       (event: object) => {
@@ -1693,9 +1699,8 @@ function useImportProgress(id: string, running: boolean) {
     );
     return () => {
       subscription.remove();
-      setProgress(undefined);
     };
-  }, [id, running]);
+  }, [id]);
   return running ? progress : undefined;
 }
 
@@ -2368,9 +2373,11 @@ function useBlockedSend({
     (blocked === 'recipients' || blocked === 'entries')
   ) {
     reason = t('drafts.recipient.incomplete', { address: incomplete });
-  } else if (blocked === 'assets' && adding !== undefined) {
-    // VoiceOver reads the file Send waits for with Send.
-    reason = t('drafts.assets.stillImporting', { name: adding.name });
+  }
+  if (adding !== undefined) {
+    // VoiceOver reads the file Send waits for with Send, after any recipient it waits for.
+    const importing = t('drafts.assets.stillImporting', { name: adding.name });
+    reason = blocked === 'assets' ? importing : `${reason} ${importing}`;
   }
   const ownPlace =
     blocked === 'recipients' || blocked === 'entries' || blocked === 'sender';

@@ -7685,7 +7685,25 @@ describe('adding files and images to a Draft', () => {
     expect.hasAssertions();
     const registration = account(connected(['alex@example.invalid']));
     const storage = createSyntheticDrafts(() => 'synthetic-product-account');
-    const drafts = createDrafts(storage.native, registration);
+    const drafts = createDrafts(
+      {
+        ...storage.native,
+        // Native code reports the fraction it has read as soon as the read begins, before the row
+        // renders as importing; another import's report changes nothing.
+        importDraftAsset: async (owner, id, source) => {
+          DeviceEventEmitter.emit('draftImportProgress', {
+            id,
+            fraction: 0.64,
+          });
+          DeviceEventEmitter.emit('draftImportProgress', {
+            id: 'another-import',
+            fraction: 0.9,
+          });
+          return storage.native.importDraftAsset(owner, id, source);
+        },
+      },
+      registration,
+    );
     await render(
       <App
         drafts={drafts}
@@ -7708,27 +7726,18 @@ describe('adding files and images to a Draft', () => {
     await press('Try Again to add notes.txt');
     // R2: the same file imports again, without a picker, and Send waits for it.
     await expect(
-      screen.findByLabelText('notes.txt, Importing…'),
+      screen.findByLabelText('notes.txt, Importing… 64%'),
     ).resolves.toBeOnTheScreen();
     expect(screen.getByLabelText('Cancel adding notes.txt')).toBeOnTheScreen();
     expect(screen.queryByLabelText('Try Again to add notes.txt')).toBeNull();
-    // Native code reports the fraction it has read; another import's report changes nothing.
-    const [id] = drafts.getImports();
-    await act(async () => {
-      DeviceEventEmitter.emit('draftImportProgress', { id, fraction: 0.64 });
-      DeviceEventEmitter.emit('draftImportProgress', {
-        id: 'another-import',
-        fraction: 0.9,
-      });
-    });
-    expect(
-      screen.getByLabelText('notes.txt, Importing… 64%'),
-    ).toBeOnTheScreen();
-    expect(
-      screen.getByText(
-        '“notes.txt” is still importing. Wait for it, or remove it, to send.',
-      ),
-    ).toBeOnTheScreen();
+    const importing =
+      '“notes.txt” is still importing. Wait for it, or remove it, to send.';
+    expect(screen.getByText(importing)).toBeOnTheScreen();
+    // Send's hint names the file after the missing recipient.
+    expect(screen.getByRole('button', { name: 'Send' })).toHaveProp(
+      'accessibilityHint',
+      `Add a recipient to send. ${importing}`,
+    );
     await act(async () => {
       storage.releaseImports();
     });
