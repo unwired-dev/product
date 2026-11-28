@@ -176,11 +176,12 @@ export function useZoomMenu(): {
   const row = (
     [label, key]: readonly [string, string],
     next: Zoom | undefined,
-    first = false,
+    // As the frame draws it: a rule above Zoom In and above Zoom Out.
+    separated = false,
   ) => (
     <Row
       label={label}
-      separated={!first}
+      separated={separated}
       disabled={next === undefined || next === zoom}
       onPress={() => {
         choose(next);
@@ -232,7 +233,7 @@ export function useZoomMenu(): {
           </Label>
           <View style={[styles.group, { backgroundColor: colors.fillQuiet }]}>
             {row([t('reading.zoomIn'), '⌘+'], to.in, true)}
-            {row([t('reading.zoomOut'), '⌘−'], to.out)}
+            {row([t('reading.zoomOut'), '⌘−'], to.out, true)}
             {row([t('reading.actualSize'), '⌘0'], to.actual)}
           </View>
           <View style={styles.buttons}>
