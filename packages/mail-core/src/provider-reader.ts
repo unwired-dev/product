@@ -22,6 +22,7 @@ import type {
 import type { GmailPart } from './message-body.ts';
 import type {
   GraphAutomaticReplies,
+  GraphAutomaticRepliesChange,
   GraphCategory,
 } from './microsoft-graph.ts';
 import type { DraftFile, OutgoingSend } from './outgoing-message.ts';
@@ -185,6 +186,13 @@ export interface ProviderReader {
   readonly automaticReplies?: (
     scope: MailboxScope,
   ) => Effect.Effect<GraphAutomaticReplies, ReadFailure>;
+  // Sends the fields `change` names to Microsoft, which keeps the others. None when Microsoft
+  // refuses the values, or when `current` says the save is no longer wanted before it is sent.
+  readonly saveAutomaticReplies?: (
+    scope: MailboxScope,
+    change: GraphAutomaticRepliesChange,
+    current: () => boolean,
+  ) => Effect.Effect<Option.Option<GraphAutomaticReplies>, SyncFailure>;
   // The mailbox's Outlook category list as Microsoft stores it, when the provider offers one.
   readonly outlookCategories?: (
     scope: MailboxScope,

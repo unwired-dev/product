@@ -726,6 +726,8 @@ export function createSyntheticGraph({
     gmailModify: () => rejection('unavailable'),
     gmailCreateLabel: () => rejection('unavailable'),
     gmailSaveVacation: () => rejection('unavailable'),
+    // Tests that save the automatic replies answer for Graph themselves.
+    graphSaveAutomaticReplies: () => rejection('unavailable'),
     gmailSend: () => rejection('unavailable'),
     graphSend: (outgoing) => {
       if (!('draft' in outgoing)) {

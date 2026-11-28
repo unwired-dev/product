@@ -135,6 +135,12 @@ export interface NativeGmailMailboxes {
     vacation: Parameters<NativeGmailMailbox['gmailSaveVacation']>[0],
     mailbox: Scope,
   ) => Promise<unknown>;
+  readonly graphSaveAutomaticReplies: (
+    automaticReplies: Parameters<
+      NativeGmailMailbox['graphSaveAutomaticReplies']
+    >[0],
+    mailbox: Scope,
+  ) => Promise<unknown>;
   readonly gmailSend: (
     message: Parameters<NativeGmailMailbox['gmailSend']>[0],
     mailbox: Scope,
@@ -330,6 +336,8 @@ const bound = (
       native.gmailCreateLabel(name, scope(mailbox)),
     gmailSaveVacation: (vacation, mailbox) =>
       native.gmailSaveVacation(vacation, scope(mailbox)),
+    graphSaveAutomaticReplies: (automaticReplies, mailbox) =>
+      native.graphSaveAutomaticReplies(automaticReplies, scope(mailbox)),
     gmailSend: (message, mailbox) => native.gmailSend(message, scope(mailbox)),
     graphSend: (message, mailbox) => native.graphSend(message, scope(mailbox)),
     graphPrepare: (draft, mailbox) =>

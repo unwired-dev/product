@@ -399,6 +399,12 @@ const GraphAutomaticRepliesSchema = Schema.Struct({
 });
 export type GraphAutomaticReplies = typeof GraphAutomaticRepliesSchema.Type;
 export const decodeGraphAutomaticReplies = json(GraphAutomaticRepliesSchema);
+// A change to the automatic replies: each named field takes its value, and Graph keeps the others.
+export type GraphAutomaticRepliesChange = Partial<GraphAutomaticReplies>;
+// Graph's answer to a mailbox settings update names the automatic replies as they are stored now.
+export const decodeSavedAutomaticReplies = json(
+  Schema.Struct({ automaticRepliesSetting: GraphAutomaticRepliesSchema }),
+);
 // The category list as Graph stores it: each name with its colour preset, which each Outlook
 // client maps to a colour of its own.
 const GraphCategoriesSchema = Schema.Struct({

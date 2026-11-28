@@ -57,7 +57,10 @@ The Graph URL allowlist admits only HTTPS `graph.microsoft.com/v1.0/me` message,
 attachment, own-folder and mailbox search paths, the one setting
 `mailboxSettings/automaticRepliesSetting` and the category list
 `outlook/masterCategories`; no shared/delegated `/users` path is
-accepted. A refresh also asks for a granted `MailboxSettings.Read` or
+accepted. The one settings write, `graphSaveAutomaticReplies` (#3124), sends a
+`PATCH me/mailboxSettings` whose body native code builds as
+`{ "automaticRepliesSetting": … }` from a JSON object of at most 1 MiB holding only the
+automatic-reply fields the read decodes. A refresh also asks for a granted `MailboxSettings.Read` or
 `MailboxSettings.ReadWrite`, so the settings reads keep their grant. Continuations support documented `mailFolders`/`mailfolders`, slash and
 quoted folder IDs. Responses use the existing ephemeral, redirect-refusing,
 bounded `GmailTransport`, and carry `Prefer: IdType="ImmutableId"` and page size 50.

@@ -22,6 +22,7 @@ import type {
   CategoryChange,
   FolderRoles,
   GraphAttachmentInfo,
+  GraphAutomaticRepliesChange,
 } from './microsoft-graph.ts';
 import type { OutgoingSend } from './outgoing-message.ts';
 import type {
@@ -75,6 +76,7 @@ import {
   decodeGraphPlacement,
   decodeGraphSearch,
   decodeGraphTotal,
+  decodeSavedAutomaticReplies,
   deltaIds,
   fileAttachments,
   fileData,
@@ -1240,6 +1242,28 @@ export function createGraphReader(
     invitations: true,
     automaticReplies: (scope: MailboxScope) =>
       graphRead(scope)(graphAutomaticReplies, decodeGraphAutomaticReplies),
+    // Graph merges the fields it is sent into the stored automatic replies, so only the named ones
+    // are sent. Nothing is sent once `current` says the save is no longer wanted.
+    saveAutomaticReplies: (
+      scope: MailboxScope,
+      change: GraphAutomaticRepliesChange,
+      current: () => boolean,
+    ) =>
+      Effect.suspend(() =>
+        current()
+          ? providerWrite(
+              () => native.graphSaveAutomaticReplies(change, scope),
+              (status) => status === 200,
+              decodeSavedAutomaticReplies,
+            ).pipe(
+              Effect.map(
+                Option.map(
+                  ({ automaticRepliesSetting }) => automaticRepliesSetting,
+                ),
+              ),
+            )
+          : Effect.succeedNone,
+      ),
     outlookCategories: (scope: MailboxScope) =>
       graphRead(scope)(graphMasterCategories, decodeGraphCategories).pipe(
         Effect.map(({ value }) => value),

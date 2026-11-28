@@ -294,6 +294,43 @@ extension PrivateInboxTests {
       }
     }
     #expect(microsoft.graphWrites.count == 3)
+    // Saving the automatic replies writes only them, wrapped in one mailboxSettings PATCH; another
+    // setting, a value that is not JSON or a body over 1 MiB never reaches Microsoft (#3124).
+    for automaticReplies: [String: Any] in [
+      ["timeZone": "UTC"], ["status": "disabled", "language": ["locale": "en-US"]],
+      ["scheduledStartDateTime": Date()],
+      ["internalReplyMessage": String(repeating: "x", count: 1024 * 1024)],
+    ] {
+      await #expect(throws: RegistrationError.unavailable) {
+        _ = try await store.graphSaveAutomaticReplies(
+          automaticReplies: automaticReplies, connection: id, address: "casey@example.invalid",
+          generation: generation)
+      }
+    }
+    #expect(microsoft.graphWrites.count == 3)
+    let automaticReplies: NSDictionary = [
+      "status": "scheduled", "externalReplyMessage": "Back on Monday.",
+      "scheduledEndDateTime": ["dateTime": "2026-12-07T07:00:00", "timeZone": "UTC"],
+    ]
+    let saved = try await store.graphSaveAutomaticReplies(
+      automaticReplies: automaticReplies as? [String: Any] ?? [:], connection: id,
+      address: "casey@example.invalid", generation: generation)
+    #expect(saved["status"] as? Int == 200)
+    #expect(
+      microsoft.graphWrites.last.map { "\($0.method) \($0.url)" }
+        == "PATCH https://graph.microsoft.com/v1.0/me/mailboxSettings")
+    #expect(
+      microsoft.graphWrites.last?.body as NSDictionary?
+        == ["automaticRepliesSetting": automaticReplies])
+    // Graph's refusal comes back as Graph sent it, so TypeScript can tell a missing grant apart.
+    let refusal = #"{"error":{"code":"ErrorAccessDenied"}}"#
+    microsoft.graphReply = { _, _, _ in (403, Data(refusal.utf8)) }
+    let refused = try await store.graphSaveAutomaticReplies(
+      automaticReplies: ["status": "disabled"], connection: id, address: "casey@example.invalid",
+      generation: generation)
+    #expect(refused["status"] as? Int == 403)
+    #expect(refused["body"] as? String == refusal)
+    microsoft.graphReply = nil
     google.gmailRequests = []
     await #expect(throws: RegistrationError.unavailable) {
       _ = try await store.gmail(
@@ -347,7 +384,7 @@ extension PrivateInboxTests {
         address: "casey@example.invalid", generation: renewed)
     }
     #expect(microsoft.refreshes == beforeRevocation)
-    #expect(microsoft.graphWrites.count == 3)
+    #expect(microsoft.graphWrites.count == 4)
     #expect(try keys.read("registration") == nil)
     #expect(try keys.read("product-sync." + account) == nil)
   }

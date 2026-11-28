@@ -81,6 +81,13 @@ export interface NativeGraphMailbox {
     change: Readonly<{ message: string } & GraphChange>,
     mailbox: Readonly<{ address: string; generation: string }>,
   ) => Promise<unknown>;
+  // Resolves `{ status, body }` for Graph's update of the automatic replies with `automaticReplies`,
+  // the fields to change, which native code sends as the `automaticRepliesSetting` of one
+  // `PATCH me/mailboxSettings`. Graph keeps every field it is not sent.
+  readonly graphSaveAutomaticReplies: (
+    automaticReplies: Readonly<Record<string, unknown>>,
+    mailbox: Readonly<{ address: string; generation: string }>,
+  ) => Promise<unknown>;
   // Sends one message through Graph's sendMail as MIME, inserting each asset segment's verified
   // bytes, or sends the Outlook draft `draft` that graphPrepare kept. Resolves `{ status, body }`
   // once Graph answers. Rejects with 'delivery-unknown' when the request may have reached Graph

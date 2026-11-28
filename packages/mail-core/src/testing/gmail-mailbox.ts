@@ -679,6 +679,7 @@ export function createSyntheticGmail({
     // A Gmail connection reaches no Microsoft mail.
     graphRequest: () => rejection('unavailable'),
     graphModify: () => rejection('unavailable'),
+    graphSaveAutomaticReplies: () => rejection('unavailable'),
     graphSend: () => rejection('unavailable'),
     graphPrepare: () => rejection('unavailable'),
     graphDiscard: () => rejection('unavailable'),

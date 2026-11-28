@@ -77,6 +77,11 @@ export function syntheticConnections(
       of(mailbox.connection)?.gmailCreateLabel(name, mailbox) ?? missing(),
     gmailSaveVacation: (vacation, mailbox) =>
       of(mailbox.connection)?.gmailSaveVacation(vacation, mailbox) ?? missing(),
+    graphSaveAutomaticReplies: (automaticReplies, mailbox) =>
+      of(mailbox.connection)?.graphSaveAutomaticReplies(
+        automaticReplies,
+        mailbox,
+      ) ?? missing(),
     gmailSend: (message, mailbox) =>
       of(mailbox.connection)?.gmailSend(message, mailbox) ?? missing(),
     graphSend: (message, mailbox) =>

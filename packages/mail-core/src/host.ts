@@ -435,6 +435,8 @@ export function createHost(
         native().gmailCreateLabel(name, mailbox),
       gmailSaveVacation: (vacation, mailbox) =>
         native().gmailSaveVacation(vacation, mailbox),
+      graphSaveAutomaticReplies: (automaticReplies, mailbox) =>
+        native().graphSaveAutomaticReplies(automaticReplies, mailbox),
       gmailSend: (message, mailbox) =>
         observe('send', 'send-failed', () =>
           native().gmailSend(message, mailbox),
