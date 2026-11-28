@@ -156,9 +156,10 @@ type Marked = RefObject<Readonly<{ store: object; id: string }> | undefined>;
 
 // After 2 seconds marks a message read once it has stayed open this long with the app in front.
 const markReadDelay = 2000;
-// When each mailbox's opened message was last marked read automatically, so a reader in another
-// window opened before then leaves a later Mark as Unread alone.
+// Each mailbox's opened message's last automatic mark read, numbered, so a reader in another
+// window opened before it leaves a later Mark as Unread alone.
 const markedAt = new WeakMap<object, Map<string, number>>();
+let claims = 0;
 
 // Whether the app is in front.
 function useActive() {
@@ -241,7 +242,8 @@ function ReadWhenOpened<M extends Readonly<{ id: string; unread: boolean }>>({
       const marks = markedAt.get(store) ?? new Map<string, number>();
       markedAt.set(store, marks);
       const before = marks.get(message.id);
-      const at = Date.now();
+      claims += 1;
+      const at = claims;
       marks.set(message.id, at);
       const mark = async () => {
         if ((await read(message)) === false) {
