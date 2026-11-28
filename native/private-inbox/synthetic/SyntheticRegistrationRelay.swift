@@ -243,13 +243,14 @@
         GmailRegistrationReceipt.self, await ask("google.verify", ["subject": identity.subject]))
     }
     func gmail(
-      _ identity: GoogleRegistrationIdentity, url: URL, body: Data?, contentType: String
+      _ identity: GoogleRegistrationIdentity, url: URL, body: Data?, contentType: String,
+      method: String
     ) async throws -> (Int, Data) {
       try await exchange(
         "google.gmail",
         [
           "subject": identity.subject, "url": url.absoluteString, "body": text(body),
-          "contentType": contentType,
+          "contentType": contentType, "method": method,
         ])
     }
   }

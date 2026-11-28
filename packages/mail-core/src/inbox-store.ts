@@ -20,6 +20,7 @@ import type {
   GmailAction,
   GmailLabel,
   GmailVacation,
+  GmailVacationChange,
 } from './gmail-actions.ts';
 import type {
   Cache,
@@ -381,6 +382,12 @@ export type OutOfOfficeRead = SettingRead<
 // A Microsoft mailbox's Outlook category list, or why Microsoft could not answer.
 export type OutlookCategoriesRead = SettingRead<
   Readonly<{ kind: 'found'; categories: readonly GraphCategory[] }>
+>;
+
+// A saved Out of Office as its provider stores it afterwards, or why the provider did not save it.
+// Gmail refuses the save for want of the settings grant that the mail grant does not include.
+export type OutOfOfficeSave = SettingRead<
+  Readonly<{ kind: 'saved'; vacation: GmailVacation }>
 >;
 
 // A presentation's plain-text fallback after its rich view failed, still collapsible.
@@ -1308,6 +1315,8 @@ export function createInboxStore(
   // both permits so it cannot interleave with either writer's commit, pruning and publication.
   // Each page releases its permit before provider work, so body saves never wait for a whole sync.
   const publication = Semaphore.makeUnsafe(2);
+  // Each Out of Office save reads what the one before it saved.
+  const vacationSaves = Semaphore.makeUnsafe(1);
   let state: GmailInboxState = { kind: 'loading' };
   // An already-running metadata sync cannot dismiss a newer body grant rejection.
   let authenticationRejected = false;
@@ -4479,6 +4488,64 @@ export function createInboxStore(
               })),
             )),
         'Outlook categories could not be read:',
+      );
+    },
+    // Saves `change` to this mailbox's Out of Office at its provider, as a read does. Undefined when
+    // it was not saved, as when the provider offers no save, or the Inbox closed or changed
+    // meanwhile.
+    saveOutOfOffice: (
+      change: GmailVacationChange,
+    ): Promise<OutOfOfficeSave | undefined> => {
+      const scope = opened;
+      const reading = owner;
+      const { saveVacation } = providerReader;
+      if (
+        scope === undefined ||
+        state.kind !== 'ready' ||
+        saveVacation === undefined
+      ) {
+        return Promise.resolve(undefined);
+      }
+      return runLogged(
+        vacationSaves
+          .withPermit(
+            saveVacation(
+              scope,
+              change,
+              () => owner === reading && state.kind === 'ready',
+            ),
+          )
+          .pipe(
+            Effect.map(
+              Option.match({
+                onNone: (): OutOfOfficeSave | undefined =>
+                  searchUnavailable('failed'),
+                onSome: (vacation): OutOfOfficeSave | undefined => ({
+                  kind: 'saved',
+                  vacation,
+                }),
+              }),
+            ),
+            Effect.catchTags({
+              SyncFailure: (failure) =>
+                searchFailed(
+                  failure,
+                  reading,
+                  'Out of Office could not be saved:',
+                ),
+              GmailMissingScope: () =>
+                Effect.succeed<OutOfOfficeSave>({
+                  kind: 'unavailable',
+                  reason: 'permission',
+                }),
+              GmailNotFound: () => Effect.succeed(searchUnavailable('failed')),
+              GmailInvalidPage: () =>
+                Effect.succeed(searchUnavailable('failed')),
+            }),
+            Effect.map((result) =>
+              owner === reading && state.kind === 'ready' ? result : undefined,
+            ),
+          ),
       );
     },
     // Loads an opened message's Remote Message Content: from the Authorized Remote Content Cache,

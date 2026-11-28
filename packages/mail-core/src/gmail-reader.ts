@@ -5,7 +5,11 @@ import * as Option from 'effect/Option';
 import * as Order from 'effect/Order';
 import * as Schema from 'effect/Schema';
 
-import type { GmailLabel } from './gmail-actions.ts';
+import type {
+  GmailLabel,
+  GmailVacation,
+  GmailVacationChange,
+} from './gmail-actions.ts';
 import type {
   GmailMessage,
   MailboxDocument,
@@ -57,7 +61,14 @@ import {
   newestFirst,
   pageSize,
 } from './mailbox-document.ts';
-import { providerRead, providerWrite, SyncFailure } from './mailbox-read.ts';
+import {
+  GmailMissingScope,
+  gmailResponse,
+  missingScope,
+  providerRead,
+  providerWrite,
+  SyncFailure,
+} from './mailbox-read.ts';
 import {
   decodeAttachment,
   decodeFullMessage,
@@ -148,6 +159,28 @@ const decodeModified = json(
 const decodeCreatedLabel = json(GmailLabelSchema);
 
 const decodeVacation = json(GmailVacationSchema);
+
+// The vacation responder as Gmail stores it, with the fields Unwired does not read; a known field
+// that does not decode refuses it, as a read does.
+const decodeStoredVacation = (body: unknown) =>
+  decodeVacation(body).pipe(
+    Effect.andThen(json(Schema.Record(Schema.String, Schema.Unknown))(body)),
+  );
+
+// The stored responder with `change` applied: a named value replaces Gmail's, null leaves the field
+// out, and every other field keeps what Gmail has.
+const changedVacation = (
+  stored: Readonly<Record<string, unknown>>,
+  change: GmailVacationChange,
+): Record<string, unknown> => {
+  const named = new Map<string, unknown>(
+    Object.entries(change).filter(([, value]) => value !== undefined),
+  );
+  return Object.fromEntries([
+    ...Object.entries(stored).filter(([field]) => !named.has(field)),
+    ...[...named].filter(([, value]) => value !== null),
+  ]);
+};
 
 const mailbox = /^\s*(?:"?(?<name>[^"<]*?)"?\s*)?<(?<address>[^<>]+)>\s*$/u;
 
@@ -1004,5 +1037,38 @@ export function createGmailReader(
       metadata(scope, id, true).pipe(Effect.map(([, message]) => message)),
     vacation: (scope: MailboxScope) =>
       gmail(scope)('settings/vacation', [], decodeVacation),
+    // Gmail replaces the whole responder, so the save writes over what Gmail stores now. Nothing is
+    // read or written once `current` says the save is no longer wanted.
+    saveVacation: Effect.fnUntraced(function* (
+      scope: MailboxScope,
+      change: GmailVacationChange,
+      current: () => boolean,
+    ) {
+      if (!current()) {
+        return Option.none<GmailVacation>();
+      }
+      const stored = yield* gmail(scope)(
+        'settings/vacation',
+        [],
+        decodeStoredVacation,
+      );
+      if (!current()) {
+        return Option.none<GmailVacation>();
+      }
+      const response = yield* gmailResponse(() =>
+        native.gmailSaveVacation(changedVacation(stored, change), scope),
+      );
+      if (
+        response.status === 403 &&
+        Option.isSome(missingScope(response.body))
+      ) {
+        return yield* new GmailMissingScope();
+      }
+      return yield* providerWrite(
+        () => Promise.resolve(response),
+        (status) => status === 200,
+        decodeVacation,
+      );
+    }),
   } satisfies ProviderReader;
 }
