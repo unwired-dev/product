@@ -199,6 +199,7 @@ function Profiles({
             key={profile}
             title={name}
             subtitle={t('notifications.badgeAndSound')}
+            subtitleTone="detail"
             minHeight={switchRowHeight}>
             <Switch
               accessibilityLabel={t('notifications.badgeAndSoundFor', {

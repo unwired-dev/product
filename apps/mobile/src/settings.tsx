@@ -1076,8 +1076,9 @@ export function SettingsRow({
   readonly titleNumberOfLines?: number;
   readonly disabled?: boolean;
   readonly subtitle?: string | undefined;
-  // A subtitle reporting a problem takes the warning color.
-  readonly subtitleTone?: 'warning' | undefined;
+  // A subtitle reporting a problem takes the warning color; a frame that draws the second line
+  // at 60% takes the detail color.
+  readonly subtitleTone?: 'warning' | 'detail' | undefined;
   // A row the frames draw taller than the group's other rows.
   readonly minHeight?: number | undefined;
   // A status at the trailing edge, before any controls.
@@ -1158,9 +1159,12 @@ export function SettingsRow({
               type.subtitle,
               {
                 color:
-                  subtitleTone === 'warning'
-                    ? colors.statusWarning
-                    : colors.textSecondary,
+                  subtitleTone === undefined
+                    ? colors.textSecondary
+                    : {
+                        warning: colors.statusWarning,
+                        detail: colors.textDetail,
+                      }[subtitleTone],
               },
             ]}>
             {subtitle}
