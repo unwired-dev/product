@@ -464,7 +464,7 @@ WebKit by the excess, and otherwise the measurement reports how far it moved, an
 reader moves its offset by as much. The reader's WebView uses WebKit's mobile content
 mode, so iPad, too, leaves a wide document to this fit instead of zooming it out
 with an unscaled height. The switch is kept in `UnwiredFitWideMessages`. Zooming one message
-from the reader follows in its own slice; the Mac's Message zoom is in the
+from the reader follows in its own slice; the Mac's Message zoom and fit are in the
 [macOS client](macos-client.md#reading).
 
 ## Interface language

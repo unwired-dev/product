@@ -97,4 +97,53 @@ describe('settings › Reading', () => {
       await app.unmount();
     }
   });
+
+  it('marks received formatted mail to fit the reader until the switch is turned off, and keeps the choice', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail();
+    const id = gmail.deliver({
+      content: {
+        html: '<table width="1200"><tr><td>Total <b>48 000 CZK</b></td></tr></table>',
+      },
+    });
+    const inbox = createInboxStore(gmail.native);
+    await inbox.load();
+    const app = await render(
+      <>
+        <ReadingSettings />
+        <MessageBody
+          inbox={inbox}
+          id={id}
+        />
+      </>,
+    );
+    try {
+      // WebKit shrinks a document carrying the app's fit style to the reader's width.
+      const fits = async () => {
+        const { source } = await shown();
+        return {
+          fits: source.html.includes('<style>:root{--unwired-fit:1}'),
+          message: source.html.includes('<b>48 000 CZK</b>'),
+        };
+      };
+      const fitSwitch = () =>
+        screen.getByRole('switch', { name: 'Fit wide messages to the screen' });
+      const initial = { on: fitSwitch().props.value, ...(await fits()) };
+      await fireEvent(fitSwitch(), 'valueChange', false);
+      const off = await fits();
+      expect({
+        initial,
+        off,
+        switch: fitSwitch().props.value,
+        kept: Settings.get('UnwiredFitWideMessages'),
+      }).toStrictEqual({
+        initial: { on: true, fits: true, message: true },
+        off: { fits: false, message: true },
+        switch: false,
+        kept: false,
+      });
+    } finally {
+      await app.unmount();
+    }
+  });
 });
