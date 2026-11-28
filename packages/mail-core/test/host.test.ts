@@ -1108,6 +1108,32 @@ describe('the host assembly', () => {
     held.resolve(undefined);
   });
 
+  it('saves a choice for this device made while the person signs out', async () => {
+    expect.hasAssertions();
+    const { host, native, device } = syntheticHost(undefined, true);
+    host.followBadge();
+    await host.start();
+    await host.registration.register('google');
+    await host.notifications.setPreviews(true);
+    const held = Promise.withResolvers<undefined>();
+    vi.spyOn(native, 'notificationSettings').mockImplementationOnce(
+      async () => {
+        await held.promise;
+        return { ...device };
+      },
+    );
+    const reading = host.notifications.load();
+    const choice = host.notifications.setPreviews(false);
+    await host.registration.signOut();
+    held.resolve(undefined);
+    await Promise.all([reading, choice]);
+    await host.notifications.load();
+    expect({
+      saved: device.previews,
+      shown: host.notifications.getSnapshot()?.previews,
+    }).toStrictEqual({ saved: false, shown: false });
+  });
+
   it('saves no Profile choice that waited while the person signed out and back in', async () => {
     expect.hasAssertions();
     const { host, native, device } = syntheticHost(undefined, true);

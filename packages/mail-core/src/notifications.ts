@@ -311,16 +311,21 @@ export function createNotifications(
   );
   // One settings request runs at a time, so each publishes in the order it was made: a read
   // cannot settle after a later read or a later saved choice and bring back what it found.
-  // A request made before the Product Account changed neither runs nor publishes.
+  // A request made before the Product Account changed publishes nothing, and one that belongs to
+  // that Product Account does not run either.
   const requests = Semaphore.makeUnsafe(1);
   let account = 0;
-  const queued = (request: () => Promise<unknown>, failure: string) => {
+  const queued = (
+    request: () => Promise<unknown>,
+    failure: string,
+    owned = false,
+  ) => {
     const made = account;
     return logged(
       failure,
       requests.withPermit(
         Effect.suspend(() =>
-          made === account
+          !owned || made === account
             ? settingsOf(request).pipe(
                 Effect.tap((next) =>
                   Effect.sync(() => {
@@ -373,9 +378,12 @@ export function createNotifications(
         'The New Mail Sound choice could not be saved:',
       ),
     setProfileBadgeSound: (owner: string, profile: string, on: boolean) =>
-      update(
-        () => native.setNotificationProfile(owner, profile, on),
-        'A Profile Badge and sound choice could not be saved:',
+      runLogged(
+        queued(
+          () => native.setNotificationProfile(owner, profile, on),
+          'A Profile Badge and sound choice could not be saved:',
+          true,
+        ),
       ),
     // Keeps the App Icon Badge on the unread Inbox count of the Profiles whose Badge and sound
     // switch is on while the badge counts it and the system allows notifications, and removes it
@@ -428,9 +436,12 @@ export function createNotifications(
           : 0;
       };
       const follow = () => {
-        const count = countOf(settings.getSnapshot());
-        // Until it can count, no queued count is applied either.
-        wanted = count;
+        const current = settings.getSnapshot();
+        const count = countOf(current);
+        // Until it can count, no queued count is applied either, except a sign-out's clear while
+        // the next Product Account's settings are read.
+        wanted =
+          count ?? (current === undefined && wanted === 0 ? 0 : undefined);
         if (count === undefined) {
           return;
         }
