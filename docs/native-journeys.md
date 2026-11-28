@@ -888,9 +888,15 @@ captured as "… after a swipe released early" with the appearance. A completed 
 then closes each one, and the same control opens it again. **New Label** opens with the software
 keyboard up: its first completed swipe lowers the keyboard and keeps the sheet, captured as
 "New Label sheet after a swipe lowered the keyboard", and the next closes it. **Cancel** then
-closes **New Label**. UIKit's sheet owns the drag, the return after an early release and the
-keyboard's lowering; the app owns the presented state, which a completed swipe must clear, so a
-sheet that does not open again points to the app.
+closes **New Label**. The Move sheet, opened from the Reply sheet's **Move to…**, takes the same
+swipes from **Close** and **Back**, system buttons
+([#3073](https://github.com/unwired-dev/product/issues/3073)), from its **Move to Travel** row, a
+pressable row until [#3077](https://github.com/unwired-dev/product/issues/3077), and, on its
+Accounts page, from **Cancel**; no swipe may press its button, so after **Cancel** the message is
+still open and offers no **Undo**. UIKit's sheet owns
+the drag, the return after an early release and the keyboard's lowering; the app owns the
+presented state, which a completed swipe must clear, so a sheet that does not open again points to
+the app.
 `testComposerSheet` makes the same early swipe on a changed Draft, which keeps the sheet and its
 Subject and asks nothing.
 
