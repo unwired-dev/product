@@ -1075,6 +1075,70 @@ describe('the host assembly', () => {
     expect(seen).not.toContainEqual([defaultProfile]);
   });
 
+  it('clears the App Icon Badge at sign-out while the notification settings are read', async () => {
+    expect.hasAssertions();
+    const { host, native, device, gmail, badges, badgeWrites } = syntheticHost(
+      undefined,
+      true,
+    );
+    host.followBadge();
+    await host.start();
+    gmail.deliver({ subject: 'Unread', unread: true });
+    await host.registration.register('google');
+    await host.registration.addMailbox();
+    await host.gmailMailboxes.load();
+    await host.notifications.request();
+    await host.notifications.setBadge('inbox');
+    // The write of 2 is still running, and the next settings read waits, as the person signs out.
+    const written = Promise.withResolvers<null>();
+    badgeWrites.answer = () => written.promise;
+    gmail.deliver({ subject: 'Second', unread: true });
+    await host.gmailMailboxes.load();
+    const held = Promise.withResolvers<undefined>();
+    vi.spyOn(native, 'notificationSettings').mockImplementation(async () => {
+      await held.promise;
+      return { ...device };
+    });
+    await host.registration.signOut();
+    badgeWrites.answer = () => Promise.resolve(null);
+    written.resolve(null);
+    await vi.waitFor(() => {
+      expect(badges.at(-1)).toBe(0);
+    });
+    held.resolve(undefined);
+  });
+
+  it('saves no Profile choice that waited while the person signed out and back in', async () => {
+    expect.hasAssertions();
+    const { host, native, device } = syntheticHost(undefined, true);
+    host.followBadge();
+    await host.start();
+    await host.registration.register('google');
+    const held = Promise.withResolvers<undefined>();
+    vi.spyOn(native, 'notificationSettings').mockImplementationOnce(
+      async () => {
+        await held.promise;
+        return { ...device };
+      },
+    );
+    const reading = host.notifications.load();
+    // Queued behind the read, the choice is made before sign-out purges the choices.
+    const choice = host.notifications.setProfileBadgeSound(
+      ownerOf(host),
+      defaultProfile,
+      false,
+    );
+    await host.registration.signOut();
+    await host.registration.register('google');
+    held.resolve(undefined);
+    await Promise.all([reading, choice]);
+    await host.notifications.load();
+    expect({
+      saved: device.badgeSoundOff,
+      shown: host.notifications.getSnapshot()?.badgeSoundOff,
+    }).toStrictEqual({ saved: [], shown: [] });
+  });
+
   it('sets the App Icon Badge again after the system refused a write', async () => {
     expect.hasAssertions();
     const { host, badges, badgeWrites } = syntheticHost(undefined, true);

@@ -311,33 +311,38 @@ export function createNotifications(
   );
   // One settings request runs at a time, so each publishes in the order it was made: a read
   // cannot settle after a later read or a later saved choice and bring back what it found.
-  // A request made before the Product Account changed publishes nothing.
+  // A request made before the Product Account changed neither runs nor publishes.
   const requests = Semaphore.makeUnsafe(1);
   let account = 0;
-  const update = (request: () => Promise<unknown>, failure: string) => {
+  const queued = (request: () => Promise<unknown>, failure: string) => {
     const made = account;
-    return runLogged(
-      logged(
-        failure,
-        requests.withPermit(
-          settingsOf(request).pipe(
-            Effect.tap((next) =>
-              Effect.sync(() => {
-                if (made === account) {
-                  settings.set(next);
-                }
-              }),
-            ),
-          ),
+    return logged(
+      failure,
+      requests.withPermit(
+        Effect.suspend(() =>
+          made === account
+            ? settingsOf(request).pipe(
+                Effect.tap((next) =>
+                  Effect.sync(() => {
+                    if (made === account) {
+                      settings.set(next);
+                    }
+                  }),
+                ),
+              )
+            : Effect.void,
         ),
       ),
     );
   };
-  const load = () =>
-    update(
+  const update = (request: () => Promise<unknown>, failure: string) =>
+    runLogged(queued(request, failure));
+  const read = () =>
+    queued(
       () => native.notificationSettings(),
       'Notification settings could not be read:',
     );
+  const load = () => runLogged(read());
   return {
     getSnapshot: settings.getSnapshot,
     subscribe: settings.subscribe,
@@ -350,7 +355,7 @@ export function createNotifications(
         logged(
           'Notification permission could not be requested:',
           call(() => native.requestNotifications()),
-        ).pipe(Effect.andThen(Effect.promise(load))),
+        ).pipe(Effect.andThen(Effect.suspend(read))),
       ),
     setPreviews: (previews: boolean) =>
       update(
@@ -412,17 +417,18 @@ export function createNotifications(
           }),
         ),
       );
-      const follow = () => {
-        const current = settings.getSnapshot();
+      const countOf = (current: NotificationSettings | undefined) => {
         if (current === undefined) {
-          // Until the settings are known, no queued count is applied either.
-          wanted = undefined;
-          return;
+          // Until the settings are known, only nothing unread, as after sign-out, is counted.
+          return inboxUnread(sources, []) === 0 ? 0 : undefined;
         }
-        const count =
-          current.authorization === 'authorized' && current.badge === 'inbox'
-            ? inboxUnread(sources, current.badgeSoundOff)
-            : 0;
+        return current.authorization === 'authorized' &&
+          current.badge === 'inbox'
+          ? inboxUnread(sources, current.badgeSoundOff)
+          : 0;
+      };
+      const follow = () => {
+        const count = countOf(settings.getSnapshot());
         // Until it can count, no queued count is applied either.
         wanted = count;
         if (count === undefined) {
