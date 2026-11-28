@@ -44,6 +44,7 @@ import type {
   StyleProp,
   ScrollViewInstance,
   TextInputInstance,
+  TextLayoutEvent,
   TextStyle,
   ViewInstance,
   ViewStyle,
@@ -560,6 +561,8 @@ const styles = StyleSheet.create({
     opacity: 0,
     pointerEvents: 'none',
   },
+  // A copy measured for where the query's @ sits, kept out of the layout.
+  bodyProbe: { position: 'absolute', left: 0, right: 0, top: 0 },
   // The body grows to fill the editor through the view taking its arrow keys.
   bodyKeys: { flexGrow: 1 },
   // The body's top padding goes once, before the lines over the query's.
@@ -3741,13 +3744,17 @@ function BodyMenuAnchor({
       placeRef.current = undefined;
     };
   });
-  // How far the query's @ sits from its line's start, from two empty views in the copied line.
-  const probes = useRef({ line: 0, query: 0 });
-  const [indent, setIndent] = useState(0);
-  const probe = (key: 'line' | 'query') => (x: number) => {
-    probes.current[key] = x;
-    setIndent(probes.current.query - probes.current.line);
-  };
+  // How far the query's @ sits from its line's start: the line copied through the @ ends that far
+  // plus the @'s own width. Fabric reports no layout for views inside text, so text measures it.
+  const [ends, setEnds] = useState({ line: 0, at: 0 });
+  const endOf =
+    (key: keyof typeof ends) =>
+    ({ nativeEvent: { lines: laid } }: TextLayoutEvent) => {
+      const line = laid[laid.length - 1];
+      const at = line === undefined ? 0 : line.x + line.width;
+      setEnds((current) => ({ ...current, [key]: at }));
+    };
+  const indent = Math.max(ends.line - ends.at, 0);
   // The lines up to the caret: text after it may wrap below the line the menu hangs from.
   const lineStart = display.text.lastIndexOf('\n', start - 1) + 1;
   const lines = display.lines.slice(
@@ -3795,15 +3802,8 @@ function BodyMenuAnchor({
   const queryCopy =
     last === undefined ? null : (
       <Text style={kindStyles[last.kind]}>
-        <View
-          onLayout={({ nativeEvent }) => probe('line')(nativeEvent.layout.x)}
-        />
         {last.marker}
-        {spanCopy(cut(last.spans, 0, queryAt))}
-        <View
-          onLayout={({ nativeEvent }) => probe('query')(nativeEvent.layout.x)}
-        />
-        {spanCopy(cut(last.spans, queryAt, queryAt + end - start))}
+        {spanCopy(cut(last.spans, 0, queryAt + end - start))}
       </Text>
     );
   const above =
@@ -3825,6 +3825,27 @@ function BodyMenuAnchor({
         style={[hidden.style, lines.length > 1 && styles.bodyCopyLine]}>
         {queryCopy}
       </Text>
+      {last === undefined ? null : (
+        <>
+          <Text
+            {...hidden}
+            style={[hidden.style, styles.bodyProbe]}
+            onTextLayout={endOf('line')}>
+            <Text style={kindStyles[last.kind]}>
+              {last.marker}
+              {spanCopy(cut(last.spans, 0, queryAt + 1))}
+            </Text>
+          </Text>
+          <Text
+            {...hidden}
+            style={[hidden.style, styles.bodyProbe]}
+            onTextLayout={endOf('at')}>
+            <Text style={kindStyles[last.kind]}>
+              {spanCopy(cut(last.spans, queryAt, queryAt + 1))}
+            </Text>
+          </Text>
+        </>
+      )}
       <View
         style={
           above && room !== undefined

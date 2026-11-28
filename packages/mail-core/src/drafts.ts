@@ -493,29 +493,34 @@ export function bodySuggestionSections(
   }>,
 ) {
   const typed = query.text.toLowerCase();
-  const present = [...draft.to, ...draft.cc, ...draft.bcc];
+  const sent = [...correspondents];
   // A Mail Profile address someone put on the Draft, such as a self-Bcc, is listed too.
   const onDraft = new Set(addressesOf(draft).map((each) => each.toLowerCase()));
   const kept = [...excluded].filter(
     (address) => !onDraft.has(address.toLowerCase()),
   );
-  // People on the Draft keep the name it gives them, also when a recent message gave none.
-  const named = new Map(
-    present.flatMap(({ name, address }) =>
-      name === undefined ? [] : [[address.toLowerCase(), name] as const],
-    ),
-  );
-  const recent = suggestionsFor(typed, {
-    correspondents: [
-      ...[...correspondents].map(({ sender, address }) => ({
-        sender: named.get(address.toLowerCase()) ?? sender,
-        address,
-      })),
-      ...present.map(({ name = '', address }) => ({ sender: name, address })),
-    ],
-    excluded: kept,
+  const others = suggestionsFor(typed, {
+    correspondents: sent,
+    excluded: [...kept, ...onDraft],
     limit: 4,
   });
+  // Then people already on the Draft, under the name it gives them, else their newest recent
+  // name, matched by either.
+  const present = [...draft.to, ...draft.cc, ...draft.bcc].flatMap((person) => {
+    const named = sent
+      .filter(
+        ({ address }) => address.toLowerCase() === person.address.toLowerCase(),
+      )
+      .map(({ sender }) =>
+        correspondentOf({ sender, address: person.address }),
+      );
+    const shown =
+      person.name === undefined
+        ? (named.find(({ name }) => name !== undefined) ?? person)
+        : person;
+    return [shown, ...named].some(startsWith(typed)) ? [shown] : [];
+  });
+  const recent = [...others, ...present].slice(0, 4);
   const matched =
     typed === ''
       ? []
