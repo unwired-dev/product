@@ -1843,6 +1843,12 @@
       "inbox": "Unread in Inbox"
     },
     "badgeDetail": "Counts unread mail in Inbox.",
+    "sound": "New Mail Sound",
+    "sounds": {
+      "default": "Default",
+      "none": "None"
+    },
+    "badgeSoundDetail": "Counts unread mail in Inbox. Sounds play only for notifications that are shown.",
     "badgeKept": "Your choices are kept and apply as soon as notifications are allowed.",
     "perMailbox": "Per Mailbox",
     "mailbox": "{{provider}} · {{address}}",

@@ -259,10 +259,14 @@ final class UnwiredNotifications: NSObject, UNUserNotificationCenterDelegate, Se
 }
 
 extension UnwiredRegistration {
-  // Sender and subject previews and the App Icon Badge are Device-Local Preferences, off until
-  // chosen here.
+  // Sender and subject previews, the App Icon Badge and the New Mail Sound are Device-Local
+  // Preferences; previews and the badge are off and the sound is the system's until chosen here.
   private static let notificationPreviewsKey = "dev.unwired.notification-previews"
   private static let notificationBadgeKey = "dev.unwired.notification-badge"
+  private static let notificationSoundKey = "dev.unwired.notification-sound"
+  private static var newMailSound: String {
+    UserDefaults.standard.string(forKey: notificationSoundKey) == "none" ? "none" : "default"
+  }
 
   private static func notificationSettings() async -> [String: Any] {
     let status = await UNUserNotificationCenter.current().notificationSettings().authorizationStatus
@@ -277,6 +281,7 @@ extension UnwiredRegistration {
       "previews": UserDefaults.standard.bool(forKey: notificationPreviewsKey),
       "badge": UserDefaults.standard.string(forKey: notificationBadgeKey) == "inbox"
         ? "inbox" : "off",
+      "sound": newMailSound,
     ]
   }
 
@@ -331,6 +336,19 @@ extension UnwiredRegistration {
     perform("setNotificationBadge", resolve, reject: reject) { _ in
       UserDefaults.standard.set(
         badge == "inbox" ? "inbox" : "off", forKey: Self.notificationBadgeKey)
+      return await Self.notificationSettings()
+    }
+  }
+
+  // The sound a shown New Mail Notification plays: "default" (the system's) or "none".
+  @objc(setNotificationSound:resolver:rejecter:)
+  func setNotificationSound(
+    _ sound: String, resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    perform("setNotificationSound", resolve, reject: reject) { _ in
+      UserDefaults.standard.set(
+        sound == "none" ? "none" : "default", forKey: Self.notificationSoundKey)
       return await Self.notificationSettings()
     }
   }
@@ -395,6 +413,7 @@ extension UnwiredRegistration {
         }
       }
       await UnwiredNotifications.register(Array(categories.values))
+      let sound: UNNotificationSound? = Self.newMailSound == "none" ? nil : .default
       var skipped: [String: Int] = [:]
       var added = 0
       for notification in notifications {
@@ -423,7 +442,7 @@ extension UnwiredRegistration {
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body
-        content.sound = .default
+        content.sound = sound
         content.categoryIdentifier = "new-mail.\(connection)"
         content.threadIdentifier = profile
         content.userInfo = ["account": account, "epoch": epoch, "connection": connection, "message": message]

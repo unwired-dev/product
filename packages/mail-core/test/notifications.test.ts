@@ -250,6 +250,7 @@ describe('posting a New Mail Notification', () => {
             authorization: 'authorized',
             previews: true,
             badge: 'off',
+            sound: 'default',
           }),
         postNotifications: (messages) => {
           posted.push(...messages);
@@ -258,6 +259,7 @@ describe('posting a New Mail Notification', () => {
         requestNotifications: unused,
         setNotificationPreviews: unused,
         setNotificationBadge: unused,
+        setNotificationSound: unused,
         setBadgeCount: unused,
         openNotificationSettings: unused,
       },
