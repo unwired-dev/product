@@ -621,7 +621,7 @@ form accessories, keyboards, status bar).
 Everywhere else the frames win over this document, as the
 [frames rule](AGENTS.md#design) says.
 
-Two frame sizes differ from the device on purpose. Here the system wins:
+These frame sizes differ from the device on purpose. Here the system wins:
 
 - **iPad Settings height:** frames whose Settings sidebar lists more rows than
   the screen holds are drawn 912pt tall to show the whole list. On the device
@@ -635,6 +635,11 @@ Two frame sizes differ from the device on purpose. Here the system wins:
   font's own tracking, so a label on the device runs a few points narrower,
   about 5pt across Delete Unwired Account…
   ([#3045](https://github.com/unwired-dev/product/issues/3045)).
+- **Mac type tracking:** the Mac frames also set SF Pro's letter spacing to 0;
+  the app keeps the system's tracking, so 13pt labels run about 0.08pt per
+  letter narrower and 11pt captions about 0.06pt wider, such as 2pt across Fit
+  wide messages to the screen
+  ([#2803](https://github.com/unwired-dev/product/issues/2803)).
 
 These frames show a decision the app has not built yet. The frame wins, and the
 app follows under the issue named:
