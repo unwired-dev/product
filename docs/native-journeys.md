@@ -887,7 +887,7 @@ mailbox and opens a message. The Reply sheet, its **Labels** sheet and that shee
 captured as "… after a swipe released early" with the appearance. A completed downward swipe
 then closes each one, and the same control opens it again. **New Label** opens with the software
 keyboard up: its first completed swipe lowers the keyboard and keeps the sheet, captured as
-"New Label sheet after a swipe lowered the keyboard", and the next closes it. **Cancel** then
+"New Label sheet after a swipe lowered the keyboard", and the next closes it. The Reply sheet's **Close** and the Labels sheet's **New Label…** row, a SwiftUI button, get the same swipes and fire nothing at the early release ([#3077](https://github.com/unwired-dev/product/issues/3077)); a tap on **Close** then closes the Reply sheet. **Cancel** then
 closes **New Label**. The Move sheet, opened from the Reply sheet's **Move to…**, takes the same
 swipes from **Close** and **Back**, system buttons
 ([#3073](https://github.com/unwired-dev/product/issues/3073)), from its **Move to Travel** row, a

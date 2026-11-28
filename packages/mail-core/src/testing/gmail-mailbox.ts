@@ -674,6 +674,8 @@ export function createSyntheticGmail({
         ? readGmail(path, query)
         : rejection('mailbox-invalidated');
     },
+    // Tests that save the vacation responder answer for Gmail themselves.
+    gmailSaveVacation: () => rejection('unavailable'),
     // A Gmail connection reaches no Microsoft mail.
     graphRequest: () => rejection('unavailable'),
     graphModify: () => rejection('unavailable'),

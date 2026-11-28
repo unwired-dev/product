@@ -5,6 +5,7 @@ import type {
   GmailAction,
   GmailLabel,
   GmailVacation,
+  GmailVacationChange,
 } from './gmail-actions.ts';
 import type {
   GmailMessage,
@@ -14,6 +15,7 @@ import type {
 } from './mailbox-document.ts';
 import type {
   GmailInvalidPage,
+  GmailMissingScope,
   GmailNotFound,
   SyncFailure,
 } from './mailbox-read.ts';
@@ -191,4 +193,15 @@ export interface ProviderReader {
   readonly vacation?: (
     scope: MailboxScope,
   ) => Effect.Effect<GmailVacation, ReadFailure>;
+  // Applies `change` to the Out of Office the provider stores now and saves the result, keeping
+  // every field the change does not name. None when the provider refuses the values, or when
+  // `current` says the save is no longer wanted before the provider is read or written.
+  readonly saveVacation?: (
+    scope: MailboxScope,
+    change: GmailVacationChange,
+    current: () => boolean,
+  ) => Effect.Effect<
+    Option.Option<GmailVacation>,
+    ReadFailure | GmailMissingScope
+  >;
 }

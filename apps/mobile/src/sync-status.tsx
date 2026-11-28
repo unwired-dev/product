@@ -737,7 +737,7 @@ function CapsuleStatus({
   );
 }
 
-function ProgressBar({
+export function ProgressBar({
   percent,
   style,
 }: {

@@ -61,6 +61,9 @@ export const SettingsScroll = createContext<
   RefObject<ScrollViewInstance | null> | undefined
 >(undefined);
 
+// Whether a row draws its own hairline; an action row draws it outside its button.
+const RowHairline = createContext(true);
+
 export type SettingsDestination =
   | 'account'
   | 'mailboxes'
@@ -228,6 +231,8 @@ const styles = StyleSheet.create({
     borderCurve: 'continuous',
   },
   grow: { flex: 1 },
+  // A hosted multiline label needs an intrinsic flex basis so Yoga measures its wrapped height.
+  wrappingLabel: { flexGrow: 1, flexShrink: 1 },
   // Symbols centre in fixed slots, so a wide one such as translate keeps its label in line.
   itemIcon: { width: 18, alignItems: 'center' },
   rowIcon: { width: settingsColumns ? 20 : 24, alignItems: 'center' },
@@ -488,33 +493,35 @@ function DestinationRow({
   const colors = usePalette();
   const large = useLargeText();
   return (
-    <Pressable
-      accessibilityLabel={label}
-      accessibilityRole="button"
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.row,
-        pressed && { backgroundColor: colors.accentSelectionSubtle },
-      ]}>
-      <Hairline />
-      <View style={styles.destinationIcon}>
+    <SettingsActionRow
+      label={label}
+      disabled={false}
+      ignoreSafeArea="container"
+      onPress={onPress}>
+      <View style={styles.row}>
+        <View style={styles.destinationIcon}>
+          <SFSymbol
+            name={icon}
+            size={20}
+            color={colors.accentInk}
+          />
+        </View>
+        <Text
+          numberOfLines={large ? 0 : 1}
+          style={[
+            type.title,
+            large ? styles.wrappingLabel : styles.grow,
+            { color: colors.textPrimary },
+          ]}>
+          {label}
+        </Text>
         <SFSymbol
-          name={icon}
-          size={20}
-          color={colors.accentInk}
+          name="chevron.right"
+          size={14}
+          color={colors.textSecondary}
         />
       </View>
-      <Text
-        numberOfLines={large ? 0 : 1}
-        style={[type.title, styles.grow, { color: colors.textPrimary }]}>
-        {label}
-      </Text>
-      <SFSymbol
-        name="chevron.right"
-        size={14}
-        color={colors.textSecondary}
-      />
-    </Pressable>
+    </SettingsActionRow>
   );
 }
 
@@ -739,44 +746,45 @@ export function SettingsWorkspace({
       <ScrollView contentContainerStyle={styles.content}>
         {/* `children` are the shown destination's groups once one is pushed. */}
         {destination === undefined ? children : null}
-        <Pressable
-          accessibilityLabel={t('settings.destinations.account')}
-          accessibilityRole="button"
-          onPress={() => {
-            onDestination('account');
-          }}
-          style={({ pressed }) => [
-            styles.card,
-            {
-              backgroundColor: pressed
-                ? colors.accentSelectionSubtle
-                : colors.fillQuiet,
-            },
-          ]}>
-          <AccountMonogram
-            name={account}
-            size={52}
-          />
-          <View style={styles.grow}>
-            <Text
-              numberOfLines={lines}
-              style={[type.account, { color: colors.textPrimary }]}>
-              {account}
-            </Text>
-            <Text
-              numberOfLines={lines}
-              style={[textStyles.footnote, { color: colors.textSecondary }]}>
-              {privateSync
-                ? t('settings.accountPrivateSync')
-                : t('settings.destinations.account')}
-            </Text>
-          </View>
-          <SFSymbol
-            name="chevron.right"
-            size={14}
-            color={colors.textSecondary}
-          />
-        </Pressable>
+        {/* The card stands alone, so it draws no hairline. */}
+        <RowHairline value={false}>
+          <SettingsActionRow
+            label={t('settings.destinations.account')}
+            disabled={false}
+            ignoreSafeArea="container"
+            onPress={() => {
+              onDestination('account');
+            }}>
+            <View style={[styles.card, { backgroundColor: colors.fillQuiet }]}>
+              <AccountMonogram
+                name={account}
+                size={52}
+              />
+              <View style={styles.wrappingLabel}>
+                <Text
+                  numberOfLines={lines}
+                  style={[type.account, { color: colors.textPrimary }]}>
+                  {account}
+                </Text>
+                <Text
+                  numberOfLines={lines}
+                  style={[
+                    textStyles.footnote,
+                    { color: colors.textSecondary },
+                  ]}>
+                  {privateSync
+                    ? t('settings.accountPrivateSync')
+                    : t('settings.destinations.account')}
+                </Text>
+              </View>
+              <SFSymbol
+                name="chevron.right"
+                size={14}
+                color={colors.textSecondary}
+              />
+            </View>
+          </SettingsActionRow>
+        </RowHairline>
         {sections.map((section) => (
           <SettingsGroup
             key={section.title}
@@ -931,9 +939,6 @@ export function AccountCard({
   );
 }
 
-// Whether a row draws its own hairline; an action row draws it outside its button.
-const RowHairline = createContext(true);
-
 // A row that runs one action: the system button, with the row as its label and its spoken name,
 // value and hint. The button dims the row while it is disabled, to half strength; the frames draw
 // a disabled row at 45%, so the row adds 90%. The hairline stays outside the button, at full
@@ -945,6 +950,7 @@ export function SettingsActionRow({
   disabled,
   onPress,
   children,
+  ...hostProps
 }: {
   readonly label: string;
   readonly value?: string | undefined;
@@ -952,15 +958,14 @@ export function SettingsActionRow({
   readonly disabled: boolean;
   readonly onPress: () => void;
   readonly children: ReactElement;
+  // The destination list already applies this inset. A second would move a scrolling label.
+  readonly ignoreSafeArea?: 'container';
 }) {
-  // A text size changed while Settings is open keeps the hosted row's old height; a fresh host
-  // measures the row again.
-  const { fontScale } = useWindowDimensions();
   return (
     <View>
       <Hairline />
       <Host
-        key={fontScale}
+        {...hostProps}
         matchContents={{ vertical: true }}>
         <SwiftUIButton
           onPress={onPress}
@@ -971,9 +976,7 @@ export function SettingsActionRow({
             ...(value === undefined ? [] : [accessibilityValue(value)]),
             ...(hint === undefined ? [] : [accessibilityHint(hint)]),
           ]}>
-          <RNHostView
-            boundedByHost
-            matchContents={{ vertical: true }}>
+          <RNHostView matchContents={{ vertical: true }}>
             <RowHairline value={false}>
               <View
                 accessibilityElementsHidden
