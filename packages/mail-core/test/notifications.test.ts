@@ -312,6 +312,120 @@ describe('notification settings', () => {
   });
 });
 
+describe('the App Icon Badge across Product Accounts', () => {
+  const settings = {
+    authorization: 'authorized',
+    previews: true,
+    badge: 'inbox',
+    sound: 'default',
+    badgeSoundOff: [],
+  };
+  const signedOut = Schema.decodeSync(RegistrationSnapshotSchema)({
+    kind: 'signed-out',
+  });
+
+  it.each(['before', 'after'])(
+    'clears the signed-out count when the old write settles %s the next settings',
+    async (order) => {
+      expect.hasAssertions();
+      let snapshot = connected([], 'a');
+      let connections: ReadonlyArray<{
+        profile: string;
+        state: { kind: string; messages?: Array<{ unread: boolean }> };
+      }> = [
+        {
+          profile: defaultProfile,
+          state: {
+            kind: 'ready',
+            messages: [{ unread: true }, { unread: true }],
+          },
+        },
+      ];
+      const listeners = new Set<() => void>();
+      const changed = () => {
+        for (const listener of listeners) {
+          listener();
+        }
+      };
+      const nextRead = Promise.withResolvers<unknown>();
+      const oldWrite = Promise.withResolvers<unknown>();
+      const badges: number[] = [];
+      const reads = vi
+        .fn<() => Promise<unknown>>()
+        .mockResolvedValueOnce(settings)
+        .mockResolvedValueOnce(settings)
+        .mockReturnValueOnce(nextRead.promise);
+      const notifications = createNotifications(
+        {
+          notificationSettings: reads,
+          postNotifications: unused,
+          requestNotifications: unused,
+          setNotificationPreviews: unused,
+          setNotificationBadge: unused,
+          setNotificationSound: unused,
+          setNotificationProfile: unused,
+          setBadgeCount: vi
+            .fn<(count: number) => Promise<unknown>>()
+            .mockImplementationOnce((count) => {
+              badges.push(count);
+              return oldWrite.promise;
+            })
+            .mockImplementation((count) => {
+              badges.push(count);
+              return Promise.resolve(null);
+            }),
+          openNotificationSettings: unused,
+        },
+        () => english,
+      );
+      notifications.followBadge({
+        registration: {
+          getSnapshot: () => ({ snapshot, busy: false, failed: false }),
+          subscribe: (listener) => {
+            listeners.add(listener);
+            return () => listeners.delete(listener);
+          },
+        },
+        mailboxes: {
+          getConnections: () => connections,
+          subscribe: () => () => undefined,
+        },
+      });
+      await vi.waitFor(() => {
+        expect(badges).toStrictEqual([2]);
+      });
+      // Account A signs out while its write of 2 runs.
+      snapshot = signedOut;
+      connections = [];
+      changed();
+      await vi.waitFor(() => {
+        expect(reads).toHaveBeenCalledTimes(2);
+      });
+      // Account B signs in; its Inbox is still loading.
+      snapshot = connected([], 'b');
+      connections = [{ profile: defaultProfile, state: { kind: 'loading' } }];
+      changed();
+      await vi.waitFor(() => {
+        expect(reads).toHaveBeenCalledTimes(3);
+      });
+      const settle = {
+        before: () => {
+          oldWrite.resolve(null);
+          nextRead.resolve(settings);
+        },
+        after: () => {
+          nextRead.resolve(settings);
+          oldWrite.resolve(null);
+        },
+      }[order];
+      settle?.();
+      await vi.waitFor(() => {
+        expect(badges.at(-1)).toBe(0);
+      });
+    },
+  );
+});
+
 describe('posting a New Mail Notification', () => {
   it('checks the Profile the connection is in as it posts, after a move meanwhile', async () => {
     expect.hasAssertions();

@@ -436,12 +436,10 @@ export function createNotifications(
           : 0;
       };
       const follow = () => {
-        const current = settings.getSnapshot();
-        const count = countOf(current);
-        // Until it can count, no queued count is applied either, except a sign-out's clear while
-        // the next Product Account's settings are read.
-        wanted =
-          count ?? (current === undefined && wanted === 0 ? 0 : undefined);
+        const count = countOf(settings.getSnapshot());
+        // Until it can count, no queued count is applied either, except a clear: after sign-out it
+        // stays queued while the next Product Account's settings and Inbox open.
+        wanted = count ?? (wanted === 0 ? 0 : undefined);
         if (count === undefined) {
           return;
         }
