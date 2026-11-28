@@ -3990,6 +3990,7 @@ final class WindowTests: XCTestCase {
         CGVector(dx: 1280 - window.frame.width, dy: 800 - window.frame.height)),
       withVelocity: .slow, thenHoldForDuration: 0.5)
     XCTAssertEqual(window.frame.width, 1280, accuracy: 5)
+    XCTAssertEqual(window.frame.height, 800, accuracy: 5)
     // Gmail update 001 is plain text, 002 formatted.
     open("Gmail update 001")
     XCTAssertTrue(more.waitForExistence(timeout: 15))

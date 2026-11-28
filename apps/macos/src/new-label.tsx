@@ -44,12 +44,9 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderRadius: 10,
   },
-  // Drawn over the next row's top edge, so each row keeps the frame's 40pt.
-  separator: {
-    height: StyleSheet.hairlineWidth,
-    marginHorizontal: 12,
-    marginBottom: -StyleSheet.hairlineWidth,
-  },
+  separator: { height: StyleSheet.hairlineWidth, marginHorizontal: 12 },
+  // With its separator above, a row keeps the frame's 40pt pitch.
+  separatedRow: { minHeight: 40 - StyleSheet.hairlineWidth },
   header: {
     ...textStyles.subheadlineEmphasized,
     paddingLeft: 12,
@@ -102,6 +99,7 @@ export function Row({
         onPress={onPress}
         style={({ pressed }) => [
           styles.row,
+          separated && styles.separatedRow,
           {
             backgroundColor: pressed
               ? colors.accentSelectionSubtle
